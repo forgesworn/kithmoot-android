@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.KithMoot" parent="android:Theme.Material.NoActionBar" />
+    <!-- The host window only. Everything visible is drawn by Compose under
+         KithMootTheme; this exists so the pre-draw frame matches. -->
+    <style name="Theme.KithMoot" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/km_window</item>
+    </style>
 </resources>

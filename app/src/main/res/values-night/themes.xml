@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.KithMoot" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/km_window</item>
+    </style>
+</resources>

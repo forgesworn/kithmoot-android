@@ -1,0 +1,6 @@
+<resources>
+    <!-- The window ground behind Compose, so the frame before the first draw is
+         the same colour as the screen that replaces it rather than a white flash. -->
+    <color name="km_window">#FFF7F9FA</color>
+    <color name="km_icon_background">#FF070B0F</color>
+</resources>
