@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.support.FakePeerConnection
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -234,6 +237,83 @@ class PeerLinkTest {
         peer.onRemoteSignal("something-new", "sdp", null)
 
         assertEquals(SignalingState.STABLE, connection.signalingState())
+    }
+
+    @Test
+    fun `BUG (I6)- an inbound offer and our own renegotiation must not run at once`() = runTest {
+        // This is the production interleaving, not a contrived one: signals are
+        // collected in one coroutine and `onRenegotiationNeeded` launches its
+        // own, so the two really do overlap - which is what happens every time
+        // two people unmute together. Without a lock the renegotiation reads a
+        // signalling state the offer handler is halfway through changing, sets
+        // a local offer over the top of it, and the inbound offer can then no
+        // longer be applied at all.
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val peer = link(low, high, connection, recorder)
+        val gate = CompletableDeferred<Unit>()
+        connection.gate = gate
+
+        val failures = mutableListOf<Throwable>()
+        val inbound = launch { runCatching { peer.onRemoteSignal(SignalType.OFFER, "offer-A", null) }.onFailure { failures += it } }
+        val ours = launch { runCatching { peer.onNegotiationNeeded() }.onFailure { failures += it } }
+        runCurrent()
+        connection.gate = null
+        gate.complete(Unit)
+        inbound.join()
+        ours.join()
+
+        assertEquals(emptyList<String>(), failures.map { it.message })
+        assertEquals(listOf("offer-A"), connection.remoteDescriptions.map { it.sdp })
+        // Their offer is answered first, and only then do we make our own.
+        assertEquals(listOf(SignalType.ANSWER, SignalType.OFFER), recorder.types())
+    }
+
+    @Test
+    fun `BUG (I7)- a rollback clears the remote description, so later candidates are buffered again`() = runTest {
+        // haveRemoteDescription is a one-way latch. Once the polite side has
+        // rolled its own offer back it is renegotiating, and candidates still
+        // arriving belong to the description that has not landed yet - they
+        // must be held, not applied against the previous one.
+        val connection = FakePeerConnection()
+        val peer = link(low, high, connection, Recorder())
+
+        // A first negotiation completes, so a remote description is in place.
+        peer.onRemoteSignal(SignalType.OFFER, "remote-offer-1", null)
+
+        // Now both sides re-offer at once. We roll back - and the incoming
+        // description then fails to apply, which leaves the connection
+        // renegotiating with no current remote description at all.
+        peer.onNegotiationNeeded()
+        connection.failNextSetRemoteDescription = true
+        runCatching { peer.onRemoteSignal(SignalType.OFFER, "remote-offer-2", null) }
+        assertEquals(1, connection.rollbacks)
+
+        val before = connection.addedCandidates.size
+        peer.onRemoteSignal(SignalType.ICE, null, "candidate:7 1 udp 1 10.0.0.7 7 typ host")
+        assertEquals(before, connection.addedCandidates.size, "a candidate after a rollback must be buffered")
+
+        // Held, not dropped: the next description that does apply drains it.
+        peer.onRemoteSignal(SignalType.OFFER, "remote-offer-3", null)
+        assertEquals(before + 1, connection.addedCandidates.size)
+    }
+
+    @Test
+    fun `BUG (I5)- the pending-candidate buffer is bounded`() = runTest {
+        // A peer that never sends a description can otherwise trickle
+        // candidates into an unbounded list for as long as the room is open.
+        val connection = FakePeerConnection()
+        val peer = link(low, high, connection, Recorder())
+
+        for (i in 0 until MAX_PENDING_CANDIDATES + 20) {
+            peer.onRemoteSignal(SignalType.ICE, null, "candidate:$i")
+        }
+        peer.onRemoteSignal(SignalType.OFFER, "remote-offer", null)
+
+        assertEquals(MAX_PENDING_CANDIDATES, connection.addedCandidates.size)
+        // The oldest are the ones dropped: the newest candidate is the one
+        // most likely still to work.
+        assertEquals("candidate:20", connection.addedCandidates.first().candidate)
     }
 
     @Test

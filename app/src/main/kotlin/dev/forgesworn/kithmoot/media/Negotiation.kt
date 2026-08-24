@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.crypto.normaliseHex
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The signal body `type` values KithMoot puts on the wire. */
 object SignalType {
@@ -29,6 +31,17 @@ data class IceCandidateData(val candidate: String) {
     val sdpMLineIndex: Int get() = 0
     val sdpMid: String get() = ""
 }
+
+/**
+ * How many candidates may be held while waiting for the description they
+ * belong to.
+ *
+ * A remote device that trickles candidates and never sends a description -
+ * hostile, or simply broken - would otherwise grow this list for as long as the
+ * room is open. Generous enough that a real negotiation never touches it: a
+ * dual-stack host with a handful of interfaces gathers a few dozen.
+ */
+const val MAX_PENDING_CANDIDATES: Int = 64
 
 /** The subset of `RTCSignalingState` the negotiation machine reasons about. */
 enum class SignalingState { STABLE, HAVE_LOCAL_OFFER, HAVE_REMOTE_OFFER, HAVE_LOCAL_PRANSWER, HAVE_REMOTE_PRANSWER, CLOSED }
@@ -99,8 +112,21 @@ class PeerLink(
      */
     val polite: Boolean = this.localDevice < this.remoteDevice
 
+    /**
+     * Serialises every negotiation step.
+     *
+     * Signals are collected in one coroutine and `onRenegotiationNeeded`
+     * launches its own, so an inbound offer and our own renegotiation really do
+     * overlap - which is what happens every time two people unmute together.
+     * Both read and write [makingOffer], [settingRemoteAnswerPending] and
+     * [haveRemoteDescription] across suspension points, so without this each
+     * one judges collision, politeness and rollback from a state the other is
+     * halfway through changing. Every browser reference implementation queues
+     * these, and for exactly this reason.
+     */
+    private val operations = Mutex()
+
     private var makingOffer = false
-    private var ignoreOffer = false
     private var settingRemoteAnswerPending = false
     private var haveRemoteDescription = false
 
@@ -125,7 +151,7 @@ class PeerLink(
     var offersIgnored: Int = 0
         private set
 
-    suspend fun onNegotiationNeeded() {
+    suspend fun onNegotiationNeeded() = operations.withLock {
         try {
             makingOffer = true
             val local = connection.setLocalDescription()
@@ -139,8 +165,9 @@ class PeerLink(
         send(SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.candidate))
     }
 
-    /** One inbound signal from the remote device. */
-    suspend fun onRemoteSignal(type: String, sdp: String?, candidate: String?) {
+    /** One inbound signal from the remote device. Queued behind whatever this
+     *  link is already doing - see [operations]. */
+    suspend fun onRemoteSignal(type: String, sdp: String?, candidate: String?) = operations.withLock {
         when (type) {
             SignalType.OFFER, SignalType.ANSWER -> if (sdp != null) onRemoteDescription(SdpData(type, sdp))
             SignalType.ICE -> if (candidate != null) onRemoteCandidate(IceCandidateData(candidate))
@@ -156,7 +183,11 @@ class PeerLink(
         // The impolite side simply pretends it never arrived, and keeps its own
         // offer in flight. The polite side will roll back and answer it, so
         // exactly one offer survives.
-        ignoreOffer = !polite && offerCollision
+        //
+        // A local, not a field: whether we ignored *this* offer governs nothing
+        // beyond this call, and holding it across suspension points was one of
+        // the pieces of state two overlapping coroutines used to tear.
+        val ignoreOffer = !polite && offerCollision
         if (ignoreOffer) {
             offersIgnored++
             return
@@ -170,23 +201,38 @@ class PeerLink(
             // connects.
             connection.rollbackLocalDescription()
             collisionsResolved++
+            // We are renegotiating from `stable` now. Candidates still arriving
+            // belong to the description that has not landed yet, so they go
+            // back to being buffered - applying them against the previous
+            // description gets them refused, and a refused host candidate is a
+            // call that falls back to TURN or does not connect at all.
+            haveRemoteDescription = false
         }
 
         connection.setRemoteDescription(description)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
-        flushCandidates()
 
+        // The answer comes first, and only then the buffered candidates.
+        // Nothing to do with a candidate may stand between an offer and its
+        // answer: an answer that is never emitted wedges the connection
+        // silently for good, where a candidate that is never applied costs one
+        // path out of several.
         if (description.type == SignalType.OFFER) {
             val answer = connection.setLocalDescription()
             send(SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp))
         }
+
+        flushCandidates()
     }
 
     private suspend fun onRemoteCandidate(candidate: IceCandidateData) {
         if (!haveRemoteDescription) {
             pendingCandidates += candidate
             bufferedCandidateCount++
+            // Bounded: see [MAX_PENDING_CANDIDATES]. The oldest goes, because
+            // the newest candidate is the one most likely still to work.
+            while (pendingCandidates.size > MAX_PENDING_CANDIDATES) pendingCandidates.removeAt(0)
             return
         }
         addCandidate(candidate)

@@ -11,6 +11,7 @@ import dev.forgesworn.kithmoot.relay.RelaySocket
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RelaySocketListener
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -142,6 +143,18 @@ class FakePeerConnection : PeerConnectionHandle {
 
     private var remoteApplied = false
 
+    /**
+     * Holds every [setRemoteDescription] until it is completed.
+     *
+     * Two negotiation steps that overlap are the whole of I6, and they only
+     * overlap around a suspension point. This is that point, made
+     * controllable.
+     */
+    var gate: CompletableDeferred<Unit>? = null
+
+    /** Reject the next [setRemoteDescription] only, then behave normally. */
+    var failNextSetRemoteDescription: Boolean = false
+
     override fun signalingState(): SignalingState = state
 
     override suspend fun setLocalDescription(): SdpData {
@@ -163,6 +176,11 @@ class FakePeerConnection : PeerConnectionHandle {
     }
 
     override suspend fun setRemoteDescription(sdp: SdpData) {
+        gate?.await()
+        if (failNextSetRemoteDescription) {
+            failNextSetRemoteDescription = false
+            throw IllegalStateException("setRemoteDescription rejected")
+        }
         when (sdp.type) {
             SignalType.OFFER -> {
                 if (state != SignalingState.STABLE) {
