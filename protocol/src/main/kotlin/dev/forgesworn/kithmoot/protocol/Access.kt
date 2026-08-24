@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.JsonArray
@@ -131,6 +132,10 @@ data class AccessDecision(val admitted: Boolean, val reason: String)
  * normative" section. Both matter: two implementations that reject the same
  * input for different reasons, or in a different order, can disagree on
  * which reason a caller sees for an input that fails more than one check.
+ *
+ * `participant` and `issuer` are hex pubkeys, compared via [hexEquals]
+ * throughout: see `vectors/README.md`'s "Hex identifiers are compared
+ * case-insensitively" section.
  */
 fun evaluateAccess(
     policy: RoomPolicy,
@@ -140,11 +145,11 @@ fun evaluateAccess(
 ): AccessDecision {
     if (policy.tier == KindredTier.OPEN) return AccessDecision(true, "open room")
     if (proof == null) return AccessDecision(false, "no kindred proof")
-    if (proof.participant != participant) return AccessDecision(false, "proof names another participant")
+    if (!proof.participant.hexEquals(participant)) return AccessDecision(false, "proof names another participant")
     if (proof.expiresAt <= now) return AccessDecision(false, "expired")
 
     val admitted = policy.admitted.orEmpty()
-    if (proof.issuer !in admitted) return AccessDecision(false, "untrusted issuer")
+    if (admitted.none { it.hexEquals(proof.issuer) }) return AccessDecision(false, "untrusted issuer")
     if (proof.tier.closeness < policy.tier.closeness) return AccessDecision(false, "tier too low")
     if (!verifyKindredProof(proof)) return AccessDecision(false, "bad signature")
 

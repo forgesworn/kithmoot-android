@@ -1100,6 +1100,62 @@
         }
       },
       {
+        "name": "kith-room-admits-issuer-via-upper-case-allow-list-entry",
+        "kind": "positive",
+        "note": "The allow-list names the trusted issuer (HOST) in upper-case hex; the proof itself is issued and signed normally, so its issuer field is the ordinary lower-case pubkey. Still admitted - an implementation that compares the allow-list entry to the issuer with an exact string match wrongly refuses this.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00A0B8B578DE367E65C400CCCDB7743E82403D457469D02023B1568A92FAADD8"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "expiresAt": 1800003600
+          },
+          "now": 1800000000
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "kindred proof accepted"
+          }
+        }
+      },
+      {
+        "name": "kith-room-admits-upper-case-issuer-against-lower-case-allow-list",
+        "kind": "positive",
+        "note": "The mirror image: the proof carries its own issuer field in upper-case hex - issuer is not part of the signed message (see canonicalMessage in src/access.ts), so upper-casing it does not disturb the signature - while the room's allow-list names HOST in the ordinary lower case. Still admitted.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00A0B8B578DE367E65C400CCCDB7743E82403D457469D02023B1568A92FAADD8",
+            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "expiresAt": 1800003600
+          },
+          "now": 1800000000
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "kindred proof accepted"
+          }
+        }
+      },
+      {
         "name": "kith-room-rejects-tampered-signature",
         "kind": "negative",
         "note": "A kith proof from the trusted issuer, at a sufficient tier, unexpired, naming the right participant - identical to 'kith-room-admits-kith-proof' except its signature is garbage. Every check before the final schnorr verification passes; skip that check, or skip it entirely, and this is indistinguishable from a genuine proof.",

@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.protocol
 
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.crypto.hexEquals
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -111,7 +112,7 @@ fun decodeRosterEvent(
 ): RosterEntry? = try {
     when {
         event.kind != KIND_ROSTER -> null
-        event.tagValue("d") != roomId -> null
+        event.tagValue("d")?.hexEquals(roomId) != true -> null
         !Events.verify(event) -> null
         else -> {
             val entry = RosterEntry.fromJson(
@@ -120,13 +121,15 @@ fun decodeRosterEvent(
                     .jsonObject,
             )
             // The device that signed must be the device the entry names, or a
-            // room member could republish someone else's presence.
+            // room member could republish someone else's presence. Hex
+            // identifiers compared case-insensitively throughout - see
+            // `vectors/README.md`.
             val credential = verifyDeviceCredential(entry.credential, roomId, now)
             when {
-                entry.device != event.pubkey -> null
+                !entry.device.hexEquals(event.pubkey) -> null
                 credential !is CredentialCheck.Valid -> null
-                credential.device != entry.device -> null
-                credential.participant != entry.participant -> null
+                !credential.device.hexEquals(entry.device) -> null
+                !credential.participant.hexEquals(entry.participant) -> null
                 else -> entry
             }
         }

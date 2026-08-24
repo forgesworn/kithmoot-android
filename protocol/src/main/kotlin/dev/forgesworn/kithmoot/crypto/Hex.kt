@@ -15,6 +15,19 @@ fun ByteArray.toHex(): String {
     return String(out)
 }
 
+/**
+ * Case-insensitive equality for hex identifiers.
+ *
+ * Nostr pubkeys, room ids, and every other hex field this protocol compares
+ * are canonically produced in lower case, but nothing on the wire enforces
+ * that: an allow-list entry typed or pasted by a person, in particular, may
+ * carry upper-case hex naming exactly the same key. Every place this
+ * protocol decides whether two hex identifiers name the same thing must go
+ * through this function rather than `==`/`!=`, so a case difference is
+ * never mistaken for a different identity - see `vectors/README.md`.
+ */
+fun String.hexEquals(other: String): Boolean = this.equals(other, ignoreCase = true)
+
 /** Parses lower- or upper-case hex. Throws on anything that is not hex. */
 fun String.hexToBytes(): ByteArray {
     require(length % 2 == 0) { "hex string must have an even length" }

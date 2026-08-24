@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -119,11 +120,13 @@ fun unwrapSignal(
             )
             when {
                 inner.kind != KIND_SIGNAL -> null
-                inner.tagValue("p") != recipientPubkey -> null
+                inner.tagValue("p")?.hexEquals(recipientPubkey) != true -> null
                 !Events.verify(inner) -> null
                 // A signal is only meaningful in the room it names: a body
-                // replayed into a different room is refused outright.
-                body.roomId != roomId -> null
+                // replayed into a different room is refused outright. Hex
+                // identifiers compared case-insensitively - see
+                // `vectors/README.md`.
+                !body.roomId.hexEquals(roomId) -> null
                 else -> UnwrappedSignal(from = inner.pubkey, body = body)
             }
         }

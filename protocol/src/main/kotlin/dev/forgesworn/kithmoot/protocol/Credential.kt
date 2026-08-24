@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.protocol
 
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.hexEquals
 
 /** A device credential: one participant authorising one device, in one room. */
 const val KIND_DEVICE_CREDENTIAL: Int = 20460
@@ -59,7 +60,7 @@ fun createDeviceCredential(
  */
 fun verifyDeviceCredential(event: NostrEvent, roomId: String, now: Long): CredentialCheck {
     if (event.kind != KIND_DEVICE_CREDENTIAL) return CredentialCheck.Invalid("wrong kind")
-    if (event.tagValue("d") != roomId) return CredentialCheck.Invalid("wrong room")
+    if (event.tagValue("d")?.hexEquals(roomId) != true) return CredentialCheck.Invalid("wrong room")
 
     val expiresAt = event.tagValue("expiration")?.toLongOrNull()
         ?: return CredentialCheck.Invalid("no expiration")
