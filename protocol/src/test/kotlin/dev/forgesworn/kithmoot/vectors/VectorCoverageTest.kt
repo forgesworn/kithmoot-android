@@ -16,19 +16,19 @@ class VectorCoverageTest {
     fun everyGroupIsFullyCovered() {
         val expectedSizes = mapOf(
             "roomDerivation" to 4,
-            "joinUrl" to 7,
+            "joinUrl" to 9,
             "deviceCredential" to 4,
-            "rosterEvent" to 3,
-            "signalWrap" to 4,
+            "rosterEvent" to 5,
+            "signalWrap" to 5,
             "kindredProof" to 3,
-            "accessEvaluation" to 5,
+            "accessEvaluation" to 6,
             "turnCredential" to 4,
         )
         assertEquals("group names", expectedSizes.keys, Vectors.groups.keys)
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 34, expectedSizes.values.sum())
+        assertEquals("total vectors", 40, expectedSizes.values.sum())
     }
 
     @Test
