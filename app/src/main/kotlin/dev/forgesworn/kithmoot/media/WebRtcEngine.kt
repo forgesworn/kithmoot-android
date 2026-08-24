@@ -10,8 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import org.webrtc.AudioTrack
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -50,9 +48,27 @@ class WebRtcEngine(
     val eglBase: EglBase = EglBase.create()
 
     private val factory: PeerConnectionFactory
+
+    /**
+     * The audio stack's own native object.
+     *
+     * Held rather than dropped because disposing the factory does not release
+     * it. It owns an `AudioRecord`, an `AudioTrack` and their threads, and only
+     * [dispose] gives them back.
+     */
+    private val audioDevice: JavaAudioDeviceModule
     val localMedia: LocalMedia
 
-    private val mutex = Mutex()
+    /**
+     * Guards [links].
+     *
+     * A plain monitor rather than a coroutine mutex, and deliberately so:
+     * teardown has to finish before the caller disposes the factory, and the
+     * caller cancels this scope moments after asking for it. Anything launched
+     * here would be cancelled before it ran, leaving every peer connection
+     * alive behind a factory that had already gone.
+     */
+    private val lock = Any()
     private val links = mutableMapOf<String, ManagedLink>()
 
     private val _remoteTracks = MutableStateFlow<List<RemoteTrack>>(emptyList())
@@ -65,7 +81,7 @@ class WebRtcEngine(
             PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
                 .createInitializationOptions(),
         )
-        val audioDevice = JavaAudioDeviceModule.builder(context.applicationContext)
+        audioDevice = JavaAudioDeviceModule.builder(context.applicationContext)
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
             .createAudioDeviceModule()
@@ -96,23 +112,36 @@ class WebRtcEngine(
 
     /** Tears down every connection and every capturer. */
     fun stop() {
-        scope.launch {
-            mutex.withLock {
-                for (link in links.values) link.close()
-                links.clear()
-            }
-            _remoteTracks.value = emptyList()
-        }
+        closeLinks()
         localMedia.releaseAll()
     }
 
+    /**
+     * Gives the native stack back. Nothing may touch this engine afterwards.
+     *
+     * The order is the whole point. Every peer connection has to be closed
+     * before the factory that made it is disposed, and the audio device module
+     * is nobody's to release but ours.
+     */
     fun dispose() {
+        closeLinks()
         localMedia.releaseAll()
         runCatching { factory.dispose() }
+        runCatching { audioDevice.release() }
         runCatching { eglBase.release() }
     }
 
-    private suspend fun reconcile(devices: Set<String>) = mutex.withLock {
+    private fun closeLinks() {
+        val closing = synchronized(lock) {
+            val all = links.values.toList()
+            links.clear()
+            all
+        }
+        for (link in closing) runCatching { link.close() }
+        _remoteTracks.value = emptyList()
+    }
+
+    private fun reconcile(devices: Set<String>) = synchronized(lock) {
         for (device in devices - links.keys) links[device] = openLink(device)
         for (device in links.keys - devices) {
             links.remove(device)?.close()
@@ -120,7 +149,7 @@ class WebRtcEngine(
         }
     }
 
-    private suspend fun linkFor(device: String): PeerLink? = mutex.withLock { links[device]?.link }
+    private fun linkFor(device: String): PeerLink? = synchronized(lock) { links[device]?.link }
 
     private fun openLink(device: String): ManagedLink {
         val configuration = PeerConnection.RTCConfiguration(iceServers).apply {
@@ -147,7 +176,7 @@ class WebRtcEngine(
         // Tell the room what we are publishing, so a receiver can map an
         // incoming WebRTC track back to the role we said it was for.
         session.setTracks(tracks.map { TrackRef(it.trackId, it.role) })
-        mutex.withLock {
+        synchronized(lock) {
             for (link in links.values) link.syncLocalTracks(tracks)
         }
     }
