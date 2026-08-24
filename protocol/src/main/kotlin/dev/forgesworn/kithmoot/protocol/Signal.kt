@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -127,7 +128,11 @@ fun unwrapSignal(
                 // identifiers compared case-insensitively - see
                 // `vectors/README.md`.
                 !body.roomId.hexEquals(roomId) -> null
-                else -> UnwrappedSignal(from = inner.pubkey, body = body)
+                // `from` is a device pubkey entering the system off the
+                // wire - the peer map it gets looked up in is keyed by the
+                // same normalised form roster decode produces, so this
+                // must match. See `normaliseHex`.
+                else -> UnwrappedSignal(from = inner.pubkey.normaliseHex(), body = body)
             }
         }
     }

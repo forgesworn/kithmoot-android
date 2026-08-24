@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -51,7 +52,11 @@ data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null)
         /** Null when the tier is not one we recognise - never a silent downgrade. */
         fun fromJson(json: JsonObject): RoomPolicy? {
             val tier = KindredTier.fromWire(json["tier"]?.jsonPrimitive?.content ?: return null) ?: return null
-            val admitted = (json["admitted"] as? JsonArray)?.map { it.jsonPrimitive.content }
+            // The allow-list is exactly the case this rule was written for:
+            // entries a person typed or pasted into a link. Canonicalise
+            // here, at the point they enter the system off the URL, rather
+            // than relying on every reader to compare them case-insensitively.
+            val admitted = (json["admitted"] as? JsonArray)?.map { it.jsonPrimitive.content.normaliseHex() }
             return RoomPolicy(tier, admitted)
         }
     }
@@ -99,10 +104,15 @@ fun issueKindredProof(
     expiresAt: Long,
     auxRand: ByteArray = Entropy.bytes(32),
 ): KindredProof {
-    val message = kindredProofMessage(tier, participant, expiresAt)
+    // `participant` is a pubkey handed in by the caller - possibly typed or
+    // pasted - so it is canonicalised here, at the point it enters the
+    // proof, rather than left for `evaluateAccess`'s equality checks to
+    // paper over.
+    val normalisedParticipant = participant.normaliseHex()
+    val message = kindredProofMessage(tier, normalisedParticipant, expiresAt)
     return KindredProof(
         tier = tier,
-        participant = participant,
+        participant = normalisedParticipant,
         issuer = Schnorr.publicKeyHex(issuerSecretKey),
         sig = Schnorr.sign(message, issuerSecretKey, auxRand).toHex(),
         expiresAt = expiresAt,

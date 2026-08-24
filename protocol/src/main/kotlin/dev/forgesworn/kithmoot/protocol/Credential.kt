@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.protocol
 
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.hexEquals
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 
 /** A device credential: one participant authorising one device, in one room. */
 const val KIND_DEVICE_CREDENTIAL: Int = 20460
@@ -70,5 +71,10 @@ fun verifyDeviceCredential(event: NostrEvent, roomId: String, now: Long): Creden
 
     if (!Events.verify(event)) return CredentialCheck.Invalid("bad signature")
 
-    return CredentialCheck.Valid(participant = event.pubkey, device = device)
+    // A credential is one of the places a device/participant pubkey enters
+    // the system - the `device` tag in particular is free text set by
+    // whoever minted the credential. Canonicalise both here so every caller
+    // (roster decode, secondary-device adoption) compares against something
+    // already lower-case, rather than each having to know to.
+    return CredentialCheck.Valid(participant = event.pubkey.normaliseHex(), device = device.normaliseHex())
 }

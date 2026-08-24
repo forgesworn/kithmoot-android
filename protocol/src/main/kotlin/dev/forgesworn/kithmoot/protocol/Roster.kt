@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.hexEquals
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -115,10 +116,21 @@ fun decodeRosterEvent(
         event.tagValue("d")?.hexEquals(roomId) != true -> null
         !Events.verify(event) -> null
         else -> {
-            val entry = RosterEntry.fromJson(
+            val decoded = RosterEntry.fromJson(
                 kotlinx.serialization.json.Json
                     .parseToJsonElement(Nip44.decrypt(event.content, roomKey))
                     .jsonObject,
+            )
+            // This is the boundary: a roster entry's device/participant
+            // fields are attacker- or other-implementation-controlled JSON,
+            // with nothing on the wire forcing lower case. Canonicalise
+            // them here, once, so every later comparison downstream -
+            // `PeerLink`'s politeness tiebreak, `RoleArbiter`'s device
+            // tiebreak, every map/set keyed on a device or participant
+            // string - is correct by construction. See `normaliseHex`.
+            val entry = decoded.copy(
+                device = decoded.device.normaliseHex(),
+                participant = decoded.participant.normaliseHex(),
             )
             // The device that signed must be the device the entry names, or a
             // room member could republish someone else's presence. Hex

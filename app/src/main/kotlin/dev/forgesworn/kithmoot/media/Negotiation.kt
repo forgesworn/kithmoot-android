@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.media
 
+import dev.forgesworn.kithmoot.crypto.normaliseHex
+
 /** The signal body `type` values KithMoot puts on the wire. */
 object SignalType {
     const val OFFER: String = "offer"
@@ -73,18 +75,29 @@ interface PeerConnectionHandle {
  * without asking anyone. There is no negotiation about who negotiates.
  */
 class PeerLink(
-    val localDevice: String,
-    val remoteDevice: String,
+    localDevice: String,
+    remoteDevice: String,
     private val connection: PeerConnectionHandle,
     private val roomId: String,
     private val send: suspend (SignalEnvelope) -> Unit,
 ) {
 
     /**
+     * Normalised here, once, at the point a device pubkey enters WebRTC
+     * negotiation - see [normaliseHex]. This decides politeness below, and
+     * the two sides of a connection MUST land on opposite answers: a case
+     * difference that made both sides agree would collide two offers and
+     * wedge the connection for good, the exact deadlock perfect negotiation
+     * exists to prevent.
+     */
+    val localDevice: String = localDevice.normaliseHex()
+    val remoteDevice: String = remoteDevice.normaliseHex()
+
+    /**
      * The lower pubkey is polite. Arbitrary but total, and both sides compute
      * the same answer from data they both already have.
      */
-    val polite: Boolean = localDevice < remoteDevice
+    val polite: Boolean = this.localDevice < this.remoteDevice
 
     private var makingOffer = false
     private var ignoreOffer = false

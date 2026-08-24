@@ -48,6 +48,35 @@ class RoleArbiterTest {
     }
 
     @Test
+    fun `BUG- a tie must be broken the same way regardless of which case a device pubkey happens to arrive in`() {
+        // Two of the same participant's devices, tied on claim time. Both
+        // platforms must pick the same one - two live mics is feedback,
+        // none is silence - but nothing on the wire forces every device
+        // pubkey to be lower case, and the tiebreak is `<`, which
+        // `hexEquals` cannot help with: it needs the same total order on
+        // both sides, not just to agree when two strings name the same
+        // device.
+        val deviceLower = "b".repeat(64)
+        val deviceUpper = "B".repeat(64) // the same device pubkey, differently cased
+        val other = "a".repeat(64)
+
+        val withLowerCase = RoleArbiter.holder(
+            listOf(entry(other, mapOf(Roles.MIC to 100)), entry(deviceLower, mapOf(Roles.MIC to 100))),
+            Roles.MIC,
+        )
+        val withUpperCase = RoleArbiter.holder(
+            listOf(entry(other, mapOf(Roles.MIC to 100)), entry(deviceUpper, mapOf(Roles.MIC to 100))),
+            Roles.MIC,
+        )
+
+        // Whichever device wins the tie when the other device's pubkey is
+        // spelled in lower case must also win it when that same pubkey is
+        // spelled in upper case, so every client arrives at the same mic
+        // holder rather than each platform electing a different device.
+        assertEquals(withLowerCase, withUpperCase)
+    }
+
+    @Test
     fun `mic and monitor are arbitrated separately`() {
         val entries = listOf(
             entry("aa", mapOf(Roles.MIC to 100)),

@@ -46,6 +46,32 @@ class PeerLinkTest {
     }
 
     @Test
+    fun `BUG- politeness must still be opposite when a device pubkey reaches PeerLink in a different case on each side`() {
+        // Two real devices, X and Y. X's own pubkey is always its own
+        // canonical lower-case form. Y's pubkey, as it happens to have
+        // reached X's side of the connection (say, decoded off a roster
+        // entry Y itself published), is the same identifier but in upper
+        // case - nothing on the wire enforces a single case. `hexEquals`
+        // would treat these as the same device; the politeness tiebreak
+        // uses `<`, which does not.
+        //
+        // If both sides land on the same politeness because of a case
+        // difference like this, both offer at once, neither backs off, and
+        // the connection wedges permanently - the exact glare deadlock
+        // perfect negotiation exists to prevent. So this must always come
+        // out opposite, regardless of case.
+        val deviceX = "a".repeat(64)
+        val deviceYLower = "b".repeat(64)
+        val deviceYAsSeenByX = "B".repeat(64) // the same device, differently cased
+        val recorder = Recorder()
+
+        val xSide = link(deviceX, deviceYAsSeenByX, FakePeerConnection(), recorder)
+        val ySide = link(deviceYLower, deviceX, FakePeerConnection(), recorder)
+
+        assertEquals(!ySide.polite, xSide.polite)
+    }
+
+    @Test
     fun `an ordinary offer and answer completes`() = runTest {
         val connection = FakePeerConnection()
         val recorder = Recorder()

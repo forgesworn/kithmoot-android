@@ -28,6 +28,23 @@ fun ByteArray.toHex(): String {
  */
 fun String.hexEquals(other: String): Boolean = this.equals(other, ignoreCase = true)
 
+/**
+ * Canonicalises a hex identifier to lower case.
+ *
+ * [hexEquals] makes an equality check safe regardless of case, but nothing
+ * protects a *lexicographic* comparison the same way: `PeerLink`'s glare
+ * tiebreak and `RoleArbiter`'s device tiebreak both order hex strings with
+ * `<`, and two implementations that disagree on which of two
+ * differently-cased spellings of the same identifier sorts first can reach
+ * opposite answers from identical input - the exact deadlock perfect
+ * negotiation exists to prevent. Call this once, at the point a hex
+ * identifier enters the system - a decoded event, a parsed credential or
+ * proof, a pubkey read from storage or a URL - rather than at each
+ * comparison site, so every later equality or ordering check on it is
+ * correct by construction. See `vectors/README.md`.
+ */
+fun String.normaliseHex(): String = lowercase()
+
 /** Parses lower- or upper-case hex. Throws on anything that is not hex. */
 fun String.hexToBytes(): ByteArray {
     require(length % 2 == 0) { "hex string must have an even length" }

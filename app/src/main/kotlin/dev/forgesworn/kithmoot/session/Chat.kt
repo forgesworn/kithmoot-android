@@ -2,6 +2,8 @@ package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.crypto.hexEquals
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -73,11 +75,14 @@ fun decodeChatEvent(
 ): ChatMessage? = try {
     when {
         event.kind != KIND_CHAT -> null
-        event.tagValue("d") != roomId -> null
+        event.tagValue("d")?.hexEquals(roomId) != true -> null
         !Events.verify(event) -> null
         else -> {
             val json = Json.parseToJsonElement(Nip44.decrypt(event.content, roomKey)).jsonObject
-            val participant = json.getValue("participant").jsonPrimitive.content
+            // This is a boundary: `participant` is a free-text JSON field
+            // with nothing forcing lower case. Canonicalise it here, once,
+            // same as `decodeRosterEvent` - see `normaliseHex`.
+            val participant = json.getValue("participant").jsonPrimitive.content.normaliseHex()
             val credential = NostrEvent.fromJson(json.getValue("credential").jsonObject)
             val check = verifyDeviceCredential(credential, roomId, now)
             when {
@@ -86,12 +91,12 @@ fun decodeChatEvent(
                 // credential names, and that credential must be signed by the
                 // participant the message claims. Otherwise any member could put
                 // words in anyone else's mouth.
-                check.device != event.pubkey -> null
-                check.participant != participant -> null
+                !check.device.hexEquals(event.pubkey) -> null
+                !check.participant.hexEquals(participant) -> null
                 else -> ChatMessage(
                     id = event.id,
                     participant = participant,
-                    device = event.pubkey,
+                    device = event.pubkey.normaliseHex(),
                     body = json.getValue("body").jsonPrimitive.content,
                     sentAt = json.getValue("sentAt").jsonPrimitive.long,
                 )

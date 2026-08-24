@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 
 /** The role names that travel on the wire in a roster entry's `claims` map. */
@@ -47,8 +48,12 @@ object RoleArbiter {
     fun holder(entries: Collection<RosterEntry>, role: String): String? = entries
         .filter { it.claims.containsKey(role) }
         .maxWithOrNull(
+            // The tiebreak is lexicographic, not equality, so `hexEquals`
+            // cannot help here: normalise both sides of the `<` at the one
+            // place a device pubkey enters this comparison, the same way
+            // `PeerLink`'s glare tiebreak does - see `normaliseHex`.
             compareBy<RosterEntry> { it.claims.getValue(role) }
-                .thenByDescending { it.device },
+                .thenByDescending { it.device.normaliseHex() },
         )
         ?.device
 }
