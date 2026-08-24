@@ -1,0 +1,65 @@
+package dev.forgesworn.kithmoot.protocol
+
+import dev.forgesworn.kithmoot.crypto.Entropy
+
+/** A device credential: one participant authorising one device, in one room. */
+const val KIND_DEVICE_CREDENTIAL: Int = 20460
+
+/** The outcome of checking a credential. Reasons are part of the wire contract. */
+sealed interface CredentialCheck {
+    data class Valid(val participant: String, val device: String) : CredentialCheck
+    data class Invalid(val reason: String) : CredentialCheck
+}
+
+/**
+ * Mints a room-scoped device credential.
+ *
+ * The participant key signs; the device key is only named. That separation is
+ * the whole point - the participant key never has to be on the phone, and a
+ * device that is lost is contained by the room it was scoped to and the expiry
+ * it was given.
+ *
+ * Expiry rides in a NIP-40 `expiration` tag, so relays that honour NIP-40 will
+ * drop the credential on their own once it lapses.
+ */
+fun createDeviceCredential(
+    participantSecretKey: ByteArray,
+    devicePubkey: String,
+    roomId: String,
+    expiresAt: Long,
+    createdAt: Long = System.currentTimeMillis() / 1000,
+    auxRand: ByteArray = Entropy.bytes(32),
+): NostrEvent = Events.sign(
+    secretKey = participantSecretKey,
+    kind = KIND_DEVICE_CREDENTIAL,
+    createdAt = createdAt,
+    tags = listOf(
+        listOf("d", roomId),
+        listOf("device", devicePubkey),
+        listOf("expiration", expiresAt.toString()),
+    ),
+    content = "",
+    auxRand = auxRand,
+)
+
+/**
+ * Checks a credential against the room presenting it.
+ *
+ * The order is deliberate: the cheap structural checks (right kind, right room)
+ * come first, then the expiry, and the signature - by far the most expensive
+ * step - only once everything else has already agreed. A credential aimed at
+ * another room never costs us a curve operation.
+ */
+fun verifyDeviceCredential(event: NostrEvent, roomId: String, now: Long): CredentialCheck {
+    if (event.kind != KIND_DEVICE_CREDENTIAL) return CredentialCheck.Invalid("wrong kind")
+    if (event.tagValue("d") != roomId) return CredentialCheck.Invalid("wrong room")
+
+    val device = event.tagValue("device") ?: return CredentialCheck.Invalid("no device named")
+    val expiresAt = event.tagValue("expiration")?.toLongOrNull()
+        ?: return CredentialCheck.Invalid("no expiry")
+    if (expiresAt <= now) return CredentialCheck.Invalid("expired")
+
+    if (!Events.verify(event)) return CredentialCheck.Invalid("bad signature")
+
+    return CredentialCheck.Valid(participant = event.pubkey, device = device)
+}
