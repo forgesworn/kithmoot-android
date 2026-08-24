@@ -14,19 +14,22 @@ source.
 
 ## Status
 
-**Protocol layer only.** What is here is the codec and the cryptography, checked
-against the published interop vectors. What is *not* here, and is not started:
+**It joins rooms.** The protocol layer is checked against the published interop
+vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
+and an Android interface. Two emulators have been in the same room as one
+person on two devices, over a relay, with chat, microphone handover and screen
+capture working — see `docs/screenshots/`.
 
-- No WebRTC media. No camera, no microphone, no screen share.
-- No user interface, and no Android app module at all — the only module is
-  `:protocol`, which is plain Kotlin with no Android dependencies.
-- No relay client. Nothing in this repository opens a socket. Publishing,
-  subscribing, re-announcing and the room state machine all sit above this
-  layer and are not written yet.
+What is *not* here:
+
+- No persisted identity. Leaving a room and rejoining it makes you a new
+  participant, because nothing is written to disk yet. A second device stays
+  paired only for as long as the application is running.
 - No room descriptor, no forwarder support, no end-to-end encrypted media.
-
-So this does not yet join a room. It builds and reads every message a room is
-made of, and it agrees with the reference implementation about the bytes.
+- No TURN server configured. The only ICE server is a public STUN, so two
+  devices behind symmetric NATs will not find each other.
+- The interface has had no accessibility pass beyond contrast and type size,
+  and there are no instrumented tests.
 
 ## What it implements
 
@@ -79,10 +82,39 @@ opened by the wrong person, or a `ken` proof at a `kith` door.
 protocol/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── crypto/     Hex, digests, BIP-340 signing, NIP-44 v2
 └── protocol/   Events, rooms, credentials, roster, signalling, access, TURN
+
+app/src/main/kotlin/dev/forgesworn/kithmoot/
+├── relay/      Relay pool, sockets, filters, de-duplication
+├── session/    Room session, presence, roles, chat, identity, pairing links
+├── media/      WebRTC engine, negotiation, local capture
+├── service/    The foreground service a screen share runs under
+└── ui/         Compose: theme, start screen, room, tiles, chat, controls
 ```
 
 `:protocol` has no Android dependencies by design. It runs on a plain JVM, which
 keeps the vector suite fast and leaves the protocol reusable outside the app.
+
+### Running it
+
+```sh
+./gradlew :app:installDebug
+```
+
+A room opened in the application uses the relays named on the start screen; a
+room joined from a link uses the relays the link names. Debug builds allow
+cleartext to `localhost` and `10.0.2.2` so a relay on the development machine
+can be used from an emulator; release builds refuse cleartext outright.
+
+### On one person, several devices
+
+This is the whole product, so it is worth saying where it lives. `session/`
+folds the roster into people rather than machines, and `ui/room/Tiles.kt` turns
+that into one tile group per **participant**. A person at a laptop with their
+phone beside them is one card with one name, two video panes and one
+microphone. Which of your own devices the room is actually hearing is decided
+by `RoleArbiter` — most recent claim wins, ties to the lowest pubkey — with no
+coordinator and no handover message, and the device that loses the claim
+releases the microphone rather than sitting on a hot mic nobody can hear.
 
 ### On the cryptography
 
