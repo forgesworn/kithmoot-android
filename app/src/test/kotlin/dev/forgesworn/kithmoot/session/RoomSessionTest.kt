@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
+import dev.forgesworn.kithmoot.protocol.MAX_SIGNALS_PER_WINDOW
+import dev.forgesworn.kithmoot.protocol.SIGNAL_MAX_AGE_SECONDS
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.protocol.UnwrappedSignal
@@ -9,6 +11,7 @@ import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -194,6 +197,10 @@ class RoomSessionTest {
                 body = SignalBody("offer", room.roomId, sdp = "v=0"),
                 senderSecretKey = outsider,
                 recipientPubkey = owner.devicePubkey,
+                // Stamped on the session's own clock: otherwise this is
+                // refused for staleness and the test proves nothing about
+                // whether the sender is in the room.
+                createdAt = currentTime / 1000,
             ).wrap,
         )
         advanceTimeBy(1_000)
@@ -201,6 +208,112 @@ class RoomSessionTest {
 
         assertEquals(0, received.size)
         assertTrue(relay.countOfKind(KIND_SIGNAL_WRAP) > 0, "the wrap really was published")
+    }
+
+    @Test
+    fun `BUG (I5)- a replayed signal is delivered once, however many times a relay sends it`() = runTest {
+        // Publishing to every relay means hearing the same wrap from every
+        // relay, and a relay that means harm can send it again later.
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val received = mutableListOf<UnwrappedSignal>()
+        backgroundScope.launch { mine.signals.collect { received += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        val wrap = wrapSignal(
+            body = SignalBody("offer", room.roomId, sdp = "v=0"),
+            senderSecretKey = stranger.deviceSecretKey,
+            recipientPubkey = owner.devicePubkey,
+            createdAt = currentTime / 1000,
+        ).wrap
+        relay.publish(wrap)
+        advanceTimeBy(1_000)
+        runCurrent()
+        relay.publish(wrap)
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(1, received.size)
+    }
+
+    @Test
+    fun `BUG (I5)- a stale signal is refused`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val received = mutableListOf<UnwrappedSignal>()
+        backgroundScope.launch { mine.signals.collect { received += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        // A wrap captured a minute ago and played back now.
+        relay.publish(
+            wrapSignal(
+                body = SignalBody("offer", room.roomId, sdp = "v=0"),
+                senderSecretKey = stranger.deviceSecretKey,
+                recipientPubkey = owner.devicePubkey,
+                createdAt = currentTime / 1000 - SIGNAL_MAX_AGE_SECONDS - 40,
+            ).wrap,
+        )
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(0, received.size)
+        assertTrue(relay.countOfKind(KIND_SIGNAL_WRAP) > 0, "the wrap really was published")
+    }
+
+    @Test
+    fun `BUG (I5)- one device cannot flood the room with signals`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val received = mutableListOf<UnwrappedSignal>()
+        backgroundScope.launch { mine.signals.collect { received += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        for (i in 0 until MAX_SIGNALS_PER_WINDOW + 25) {
+            relay.publish(
+                wrapSignal(
+                    body = SignalBody("ice", room.roomId, candidate = "candidate:$i"),
+                    senderSecretKey = stranger.deviceSecretKey,
+                    recipientPubkey = owner.devicePubkey,
+                    createdAt = currentTime / 1000,
+                ).wrap,
+            )
+        }
+        runCurrent()
+
+        assertEquals(MAX_SIGNALS_PER_WINDOW, received.size)
     }
 
     @Test

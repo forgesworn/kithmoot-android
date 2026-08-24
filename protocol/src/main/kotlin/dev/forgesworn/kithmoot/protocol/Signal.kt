@@ -104,6 +104,12 @@ fun unwrapSignal(
     wrap: NostrEvent,
     recipientSecretKey: ByteArray,
     roomId: String,
+    /** Unix seconds. Defaults to the real clock; injectable so a test - or a
+     *  vector, which is stamped with a fixed time - is not at the mercy of one. */
+    now: Long = System.currentTimeMillis() / 1000,
+    /** How far either side of [now] a signal may be stamped before it is
+     *  refused. See [SIGNAL_MAX_AGE_SECONDS]. */
+    maxAgeSeconds: Long = SIGNAL_MAX_AGE_SECONDS,
 ): UnwrappedSignal? = try {
     val recipientPubkey = Schnorr.publicKeyHex(recipientSecretKey)
     when {
@@ -123,6 +129,11 @@ fun unwrapSignal(
                 inner.kind != KIND_SIGNAL -> null
                 inner.tagValue("p")?.hexEquals(recipientPubkey) != true -> null
                 !Events.verify(inner) -> null
+                // Staleness, checked on the *inner* event: it is the one the
+                // sending device signed, so its timestamp cannot be restamped
+                // by whoever replays the wrap. See [SIGNAL_MAX_AGE_SECONDS]
+                // for why the window is symmetric.
+                kotlin.math.abs(now - inner.createdAt) > maxAgeSeconds -> null
                 // A signal is only meaningful in the room it names: a body
                 // replayed into a different room is refused outright. Hex
                 // identifiers compared case-insensitively - see

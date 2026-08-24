@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.SignalBody
+import dev.forgesworn.kithmoot.protocol.SignalGuard
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.protocol.UnwrappedSignal
 import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
@@ -94,6 +95,13 @@ class RoomSession(
      * answered us. The exchange settles after one round trip.
      */
     private val respondedTo = mutableSetOf<String>()
+
+    /**
+     * Deduplication and rate limiting for signalling - two of the three rules
+     * §3 of the design says are reused from NIP-AC. The third, staleness, is
+     * applied inside [unwrapSignal].
+     */
+    private val signalGuard = SignalGuard()
     private val chatSeen = mutableSetOf<String>()
     private val chatLog = mutableListOf<ChatMessage>()
 
@@ -266,6 +274,9 @@ class RoomSession(
                 body = body,
                 senderSecretKey = identity.deviceSecretKey,
                 recipientPubkey = toDevice,
+                // Stamped on the session's own clock, which is what the
+                // recipient's staleness check is measured against.
+                createdAt = now(),
             ).wrap,
         )
     }
@@ -296,7 +307,22 @@ class RoomSession(
     }
 
     internal fun onSignalEvent(event: NostrEvent) {
-        val signal = unwrapSignal(event, identity.deviceSecretKey, room.roomId) ?: return
+        val at = now()
+
+        // Deduplication first, because it is the cheapest check and the most
+        // common case it catches - the same wrap arriving from every relay we
+        // published to - costs a NIP-44 decryption otherwise.
+        if (!signalGuard.admitEvent(event.id)) return
+
+        // Unwrapping applies the staleness rule, judged by the session's own
+        // clock rather than the wall clock.
+        val signal = unwrapSignal(event, identity.deviceSecretKey, room.roomId, now = at) ?: return
+
+        // Rate limiting against the *sending device* rather than the wrap's
+        // pubkey: every wrap is signed by a fresh ephemeral key, so the only
+        // stable identity a budget can be held against is the one inside.
+        if (!signalGuard.admitSender(signal.from, at)) return
+
         val sender = synchronized(lock) { roster[signal.from] }
         // Signals from devices we cannot see in the roster are refused, and so
         // are signals from our own other devices. There is no race in the first

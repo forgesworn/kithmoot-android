@@ -43,6 +43,10 @@ class SignalWrapVectorsTest(private val name: String, private val vector: JsonOb
             wrap = wrap,
             recipientSecretKey = unwrapWith.bytes("recipientSkHex"),
             roomId = unwrapWith.text("roomId"),
+            // The vectors are stamped with a fixed time, and staleness is
+            // deliberately not part of what they pin - see `vectors/README.md`.
+            // Judging them by the wall clock would make the whole group expire.
+            now = wrap.createdAt,
         )
 
         val expectedResult = expected?.childOrNull("result")
