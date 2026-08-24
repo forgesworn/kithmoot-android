@@ -16,6 +16,19 @@ import kotlinx.serialization.json.put
 /** A roster entry: who is here, on what device, publishing what. */
 const val KIND_ROSTER: Int = 20461
 
+/**
+ * How far ahead of our own clock a roster timestamp may be stamped.
+ *
+ * [RosterEntry.updatedAt] decides which of two entries for one device wins, and
+ * a singular-role claim time decides which of a participant's devices holds the
+ * microphone. Both are chosen by the device that publishes them, so a device
+ * stamping the year 3000 pins itself into the roster for good and locks the mic
+ * against its owner's other devices - neither can ever be superseded by a
+ * genuine later value. The bound has to be loose enough that real clocks, which
+ * disagree by seconds, are not refused.
+ */
+const val MAX_FUTURE_SKEW_SECONDS: Long = 60
+
 /** One published media track, attributed to a participant rather than a device. */
 data class TrackRef(val trackId: String, val role: String)
 
@@ -137,12 +150,18 @@ fun decodeRosterEvent(
             // identifiers compared case-insensitively throughout - see
             // `vectors/README.md`.
             val credential = verifyDeviceCredential(entry.credential, roomId, now)
+            // A timestamp beyond clock skew is a pin, not a clock - see
+            // [MAX_FUTURE_SKEW_SECONDS]. The entry goes; a claim only costs
+            // the claim, because a device with one bad claim is still in the
+            // room.
+            val horizon = now + MAX_FUTURE_SKEW_SECONDS
             when {
                 !entry.device.hexEquals(event.pubkey) -> null
                 credential !is CredentialCheck.Valid -> null
                 !credential.device.hexEquals(entry.device) -> null
                 !credential.participant.hexEquals(entry.participant) -> null
-                else -> entry
+                entry.updatedAt > horizon -> null
+                else -> entry.copy(claims = entry.claims.filterValues { it <= horizon })
             }
         }
     }
