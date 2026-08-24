@@ -906,11 +906,13 @@
       {
         "name": "ken",
         "kind": "positive",
-        "note": "A ken proof: the issuer vouches for GUEST at the 'ken' tier until KINDRED_EXPIRES_AT. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
+        "note": "A ken proof: the issuer vouches for GUEST at the 'ken' tier, in ROOM_1, until KINDRED_EXPIRES_AT. The room and the nonce are both inside the signed message - see canonicalMessage in src/access.ts - so a proof cannot be edited into another room, and two proofs on identical terms are still distinguishable. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
         "input": {
           "hostSkHex": "633c5cc7ad25effea07db59beb6adf86fdb10141db72add5a7e4084e1b6078d3",
           "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
           "tier": "ken",
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
           "expiresAt": 1800003600,
           "auxRandHex": "3da83b091fab6157c0f31a9d8df5ad04a3e7b666c0678ecb514a1b0110418bbc"
         },
@@ -919,7 +921,9 @@
             "tier": "ken",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "18de2f3a5d0bb9279abf353d4f17065df2b473b0fbb68d1a9e2ea3d4c0c1d6d831f1aa32c6d23a0546a8e70a693e0731a40b409a2a159081a0ddd3ccef3899d7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sig": "1c01fd207ebcf88fbfc6e41d01f807eac4a5bd36778d447406afe3481231bf0dac24f9ff0ad874e9716beb1c4d29685334d0e1960b723797aa158c98c9232cb5",
             "expiresAt": 1800003600
           }
         }
@@ -927,11 +931,13 @@
       {
         "name": "kith",
         "kind": "positive",
-        "note": "A kith proof: the issuer vouches for GUEST at the 'kith' tier until KINDRED_EXPIRES_AT. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
+        "note": "A kith proof: the issuer vouches for GUEST at the 'kith' tier, in ROOM_1, until KINDRED_EXPIRES_AT. The room and the nonce are both inside the signed message - see canonicalMessage in src/access.ts - so a proof cannot be edited into another room, and two proofs on identical terms are still distinguishable. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
         "input": {
           "hostSkHex": "633c5cc7ad25effea07db59beb6adf86fdb10141db72add5a7e4084e1b6078d3",
           "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
           "tier": "kith",
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
           "expiresAt": 1800003600,
           "auxRandHex": "c2e85df0dd4e98cac103207aa4b674b7ff71e56d099c49390a0c3c57b79176d9"
         },
@@ -940,7 +946,9 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+            "sig": "bea5dfb86bc094d554b2a03c786a4cde384e9df9e734891d66061d8d8b1a64a1dc86b97c6fc437d42ee92d3f4b34846ad912c4618ce87d7f4b6030c5e76eaffd",
             "expiresAt": 1800003600
           }
         }
@@ -948,11 +956,13 @@
       {
         "name": "kin",
         "kind": "positive",
-        "note": "A kin proof: the issuer vouches for GUEST at the 'kin' tier until KINDRED_EXPIRES_AT. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
+        "note": "A kin proof: the issuer vouches for GUEST at the 'kin' tier, in ROOM_1, until KINDRED_EXPIRES_AT. The room and the nonce are both inside the signed message - see canonicalMessage in src/access.ts - so a proof cannot be edited into another room, and two proofs on identical terms are still distinguishable. Pins the signed message layout, not any admission decision - see the accessEvaluation group for that.",
         "input": {
           "hostSkHex": "633c5cc7ad25effea07db59beb6adf86fdb10141db72add5a7e4084e1b6078d3",
           "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
           "tier": "kin",
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "nonce": "3333333333333333333333333333333333333333333333333333333333333333",
           "expiresAt": 1800003600,
           "auxRandHex": "d0879a1afafe02d1b9f9f3c84273e538bae21511fdfd36c2b3119880cefbf2c5"
         },
@@ -961,7 +971,9 @@
             "tier": "kin",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "f1d12ad2511434dda8842a0a9665a4a14639e6eac143fca232cc8967e54057cd03887f8e54e5bb00af99dd358181a8e5b9f5344f6026f5f0eaec7fef9e274ab5",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "3333333333333333333333333333333333333333333333333333333333333333",
+            "sig": "67a3e5f6c1403b74a6181d473d34c2f74e536a6df93dd2d9f9a1cf117507e94fd5e5420be8afa82faced1e065cf7a8a4780bb7312a75f96991f1f1af02504abd",
             "expiresAt": 1800003600
           }
         }
@@ -978,7 +990,8 @@
           },
           "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
           "proof": null,
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1003,10 +1016,13 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+            "sig": "bea5dfb86bc094d554b2a03c786a4cde384e9df9e734891d66061d8d8b1a64a1dc86b97c6fc437d42ee92d3f4b34846ad912c4618ce87d7f4b6030c5e76eaffd",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1031,10 +1047,13 @@
             "tier": "kin",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "f1d12ad2511434dda8842a0a9665a4a14639e6eac143fca232cc8967e54057cd03887f8e54e5bb00af99dd358181a8e5b9f5344f6026f5f0eaec7fef9e274ab5",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "3333333333333333333333333333333333333333333333333333333333333333",
+            "sig": "67a3e5f6c1403b74a6181d473d34c2f74e536a6df93dd2d9f9a1cf117507e94fd5e5420be8afa82faced1e065cf7a8a4780bb7312a75f96991f1f1af02504abd",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1059,10 +1078,13 @@
             "tier": "ken",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "18de2f3a5d0bb9279abf353d4f17065df2b473b0fbb68d1a9e2ea3d4c0c1d6d831f1aa32c6d23a0546a8e70a693e0731a40b409a2a159081a0ddd3ccef3899d7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "1111111111111111111111111111111111111111111111111111111111111111",
+            "sig": "1c01fd207ebcf88fbfc6e41d01f807eac4a5bd36778d447406afe3481231bf0dac24f9ff0ad874e9716beb1c4d29685334d0e1960b723797aa158c98c9232cb5",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1087,10 +1109,13 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "9d62f4907fa01b43a61acd6f9e81671b5a87f603ab51dc2aad4eb52cde8613f5",
-            "sig": "8cc4a7eab1b546f5a80b52732a949dc18b05a349bf729c301e6cbdcc89d2a5802c96d0913466b0bbc9050f9e4c81752d10b1de9fe9648c7e054f8d9f66b16f90",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "4444444444444444444444444444444444444444444444444444444444444444",
+            "sig": "cff34e5e68f4e9ffe759ee343cea39b38bbbaf43f08e966391521e45deee7f2ca1249a3870aec86d969cfcf3b54cd122c1b08caccce6e4d42290d3db7435f97a",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1115,10 +1140,13 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
-            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+            "sig": "bea5dfb86bc094d554b2a03c786a4cde384e9df9e734891d66061d8d8b1a64a1dc86b97c6fc437d42ee92d3f4b34846ad912c4618ce87d7f4b6030c5e76eaffd",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {
@@ -1143,10 +1171,106 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00A0B8B578DE367E65C400CCCDB7743E82403D457469D02023B1568A92FAADD8",
-            "sig": "60b66d002de5a3a7e4ba83c4e5154ffc2928f215989e6aeffde78d9d184b05000a335885b0b97292eddb4d9b65b1d879221e681e796e0ffee27c5a62b59caea7",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+            "sig": "bea5dfb86bc094d554b2a03c786a4cde384e9df9e734891d66061d8d8b1a64a1dc86b97c6fc437d42ee92d3f4b34846ad912c4618ce87d7f4b6030c5e76eaffd",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "kindred proof accepted"
+          }
+        }
+      },
+      {
+        "name": "kith-room-rejects-proof-for-another-room",
+        "kind": "negative",
+        "note": "A kith proof from the trusted issuer, at a sufficient tier, unexpired, naming the right participant - and minted for a different room. An implementation that does not compare proof.room to the room being joined admits a proof its issuer never granted here ('proof names another room').",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "fcdc853ddc1be7f7d978367e1a5156b55f11e4c22a49db949f5bb939a303762a",
+            "nonce": "5555555555555555555555555555555555555555555555555555555555555555",
+            "sig": "9219ba666fc6f1327da258c1a1434c3feacb41b2665915cd5d9b90af1bd0805bdb0217cfcab2f49fd128ac64756c972c0b2ea731223b23b7a2ae2012c34f09df",
+            "expiresAt": 1800003600
+          },
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "proof names another room"
+          }
+        }
+      },
+      {
+        "name": "kith-room-rejects-room-edited-into-the-proof",
+        "kind": "negative",
+        "note": "The same other-room proof with its `room` field rewritten to name this room. The room is inside the signed message, so rewriting it invalidates the signature ('bad signature') - an implementation that binds the room but leaves it out of canonicalMessage admits this.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "5555555555555555555555555555555555555555555555555555555555555555",
+            "sig": "9219ba666fc6f1327da258c1a1434c3feacb41b2665915cd5d9b90af1bd0805bdb0217cfcab2f49fd128ac64756c972c0b2ea731223b23b7a2ae2012c34f09df",
+            "expiresAt": 1800003600
+          },
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "bad signature"
+          }
+        }
+      },
+      {
+        "name": "kith-room-admits-proof-against-upper-case-room-id",
+        "kind": "positive",
+        "note": "The room id handed to evaluateAccess is upper-case hex naming the very room the proof was minted for. Hex identifiers are compared case-insensitively throughout - see the section of this README on that - so this is still admitted.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": {
+            "tier": "kith",
+            "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+            "sig": "bea5dfb86bc094d554b2a03c786a4cde384e9df9e734891d66061d8d8b1a64a1dc86b97c6fc437d42ee92d3f4b34846ad912c4618ce87d7f4b6030c5e76eaffd",
+            "expiresAt": 1800003600
+          },
+          "now": 1800000000,
+          "roomId": "2848BDD5C60A79E2DFE667AE9616C1107F61709032B66E556E28F4A96E69450B"
         },
         "output": {
           "result": {
@@ -1171,10 +1295,13 @@
             "tier": "kith",
             "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
             "issuer": "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "nonce": "2222222222222222222222222222222222222222222222222222222222222222",
             "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "expiresAt": 1800003600
           },
-          "now": 1800000000
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
         },
         "output": {
           "result": {

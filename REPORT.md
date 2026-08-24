@@ -76,6 +76,13 @@ against `kindredProof/ken` until one verified under BIP-340.
 > **It is:** `sha256("kithmoot/v1/kindred:<tier>:<participant>:<expiresAt>")`,
 > signed BIP-340 by the issuer key.
 
+**Update, later the same day:** the security review found that a proof with no
+room in it is a bearer token, good in every room that trusts its issuer. The
+signed message now covers a room and a per-proof nonce as well:
+`sha256("kithmoot/v1/kindred:<tier>:<participant>:<room>:<nonce>:<expiresAt>")`.
+The counts above are the state at the time of this report and are left as
+found; `vectors/README.md` in the TypeScript repo is the living record.
+
 Two consequences worth a decision, not just documentation:
 
 - **The issuer is not in the signed message.** It is bound only by which key

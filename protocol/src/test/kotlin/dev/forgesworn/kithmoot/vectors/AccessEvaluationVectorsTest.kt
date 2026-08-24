@@ -27,6 +27,7 @@ class AccessEvaluationVectorsTest(private val name: String, private val vector: 
             participant = input.text("participant"),
             proof = proof,
             now = input.number("now"),
+            roomId = input.text("roomId"),
         )
 
         assertEquals("admission for $name", expected.flag("admitted"), decision.admitted)

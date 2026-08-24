@@ -62,11 +62,28 @@ data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null)
     }
 }
 
-/** An issuer's signed statement that a participant stands at some tier. */
+/**
+ * An issuer's signed statement that a participant stands at some tier, in one
+ * room, until an expiry.
+ *
+ * [room] is what stops a proof being a bearer token: without it, one proof
+ * admits its holder to every room that happens to trust the same issuer, and an
+ * issuer who vouched for a guest at one moot has not vouched for them at all of
+ * them. The cost of that binding is stated plainly: a kindred proof is a **room
+ * grant**, not a portable statement about a relationship, so an issuer mints one
+ * per room. In this protocol the party who vouches is the party who sent the
+ * join link, so it already knows the room id.
+ */
 data class KindredProof(
     val tier: KindredTier,
     val participant: String,
     val issuer: String,
+    /** The room id this proof is valid in. */
+    val room: String,
+    /** 32 random bytes, hex, unique to this proof. Signed over, so two proofs
+     *  on identical terms are still distinguishable - which is what a
+     *  revocation list, or an audit, needs to name one of them. */
+    val nonce: String,
     val sig: String,
     val expiresAt: Long,
 ) {
@@ -74,18 +91,24 @@ data class KindredProof(
         put("tier", tier.wire)
         put("participant", participant)
         put("issuer", issuer)
+        put("room", room)
+        put("nonce", nonce)
         put("sig", sig)
         put("expiresAt", expiresAt)
     }
 
     companion object {
-        /** Null when the tier is unrecognised, rather than an exception in a hot path. */
+        /** Null when the tier is unrecognised, or when the room binding is
+         *  missing entirely - both fail closed rather than throwing in a hot
+         *  path. */
         fun fromJson(json: JsonObject): KindredProof? {
             val tier = KindredTier.fromWire(json["tier"]?.jsonPrimitive?.content ?: return null) ?: return null
             return KindredProof(
                 tier = tier,
                 participant = json.getValue("participant").jsonPrimitive.content,
                 issuer = json.getValue("issuer").jsonPrimitive.content,
+                room = json["room"]?.jsonPrimitive?.content ?: return null,
+                nonce = json["nonce"]?.jsonPrimitive?.content ?: return null,
                 sig = json.getValue("sig").jsonPrimitive.content,
                 expiresAt = json.getValue("expiresAt").jsonPrimitive.long,
             )
@@ -93,27 +116,49 @@ data class KindredProof(
     }
 }
 
-/** The message a kindred proof signs. The issuer is bound by the verifying key. */
-fun kindredProofMessage(tier: KindredTier, participant: String, expiresAt: Long): ByteArray =
-    Digests.sha256("kithmoot/v1/kindred:${tier.wire}:$participant:$expiresAt".toByteArray(Charsets.UTF_8))
+/**
+ * The message a kindred proof signs. The issuer is bound by the verifying key.
+ *
+ * Room and nonce are covered deliberately - see [KindredProof]. A proof signed
+ * by an implementation that omits them reconstructs a different message and
+ * fails the signature check, which is the right way round: an older proof is
+ * refused rather than silently admitted somewhere it was never meant to go.
+ */
+fun kindredProofMessage(
+    tier: KindredTier,
+    participant: String,
+    room: String,
+    nonce: String,
+    expiresAt: Long,
+): ByteArray = Digests.sha256(
+    "kithmoot/v1/kindred:${tier.wire}:$participant:$room:$nonce:$expiresAt".toByteArray(Charsets.UTF_8),
+)
 
 fun issueKindredProof(
     issuerSecretKey: ByteArray,
     participant: String,
     tier: KindredTier,
+    roomId: String,
     expiresAt: Long,
+    /** 32 bytes, hex. Supply one only to make a proof reproducible - the
+     *  interop vectors do; everything else wants the random default. */
+    nonce: String = Entropy.bytes(32).toHex(),
     auxRand: ByteArray = Entropy.bytes(32),
 ): KindredProof {
-    // `participant` is a pubkey handed in by the caller - possibly typed or
-    // pasted - so it is canonicalised here, at the point it enters the
-    // proof, rather than left for `evaluateAccess`'s equality checks to
-    // paper over.
+    // `participant` and `roomId` are identifiers handed in by the caller -
+    // possibly typed or pasted - so they are canonicalised here, at the point
+    // they enter the proof, rather than left for `evaluateAccess`'s equality
+    // checks to paper over.
     val normalisedParticipant = participant.normaliseHex()
-    val message = kindredProofMessage(tier, normalisedParticipant, expiresAt)
+    val normalisedRoom = roomId.normaliseHex()
+    val normalisedNonce = nonce.normaliseHex()
+    val message = kindredProofMessage(tier, normalisedParticipant, normalisedRoom, normalisedNonce, expiresAt)
     return KindredProof(
         tier = tier,
         participant = normalisedParticipant,
         issuer = Schnorr.publicKeyHex(issuerSecretKey),
+        room = normalisedRoom,
+        nonce = normalisedNonce,
         sig = Schnorr.sign(message, issuerSecretKey, auxRand).toHex(),
         expiresAt = expiresAt,
     )
@@ -123,7 +168,7 @@ fun issueKindredProof(
 fun verifyKindredProof(proof: KindredProof): Boolean = try {
     Schnorr.verify(
         proof.sig.hexToBytes(),
-        kindredProofMessage(proof.tier, proof.participant, proof.expiresAt),
+        kindredProofMessage(proof.tier, proof.participant, proof.room, proof.nonce, proof.expiresAt),
         proof.issuer.hexToBytes(),
     )
 } catch (_: Exception) {
@@ -152,10 +197,13 @@ fun evaluateAccess(
     participant: String,
     proof: KindredProof?,
     now: Long,
+    roomId: String,
 ): AccessDecision {
     if (policy.tier == KindredTier.OPEN) return AccessDecision(true, "open room")
     if (proof == null) return AccessDecision(false, "no kindred proof")
     if (!proof.participant.hexEquals(participant)) return AccessDecision(false, "proof names another participant")
+    // A proof is a grant in one room, not a bearer token - see [KindredProof].
+    if (!proof.room.hexEquals(roomId)) return AccessDecision(false, "proof names another room")
     if (proof.expiresAt <= now) return AccessDecision(false, "expired")
 
     val admitted = policy.admitted.orEmpty()

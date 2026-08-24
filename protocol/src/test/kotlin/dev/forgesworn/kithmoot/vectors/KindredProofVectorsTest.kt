@@ -25,13 +25,17 @@ class KindredProofVectorsTest(private val name: String, private val vector: Json
             issuerSecretKey = input.bytes("hostSkHex"),
             participant = input.text("participant"),
             tier = tier!!,
+            roomId = input.text("roomId"),
             expiresAt = input.number("expiresAt"),
+            nonce = input.text("nonce"),
             auxRand = input.bytes("auxRandHex"),
         )
 
         assertEquals("tier for $name", expected.text("tier"), proof.tier.wire)
         assertEquals("participant for $name", expected.text("participant"), proof.participant)
         assertEquals("issuer for $name", expected.text("issuer"), proof.issuer)
+        assertEquals("room for $name", expected.text("room"), proof.room)
+        assertEquals("nonce for $name", expected.text("nonce"), proof.nonce)
         assertEquals("expiry for $name", expected.number("expiresAt"), proof.expiresAt)
         assertEquals("signature for $name", expected.text("sig"), proof.sig)
         assertTrue("$name should verify", verifyKindredProof(proof))
