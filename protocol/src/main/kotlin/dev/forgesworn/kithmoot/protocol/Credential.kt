@@ -49,15 +49,23 @@ fun createDeviceCredential(
  * come first, then the expiry, and the signature - by far the most expensive
  * step - only once everything else has already agreed. A credential aimed at
  * another room never costs us a curve operation.
+ *
+ * Check order and reason strings both match the TypeScript reference
+ * implementation exactly - see `vectors/README.md`'s "Reason strings are
+ * normative" section. `toLongOrNull()` already folds a missing tag and a
+ * present-but-non-numeric one into the same `"no expiration"` outcome,
+ * matching the reference's explicit `Number.isFinite` guard: neither
+ * implementation's expiry check has a fail-open path for a corrupted tag.
  */
 fun verifyDeviceCredential(event: NostrEvent, roomId: String, now: Long): CredentialCheck {
     if (event.kind != KIND_DEVICE_CREDENTIAL) return CredentialCheck.Invalid("wrong kind")
     if (event.tagValue("d") != roomId) return CredentialCheck.Invalid("wrong room")
 
-    val device = event.tagValue("device") ?: return CredentialCheck.Invalid("no device named")
     val expiresAt = event.tagValue("expiration")?.toLongOrNull()
-        ?: return CredentialCheck.Invalid("no expiry")
+        ?: return CredentialCheck.Invalid("no expiration")
     if (expiresAt <= now) return CredentialCheck.Invalid("expired")
+
+    val device = event.tagValue("device") ?: return CredentialCheck.Invalid("no device")
 
     if (!Events.verify(event)) return CredentialCheck.Invalid("bad signature")
 
