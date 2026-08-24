@@ -1,0 +1,25 @@
+[versions]
+# Held level with the house Android precedent (cambium) so the app module that
+# lands next needs no build-tooling changes.
+agp = "8.7.3"
+kotlin = "2.0.21"
+serializationJson = "1.7.3"
+bouncycastle = "1.79"
+# Pinned deliberately: 0.17.0 onwards is compiled with Kotlin 2.1+ metadata and
+# cannot be read by the Kotlin 2.0.21 compiler the house standard fixes. 0.15.0
+# and 0.16.0 are the remaining Kotlin 1.9 builds.
+secp256k1 = "0.15.0"
+junit = "4.13.2"
+
+[libraries]
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
+bouncycastle-provider = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+secp256k1-core = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jvm", version.ref = "secp256k1" }
+secp256k1-jni-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-jvm", version.ref = "secp256k1" }
+secp256k1-jni-android = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jni-android", version.ref = "secp256k1" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
