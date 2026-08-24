@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -43,16 +45,7 @@ class ScreenShareService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification(),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            } else {
-                0
-            },
-        )
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), types())
         _running.value = true
         return START_NOT_STICKY
     }
@@ -61,6 +54,35 @@ class ScreenShareService : Service() {
         _running.value = false
         super.onDestroy()
     }
+
+    /**
+     * What this service tells the platform it is holding.
+     *
+     * `mediaProjection` is the one the screen capture cannot start without.
+     * `camera` and `microphone` are there because sharing a screen is precisely
+     * when the user leaves this application to go and show something, and from
+     * Android 14 a backgrounded process keeps neither device unless its
+     * foreground service claims it - the camera is revoked mid-capture with
+     * `ERROR_CAMERA_DISABLED`, reported as a device policy failure.
+     *
+     * Each type is claimed only when its runtime permission is actually held.
+     * Naming a type the application has no permission for is a `SecurityException`
+     * on Android 14 and later, and a share with no camera is perfectly ordinary.
+     */
+    private fun types(): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (held(Manifest.permission.CAMERA)) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        }
+        if (held(Manifest.permission.RECORD_AUDIO)) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        return types
+    }
+
+    private fun held(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     private fun notification(): Notification {
         val open = PendingIntent.getActivity(

@@ -64,6 +64,33 @@ class LocalMedia(
     /** Set when the screen capturer's projection is torn down by the system. */
     var onScreenShareStopped: (() -> Unit)? = null
 
+    /** Set when the camera stops for a reason this application did not choose. */
+    var onCameraLost: (() -> Unit)? = null
+
+    /**
+     * The camera can be taken away without being asked for.
+     *
+     * Android revokes it from a backgrounded process whose foreground service
+     * does not claim the `camera` type, and another application can win it
+     * outright. Only the two unambiguous losses are acted on: a freeze is a
+     * complaint about frame rate, not a camera that has gone, and a close
+     * arrives on an ordinary stop as well.
+     */
+    private val cameraEvents = object : CameraVideoCapturer.CameraEventsHandler {
+        override fun onCameraError(error: String?) {
+            onCameraLost?.invoke()
+        }
+
+        override fun onCameraDisconnected() {
+            onCameraLost?.invoke()
+        }
+
+        override fun onCameraFreezed(error: String?) = Unit
+        override fun onCameraOpening(name: String?) = Unit
+        override fun onFirstFrameAvailable() = Unit
+        override fun onCameraClosed() = Unit
+    }
+
     val microphoneTrack: AudioTrack? get() = audioTrack
     val localCameraTrack: VideoTrack? get() = cameraTrack
     val localScreenTrack: VideoTrack? get() = screenTrack
@@ -201,7 +228,7 @@ class LocalMedia(
         val preferred = names.firstOrNull { enumerator.isFrontFacing(it) == frontFacing }
             ?: names.firstOrNull()
             ?: return null
-        return enumerator.createCapturer(preferred, null)
+        return enumerator.createCapturer(preferred, cameraEvents)
     }
 
     @Suppress("DEPRECATION")

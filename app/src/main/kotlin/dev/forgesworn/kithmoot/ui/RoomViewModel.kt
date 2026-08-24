@@ -311,6 +311,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
             engine = media
             media.localMedia.onScreenShareStopped = { stopScreenShare() }
+            media.localMedia.onCameraLost = { cameraLost() }
             media.start()
 
             scope.launch {
@@ -404,6 +405,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchCamera() {
         engine?.localMedia?.switchCamera()
+    }
+
+    /**
+     * The camera went away without being asked.
+     *
+     * The capturer is already dead by the time this arrives; what is left is to
+     * let go of it, so the roster stops advertising a camera track that carries
+     * nothing and the control stops claiming to be on. Handed to [act] rather
+     * than run here, because it arrives on the capturer's own thread and
+     * releasing the capturer from there would wait on that same thread.
+     */
+    private fun cameraLost() = act {
+        if (!_room.value.cameraOn) return@act
+        engine?.localMedia?.stopCamera()
+        note("Android took the camera away. Tap Camera to start it again.")
     }
 
     /**

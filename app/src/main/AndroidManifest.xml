@@ -9,6 +9,12 @@
          running before the platform will create a MediaProjection at all. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- The share exists so the user can leave this application and show
+         something else. From Android 14 a backgrounded process keeps the camera
+         and the microphone only while its foreground service says it is using
+         them, so the service claims all three types. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Asked for only when a screen share is about to start, because that is
          the only thing here that needs a notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -62,6 +68,6 @@
         <service
             android:name=".service.ScreenShareService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|camera|microphone" />
     </application>
 </manifest>
