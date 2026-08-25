@@ -897,6 +897,240 @@
             "name": "nerrad adminxxxxxxxxxxxxxxxxxxxx"
           }
         }
+      },
+      {
+        "name": "assist-offer",
+        "kind": "positive",
+        "note": "A roster entry carrying an offer to relay for the room: measured reachability, the uplink estimate every client derives spare capacity from, and how many pairs this device is already carrying. It is inside the room-key ciphertext with everything else - a relay that could read which members were publicly reachable and how much bandwidth they had would be reading a map of the room. The offer survives the round trip exactly as published, and decides nothing on its own: what it feeds is a selection every client computes independently from the same roster.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Ar1a2FnLH+P2WQhunm8B1MZfKkbnoitXLlFLXjL6FW5094ceQ03R7OtEc6w10gu7VLfyBbp+Z0AgzJY9GLpdC8e3tAjkNO88Ah+2ePuupR9en/5neaz/Iz921nuGDi10fOyzrezfB7Sp0Fb19XRnDml0ycUwimQG4/7KpW5wAc0FaqG7w09MyG4QtJNPqh+uFHG2G+sfQYXamJNuQW94FhCNYy7AW2qIklnDxBrG0wVjr/31oepFCchRixs0hkjB4ruWlu3lKZf3vG6e0wRLZgdqohsX5NZx5ftMMPzsQHYVuGqLDMiZ0cKw3FKIJhwBi4+5HZlbNhBWVqZM5TH89nk39Ke1iVlrkJqE3Gq/gQwZaNJX6imDxUUHC/2LnojKpnChHLOp4GpP5rn5SznJxEgkBFIYv5mrh2PqZrOUumPAQ51EQdC3xMwcRLR31vLYs2IQY59kLQi/bfwtyfR2Bnm/IYoCZfXoCWhZ9orzVoS0dW0+iBdIVjpWnJRWzFdA26Uhyc41sGdk6WsHp+FLQr3NLX7kkLKFxABiQ/9j9q8Bo+KkHCBX/a7FQBPjsI5ujMYSkAek5Hfu5RdV4tiTBwBJjuoZ7CbXlYDk6/jQxT+2KhzUXeVDvK9WUIk+M5an6XM6x/G7AUe5GQQSCuZAizSGBLmnbNnjHO9grdVi/X4VNYzn0HHCqApkpY/VvIWDbXom6D52IXWDPf3BZnpse2B81Ti0EciE/3zNBrH2AhzwGy3/tQMT6n42x5PbR43zJY7CHtq6hKnPAI3osGYp9UFc0OiL5YDDJvcuKKghlcFWm7G0umwsYuBY/rI/0vw/wcUmKXftMC13NINK+Dl2GhacljIwsfgOJyq2hyfff+H2z0d1O/wN1XvrNY3Tky8hwWGyfc2WH3p/n+8de1QnLsr3hSbvJkR74zcd6a6j/1OIMfEjPxr2mprDa178nu3Rge8J9J9txX70n5Xt3yfV+u9NVzSadBx/+eChIvK1wuoh02/1eiFZQOghtHR/K6HGVM7KPPXv0Fs95k4znOi2gAW62YqHcpnN4G4wIdxrq/kSNLb+pbTYxDA6erBpsNHLwDD42dC/NycrAxGPI/j9g63ECi70Np071z2E0DhiUXB1xBzq1D9/zY+2+NtfVGHHiKvY3+j4gQzeX5hulwWW1zGY+fr+GzvFJ36B0Ev9CIIUbvHQyPfx66pSYDqDKWH8U7Ma3r0NUq6CjL/CQMsciDS2K8c54zM41dRzlfo+g9JU9tehb1A4V9S6naEPjT6fuXs8BhsqO7TbWGfuXI7qVElwYMiR/VBFKLUJ5zHL+EYfY3xYYbiAwKhDAVTokv6H0OrLitrCefSwGIdpDArGColXhHrh+Dd0kQMAu06wxLtfaJkPfOYeQSvx0/f8ZRonalBCzBeFTbToTsxGd8Exo1+LYEBQlomMqenObYdn6o8dNHM=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "69c5efc2ba0fb335925cdc2faaa9cc60bcba275f28e456741ee925643d7bbca0",
+            "sig": "f7ac61546c626a24e5851824ab3a4ce7a62a5ce5c9c8cdb72ebbcd07ef09ba2409cdfd2f4c8b3112646b7fd3653e2064146dcf74b3576880a7d1318ccd3201ab"
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "assist": {
+              "reachability": "public",
+              "capacity": {
+                "uplinkBps": 100000000,
+                "peers": 4,
+                "perPeerBps": 600000
+              },
+              "relaying": 1,
+              "maxRelayed": 3
+            }
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "assist": {
+              "reachability": "public",
+              "capacity": {
+                "uplinkBps": 100000000,
+                "peers": 4,
+                "perPeerBps": 600000
+              },
+              "relaying": 1,
+              "maxRelayed": 3
+            }
+          }
+        }
+      },
+      {
+        "name": "assist-offer-hostile",
+        "kind": "positive",
+        "note": "A genuine, fully valid roster entry whose assist offer is nonsense: a null uplink, a negative peer count, a fractional load, a claim to carry five thousand pairs, and a reachability that is not one of the four measured answers. The entry is ACCEPTED and the offer is dropped whole - `expected.result` carries no `assist` field at all. Repairing it would be worse than dropping it: a mended number is still a number the publisher chose, and it would go on to decide who carries this room.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Ap3fLHhA1LHHr9fUE9pK0LlVz+n7EYpyaEDgjoed5PSggCFTjVhLeq4MhQ4QWZoCtWVxd3VDSGdv0VpmIuKSKYKJGEwxJy4tf7xRgva1Ft+qrVpjHM6PylWgo1XXJ9+Mcc/Lm8BEuH21mUBP+Hhtf5ApMCTKP4h2pIvqP0hkHHe/+CuhTgGHaJv+mVH3hRpUAObUuCyH3aOvezIE4d+yI9zEjZjgN4JQ7gh73/XAE3S236F2RQIt7dWX6WKHW1w9qmSohtDenrPs9dmiFnRHQHUp+Cwg/Jkb3Pf5hWku/OypjW+mpoRR9+B3j/YNIAZQXMjEachxzzwphYWCAsHhRgqSO7xdTVQsDnE3fwAuEAmxzXpMq2eoE2EHYRnyyLg5TI7KBARDsHH/fyjdp4NKPjjfoSSUsfJquKfJoZfRv4kbra4uwm16NrO9VPvsTVU4+RyKfD4rSqHZtDVahg/hHeah+KrrbxNN0gTVyFJLGMqLlJKo3PcYzrsv61c4jjvaqvphDLNzjJA/Ye9ckuFDf8Z1r4d7jcVjEsly1012L9dfOyEy+bO/c3kdpQz2eqc8O1hmIbq9chA+PYt110244dKj8999iBHU846H6LKte8TTP2zMzcCTRju6dL4njjY5h09Zpkp0LytEFOQdiG7ZyAEeh7vCoHqWOmqUkZ2RgOhXwuNP6yaH179K/cpPeTLubN3gBL3/7QUp9oDdpPRA5fGlMjjoVTyNEGl5TmFyvBOc9J5d4cEtdROsXBOp/sbvmlhEVD+0yGBme2gOqNn9XoPmAZiLU5znueY4kPdC7LDrttNhuIKMEv6qGmPeNp92Td45zlHH6glQqucngJY9hT9OKZQDp15RHkyE7/VPWMb/fd9IujZqgJZxwk2LZjYoGcJMTdJYi5K7GAUtCh0s5byIUvUKBVsRsBjZJHaEwB4whs/ysOZxVacKknRxdVS5V+Qxn7WNdoeNfJzfMOOrhE8bd7/kth//nz8dAGCYZICzEvFk3yzqYNvE8h9/gS1xeXpsGuP/oidOr04mkSQAJJrVAQD0Az6WW3lSbAGxzGvqg3S0IQleYXUQL9lgAYORhECP4CJcNsLhVrp/WIZFhDn2A66kYTAMG84IGBEmhKSfBhFGwaAQNogfX4iWyckZdMGxCi5FA88pJAsea6OKi+LLu1zQZL4/qnCWSKCKd7r8rMaceG082TDEIczn3XzXhd8Jo3621zK6soibTFNW3uIpXl0C3ofk4gkmwtZuYkMATd4XSxMrIyOPkzpZMIABRzLO2lyeC/YJqbTrrshxmcKW5FRxUjaN0tuHJHVeROuvbCi+ckl7aVXfLNWL4V+yFrLcgKEua0wyHLiyxQ1EpK6bD/B4hw7+Afy2Ib60WLocAuEEKa0OSNJ198SSVMiLMXuxpGdnZbOApllq4R/jTXelM2LYmTnQSUgwutLR3hik+w8=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "c14e8cf2837ce13eb422224565e64670650284c5446a6640752593e8203f972d",
+            "sig": "9ceef6138081fa732a56c0e057356c7be5f9053974979a76bc5e83a0cb7763110edf98ce1fada04d8ec75302eac5d47ae0439e90627f579b3f69227ccba98f45"
+          },
+          "rawAssist": {
+            "reachability": "amazing",
+            "capacity": {
+              "uplinkBps": null,
+              "peers": -3,
+              "perPeerBps": 600000
+            },
+            "relaying": 0.5,
+            "maxRelayed": 5000
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
       }
     ],
     "signalWrap": [
