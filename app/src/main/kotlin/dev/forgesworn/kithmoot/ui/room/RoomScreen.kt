@@ -187,7 +187,7 @@ private fun Header(state: RoomState, onLeave: () -> Unit) {
 
 private fun relayLine(state: RoomState): String = when {
     state.relaysTotal == 0 -> "No relays configured"
-    state.relaysUp == 0 -> "No relay reachable — nobody can see you yet"
+    state.relaysUp == 0 -> "No relay reachable. Nobody can see you yet"
     else -> "${state.relaysUp} of ${state.relaysTotal} relays up"
 }
 

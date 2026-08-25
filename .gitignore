@@ -10,3 +10,16 @@ local.properties
 
 # macOS
 .DS_Store
+
+# Node tooling, if it ever lands here
+node_modules/
+
+# Local agent scratch and working artefacts
+.claude/
+.superpowers/
+*.bundle
+
+# Build outputs that must never be committed
+*.apk
+*.aab
+captures/
