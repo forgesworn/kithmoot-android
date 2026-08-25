@@ -5,10 +5,12 @@ agp = "8.7.3"
 kotlin = "2.0.21"
 serializationJson = "1.7.3"
 bouncycastle = "1.79"
-# Pinned deliberately: 0.17.0 onwards is compiled with Kotlin 2.1+ metadata and
-# cannot be read by the Kotlin 2.0.21 compiler the house standard fixes. 0.15.0
-# and 0.16.0 are the remaining Kotlin 1.9 builds.
-secp256k1 = "0.15.0"
+# Pinned deliberately: 0.19.0 is where acinq first shipped 16 KB page-aligned
+# Android JNI binaries (fixing libsecp256k1-jni.so's PT_LOAD p_align, 0x1000 ->
+# 0x4000 on arm64-v8a/x86_64), so it is the floor. It is also the ceiling: 0.20.0
+# onwards is compiled with Kotlin 2.2+ metadata and cannot be read by the Kotlin
+# 2.0.21 compiler the house standard fixes.
+secp256k1 = "0.19.0"
 junit = "4.13.2"
 
 coreKtx = "1.15.0"

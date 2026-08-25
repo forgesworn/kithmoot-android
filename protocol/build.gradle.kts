@@ -18,6 +18,21 @@ kotlin {
     }
 }
 
+// secp256k1-kmp-jni-jvm 0.19.0 (the version that fixed 16 KB page alignment on
+// Android, see the version pin comment in libs.versions.toml) only publishes a
+// JVM 21+ variant. Raise just the test compilation's target so the test
+// classpath can resolve it; the module's own compiled output, and everything
+// :app consumes, stays at JVM 17.
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)
+    }
+}
+tasks.named<JavaCompile>("compileTestJava") {
+    sourceCompatibility = JavaVersion.VERSION_21.toString()
+    targetCompatibility = JavaVersion.VERSION_21.toString()
+}
+
 dependencies {
     api(libs.secp256k1.core)
     implementation(libs.kotlinx.serialization.json)
