@@ -1,8 +1,13 @@
 # kithmoot-android
 
-A native Kotlin implementation of the KithMoot protocol — the conference-room
+A native Kotlin implementation of the KithMoot protocol: the conference-room
 protocol over Nostr where one person can be present on several devices at once
 and still appear to the room as a single participant.
+
+The TypeScript reference client is at
+[`forgesworn/kithmoot`](https://github.com/forgesworn/kithmoot), live at
+[kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/), which is also
+where the APK is published.
 
 This repository is the **second, independent implementation**. The first is the
 TypeScript reference client. That is the entire reason this exists: a protocol
@@ -18,14 +23,20 @@ source.
 vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
 and an Android interface. Two emulators have been in the same room as one
 person on two devices, over a relay, with chat, microphone handover and screen
-capture working — see `docs/screenshots/`.
+capture working. The same build has since been run on physical hardware, a
+Pixel 10 Pro XL, where the screen share, the camera and the foreground-service
+lifecycle all behave as they do on the emulator. Both sets of captures are in
+`docs/screenshots/`.
 
 What is *not* here:
 
 - No persisted identity. Leaving a room and rejoining it makes you a new
   participant, because nothing is written to disk yet. A second device stays
   paired only for as long as the application is running.
-- No room descriptor, no forwarder support, no end-to-end encrypted media.
+- No room descriptor. The 6 `roomDescriptor` vectors are carried in the
+  published set and counted by the coverage guard, but nothing on this side
+  implements them yet.
+- No forwarder support and no end-to-end encrypted media.
 - No TURN server configured. The only ICE server is a public STUN, so two
   devices behind symmetric NATs will not find each other.
 - The interface has had no accessibility pass beyond contrast and type size,
@@ -45,7 +56,7 @@ What is *not* here:
 
 Two behaviours in there are load-bearing and easy to get quietly wrong:
 
-- **`ken` never satisfies a `kith` gate.** Ken is one-way recognition — you
+- **`ken` never satisfies a `kith` gate.** Ken is one-way recognition: you
   pinned somebody's key; they never vouched for you. Kith is a mutual, verified
   bond. Treating them as interchangeable would silently open a gated room.
 - **Roster and signal decoding return `null`, never throw.** Both run inside a
@@ -62,13 +73,17 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. The suite runs each of the **34 vectors
-across 8 groups** as its own named test case, so a failure names the vector, and
-adds three guards that fail the build if a vector goes missing or a group loses
-its negative cases.
+published vectors, never an edited one. There are **53 vectors across 9
+groups**. The suite runs each vector in the 8 groups this implementation covers
+as its own named test case, so a failure names the vector, and adds three
+guards that fail the build if a vector goes missing or a group loses its
+negative cases.
 
-All 34 pass, positive and negative, including byte-exact reproduction of every
-recorded signature and ciphertext.
+**47 of the 53 pass**, positive and negative, including byte-exact reproduction
+of every recorded signature and ciphertext. The remaining 6 are the
+`roomDescriptor` group, which nothing here implements yet; they are counted by
+`VectorCoverageTest`, so the day the descriptor lands the guard already knows
+how many cases it owes.
 
 The negative vectors are the ones that matter. An implementation that accepts
 every well-formed structure passes all the positive vectors; only the negatives
@@ -112,23 +127,32 @@ folds the roster into people rather than machines, and `ui/room/Tiles.kt` turns
 that into one tile group per **participant**. A person at a laptop with their
 phone beside them is one card with one name, two video panes and one
 microphone. Which of your own devices the room is actually hearing is decided
-by `RoleArbiter` — most recent claim wins, ties to the lowest pubkey — with no
-coordinator and no handover message, and the device that loses the claim
-releases the microphone rather than sitting on a hot mic nobody can hear.
+by `RoleArbiter`, on two rules: most recent claim wins, ties to the lowest
+pubkey. There is no coordinator and no handover message, and the device that
+loses the claim releases the microphone rather than sitting on a hot mic
+nobody can hear.
 
 ### On the cryptography
 
 NIP-44 v2 is implemented in this repository rather than taken from a Nostr SDK.
 That is not preference. The roster is encrypted with the **raw 32-byte room key
 used directly as the conversation key**, and every Nostr SDK exposes only
-`encrypt(secretKey, publicKey)` — there is no way to hand one a symmetric key, so
+`encrypt(secretKey, publicKey)`. There is no way to hand one a symmetric key, so
 the room channel cannot be expressed through them at all.
 
 The primitives are not ours: ChaCha20, HMAC-SHA256, HKDF and the hashes come
-from BouncyCastle, and all secp256k1 work — BIP-340 signing, verification and
-the ECDH point multiplication — goes to libsecp256k1 through
-`secp256k1-kmp`. What is written here is the NIP-44 construction that arranges
-them. `REPORT.md` sets out exactly where that line falls.
+from BouncyCastle, and all secp256k1 work (BIP-340 signing, verification and
+the ECDH point multiplication) goes to libsecp256k1 through `secp256k1-kmp`.
+What is written here is the NIP-44 construction that arranges them: the key
+schedule, the padding scheme, the payload framing, and a constant-time MAC
+comparison. No curve arithmetic, no block cipher and no compression function is
+implemented in this repository.
+
+Two details are worth recording, because they are the usual places a
+re-implementation goes wrong. NIP-44 uses the **raw ChaCha20 stream cipher, not
+the AEAD**, with the block counter starting at zero. And libsecp's `ecdh` is
+*not* usable here, because it hashes the compressed shared point where NIP-44
+wants the bare x coordinate.
 
 ## Licence
 
