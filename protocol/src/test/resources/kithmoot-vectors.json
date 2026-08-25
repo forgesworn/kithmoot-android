@@ -688,6 +688,215 @@
           },
           "result": null
         }
+      },
+      {
+        "name": "display-name",
+        "kind": "positive",
+        "note": "A roster entry carrying an ordinary display name. The name is inside the room-key ciphertext, alongside the participant pubkey and the credential - a relay that could read the guest list by name would be worse than one that could read it by pubkey, not better. The name survives the round trip exactly as typed, and decides nothing: `participant` and the nested credential are still what say who this is.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AqqnTBwwqRiCqZfo/TLhftErirBrpSbe2AIVSYa+Vw5N8wF6zG1UtH2/WY40yZRiQ3wBM1TER9SzczXvHIhVj2rA34BgkfkVO2ii3TIUqzqihKq58+5wtvnsae17YfF6wSCoVBvNvxO2zF2Mf0urVjadHOHlnP8M9b91ntDDkqwISHoSe2DySxFx0Y2F/mxj0O9R29Vyrbo5xmCjs5s/zzj5X+x/FfLp42ZgT5vkfryO0gahd9R2rEvGoknRKF/Sjwb8R6eU9SMJUfz8zOXhGWw/wcHUGwu9f3JkD1UiIaimlNeDd5LbmHTmrdr4WtimRqbVNgIGA1FIBJ+b4ec0j/MVbID5XC/C1Mft6u3aCBGdUJo3PieyrmO3W4S6suR7xAnOQ/yZRUhaVAkh1k1KOMtrAu8/sp8Mopaw0x8EKNxGAHDGl/aATMUQRI/seWP//M027AW9Ve3CeHViZBva5IC8vV/X8AcrovpLTjBXXbBXRkF2Y7eXLw7MVFJNbSK9hpxmAvZHSIkrvr3/L6KAyRcQ9qOeYUHW+eVoYj1vFg3Y5haFWv3q01KIYgINXlq3iMrekNaujEdAE6QrjewXtunnj12X2GFTkMNB3hW/G96DY7lw7LOacGNZ2LwwysaXOnO8feLctwdKD15KLBaEYdDJN3aXKo3UJSBX3lazbNgTQQTe0OpHcv8Ax80asH+gc5SM0+l+t4wuF+WrtOLq57A8roK30HhEdhnh8rRYjxyRggenvoRUKm/f/OyWLlBxjm0qV+dAYDTK83V9RBAY9QIM1LcGORWtZ7bWFw8S5MPGgu6BdB8fbeZMGWfFjtZ1o9PBrNffcCohYv1anB7Oh1j0PqzB8JlcIcdtrrbjhafiQAq0wp7DK9m+0KT5tU3oB3xcgYiqxAo+OCW4x7iE02oQrg1ZD0rHK7or2JMxfhrUVl5lyyeWPDEIzAylvKvsyIrzTmDJ1SR+LQaoB7LhkA2usrQrsHPotnbLCtKxnrfYa3dH4lB3SZGYlasdmvRIvycSjw6QkU/xkt79gvcZUuD4Jh0L2hoC78JmnXYpDHWujz3DhA5hXttluARmix8LV4p4mqZZ4jTtS4mwXkorUtf31ho0+bOqiQXHq08D3H31ch2pafYzaPj/Lmf3GB7BndNSBYQ+Xnf8g9z3k/iYGbaDHNgfJOISFt0KvGhVmP5ho6JrgDImnWf8Z/2U06K3uEq/cfZg7KuSkGPp6GFBERfFF0sORECLGbXEGJ3fcCi6uupFA2wy/JErhtmjg9lwN03A",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "2efe99a60aa307a223d4f915cdb156c8872c32d129241d50419046739f5c6804",
+            "sig": "8b629c764c7b7cfcb1da3944058ef38d39927d20e239557077f7abd9c11a5b06c07d3bec957e3d9b28ca05771e15333a7f3639e4958250f0eed8a8f154a72952"
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "name": "Darren"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "name": "Darren"
+          }
+        }
+      },
+      {
+        "name": "display-name-hostile",
+        "kind": "positive",
+        "note": "A genuine, fully valid roster entry whose display name carries a right-to-left override, a smuggled newline, a zero-width space and 200 characters of padding - published by a client that sanitised nothing. The entry is ACCEPTED (the person and their credential are genuine) and the name is neutralised: every Unicode 'other' character removed, whitespace collapsed, and the result capped at 32 code points. `expected.result.name` is what a reader must end up with.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "ArdWRECmut3dM7n+kObw1FhbN9NaibuwT2bu7KcyAxdivm9viYeI7+3JxAy2mPgiK0KQoIimwSbWj2t1fqTiGQO4BJb3fUVZC0Vqp/xtC3T1O1GRAu8Ax4+NuS6TX+p6Rd0KY7eT9e8+steGyFU/+4AoY8KvVWTXlVAAjvNqdC3oIj9AzqKXufc0nh/5a/k4Rp8QwSSmSmGbHSX/QJ6eT76JciCta+1gCs/Ziegimh/Ao47V/l78YN1DTP2ykMaL5r7LfL2gU+dzOWT8uCbX9Saxz3bH9wQv4PGQQR8YBX6fMxaMByWkMOO9LP7/pUO/u2w1ZamVYp55cXqxCGXkZODvIPOiqAr+/ZxKbvyByZaQQopPyzkhSCFKL2PuopypmtgjI0nO1/FRbg8I4fC0jbOWDNr+vjbvdz1ae2oxbwXmLGQ0JR/baaJH74g4hF9OgKk2JduWuRhFE67xkoHaGEz0UDr5bfvW7iq3Py4W45qyajdicgXffEME5u0oDqXhejG03I/tvYSoMB5q3LyGMVTpI3BB+g054/10Cql/KipVDfBYUHzJ7irP+bN/jqGXt4aUEuYR63+emv5AKrLl+jEWA2FO/glE8AojHyRvTIoYtiHyHt4uRDZnI/KqDOIOkx6fpOimTKdn4qBtT/hVydqrMtO66QpuRgb8bkh6lLokVqhELl8xDVG4qOVoJvkm2bDw6VCi3SSmy3v1eoGgCp9z9DXv/LOz8VxIUkIXH5C1vt12JjNuBNJl21PiTeHXlbYuzuzIyFLK04xsBwX2fugUYb43svJTiBpA2Paai9gBJbEiWRzO1e4zZf/R0hDeDFFY7i9aIw5NlvUCfOCxT6090TA45GZqe/RXzve8x55J5yORP0p6axbasYLGSB6Yeyt9Wgt0OW9dwLf9IHwtLUo5SJwj6Dn0BF3l2UK8sg59xOLlHwVhnaQah1d86rNFIO1IlAwrY0RmmnHsz3Sw0moVdL96OBc61PJZA4cT9EulHZ0cSSyjsIZVgEYNQCl42y8YqreYBp6exB4iEmPJVY+Pb8rowty5L6GO68Gh/wTBaPpqspE3bYT2ZW6eIAX71toBH1g020CRFWIvRGebrETX0dKNGbICNDaK99fW3TfNvaDWdMgNfZQeOo47Do3NbWubk4DYgR/TbsWghDWgXIOPPU+es1rZ1DFV/oqDg0iftsQwdGtmc9C0twDRuoIo+Meg/xKQRr4FUdriD9qZI9dFD92pvffI8o+17j/MAOngrMV5MYbcCJyeNMFc8tr0ky/uL3nSktHk7NqokygyuSHi6jbyCZc9x2ZngbKO8CiFiw+H6ibCNFhdI5o4SjfHUMp+w6NV6ijrcfURAi2gfh51U9hG9DniF7un7ZTZP75d7IfPk+XCwelCaaLMmVFJrgYW9fFp91S+cCYwLzYyLgyV19JfnYwxy7HnOLSBv7QjyAI=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "8560ab76fc471550bb5ae2db6e8bc9d86afccbfd8937c33b272bbb412b80f127",
+            "sig": "95f8b771aedc7aa2150d40df4c1690316eb3980cd89e1f29a220e6ee995470c97c2ba728dec434d9e51f1ca294903b461afe5965c3f4ab7698b88f115547bc8d"
+          },
+          "rawName": "‮nerrad\nadmin​xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "name": "nerrad adminxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "name": "nerrad adminxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
       }
     ],
     "signalWrap": [
