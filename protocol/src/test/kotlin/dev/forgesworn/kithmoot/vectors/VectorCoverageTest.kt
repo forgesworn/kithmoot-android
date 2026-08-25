@@ -23,12 +23,13 @@ class VectorCoverageTest {
             "kindredProof" to 3,
             "accessEvaluation" to 11,
             "turnCredential" to 4,
+            "roomDescriptor" to 6,
         )
         assertEquals("group names", expectedSizes.keys, Vectors.groups.keys)
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 45, expectedSizes.values.sum())
+        assertEquals("total vectors", 51, expectedSizes.values.sum())
     }
 
     @Test

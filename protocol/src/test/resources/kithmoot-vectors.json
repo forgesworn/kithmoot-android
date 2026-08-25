@@ -1372,6 +1372,572 @@
           "credential": "4PYbHFZXS1IY9n6B7zHMElRmBBs="
         }
       }
+    ],
+    "roomDescriptor": [
+      {
+        "name": "no-forwarders",
+        "kind": "positive",
+        "note": "A room that names no forwarder at all - the ordinary case for a small mesh. The empty list is explicit on the wire, not an absent field, so a reader never has to guess whether the room has forwarders or the publisher forgot to say.",
+        "input": {
+          "descriptor": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "b55751c17e89dec24018e08685b95e64d3c046750df5e4f3bfe1d31364dfaf1f",
+          "auxRandHex": "822db7a8be736073b85dc37b894db23f1ad100e036e6d65faa1ab92678527ecb"
+        },
+        "output": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "ArVXUcF+id7CQBjghoW5XmTTwEZ1DfXk87/h0xNk368figICv5LtiiAnA/PdlbH1athloYKPSjub2mCUtUE4W0Yow8ppE3wyjqEM5LrnXrLnrirvi673T9jdJKOXjQmW91fiEp/0ZxZ/BhqL+GwJrzYdf+NTfy2r7j7pHznSmA2I0MPdxpHZNbim0vfYNJaRH/MK/Ir9kRJnlfyaz9pgq8yxPsDr2zadytjp5JvKzg1ykR4tIHJ6Gyf1nyAywrsWySYBxTi87XUGYRef46exbP0A6yVA9Sh3CkuKZLDorKv0P0/kR0t2vuNTrFrCNqrfAEHjSLEidHNwaxOUFcJYN0z6jnLAz2qMVlYQuAKg9Rl86q+KMnXSeZpBGVZR1JiXuvzd9ebJTyGX1Ymv6zNWcpH3V0hG+AJNiZknXrJhBU0Fmy3BH3dt3KWasUUDzhm6Iq/sGCM+9hIoAuBv/sgxbHJp3A3w8JXyPvzm4PJqf7ba3u1GXYbGCZKuVKENce3srYRPLDMRMBXcTqi3GnMh4+zFoCRnHYylf3JYWzHNDtsaWyydcfj+RUNC7gTan0Pfg/f42Z3goL99LzEniClExZZK5XOzLW+zwT3TTovDPshXb90Z4Rrl9bO/5vRolQ6YBfiSVYiAruGzLSx9NIWcjwr9CEueg+iDNUGXnirUaRTRmHUJfdNiyZtg5Ivks8wGM5LhIZaSFESV1eCfGNgizM2OKGRTYCaCYFeyrpK4KfHqgJTAS187rCHSBZyYGBkmpxO4sKgw5/nWZY2s1/QgB7jcrsblYkn9bKU7NGP7XvsXVoWtzWMsfDGZEBLnQPrJfhRLpOxfEBxflgVMxy8/xFYdYfPTOb72jvNpQrdMgyQsSPDDoHC/4jyp4LpYGQbqxEYhYBb73/oEmJonzB39PfjZdGoNwVOJAdiaK+udvpeGvfex4mqBZiUTH0xN0ePNDQKudQ0OIYJjxyOQyLPsbHm3l5T4t8P8Dvdexg8AbpsLDJGZ4KZl10tqUlPUActBtlRw8f3fSpxJ2TxFVVbj5EpmE47K6BByUflWwmexwLIfgY1VzoWmAg5zOjCK/dzj1VIbnTeVnVm020ui4bLFjI6DjjiQO4f34NG4x42u1r2LulschlhpPqN/U1Slv49lyqZr2A81eaWqMESVTe0dr1VJYusm9caBPnI7G77V4WpvlX4pJNnHxDfQyhWQifY+TBwvgqUqsTDHn2WFVNdoYIuxQfImGtSzc8VAX6HXRSRRQ8WLsVyFsfqEM1LGEwGNJ8Vp",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "ef61475e6db6b553727bd45300672ec995feda19140cc026d2256c387cbf9147",
+            "sig": "533bfb41968278af928cb691894fe604fa34473f56f814984bb80b4ae21f5370a953c9413aed4c934eb030955fb013b6df749881896d8c824f73c2509ddbccda"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "one-forwarder",
+        "kind": "positive",
+        "note": "One forwarder, named by url and pubkey. The pubkey is the forwarder's own Nostr key - it identifies the forwarder, and grants it nothing.",
+        "input": {
+          "descriptor": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce",
+                "label": "Community box"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "ac0971075d887c3bf273156919fb0e7207c89cb20afdd047d821ec51f6c1db65",
+          "auxRandHex": "41643e4b78903fc59587e6eafb26855404bec1a62e87e6bfb9a55b70e281d78f"
+        },
+        "output": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AqwJcQddiHw78nMVaRn7DnIHyJyyCv3QR9gh7FH2wdtlO5Qtv71H6mfWGyWn2vdKrYxubfCgznoy6UJSp2xCqH7nCE65ec99ncVCrSbqHyr9kR4LaujNieiSQOlsoIOq4NtN8LvHMKUEbFrnzXzJC+ZN5H/U5upkxUQTRPW7FIVz+8BcfGHzDhsoAoSIu6NZ51rV3kNj84liFsff+Bjhd/Mikjhsg+VfJuGscN/4aSKfDAHMMVX4jvrprri3fDNHBld8sVCa8zN1SUXtA7sulQMrgbMCZ5lsf9uBsBemyOrqSQu+ZTnYoZZHCOWrlWo0FqOcuYKmkwQgSsG0cosXOF5EibGow5tsSuuySrYjuhfdTcLeaVOtcxUHwZ0+x0TurOyPPKB413WdL1k/gEA/LSSQS71kGahKA4DiBJ+SlsXF8/gPS07diEq9mHGGom59tTByrBJUIJkkn5Tnk7chriTp8ddhsNE0gGC4TYVVyOg9mUQClZOvKYm9rlAQkTwqbQ02rx1U75UQnnPIRuro5lnzUqUXlA3sB0y3tVr/zCV1CE+SvYCefvseA0jc6RBO4aHec3NhW4mUL8UwAN8fCTZezvFAeTOSI+3fjq+04xM5XRQmldDQ2rVewshlfa80xxjO5m0k5twkV5VCOc/AZvmJ2q0jTJ9pIyS9BhVZCfbR3U8sK3tu01w0WnhnqrDSbWjlCG7sJzXntS4YMtSHuVEltF/92oEvzMB+KlCeQmu+zlafcTTZyNpveQPVHONPyaS9WCjTG6eI2qXtnOPOxDB8G186q5LOjcpvzpoD9BOEvQWg0lpek25vFLXv6ebLnCOyupvmTDfF+s7KWMABZ7ZS1irnjB6QSsBVOHOOUCP3o82r6Ob7fjFPZvgET9nHY4IfcsEvWrEPw3zED2KJrp2uBhl4XTpXd1W6Cb9I6wKALxHT0LsZ06tuOvIaLXnKI5P7fCZT9bKfeUzKuBi97XP5oJEW7dEXqCybIVPi+hxIQokTf6SWWkM97+wlujTP0DV9mFhU+E0S63GrQtWuknjLfKRYghvCB+2vxLV/6RhzflMJsDbHfUOJnMUVGX+H2o46hDa5LT+ctmqODiPwugiApJyru7COLB0mDl1uXh6Wud8fezQ9+5yW6vUJ1gSiAhtFr0I8skJhlJbJoDWhIq9RIeDFQyLScIuuhQZRfDc+j8f8F9AtC6wuml8zaixqlbxjISJZ/eDeAoRL7E1LWjgZ4WlkkpsKOfVX7Vtw8odLoE88bJ5FntS8DYko8dpEB5JG2/jw1Bu6hMOdMCzZZC009wiSklNmYoJa2xsVrsssaRurtBwTMXuyGDMeXc0FL/0PCJAuzvz8vfU9IRddSGtndOP9k1uSieVT4H1SL8Ib8OEBlEIWYJ9ZBc7QQIq+YYhxJ8RVRUruOZDqj+plqE4OB6Q8En2Yh94NFS0xK4++HNY=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "d39966c2fdddf297582af452b91fb0455f5efb8a265ba6a67d4413c2b017b40f",
+            "sig": "f4cd08717dce331dd2adc02ede2564b302c44e597533a984e05c55c7a386b2b4cbea77866484740ec58fb0b7a18005a0e16dd537c49fa960bb43bd50bbcf2225"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce",
+                "label": "Community box"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "several-forwarders",
+        "kind": "positive",
+        "note": "Three forwarders with different fields present: url+pubkey, url+label, url alone. All three fields except url are optional and an absent one must stay absent, not become an empty string or a null.",
+        "input": {
+          "descriptor": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce"
+              },
+              {
+                "url": "wss://fwd-b.kithmoot.example/fwd",
+                "label": "Somebody's fat uplink"
+              },
+              {
+                "url": "ws://box-under-the-stairs.local:7788"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "5b67e563a4012515b907c1090690bf232519cc2de59ad0dfb8345bd25c5fa271",
+          "auxRandHex": "7dd08179d50a47a6d77733b668b820fe319319126fd7202566d7d92f099ae525"
+        },
+        "output": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Altn5WOkASUVuQfBCQaQvyMlGcwt5ZrQ37g0W9JcX6Jx0Fjjvm5xTLvRZueR3AwFD1YNXnSxaZG6ArH3atU7uTRFRRXND0EaMICpwgpf/HRWB75xV/BHLj/sKSvefRV/xjvoCSJFuCen6yL6f3ipyNh9LLlZbGKoEG71pZ3chlW46KeTRzlX/LlmCSS9nCbMctTnsXP13poyqVVAx93Ol9Ge1NYvLLdAX+VSgSIdhBD/TwE8VfdX5sm02b1gcorv7XqqS3Qr5Zy94U3N8cHIDY6Jwz2om/UwKwECSEU8hEhp7xhJgM5mUdNM1vn3dRjyCngBfFe0jDyFNuFqw5+jAuNdDfaf2p87e/X+9ixG7NCI8IQeFfKQc6MnLGsowZkhXKrQ+JiAvez9EB7rTBqwHYjM4MGE9nns785Axik0e+kXxk7iTGLwz6qqiSaQG1dSzIyUnq8DDfbG8VeeCBztvYMSBPosDaflh8j35luTkMF/sdaDop1CcLx1iExrIJax9NK7QfB2Sh54Rr6R0V69W97danWVNHQfCXIhTZUJgKwagDh9HBPPWjYZ+qRGHWMvbaahvWj7HTi/GYr84uBxNqsMelKfcVFcxUXFFVEBechMIWFJXCSBgEYjvySEdFxf6y3dwAEVuGD1aL0mWJGSRS+B/4lbXo6V8kshDtrUVq9Ih+Tjf2B0EzwuN0wHAFEE2WHq1FQj5E794EHC0nEnyq4CxtoPvo4vuyWn2sN/HC0GuZGqUP3GAiAwVCy1TQbEPfXhDUVWPR4iZ/ZWzx85Bzp29UaHYc2vjClMymYAhZ4JpfvvE1O5e//PU9d2ylbzFyMMRxQboUy77iwP3unzVnkoiAYg58FlH7oGqDOJruqBTrT2FCPrz6LW9smnCW6em/zavJVpI7mkcmO+7jMD7RMAp9d5pGDc+nnG9u0LWku1u/damLP63n6jxUV77QHkbXDOyuPzkwbxCL36a/QmhBtfH+E3BuhDw24yAzw0MzbGYcIaKfVtq8XjcH5SPvOY5oqMygeH9e9lAG06dczArfNDRGgWG9/249+xld6X+IwpnG2Q55KM1ojUqzvhMtU2tYmjwK8sp7Vt/VAUKfls9Pq0Ytlsw1Ib/BvLJu8JwL8E+cI/N/EuECarR08joeeJWKbSOR/nnJ30OATzD+0Q80x2W0qtdAUAI/gkMSMHGtwSr8rSb8V+tdPd0OK5+S44iQx2+qXctKNEZm/8GrScwtyy67KFyT4LFVS3htzdd209BTXaG5Wr6mlMqX6rk1ptLA8pIeerxAj104A/0QRphNvMUZmVvlFpYEyfHxa3bDb3MAO7NaUA1R/kbwf+SsKQSIaHjeGBYyOeH8xbTI7hrOLl3PSVaKv9FsZOTl1UpFBemjf7oNp3nKYUebk36hEVJscYSIVrS2fRc1nOv7Hwzw1Aov6TymNuZ8KgGb9Tl4Z6GS/ewhallxlmOSbnt8hluY2gyhFctp8oXBZ+obRn2/GMkFX37Cz4CjMgQ/1x9L/DKmAgqE3GuHKkPEus4L0UChun+5NDF4ugwt6wkyInp5T5wGjMNUV6MUvnqk6Y1NctLQYwW6bE8c/61oGll7Qm8CdoOijE20v5ZHDJDpW5yBUHFgLeMbRV5GOLpTRtUXnopfHHcP2b5Whs315qzpJTUhWzcKZkEUYEVC0fNQmOSpnzlFGjVnJHJ31rpqwDWmynHC8m4BmnMheoq0bF9QRdJUKaxbszkfTFoMozh/Ol6CPpv38p4ANyi9P1pDNNMjBjMHlCq7dvwtbj/qHuHo5KG8SK",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b35b302c0c8fc27dd2097377786b0d25e85aabebb6b21f7902dbcf553a2eb0ef",
+            "sig": "ab97b10f26eedaa6c82612fbb0b6cc5e4b3a5edf215f976656de6e48b8af4ece0427e3d2d81d50dd52e55e6c9d2df602b586a6c3732d2374db6b49001c91a919"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce"
+              },
+              {
+                "url": "wss://fwd-b.kithmoot.example/fwd",
+                "label": "Somebody's fat uplink"
+              },
+              {
+                "url": "ws://box-under-the-stairs.local:7788"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "forwarder-extra-fields-stripped",
+        "kind": "positive",
+        "note": "The descriptor decodes, but the forwarder entry does not survive intact: a conforming decoder projects each entry onto url/pubkey/label, so the roomKey and note fields this one carries are dropped. A decoder that passes the JSON object through instead will return them, and will have handed a forwarder reference the room key.",
+        "input": {
+          "descriptor": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce",
+                "label": "Community box",
+                "roomKey": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+                "note": "should never survive decoding"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "16d5bd89fac5123d2d341d2f512cfcdcf33f35082a0c2d7febff2d4eda5e8d9e",
+          "auxRandHex": "9cba8770ebba20b1186639a7532b8b8695c5994c7159dd863f26e28792826bd5"
+        },
+        "output": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AhbVvYn6xRI9LTQdL1Es/NzzPzUIKgwtf+v/LU7aXo2elGNhKQTqfgT9onPQKLels0cONvFtT8aSVOnLJIjcY0Vbcl3JfeLPER+3P70RTtMjsQuGf3zXSMnWEFGWzWfEg7QOgrKvQgnqH3wOeIEy0F75HjNwZSRNjGEBpWUvDAnRm2hwp3E8EN5Y3CIPgntcp5mRfj9ceuRjbYdemebGXv/Kk17qisD707mPfl5qI16PWlSwT0u1cCzOV5bovR74A/u1/fZ4mBWrTHy8dFoMaFiuxI0Kq1rYnuY9lN20ZvOMC++4oZ1pf4qZEq1CKO4odxm3QtIOCo+2WSjEYC9tN2E0mWL1mFXv85R1SE/m3aAyooHd5oIvscayHiENKCkr1vTG08oUFqyZraCLz/b4hDmRuwKed5RxVE/T/oso2x0uqIYdGvQpNnj93KZKhsrcxEkkAOBeOfKOSSlyPtEcxH1936ICUvg2Wx879FrrTWnDkkPoTGa3258EwoMQi7z7gq+ySYUQVpUjLYbfwNntV+xRIShoplekAjx7UDCoRmpK1gFkWdIWpUt8MhRYbMH2JiIWJRLUjH356CuZZPbd7qmKvJINmPQRL0csOY03SNFwgwYvbTfPj+M4FgOpjZdRBeVyVIydVUkSODdVqwsHh96vechoJbx3zrXsOeQ7Yw4Myj5VtwjLdo4fEmPZpISVk8XjUwjXw2gnZzrUva39+m167bvT4/YPjEac0O58PByF/WVq7xK2Q+sGfBlk84LUD3vC9RGxu1SBQ6YOkDZNMSpCUS7we6QM510RM2iTg/08gCak7puTQfIol1ymk6GmxS37ximt6LGSTaDWpqL8r81h9rd0MgHF3JlC27iAZa5Q4RmzJ7bHs3XliW7isebuXbCTutMhL3dQcuJ5358fY+ZEVUxp66cKkTIs53UUzcwPVGW/FfFjDXXu7zyOA2zJ9NsS9SBVMOoYTROtfjVUUCmC0RUnii44hgCRGdMqBU60gqQ+3eG5nKR6J2b2cKQVcDcQX3GwUSsCtAJ1QrdjesaztCHZxB58H1Au9t0M5cueX7o3h04fDXyzVJBPXpbkQLSleogwbcTngISpWPNoAXsYIBeH9KuhbPvaW7Mrlz7wyn0W62GfniPFmRfom66kGh6jAlGK0b+cc0LzN+o1pi/d9cMIGJKCKVG9nOmyWziCld4k5Wrtt06uAjUWnIi4GbuXCCEkaHT60Cf9q0nMQHTneDJu9TadFE5AUDgUKaox610XeCOUlaPBKRIqr5ai8N1dcih2dbCMbL2SdyBtxKZct9Gry4cttIKy2L1R9t6yXJbNXyeJi7iEz1M7YZh97uK5Q1r5xCCzDLE2yqiwepjiwlQKHZXMdg700trM3Fzl7rwtFgcobB6aX7+4HO2I6Fu4lDc77i2WmhuQhUKeRoZYQ1YFz9eWkS7hClsa022ZrmV1kLrK26BcMv77XtZRiCAaTzYxfmo+blcSRqnvvvLJqXm8rFDvuGj6NPSY/VO8yZxaCXF3vd8R6nJoDRakodFdXJDMXE49JPUiraBROjgPyL37X5iGOOFq3CAyLKKGjVZEiv1iDRZYcDJZkO8FpQmNldRnal6he9phVzJiw2kSVuVsPOcdJibNJRE4R5ImGFLmIW/ZzU8eIsp/zt0GclE1X9nNG+g20Rxj9vyGThwLYSdBlcHsqUc9bHZPPmWfF9YUWbFH8tPk4WoR2y9tvSOWAyWIkD/XbLJSwO5//OsvXqEHHpokpbkx3TvdYBfG5SZxlk+1UAdb90rO8KsF0EDW",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "334386c9a458a669b7037f08890c687fbf2399cb0c6eb0bb89962abef982d10f",
+            "sig": "b08e8819e7fd973360c866e9d74e8532d8c3052b2568554d06373a067cc482a0ab8d6e46196f0ae12ff1eb52abb720cfa3cb2fccf1d55ad7db7190ade680e26e"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "wss://fwd-a.kithmoot.example/fwd",
+                "pubkey": "ab8cb16c1498d750eb66525b1a19ed4c83008b0aea1dd73d648f1b8edc3208ce",
+                "label": "Community box"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "wrong-room-key",
+        "kind": "negative",
+        "note": "The one-forwarder descriptor decrypted with room 2's key - NIP-44's MAC check fails and the decoder must return null, not throw. A relay, or a forwarder, holds neither key and so learns nothing from either.",
+        "input": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AqwJcQddiHw78nMVaRn7DnIHyJyyCv3QR9gh7FH2wdtlO5Qtv71H6mfWGyWn2vdKrYxubfCgznoy6UJSp2xCqH7nCE65ec99ncVCrSbqHyr9kR4LaujNieiSQOlsoIOq4NtN8LvHMKUEbFrnzXzJC+ZN5H/U5upkxUQTRPW7FIVz+8BcfGHzDhsoAoSIu6NZ51rV3kNj84liFsff+Bjhd/Mikjhsg+VfJuGscN/4aSKfDAHMMVX4jvrprri3fDNHBld8sVCa8zN1SUXtA7sulQMrgbMCZ5lsf9uBsBemyOrqSQu+ZTnYoZZHCOWrlWo0FqOcuYKmkwQgSsG0cosXOF5EibGow5tsSuuySrYjuhfdTcLeaVOtcxUHwZ0+x0TurOyPPKB413WdL1k/gEA/LSSQS71kGahKA4DiBJ+SlsXF8/gPS07diEq9mHGGom59tTByrBJUIJkkn5Tnk7chriTp8ddhsNE0gGC4TYVVyOg9mUQClZOvKYm9rlAQkTwqbQ02rx1U75UQnnPIRuro5lnzUqUXlA3sB0y3tVr/zCV1CE+SvYCefvseA0jc6RBO4aHec3NhW4mUL8UwAN8fCTZezvFAeTOSI+3fjq+04xM5XRQmldDQ2rVewshlfa80xxjO5m0k5twkV5VCOc/AZvmJ2q0jTJ9pIyS9BhVZCfbR3U8sK3tu01w0WnhnqrDSbWjlCG7sJzXntS4YMtSHuVEltF/92oEvzMB+KlCeQmu+zlafcTTZyNpveQPVHONPyaS9WCjTG6eI2qXtnOPOxDB8G186q5LOjcpvzpoD9BOEvQWg0lpek25vFLXv6ebLnCOyupvmTDfF+s7KWMABZ7ZS1irnjB6QSsBVOHOOUCP3o82r6Ob7fjFPZvgET9nHY4IfcsEvWrEPw3zED2KJrp2uBhl4XTpXd1W6Cb9I6wKALxHT0LsZ06tuOvIaLXnKI5P7fCZT9bKfeUzKuBi97XP5oJEW7dEXqCybIVPi+hxIQokTf6SWWkM97+wlujTP0DV9mFhU+E0S63GrQtWuknjLfKRYghvCB+2vxLV/6RhzflMJsDbHfUOJnMUVGX+H2o46hDa5LT+ctmqODiPwugiApJyru7COLB0mDl1uXh6Wud8fezQ9+5yW6vUJ1gSiAhtFr0I8skJhlJbJoDWhIq9RIeDFQyLScIuuhQZRfDc+j8f8F9AtC6wuml8zaixqlbxjISJZ/eDeAoRL7E1LWjgZ4WlkkpsKOfVX7Vtw8odLoE88bJ5FntS8DYko8dpEB5JG2/jw1Bu6hMOdMCzZZC009wiSklNmYoJa2xsVrsssaRurtBwTMXuyGDMeXc0FL/0PCJAuzvz8vfU9IRddSGtndOP9k1uSieVT4H1SL8Ib8OEBlEIWYJ9ZBc7QQIq+YYhxJ8RVRUruOZDqj+plqE4OB6Q8En2Yh94NFS0xK4++HNY=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "d39966c2fdddf297582af452b91fb0455f5efb8a265ba6a67d4413c2b017b40f",
+            "sig": "f4cd08717dce331dd2adc02ede2564b302c44e597533a984e05c55c7a386b2b4cbea77866484740ec58fb0b7a18005a0e16dd537c49fa960bb43bd50bbcf2225"
+          },
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "deb56b230478ea80360cf944c2f67e3ff54bbeed6bc177419cc81ac66d0c3cfa",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "wrong-signing-device",
+        "kind": "negative",
+        "note": "A descriptor naming DEVICE_A, correctly encrypted to the room key, but signed by a device holding no credential for this room - a member repointing the room at its own forwarder under somebody else's name. Holding the room key is not authority to rewrite the room's config; the credential is.",
+        "input": {
+          "descriptor": {
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "forwarders": [
+              {
+                "url": "ws://box-under-the-stairs.local:7788",
+                "pubkey": "46f95fa83bf344ae7476344dc322b9d2422dbaf720807e4736d8f58eae400fa0"
+              }
+            ],
+            "iceServers": [
+              {
+                "urls": [
+                  "stun:stun.kithmoot.example:3478"
+                ]
+              }
+            ],
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "042f347939cfe3f71c2f892b345c1160ae45974e8e98f9fa2e1a1c11e18b82e0",
+          "nonceHex": "5875862bdbfed69ee35c526dcc8e9ca082814ba9a152cfee528e824c0bdda471",
+          "auxRandHex": "db60e61e9380e64f3f982f41161e8eeaaba5a4dce6d38b22daa01f0e9c02a825"
+        },
+        "output": {
+          "event": {
+            "kind": 20465,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Alh1hivb/tae41xSbcyOnKCCgUupoVLP7lKOgkwL3aRxcObLRzgaq27u6KOXXIdlNGv+MkmdfsUBpp+o4NuOLRLk32JYBAY4+5J0ijD/uRgGxLinzldhZHynh4GaiTJT96d8moBqbhQRDDg6N2ORd3kDH2eXmpswCFoCVbLafKUbSV2m1a0jClOkvx0e3O7awuG5kfR3xeFdnOBx4Hvjcwb8r4tKhLf3PE9jfTn9QdwRsboBuOjBp2F4AzV3+cvHEpS/ngd1vVOWEFJhBBJAZISLTsupj0nG+CRJEuvMtFWJcm1IVvN6s9yXnbdOGieeqGBka6gptHxpLLVeleYgmx8DQjIHacIh5H3GbGfXJp+UMfSkFC2dpPi94dfhJHg4+zRmV0syf4s/kLtzT9btYyiJ/9VqCtiCW7+yi9I+oKCa0QUBKuA/f2qwVIjvhICV9jXAPzPnBQkf0GzCAckRzYuk21xMleLK03JC6or8EsoxUM49x8iRsVZwoNSSteFLwVCfYum4NBfWRsjHWonrC8WnxrnXLrnnp+BbMLj6/S2O8IoIDypGUDjnLg8rc9JQBUviVAwYNfzRPKl81F8qNo+8oiGWLVES7vG/lgNDu1a0oLdlTM9/gvm5/+co5A5hT1LUGyeLcHisnc21ErKN/yHRSma269x8Wpn7pPouQSILwPiI10UGuROftn11/dVAZZdO9nLXAZ7zZXWnaWe6sISJoVOezmRn56DZVU/q3hg1A+SuCACudp1POxb0mxhmaKNMa/eKtXvAmrJFWBd3FQxbfYddygiOZcBCkL2SKba2/5quI+v9WtkGlPajyqxG0OzqnCZd6i6xyb2Apryz09mrPU2PIscXrU3uHLKra1lIYgkjCd14v+U0XIefmHAC4fg+HBIwrcss3o8+jvYpcWPpXQg1wb+go6aU6z+DD1ObSX1KGFVHr1UjFKkALdcmyhnLbqLsPWW3nqF0ahI73ecUgNaHuxBEwK+PTTAP8Ur3N14xOeKRF6czF8wRoEFFEmy5S63qwok9ulHXZzpg++yYX1R9wUca4W5S2Ok/7MYk7f3pocIlFB2nNRfDgIxR+3MW+N9IKFYew7Hdk/ls28JUBMAl+kpSKvx25ETQz/q4u8gK8Mduo211Q9UZTrC+ooP5+p7Zn2S7owXk8TxfU9UFWH9ZHsU2AWSImkwWuypOj8fkKYvRoeK2IiRhBYfAvOiaD7ZLdPWTbaUuU+iX8n3vNxw6WTkBAEOEMq5MtPVzFt2iAAX8TIHKU3RdKySWCN1AL27XV484oLrvvtYnPhb0DmXz1I47ZR7epepnxXZCB2Tfpv3GBtl6T5i3dcEe/mKGCBUxi7oT1Oq4Eoagf5LbREvAA8dfPb7jTp0n2syHYPOE02RdxNLgFPbbaLJq6bintfkT+5IcJnri9kLJ5kFTpH1P2sVvbUnZ75P7ekaBSf8=",
+            "pubkey": "e5c31b0317818488d5479d3510bce0ed4c8bbe3eb3ba05294543a9b1f1f39013",
+            "id": "3c00db281a8fcb42796fcbbf545da623daad3c64eecef53db104b05f21d1a930",
+            "sig": "1835126f62d54c6cec941d9c08b8d5da28985a909e605f975e3d5603de7652fd2d71e3a8bfac0cc8849dafc931514f364bcf3c374d54a5ee2844d97de8af1cd1"
+          },
+          "result": null
+        }
+      }
     ]
   }
 }
