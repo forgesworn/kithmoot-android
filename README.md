@@ -73,7 +73,7 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **53 vectors across 9
+published vectors, never an edited one. There are **56 vectors across 9
 groups**. The suite runs each vector in the 8 groups this implementation covers
 as its own named test case, so a failure names the vector, and adds three
 guards that fail the build if a vector goes missing or a group loses its

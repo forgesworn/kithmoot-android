@@ -97,6 +97,15 @@ class RoomSession(
     private val respondedTo = mutableSetOf<String>()
 
     /**
+     * Devices that said goodbye, and when. An entry stamped at or before a
+     * device's farewell is one a slower relay delivered late, and is not a
+     * return; one stamped after it is a genuine rejoin, and is an arrival
+     * again. Forgotten once the presence timeout has passed, by which point the
+     * late entry would have lapsed anyway.
+     */
+    private val departed = mutableMapOf<String, Long>()
+
+    /**
      * Deduplication and rate limiting for signalling - two of the three rules
      * §3 of the design says are reused from NIP-AC. The third, staleness, is
      * applied inside [unwrapSignal].
@@ -172,11 +181,13 @@ class RoomSession(
     /**
      * Stands down.
      *
-     * The wire format has no departure message, so this publishes a last entry
-     * with no tracks and no claims - which releases the microphone immediately -
-     * and lets the presence sweep remove us once the TTL lapses. A device that
-     * is switched off mid-call is removed the same way, so there is only one
-     * path to test.
+     * The last entry this device publishes carries no tracks and no claims -
+     * which releases the microphone immediately - and is marked `left`, so
+     * everybody else drops it now rather than when its presence lapses. It is
+     * marked `reply` too, because a farewell is not an arrival and must not
+     * provoke every remaining device into re-announcing at it. A device that
+     * is switched off mid-call is removed by the presence sweep instead, so
+     * there is only one path to test.
      */
     fun leave() {
         val cancelling: List<Job>
@@ -188,15 +199,17 @@ class RoomSession(
             cancelling = jobs.toList()
             jobs.clear()
         }
-        announce()
+        announce(reply = true, left = true)
         responseJob?.cancel()
         for (job in cancelling) job.cancel()
     }
 
     // --- publishing ----------------------------------------------------------
 
-    /** Says who we are and what we are publishing, right now. */
-    fun announce() {
+    /** Says who we are and what we are publishing, right now. `reply` marks
+     *  an answer or a farewell rather than an arrival; `left` marks the
+     *  farewell itself. */
+    fun announce(reply: Boolean = false, left: Boolean = false) {
         val entry = synchronized(lock) {
             RosterEntry(
                 participant = identity.participant,
@@ -205,6 +218,8 @@ class RoomSession(
                 tracks = tracks,
                 claims = claims,
                 updatedAt = now(),
+                reply = reply,
+                left = left,
             ).also { roster[identity.devicePubkey] = it }
         }
         transport.publish(
@@ -294,8 +309,27 @@ class RoomSession(
             // whole seconds, and an announce and the answer to it routinely
             // land inside the same second.
             if (existing != null && entry.updatedAt < existing.updatedAt) return
-            roster[entry.device] = entry
-            respond = respondedTo.add(entry.device)
+            if (entry.left) {
+                // A farewell. The device goes now, not when its presence
+                // lapses, and the moment it left is kept so a slower relay
+                // delivering something it said earlier cannot put it back.
+                // Forgetting that we answered it is what lets a genuine
+                // rejoin be answered again.
+                departed[entry.device] = entry.updatedAt
+                respondedTo.remove(entry.device)
+                if (roster.remove(entry.device) == null) return
+                respond = false
+            } else {
+                val leftAt = departed[entry.device]
+                if (leftAt != null) {
+                    // Stamped at or before the farewell: delivered late, not
+                    // come back. After it: they really are back.
+                    if (entry.updatedAt <= leftAt) return
+                    departed.remove(entry.device)
+                }
+                roster[entry.device] = entry
+                respond = respondedTo.add(entry.device)
+            }
         }
         recompute()
         if (respond) scheduleResponse()
@@ -347,7 +381,7 @@ class RoomSession(
             if (responseJob?.isActive == true) return
             responseJob = scope.launch {
                 delay(random.nextLong(timing.announceJitterMs + 1))
-                announce()
+                announce(reply = true)
             }
         }
     }
@@ -356,6 +390,9 @@ class RoomSession(
         var changed = false
         synchronized(lock) {
             val cutoff = now() - timing.presenceTtlSeconds
+            // A farewell only needs remembering for as long as an entry from
+            // before it could still be delivered and still be fresh.
+            departed.entries.removeAll { it.value < cutoff }
             val gone = roster.filterValues { it.updatedAt < cutoff }.keys - identity.devicePubkey
             for (device in gone) {
                 roster.remove(device)

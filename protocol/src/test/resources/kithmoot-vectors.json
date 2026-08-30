@@ -899,6 +899,98 @@
         }
       },
       {
+        "name": "farewell",
+        "kind": "positive",
+        "note": "The entry a device publishes as it leaves: empty tracks and claims, `reply: true` so nobody answers it, and `left: true` so every other device removes it at once instead of waiting out the presence timeout. A reader that does not know `left` treats this as an ordinary answer carrying nothing and evicts the device on the timeout. Only a JSON `true` is a farewell; any other value is not one.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Asdvj4A1Vc48o4YFECGBpZ4eS2MbVZOnU523eiqxQspX30i8tCijQ3vbB8LZQWgChbgnDphLIEPMCTVUQEOAS0zjGIdX4TCTArTh72AURPLUlrpzNqyOqMlvh+RgEYnEvNE4ZnoPJw6ywsjBp0m9MBt1KdBzLyTTvSNDJC0sCzkt4DRvQExRcASmSjYXvLMJSkrED0ygA39Tb/wmS7XXPxKNp2kckeEGzEQZ0bRYYPgkpwVaa8svuRbxbcHswTTkTTJFiuiwwCCPplsP2bSYY3/ByWRVZmLkPKGlYt+dlgCufgN0FeW/lKFBtADw81G/TB4OGLB2YcCem1VGCY/5a/a41ErJYoREPtzj1upsmHC801LtRL7sMeEbro9E7WrssQUVgLioRk6NB4u5ptd4RtYN0rNI87s6BDYhTMaGfPrbzkIxfHDc+MBIEUnPpHtZAIxXj4GsZG9QrBiEGGM+rf/T0Etrs3gil8rgEX5wzQNVBEpC94lFdBXpaLy5/UrSrO8+yEV0GlSO82gf7jPqDyhauGjW/OKGFjQk8b1Md7L2OSVQII9S75lIvyk8FaiL0btSbgUAvLreFnckjK9R8r9MA3IXl0xfeFW9m4QYxuUa0bhwh2s/YR5gD151zRGM9Y+MgW3FmkCutCWzXU3p79yZA3FSZmuaM09aepitl03lP10C1orf82XeoyvwfR4sipJoXAY8/P67TpbD7Xy3NiEFWvitScrnV/WiKDMgluF3tokuNA/IewbvEV5WVcJNPrmy77tdJKkBjPBASSQQ75kSc/50w+ojIixnuEQibK5jb++j9soDRgXf1SZ1Dm2dl3tuTXLoWEa7IsFm6vhYBznoH1ggUWkw8Q/whqAeXQDXmRl/sLmwyao/nd7C5KFAH07L0ZeYEkD3I2H7oD6UPrc4MmjFHr7GWEI5Qml2H/TCZP07fPSOcPCkg6qD+uI95S4ysE7x4++zpejw3We42Vxxmz8hZYYQXxNRRNd2Z62KSpLR6tL7ncMt+QTCrSJRHRSx+u8259+UXq+QLNvEvaPm/LfaAVznT0rCISAIjqbOnWhIBUulGztct+ShJ6jaZjWDJORDCfII00fowmYIbz/VmA==",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "8d8b18fca1f84e041655615a26138fca7614be676fcbcf1fd897764347874689",
+            "sig": "834a452c067d0aca610cb339b00ce98094cfe6777db6ed95b0798dd63479e54222778ebdce8e961a676def15d17915c2de600441ba33043ade86e099d96c6a00"
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [],
+            "claims": {},
+            "updatedAt": 1800000000,
+            "reply": true,
+            "left": true
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [],
+            "claims": {},
+            "updatedAt": 1800000000,
+            "reply": true,
+            "left": true
+          }
+        }
+      },
+      {
         "name": "assist-offer",
         "kind": "positive",
         "note": "A roster entry carrying an offer to relay for the room: measured reachability, the uplink estimate every client derives spare capacity from, and how many pairs this device is already carrying. It is inside the room-key ciphertext with everything else - a relay that could read which members were publicly reachable and how much bandwidth they had would be reading a map of the room. The offer survives the round trip exactly as published, and decides nothing on its own: what it feeds is a selection every client computes independently from the same roster.",

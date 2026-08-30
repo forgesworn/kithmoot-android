@@ -343,7 +343,7 @@ class RoomSessionTest {
     }
 
     @Test
-    fun `leaving releases the microphone`() = runTest {
+    fun `leaving releases the microphone, and takes the device with it`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
         val owner = Fixtures.primary(room, 1, 2)
@@ -367,12 +367,11 @@ class RoomSessionTest {
         advanceTimeBy(2_000)
         runCurrent()
 
-        // The wire format has no departure message, so presence lingers until it
-        // lapses - but the microphone and the tracks go immediately, which is
-        // the part that would otherwise be audible.
-        val me = theirs.participants.value.single { it.participant == owner.participant }
-        assertEquals(null, me.micDevice)
-        assertEquals(0, me.tracks.size)
+        // The farewell is marked `left`, so the device does not linger until
+        // its presence lapses: it is gone at once, and its microphone and
+        // tracks - the part that would otherwise be audible - with it.
+        assertEquals(null, theirs.participants.value.singleOrNull { it.participant == owner.participant })
+        assertEquals(1, theirs.participants.value.size)
     }
 
     @Test

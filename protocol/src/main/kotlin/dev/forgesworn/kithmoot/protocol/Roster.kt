@@ -5,7 +5,9 @@ import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.normaliseHex
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -43,6 +45,23 @@ data class RosterEntry(
     val tracks: List<TrackRef> = emptyList(),
     val claims: Map<String, Long> = emptyMap(),
     val updatedAt: Long,
+    /**
+     * True when this entry is not an arrival: an answer to somebody else's
+     * arrival, or a farewell. Neither provokes an answer, which is what stops
+     * the room talking to itself for ever. Absent on a first announcement.
+     */
+    val reply: Boolean = false,
+    /**
+     * True on the last entry a device publishes: it has left the room.
+     *
+     * Departure is a stated fact rather than a guess from an empty track list,
+     * because a device with everything switched off looks exactly like one on
+     * its way out and only one of them should vanish. A receiver drops the
+     * device at once instead of waiting out the presence timeout. Only a JSON
+     * `true` is a farewell; anything else is an ordinary entry. Absent on
+     * every entry that is not one, so the wire stays byte-identical.
+     */
+    val left: Boolean = false,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("participant", participant)
@@ -63,6 +82,8 @@ data class RosterEntry(
         )
         put("claims", buildJsonObject { for ((role, since) in claims) put(role, since) })
         put("updatedAt", updatedAt)
+        if (reply) put("reply", true)
+        if (left) put("left", true)
     }
 
     companion object {
@@ -79,7 +100,13 @@ data class RosterEntry(
             },
             claims = (json["claims"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.long }.orEmpty(),
             updatedAt = json.getValue("updatedAt").jsonPrimitive.long,
+            reply = json["reply"].isHonestTrue(),
+            left = json["left"].isHonestTrue(),
         )
+
+        /** A JSON `true` and nothing else: not `"true"`, not `1`, not `"yes"`. */
+        private fun JsonElement?.isHonestTrue(): Boolean =
+            this is JsonPrimitive && !isString && content == "true"
     }
 }
 
