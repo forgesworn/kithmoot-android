@@ -51,8 +51,10 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="kithmoot.com" android:pathPrefix="/j" />
-                <data android:scheme="http" android:host="kithmoot.com" android:pathPrefix="/j" />
+                <data
+                    android:scheme="https"
+                    android:host="kithmoot.forgesworn.dev"
+                    android:pathPrefix="/j" />
             </intent-filter>
 
             <!-- The scheme form, for anywhere an https link would be swallowed
