@@ -58,6 +58,7 @@ class PairingLinkTest {
     fun `the secret rides in the fragment, never the path`() {
         val url = link()
 
+        assertEquals("https://kithmoot.forgesworn.dev/j/", KITHMOOT_JOIN_BASE)
         assertTrue(url.startsWith("$KITHMOOT_JOIN_BASE#"))
         assertEquals(1, url.count { it == '#' })
     }

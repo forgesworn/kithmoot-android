@@ -18,7 +18,7 @@ import kotlinx.serialization.json.put
 import java.util.Base64
 
 /** The base every link this client mints is built on. Matches the reference client. */
-const val KITHMOOT_JOIN_BASE: String = "https://kithmoot.com/j"
+const val KITHMOOT_JOIN_BASE: String = "https://kithmoot.forgesworn.dev/j/"
 
 /**
  * A pairing link: a join URL that also carries a device key and the credential

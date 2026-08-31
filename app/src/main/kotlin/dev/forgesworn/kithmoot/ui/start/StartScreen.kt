@@ -126,7 +126,7 @@ fun StartScreen(
                 label = { Text("Join link", style = MaterialTheme.typography.bodyMedium) },
                 placeholder = {
                     Text(
-                        "https://kithmoot.com/j#…",
+                        "https://kithmoot.forgesworn.dev/j/#…",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
