@@ -448,6 +448,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         secret: ByteArray,
     ): Job {
         val invitationId = deriveInvitationId(host.invitation)
+        val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
         return scope.launch {
             val answered = LinkedHashSet<String>()
             var retired = false
@@ -481,6 +482,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (retired) return@collect
                 val request = decodeInvitationRequest(event, host.invitation, epochSeconds()) ?: return@collect
+                // Lenient relays sometimes retain and replay ephemeral
+                // requests. A newly admitted delegate must not answer the
+                // request that admitted itself.
+                if (request.device == responder) return@collect
                 if (!answered.add(request.requestId)) return@collect
                 while (answered.size > 256) answered.remove(answered.first())
                 transport.publish(
