@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,7 +70,7 @@ fun ChatPane(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Encrypted to the room. Relays store nothing.",
+            text = "Encrypted to the room. Relays may retain ciphertext and timing metadata.",
             modifier = Modifier.padding(horizontal = 20.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -111,7 +112,7 @@ fun ChatPane(
         ) {
             OutlinedTextField(
                 value = draft,
-                onValueChange = { draft = it },
+                onValueChange = { draft = it.take(MAX_CHAT_TEXT_LENGTH) },
                 modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(

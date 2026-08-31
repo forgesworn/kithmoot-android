@@ -3,6 +3,8 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
+import dev.forgesworn.kithmoot.protocol.createRoomInvitation
+import dev.forgesworn.kithmoot.protocol.decodeInvitationUrl
 import dev.forgesworn.kithmoot.protocol.decodeJoinUrl
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import kotlin.test.Test
@@ -113,5 +115,29 @@ class PairingLinkTest {
         assertNull(decodePairingLink("https://kithmoot.com/j#not-valid-base64url!!!"))
         assertNull(decodePairingLink("https://kithmoot.com/j"))
         assertNull(decodePairingLink(""))
+    }
+
+    @Test
+    fun `a v2 pairing link keeps the traffic secret out of the URL`() {
+        val invitation = createRoomInvitation().invitation
+        val deviceKey = Fixtures.key(41)
+        val url = encodeInvitationPairingLink(
+            invitation = invitation,
+            relays = relays,
+            deviceSecretKey = deviceKey,
+            credential = owner.enrol(
+                devicePubkey = Schnorr.publicKeyHex(deviceKey),
+                roomId = room.roomId,
+                expiresAt = Fixtures.CREDENTIAL_EXPIRY,
+                createdAt = 0,
+            ),
+        )
+
+        val decoded = assertNotNull(decodeInvitationPairingLink(url))
+        assertEquals(invitation, decoded.join.invitation)
+        assertContentEquals(deviceKey, decoded.deviceSecretKey)
+        assertEquals(invitation, assertNotNull(decodeInvitationUrl(url)).invitation)
+        val fragmentJson = String(java.util.Base64.getUrlDecoder().decode(url.substringAfter('#')))
+        assertTrue("\"s\"" !in fragmentJson)
     }
 }

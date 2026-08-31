@@ -34,6 +34,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +67,7 @@ fun RoomScreen(
     onToggleScreenShare: () -> Unit,
     onOpenChat: () -> Unit,
     onAddDevice: () -> Unit,
+    onRotateInvitation: () -> Unit,
     onLeave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -86,7 +88,7 @@ fun RoomScreen(
             ) {
                 if (state.tiles.size == 1) {
                     item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                        AlonePanel(state)
+                        AlonePanel(state, onRotateInvitation)
                     }
                 }
                 items(state.tiles, key = { it.participant }) { tile ->
@@ -192,7 +194,7 @@ private fun relayLine(state: RoomState): String = when {
 }
 
 @Composable
-private fun AlonePanel(state: RoomState) {
+private fun AlonePanel(state: RoomState, onRotateInvitation: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -213,13 +215,30 @@ private fun AlonePanel(state: RoomState) {
                 // like the room miscounted.
                 "Nobody else is here yet. Your other device is still you."
             } else {
-                "Nobody else is here yet. Anyone with the link can walk in."
+                "Nobody else is here yet. Anyone forwarded the current link can walk in. " +
+                    "It is an invitation, not the room's traffic key. Keep this device " +
+                    "online so it can answer new arrivals."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
         ShareRoomRow(state.joinUrl)
+        if (state.canRotateInvitation) {
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onRotateInvitation,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+            ) {
+                Text("Rotate link", style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "The old link stops admitting new people. Anyone already in the room stays.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

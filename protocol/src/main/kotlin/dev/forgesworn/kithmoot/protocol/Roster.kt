@@ -45,6 +45,7 @@ data class RosterEntry(
     val tracks: List<TrackRef> = emptyList(),
     val claims: Map<String, Long> = emptyMap(),
     val updatedAt: Long,
+    val proof: KindredProof? = null,
     /**
      * True when this entry is not an arrival: an answer to somebody else's
      * arrival, or a farewell. Neither provokes an answer, which is what stops
@@ -67,6 +68,7 @@ data class RosterEntry(
         put("participant", participant)
         put("device", device)
         put("credential", credential.toJson())
+        proof?.let { put("proof", it.toJson()) }
         put(
             "tracks",
             buildJsonArray {
@@ -91,6 +93,7 @@ data class RosterEntry(
             participant = json.getValue("participant").jsonPrimitive.content,
             device = json.getValue("device").jsonPrimitive.content,
             credential = NostrEvent.fromJson(json.getValue("credential").jsonObject),
+            proof = (json["proof"] as? JsonObject)?.let { KindredProof.fromJson(it) },
             tracks = (json["tracks"] as? JsonArray).orEmptyArray().map {
                 val track = it.jsonObject
                 TrackRef(

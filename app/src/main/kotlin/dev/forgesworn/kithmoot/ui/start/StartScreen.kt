@@ -161,8 +161,10 @@ fun StartScreen(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "The link carries the room's key in its fragment, so it never " +
-                    "reaches a server. Anyone holding it can get in.",
+                text = "The fragment carries a revocable invitation, not the room's " +
+                    "traffic key, so the web server and link preview do not receive it. " +
+                    "The messaging service can still read the link unless that chat is " +
+                    "end-to-end encrypted. Anyone it is forwarded to can enter while it is current.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
