@@ -3,7 +3,9 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.Room
+import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.SignalGuard
@@ -11,6 +13,7 @@ import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.protocol.UnwrappedSignal
 import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
+import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.unwrapSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.relay.Filter
@@ -81,6 +84,8 @@ class RoomSession(
     /** Unix seconds, as the wire format uses. */
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val random: Random = Random.Default,
+    private val policy: RoomPolicy? = null,
+    private val proof: KindredProof? = null,
 ) {
 
     private val lock = Any()
@@ -113,6 +118,7 @@ class RoomSession(
     private val signalGuard = SignalGuard()
     private val chatSeen = mutableSetOf<String>()
     private val chatLog = mutableListOf<ChatMessage>()
+    private val chatSenderTimes = linkedMapOf<String, MutableList<Long>>()
 
     private var responseJob: Job? = null
     private val jobs = mutableListOf<Job>()
@@ -150,6 +156,10 @@ class RoomSession(
     // --- lifecycle -----------------------------------------------------------
 
     fun join() {
+        policy?.let {
+            val decision = evaluateAccess(it, identity.participant, proof, now(), room.roomId)
+            require(decision.admitted) { decision.reason }
+        }
         synchronized(lock) {
             if (joined) return
             joined = true
@@ -215,6 +225,7 @@ class RoomSession(
                 participant = identity.participant,
                 device = identity.devicePubkey,
                 credential = identity.credential,
+                proof = proof,
                 tracks = tracks,
                 claims = claims,
                 updatedAt = now(),
@@ -259,6 +270,7 @@ class RoomSession(
     fun sendChat(body: String) {
         val text = body.trim()
         if (text.isEmpty()) return
+        require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
         val event = encodeChatEvent(
             body = text,
@@ -268,19 +280,12 @@ class RoomSession(
             roomKey = room.roomKey,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
+            proof = proof,
         )
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id
         // is the event id, so the echo is de-duplicated against this.
-        ingestChat(
-            ChatMessage(
-                id = event.id,
-                participant = identity.participant,
-                device = identity.devicePubkey,
-                body = text,
-                sentAt = sentAt,
-            ),
-        )
+        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {
@@ -300,6 +305,9 @@ class RoomSession(
 
     internal fun onRosterEvent(event: NostrEvent) {
         val entry = decodeRosterEvent(event, room.roomId, room.roomKey, now()) ?: return
+        policy?.let {
+            if (!evaluateAccess(it, entry.participant, entry.proof, now(), room.roomId).admitted) return
+        }
         if (entry.device == identity.devicePubkey) return
 
         val respond: Boolean
@@ -336,7 +344,7 @@ class RoomSession(
     }
 
     internal fun onChatEvent(event: NostrEvent) {
-        val message = decodeChatEvent(event, room.roomId, room.roomKey, now()) ?: return
+        val message = decodeChatEvent(event, room.roomId, room.roomKey, now(), policy) ?: return
         ingestChat(message)
     }
 
@@ -409,7 +417,19 @@ class RoomSession(
 
     private fun ingestChat(message: ChatMessage) {
         synchronized(lock) {
+            val at = now()
+            if (message.sentAt < at - CHAT_RETENTION_SECONDS) return
             if (!chatSeen.add(message.id)) return
+            val times = chatSenderTimes.getOrPut(message.device) { mutableListOf() }
+            times.removeAll { it < at - CHAT_RETENTION_SECONDS }
+            if (times.count { kotlin.math.abs(it - message.sentAt) < 60 } >= MAX_CHAT_MESSAGES_PER_MINUTE) {
+                chatSeen.remove(message.id)
+                return
+            }
+            times += message.sentAt
+            while (chatSenderTimes.size > timing.chatHistory) {
+                chatSenderTimes.remove(chatSenderTimes.keys.first())
+            }
             chatLog += message
             chatLog.sortBy { it.sentAt }
             while (chatLog.size > timing.chatHistory) {
@@ -446,6 +466,7 @@ class RoomSession(
     private fun chatFilter() = Filter(
         kinds = listOf(KIND_CHAT),
         tags = mapOf("#d" to listOf(room.roomId)),
+        since = now() - CHAT_RETENTION_SECONDS,
     )
 
     private fun signalFilter() = Filter(

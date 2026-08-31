@@ -1,12 +1,16 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
+import dev.forgesworn.kithmoot.protocol.KindredTier
+import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.MAX_SIGNALS_PER_WINDOW
 import dev.forgesworn.kithmoot.protocol.SIGNAL_MAX_AGE_SECONDS
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.protocol.UnwrappedSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
+import dev.forgesworn.kithmoot.protocol.issueKindredProof
+import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -20,6 +24,32 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomSessionTest {
+
+    @Test
+    fun `a gated member refuses an unproved roster publisher`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val hostKey = Fixtures.key(90)
+        val memberIdentity = Fixtures.primary(room, 1, 2)
+        val policy = RoomPolicy(KindredTier.KITH, listOf(Schnorr.publicKeyHex(hostKey)))
+        val proof = issueKindredProof(
+            issuerSecretKey = hostKey,
+            participant = memberIdentity.participant,
+            tier = KindredTier.KITH,
+            roomId = room.roomId,
+            expiresAt = 10_000,
+        )
+        val member = session(room, memberIdentity, relay, policy = policy, proof = proof)
+        val gatecrasher = session(room, Fixtures.primary(room, 70, 71), relay, seed = 11)
+
+        member.join()
+        advanceTimeBy(1_000)
+        gatecrasher.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        assertEquals(listOf(memberIdentity.participant), member.participants.value.map { it.participant })
+    }
 
     @Test
     fun `a role claim moves between a person's devices and both agree`() = runTest {

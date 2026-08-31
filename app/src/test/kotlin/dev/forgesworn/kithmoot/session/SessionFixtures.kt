@@ -2,6 +2,8 @@ package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.Room
+import dev.forgesworn.kithmoot.protocol.RoomPolicy
+import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,6 +56,8 @@ fun TestScope.session(
     relay: FakeRelay,
     timing: SessionTiming = Fixtures.QUIET,
     seed: Int = 7,
+    policy: RoomPolicy? = null,
+    proof: KindredProof? = null,
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -62,4 +66,6 @@ fun TestScope.session(
     timing = timing,
     now = { currentTime / 1000 },
     random = Random(seed),
+    policy = policy,
+    proof = proof,
 )

@@ -47,10 +47,11 @@ What is *not* here:
 | Piece | What it does |
 |---|---|
 | Room derivation | HKDF-SHA256 from the 32-byte room secret to a public `roomId` and a secret `roomKey`, under two separate info strings |
-| Join URL | Encodes and decodes the capability link. The secret rides in the URL **fragment**, never the path or query, so it is never sent to a server |
+| Join URL | V2 links carry a bearer invitation plus a pinned per-link root key in the URL **fragment**, never the room traffic secret. Each admitted client receives a bounded root-authenticated delegation and keeps the link available if the creator leaves; a durable root-signed tombstone retires it. Legacy v1 links remain readable |
 | Device credentials | Kind 20460, signed by the participant key, naming one device, one room, and a NIP-40 `expiration` |
 | Roster events | Kind 20461, NIP-44 encrypted to the room key, with the device credential verified on the way in |
 | Signal wrapping | Kind 21059 ephemeral gift wrap carrying SDP and ICE, NIP-44 encrypted to the recipient under a throwaway key |
+| Durable chat | Kind 1460, matching the TypeScript wire format and fixed interop event; room-key encrypted, credential/proof checked, 2,000-character and 30-per-minute sender bounds, 30-day query horizon and 500-message in-memory cap |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
 

@@ -171,6 +171,7 @@ fun KithMootApp(model: RoomViewModel) {
                 },
                 onOpenChat = { chatOpen = true },
                 onAddDevice = model::mintPairingLink,
+                onRotateInvitation = model::rotateInvitation,
                 onLeave = model::leave,
                 modifier = Modifier.padding(padding),
             )
