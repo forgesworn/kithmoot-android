@@ -58,6 +58,7 @@ fun TestScope.session(
     seed: Int = 7,
     policy: RoomPolicy? = null,
     proof: KindredProof? = null,
+    authority: String? = null,
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -68,4 +69,5 @@ fun TestScope.session(
     random = Random(seed),
     policy = policy,
     proof = proof,
+    authority = authority,
 )

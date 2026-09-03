@@ -33,13 +33,17 @@ What is *not* here:
 - No persisted identity. Leaving a room and rejoining it makes you a new
   participant, because nothing is written to disk yet. A second device stays
   paired only for as long as the application is running.
-- No room descriptor, epochs, agent ownership, attachments or approvals. The
-  `roomDescriptor`, `roomEpoch`, `agentOwnership`, `chatAttachment` and
-  `approvalControl` vectors are carried in the published set and counted by
-  the coverage guard, but nothing on this side implements them yet. The one
-  that matters most is `roomEpoch`: this client does not follow a room that
-  has removed somebody, so it will simply stop hearing that room rather than
-  saying why.
+- No room descriptor, agent ownership, attachments or approvals. Those
+  vectors are carried in the published set and counted by the coverage
+  guard, but nothing on this side implements them yet.
+- **Cannot follow a room epoch, but says so.** When somebody is removed the
+  room moves to a key this client was not given, and everything would
+  otherwise simply stop - no roster, no chat, no error, which reads as an
+  application that is broken rather than a room that has moved on. It now
+  watches for the authority's rekey, needs no key to do it, and tells the
+  person what happened and to ask for a fresh link. Following the epoch
+  properly is still to do; the rest of the `roomEpoch` vectors are counted
+  and not run.
 - No peer assist. An assist offer on somebody's roster entry is read and
   dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.

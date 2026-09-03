@@ -113,6 +113,12 @@ data class RoomState(
     /** How many members of this room say they are agents. The switch is
      *  hidden when there are none, because it would mean nothing. */
     val agentCount: Int = 0,
+    /**
+     * Set when the room has moved past this client: somebody was removed, the
+     * room is published under a key this client cannot follow, and it will
+     * hear nothing further. Said out loud rather than left as silence.
+     */
+    val movedOn: Int? = null,
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
     val notice: String? = null,
@@ -538,7 +544,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         closeSession()
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob())
         val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
-        val live = RoomSession(derived, who, transport, scope, policy = policy)
+        val live = RoomSession(
+            derived,
+            who,
+            transport,
+            scope,
+            policy = policy,
+            // The root inviter, and the only key whose rekey this client
+            // believes. A legacy link carries none, and a room opened from
+            // one goes quiet the old way if it ever moves on.
+            authority = invitation?.invitation?.canonicalInviter,
+        )
 
         sessionScope = scope
         pool = transport
@@ -582,6 +598,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
         scope.launch {
             transport.connected.collect { up -> _room.value = _room.value.copy(relaysUp = up.size) }
+        }
+        scope.launch {
+            live.movedOn.collect { epoch -> _room.value = _room.value.copy(movedOn = epoch) }
         }
         scope.launch {
             live.localRoles.collect { roles ->

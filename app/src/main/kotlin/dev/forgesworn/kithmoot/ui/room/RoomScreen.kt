@@ -101,6 +101,11 @@ fun RoomScreen(
                         eglBase = eglBase,
                     )
                 }
+                if (state.movedOn != null) {
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        MovedOnPanel()
+                    }
+                }
                 if (state.mediaFault != null) {
                     item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                         FaultPanel(state.mediaFault)
@@ -263,6 +268,40 @@ private fun FaultPanel(message: String) {
         Spacer(Modifier.height(6.dp))
         Text(
             text = "$message Presence and chat still work.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+}
+
+/**
+ * The room has moved on without this client.
+ *
+ * Somebody was removed, so the room is now published under a key this client
+ * has not got and cannot yet apply. Everything simply stops: no roster, no
+ * chat, no error - which is why this panel exists. It says what happened and
+ * what to do about it rather than leaving a person to conclude the app is
+ * broken.
+ */
+@Composable
+private fun MovedOnPanel() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(20.dp),
+    ) {
+        Text(
+            text = "This room has moved on",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Somebody was removed, so the room changed its key. This app cannot " +
+                "follow that yet, so you will hear nothing further here. Ask for a fresh " +
+                "link and join again.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )

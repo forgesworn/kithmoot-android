@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.KIND_ROOM_REKEY
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.KindredProof
@@ -86,6 +88,16 @@ class RoomSession(
     private val random: Random = Random.Default,
     private val policy: RoomPolicy? = null,
     private val proof: KindredProof? = null,
+    /**
+     * The room's authority: the root inviter from the join link, and the only
+     * key whose rekey this client believes.
+     *
+     * Null for a legacy link that carries no inviter, in which case a room
+     * that moves on is simply a room that goes quiet - which is the
+     * behaviour this exists to replace, and cannot be replaced without
+     * somebody to trust. See `peekRekeyEpoch`.
+     */
+    private val authority: String? = null,
 ) {
 
     private val lock = Any()
@@ -142,6 +154,23 @@ class RoomSession(
      */
     val remoteDevices: StateFlow<Set<String>> = _remoteDevices.asStateFlow()
 
+    private val _movedOn = MutableStateFlow<Int?>(null)
+
+    /**
+     * The epoch this room has moved to, once it has moved past this client.
+     *
+     * Null while the room is where this client is. Set when the authority
+     * publishes a rekey, which means somebody has been removed and the room
+     * is now published under a key this client was either not given or
+     * cannot yet apply - following an epoch is not implemented here.
+     *
+     * Announced rather than swallowed because the alternative is worse: the
+     * roster and the chat move to an id this client is not subscribed to, so
+     * the room simply stops, and a room that stops reads as an application
+     * that is broken rather than as a room that has moved on without you.
+     */
+    val movedOn: StateFlow<Int?> = _movedOn.asStateFlow()
+
     private val _agentDevices = MutableStateFlow<Set<String>>(emptySet())
 
     /**
@@ -186,6 +215,11 @@ class RoomSession(
         }
         jobs += scope.launch {
             transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
+        }
+        if (authority != null) {
+            scope.launch {
+                transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)
+            }
         }
         jobs += scope.launch {
             while (true) {
@@ -471,6 +505,29 @@ class RoomSession(
     }
 
     // --- filters -------------------------------------------------------------
+
+    /**
+     * A rekey the authority published for this room.
+     *
+     * Tagged with the ROOM id rather than the epoch id, because the room id
+     * never moves - a device credential binds to it - so a client that has
+     * fallen several epochs behind still sees every later rekey and can
+     * still say how far behind it is.
+     */
+    private fun onRekeyEvent(event: NostrEvent) {
+        val trusted = authority ?: return
+        val epoch = peekRekeyEpoch(event, room.roomId, trusted) ?: return
+        // Highest wins: several rekeys may arrive in any order, and what a
+        // person needs told is where the room is now, not where it went
+        // first.
+        if (epoch > (_movedOn.value ?: 0)) _movedOn.value = epoch
+    }
+
+    private fun rekeyFilter() = Filter(
+        kinds = listOf(KIND_ROOM_REKEY),
+        authors = listOfNotNull(authority),
+        tags = mapOf("#d" to listOf(room.roomId)),
+    )
 
     private fun rosterFilter() = Filter(
         kinds = listOf(KIND_ROSTER),
