@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.VoiceOverOff
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Badge
@@ -62,6 +64,7 @@ fun RoomScreen(
     videos: Map<String, VideoTrack>,
     eglBase: EglBase?,
     onToggleMic: () -> Unit,
+    onToggleAgentsMayHear: () -> Unit,
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
     onToggleScreenShare: () -> Unit,
@@ -109,6 +112,7 @@ fun RoomScreen(
         Controls(
             state = state,
             onToggleMic = onToggleMic,
+            onToggleAgentsMayHear = onToggleAgentsMayHear,
             onToggleCamera = onToggleCamera,
             onSwitchCamera = onSwitchCamera,
             onToggleScreenShare = onToggleScreenShare,
@@ -269,6 +273,7 @@ private fun FaultPanel(message: String) {
 private fun Controls(
     state: RoomState,
     onToggleMic: () -> Unit,
+    onToggleAgentsMayHear: () -> Unit,
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
     onToggleScreenShare: () -> Unit,
@@ -320,6 +325,19 @@ private fun Controls(
                 badge = state.chat.size.takeIf { it > 0 },
                 onClick = onOpenChat,
             )
+            // Only shown when there is an agent in the room: a switch that
+            // governs nothing is a switch that teaches somebody the wrong
+            // thing about what it does. Off means this device's camera and
+            // microphone are never handed to a connection to an agent - the
+            // media does not leave the phone for them.
+            if (state.agentCount > 0) {
+                ControlButton(
+                    icon = if (state.agentsMayHear) Icons.Filled.SmartToy else Icons.Filled.VoiceOverOff,
+                    label = if (state.agentsMayHear) "Agents hear" else "Agents off",
+                    active = state.agentsMayHear,
+                    onClick = onToggleAgentsMayHear,
+                )
+            }
             if (state.canAddDevice) {
                 ControlButton(
                     icon = Icons.Filled.PersonAdd,

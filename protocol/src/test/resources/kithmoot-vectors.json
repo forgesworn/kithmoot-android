@@ -53,6 +53,49 @@
         }
       }
     ],
+    "channelDerivation": [
+      {
+        "name": "agents",
+        "kind": "positive",
+        "note": "The `agents` channel of ROOM_1: id = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-id/agents\", 32 bytes) as hex, key = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-key/agents\", 32 bytes). No salt. A chat event on this channel carries the id in its `d` tag and is NIP-44-encrypted under the key; the credential inside is still checked against the ROOM id.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "channel": "agents"
+        },
+        "output": {
+          "id": "f07da1bdc33e83a4d21507bac3a5eaf6b8813b3eaf45dbd9b84c5924198c005b",
+          "keyHex": "9d8e52617e4707232e352b0c1cce989c7396f4e9f9abfaf8055fcd4c0a8a6ea9"
+        }
+      },
+      {
+        "name": "transcript",
+        "kind": "positive",
+        "note": "The `transcript` channel of ROOM_1: id = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-id/transcript\", 32 bytes) as hex, key = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/channel-key/transcript\", 32 bytes). No salt. A chat event on this channel carries the id in its `d` tag and is NIP-44-encrypted under the key; the credential inside is still checked against the ROOM id.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "channel": "transcript"
+        },
+        "output": {
+          "id": "ad25c1ca475a7a5909164e3903bde4fbd72e3e5846029228f739a5b11e44316d",
+          "keyHex": "1a013931809e01e964a7d7e70b7f2c160c0145771eba407ace77b5ad260e6251"
+        }
+      },
+      {
+        "name": "unnamed-is-the-room",
+        "kind": "positive",
+        "note": "No channel name means the main chat: the id is the room id and the key is the room key, unchanged, so every chat event ever published decodes exactly as before channels existed.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+        },
+        "output": {
+          "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+        }
+      }
+    ],
     "joinUrl": [
       {
         "name": "basic-no-policy",
@@ -703,10 +746,10 @@
                 "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
               ]
             ],
-            "content": "AqqnTBwwqRiCqZfo/TLhftErirBrpSbe2AIVSYa+Vw5N8wF6zG1UtH2/WY40yZRiQ3wBM1TER9SzczXvHIhVj2rA34BgkfkVO2ii3TIUqzqihKq58+5wtvnsae17YfF6wSCoVBvNvxO2zF2Mf0urVjadHOHlnP8M9b91ntDDkqwISHoSe2DySxFx0Y2F/mxj0O9R29Vyrbo5xmCjs5s/zzj5X+x/FfLp42ZgT5vkfryO0gahd9R2rEvGoknRKF/Sjwb8R6eU9SMJUfz8zOXhGWw/wcHUGwu9f3JkD1UiIaimlNeDd5LbmHTmrdr4WtimRqbVNgIGA1FIBJ+b4ec0j/MVbID5XC/C1Mft6u3aCBGdUJo3PieyrmO3W4S6suR7xAnOQ/yZRUhaVAkh1k1KOMtrAu8/sp8Mopaw0x8EKNxGAHDGl/aATMUQRI/seWP//M027AW9Ve3CeHViZBva5IC8vV/X8AcrovpLTjBXXbBXRkF2Y7eXLw7MVFJNbSK9hpxmAvZHSIkrvr3/L6KAyRcQ9qOeYUHW+eVoYj1vFg3Y5haFWv3q01KIYgINXlq3iMrekNaujEdAE6QrjewXtunnj12X2GFTkMNB3hW/G96DY7lw7LOacGNZ2LwwysaXOnO8feLctwdKD15KLBaEYdDJN3aXKo3UJSBX3lazbNgTQQTe0OpHcv8Ax80asH+gc5SM0+l+t4wuF+WrtOLq57A8roK30HhEdhnh8rRYjxyRggenvoRUKm/f/OyWLlBxjm0qV+dAYDTK83V9RBAY9QIM1LcGORWtZ7bWFw8S5MPGgu6BdB8fbeZMGWfFjtZ1o9PBrNffcCohYv1anB7Oh1j0PqzB8JlcIcdtrrbjhafiQAq0wp7DK9m+0KT5tU3oB3xcgYiqxAo+OCW4x7iE02oQrg1ZD0rHK7or2JMxfhrUVl5lyyeWPDEIzAylvKvsyIrzTmDJ1SR+LQaoB7LhkA2usrQrsHPotnbLCtKxnrfYa3dH4lB3SZGYlasdmvRIvycSjw6QkU/xkt79gvcZUuD4Jh0L2hoC78JmnXYpDHWujz3DhA5hXttluARmix8LV4p4mqZZ4jTtS4mwXkorUtf31ho0+bOqiQXHq08D3H31ch2pafYzaPj/Lmf3GB7BndNSBYQ+Xnf8g9z3k/iYGbaDHNgfJOISFt0KvGhVmP5ho6JrgDImnWf8Z/2U06K3uEq/cfZg7KuSkGPp6GFBERfFF0sORECLGbXEGJ3fcCi6uupFA2wy/JErhtmjg9lwN03A",
+            "content": "AqqnTBwwqRiCqZfo/TLhftErirBrpSbe2AIVSYa+Vw5N8wB6zG1UtH2/WY40yZRiQ3wBM1TER9SzczXvHIhVj2rA34BgkfkVO2ii3TIUqzqihKq58+5wtvnsae17YfF6wSCoVBvNvxO2zF2Mf0urVjadHOHlnP8M9b91ntDDkqwISHoSe2DySxFx0Y2F/mxj0O9R29Vyrbo5xmCjs5s/zzj5X+x/FfLp42ZgT5vkfryO0gahd9R2rEvGoknRKF/Sjwb8R6eU9SMJUfz8zOXhGWw/wcHUGwu9f3JkD1UiIaimlNeDd5LbmHTmrdr4WtimRqbVNgIGA1FIBJ+b4ec0j/MVbID5XC/C1Mft6u3aCBGdUJo3PieyrmO3W4S6suR7xAnOQ/yZRUhaVAkh1k1KOMtrAu8/sp8Mopaw0x8EKNxGAHDGl/aATMUQRI/seWP//M027AW9Ve3CeHViZBva5IC8vV/X8AcrovpLTjBXXbBXRkF2Y7eXLw7MVFJNbSK9hpxmAvZHSIkrvr3/L6KAyRcQ9qOeYUHW+eVoYj1vFg3Y5haFWv3q01KIYgINXlq3iMrekNaujEdAE6QrjewXtunnj12X2GFTkMNB3hW/G96DY7lw7LOacGNZ2LwwysaXOnO8feLctwdKD15KLBaEYdDJN3aXKo3UJSBX3lazbNgTQQTe0OpHcv8Ax80asH+gc5SM0+l+t4wuF+WrtOLq57A8roK30HhEdhnh8rRYjxyRggenvoRUKm/f/OyWLlBxjm0qV+dAYDTK83V9RBAY9QIM1LcGORWtZ7bWFw8S5MPGgu6BdB8fbeZMGWfFjtZ1o9PBrNffcCohYv1anB7Oh1j0PqzB8JlcIcdtrrbjhafiQAq0wp7DK9m+0KT5tU3oB3xcgYiqxAo+OCW4x7iE02oQrg1ZD0rHK7or2JMxfhrUVl5lyyeWPDEIzAylvKvsyIrzTmDJ1SR+LQaoB7LhkA2usrQrsHPotnbLCtKxnrfYa3dH4lB3SZGYlasdmvRIvycSjw6QkU/xkt79gvcZUuD4Jh0L2hoC78JmnXYpDHWujz3DhA5hXttluARmix8LV4p4mqZZ4jTtS4mwXkorUtf3wBQk4rjm1njHq08D3H31ch2pafYzaPj/Lmf3GB7BndNSBYQ+Xnf8g9z3k/iYGbaDHNgfJOISFt0KvGhVmP5ho6JrgDImnWf8Z/2U06K3uEq/cfZg7KuSkGPp6GFBERfFF9mdYc4QLQ8Oo28PLoo05fB/30aoMOM9aHp6wheQtKCe",
             "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
-            "id": "2efe99a60aa307a223d4f915cdb156c8872c32d129241d50419046739f5c6804",
-            "sig": "8b629c764c7b7cfcb1da3944058ef38d39927d20e239557077f7abd9c11a5b06c07d3bec957e3d9b28ca05771e15333a7f3639e4958250f0eed8a8f154a72952"
+            "id": "463a8834012e36ae98a210bd8a5b376316f4fefa2b64bdc558635c35bfacd4dd",
+            "sig": "0de98025aebbcfa2d4f4619f127cb864b95804393b7f4459e8a91fd598aab430fb7a3ff4ccb0629167d79ae6499094caefd67bc4f026b24505556854e67f1f11"
           }
         },
         "output": {
@@ -745,7 +788,7 @@
               "mic": 1800000000
             },
             "updatedAt": 1800000000,
-            "name": "Darren"
+            "name": "Robin"
           }
         },
         "expected": {
@@ -789,7 +832,7 @@
               "mic": 1800000000
             },
             "updatedAt": 1800000000,
-            "name": "Darren"
+            "name": "Robin"
           }
         }
       },
@@ -987,6 +1030,213 @@
             "updatedAt": 1800000000,
             "reply": true,
             "left": true
+          }
+        }
+      },
+      {
+        "name": "agent",
+        "kind": "positive",
+        "note": "A roster entry from a device declaring itself an automated participant with `agent: true`. Inside the room-key ciphertext like everything else. A reader keeps the flag; a member may use it to decide what media this device is sent. A reader that does not know the field sees an ordinary entry.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Al788n1SrZIKd4tqrZUtyhXTtUsU9y9EogkrSY0aAkcbqi7GfG0febrGYKQrAC0FIzFNp07J8zZM7eD9hR1l61NOzc0OEqAB+Brf7T6hG2gVsL3UKMRkbehjMRoUyx+h7JeVNpLwMjd8mCJPXZcOcQ515j8aUQFADyaq8W8IwOD33m1R29/4j28LURVR4N8QrnxrZtFJnikfsjBY1reHSHmGmvhr8rUubk6EQtIqFlol9MuykWtdoVJEXzzs7ZJsjpZqKtAd0t48Va1kBGr8bzC2JhFpD9JK3s3CgPNN65OP80cUdkYURU5k+Tl+A0rZwnrct8xLhpcC/n/ACM8ZF+WPEm0aPQTdBfmFsWSIQcFFGu9Tz1qYiyU7syrutzafc+ZEYEYP1Fwi81Ig4+kM0inDmdELMFZyqIuPtyHpFqvlKNitwl6sIoiEdpplHjk90m/Hmag3I7tKn9EshyumUo/2GRU7VUQQdoBc/DGUBJtHm/uwvWQ+EJ7O4tNxfK76ovf9Zz79GWU3IAONIr8QLNu+sS87bLyvIAdJVA8H1opKbwa8xdgQDlygdqQ5hEV0R3HS60hCjJTasfov6CvHEVKX0ES888lEElcOmnQCCf86Zs9d+/n2/CZ5+hRnt054ZbSvtc5wW/ghmBFugH8engYw7Myeh1YNVS2y0m+VdxI/PsaStIFba5GWlzlTCVZ0Deo5w+mU29t117ShVQFDCScU4fHCdbyzNQrwvRAA+avayOE0FYSvePTY13GonPfFWgjKyRARnjBV7cN0iL9AzBTQMHRr9r617+bcdo6mb6k6E7RudIBlUdW79qQt9O/rIsK+Fz1KKvh25Lq/OI2gIA034xNF6Rj6NPpl1s9ZaDQlseMep3bnnZHoL9ATlQNE/Rb8jGMhOZGOTjS0hMFj6+jS1IhBgqrv7yjkNKh9gSKH6f8PtwvbGQqhpAgJCi2o9ArLXnL7b/GGF+V8PfdTIttOtT6JjJb9CSNCynE37CFHXmmiZN2U/Pboq//MystfbC2P70N8L5JgAveKxWRacMz2lk+rXfZJDyL6h/Pq9L4WT8u9l5isg06BrHnLvwS1rf4/NBh+1sccyepTpC8ez3BD202U2WzYXX+EJMSFShUQ6DOFXNvHYMcY6sqZTyjXguyCEybVJyU5L2nXG10P31bkjoB5/0Tiu55oLOGyPmdU0nFMk+DlTuRsKHkoS2mmfn1xWu13ojqGVC1WdNy3Hi+/JNJjU2ZCjWYFXKCRg06h3gsUELywQRZRMQLiXc6Qt0hq",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "0dd0288bd7df2eecab98fb8765202c7eec0b5c714f2267e6d9be6cf2487e0911",
+            "sig": "a36a7e8cb31c8d61f753252385d4e15405eb0522c2ccb3f81ffa05e31813c057d6a9d7ba9191f6af1806b108c878bf03af7d44cebb8f6906fde51cbddfb77886"
+          }
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "agent": true
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "agent": true
+          }
+        }
+      },
+      {
+        "name": "agent-loose-value",
+        "kind": "positive",
+        "note": "A genuine roster entry whose `agent` field is the string \"yes\" rather than the JSON boolean `true`. The entry is ACCEPTED and the field is DROPPED: only an honest `true` declares an agent, because the flag decides what a member sends this device. `expected.result` carries no `agent` at all.",
+        "input": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AhHBoY9hXhTP25Q9ivkdNKlPyJwP+JRx1k1AmgSHK8d7jwJovJTJQRiraQvZK2avYt4mL+xW8eI/XRtnP52Ce5m1BJIvbtIlXpyA3CbY62YgZFT8gJstEVufFk5IXnd6dA1m1LQ4L84JCJ+Iwq779hOVTty/ndd0yRAKZmxdXVXPexP/EXXs2ZyVBZLV/E0IFwJVatCFH9F3Wx9iXC/yhzLjQ3Xw7konf1m/R466utokkK4RZEGc9Qk+fAwCsmKqa3xnxTfYt+AgCl10fYzI6I07Ozy2qD8Pj+eVF+ClEo6ysTW+76Qj4WxUGSYYSCz2UAXSZPIPSRkOtMe49sbqSMAEJic7yhDoLS3hbUFzM9kc7ZCyMLKedxSBS3SgY/iZt5tI6YoJnnZQpknVH3ml4IaxpZxlOgN2Ll6x3Rh2RtFzbvrMMqyejXOiahrBsprbSA6GDml8GQWuxtZYRbEbd8/R+8vvGiD/jmZPxZXJz9JvXRUBSHcoemKzmkfPFtJxjgfgr2v+yiz3aKCDvCl7AUeuS1vB4TGpGJL5bVYKW/bbZJic58ubu/IwVlp+To9ufdDRTpIPp6WztA2YmqB5KVLm7v3aQsTbcn5DUwhvNFNm3uSY1WZPV9ZNbVADGkGc0LwLDIPDyrakSWtpVoXFJ7Xyl1tSX+3Zl6muqP01m6iVcldKNagpq6+PuUYNpBMcCtZ2XAupa/0Ae7xXHtbMN0nipiS5qd7hzG29x82lcsSpcuOzG87VAF914lw2WvWSoRItGoVjIsxcV17+13fbUjC5ruyPpNJbrueRgbCxyvZRZdas/JzpVNQpX7chlyDmsG3WRJwD9tqlXdhgzM1qgt2WwM0HNm5Pr5tJwZTZu256rjE8kT6POTTOdCX8LR3uyVa7Lz3/zG03jQE/oi5nEwIjjw8jBvbnDGMAIP2Ky2BF7ZTRoUw1n2pXQt0aH1e/0zGY6ZXIvIcdzwzidGFH2zNj/du+2XTEwp78j2D3icz3NGe1roZ8ozUp04Wlbyd1HtRAaJlt8nCsAFQJhBIZdBdiOO1B5Tz9aissJVgqcLThxNOF/bUC6piShlHd21YIGjWpC/k+//0O3LIgqEtb+elTjNd9kd4BQOZ+ta0BaT+cDTVoDn0MbcMTbJhvxA4A14kb+XT7eu0538jgnJugU/Ui1a0nKtcTJd6XiiEhtb/h7MTLIUH6DiJNhf42lNDwvSR/mxp9Yp5lTgxTn/WcdE8BIF/q0JLQmfmntdFRCYc7/9kZ3bj7dwCKIhBiZAai9qki",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "42e813b9f25ad3c9e11e8be73701ea05ebe7453272d2b877453740d4cc33716a",
+            "sig": "552555d46c353b6196292dc48b82b5346c97fb8a0c140391c3243e2f72a33b86ce948d288fe5d9e2fb528255b7647f7493a40e90c5758d244aef788e238a4b15"
+          },
+          "rawAgent": "yes"
+        },
+        "output": {
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
           }
         }
       },
@@ -2471,6 +2721,1135 @@
             "sig": "1835126f62d54c6cec941d9c08b8d5da28985a909e605f975e3d5603de7652fd2d71e3a8bfac0cc8849dafc931514f364bcf3c374d54a5ee2844d97de8af1cd1"
           },
           "result": null
+        }
+      }
+    ],
+    "roomEpoch": [
+      {
+        "name": "epoch-zero-is-the-room",
+        "kind": "positive",
+        "note": "Epoch 0 is not a special case bolted on: it derives to exactly what `deriveRoom` derives, with the same two HKDF info strings and no salt. A client that has never heard of epochs and one that has agree byte for byte on a room nobody has been removed from, which is what makes the whole mechanism additive.",
+        "input": {
+          "epoch": 0,
+          "secretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf"
+        },
+        "output": {
+          "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "epoch": 0
+        }
+      },
+      {
+        "name": "epoch-one",
+        "kind": "positive",
+        "note": "The first successor. `id = HKDF-SHA256(ikm = secret, info = \"kithmoot/v1/epoch-id/1\", 32)` as hex and `key = HKDF-SHA256(ikm = secret, info = \"kithmoot/v1/epoch-key/1\", 32)`, no salt. The secret is the one the rekey sealed to each remaining device - NOT the original room secret, which the removed device still holds and which now opens nothing.",
+        "input": {
+          "epoch": 1,
+          "secretHex": "3235bdb7cf4e08d8eb9f1441bd2158825c0e84150ac0fc123a106455130eeecf"
+        },
+        "output": {
+          "id": "664281bc1183839a58405e3281450f3b71f4add0346f826c0f1c4209d767fb91",
+          "keyHex": "8d439bd5a6c2a53e0e3c792e8f1ed8be7aacc227b3a4b74efd8973952b22406d",
+          "epoch": 1
+        }
+      },
+      {
+        "name": "epoch-two",
+        "kind": "positive",
+        "note": "A second removal from a room already at epoch 1: a fresh secret again, and the info strings carry the number so two epochs of one room never collide.",
+        "input": {
+          "epoch": 2,
+          "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+        },
+        "output": {
+          "id": "d3593c601c50a26d2dffa2096660ad6ceea3c66ff481fa9d17e00fbdf3931ac4",
+          "keyHex": "1413d7a381318a9b0d302dc315850f3bb6085ded694a074ceddf8eceecc95e8c",
+          "epoch": 2
+        }
+      },
+      {
+        "name": "rekey",
+        "kind": "positive",
+        "note": "The authority moves the room to epoch 1 and removes one device. Encrypted to the epoch being LEFT, so everybody currently in the room can read who left; the successor secret inside is sealed separately to each device that stays, under a NIP-44 conversation key between the authority and that device, so the removed device reads the notice and not the secret. `peekRekeyEvent` answers \"which epoch is this\" with no key at all, which is how a device that has fallen behind knows it has.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "1"
+              ]
+            ],
+            "content": "AoO5rvD56/1qncZx+6GpPUsuFX9oEhRM59Ew2V5tGsEJLh8PbHyTAJBz1+Q4s8C54egFnpXKtusbE0JKwsmIACdwRXkmEX/nFGXzN6sgblDOt4t/X1RLygvxPBGiv264zMOQzrBKmZG3LIyN0x3QISgwQcfaKiK+P+Em5pcifbVqENhWIv3kj1g7jgjbNLeivnLBY73P14E5GOOJgT0RVXbi4+ZtE9t7lpw58KlwWNdrfPiGM+antUOTD3vptFSXmjw1LfMNzWEV19vqIFheK9luoLiQ6lXjpz3w4s9rJJCioIjM2K6Q2S+bHWmnaZMmOMC7ZtX8Yjt8jtPjLPMwJtkGSN+ewQRVgzLCDAczcbas9tpE1sitWA3r29meWHsIO/XKmA1FnuxelkamYRMkcVhl6Hg+Dc5WyFtZIDC9WBTo39yNkIWDqFKxuArvaZjYaxWq/cfk3UCsiYjgkuccEuZ+ZEktV5jGsaQaJFgl7HB0DYPWIZPVS4UKZnRyQruD9RYoK4dHVPtP16MkbetK6TOs3Re5HJpi/c0rX6RoP31nVdIP0EVsXdagxzABVz6P+u/d8KSDaeEKGm3txnaIfgftJIqTyv38J8e0CXPgdSMFtI44seJODzMO3mUWHl7mkBrmatxF3Yw/XQv+Ifn/nH0toK0gb3ObJ/5gXjLLtcDsqXA=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "0f2be00e697df3d8e1f9e9a7ce0eef906ae69886460ff8a5af969f4628280287",
+            "sig": "0eeff57ea5996cd84ee3a43941f085cc3788b5ae3cbf6875e3a5f7585810605dacb143225dcfe136a2fe975d90ea708d0d271f2593ff731d32f6926ce579f371"
+          },
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "currentEpoch": 0,
+          "currentKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "next": {
+            "epoch": 1,
+            "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+          },
+          "recipients": [
+            "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+          ],
+          "removed": [
+            "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+          ],
+          "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "createdAt": 1799999000,
+          "nonceHex": "83b9aef0f9ebfd6a9dc671fba1a93d4b2e157f6812144ce7d130d95e6d1ac109",
+          "sealNonceHex": "e617dbf94c459bab110bc2d6a3e9e8d90c84fc0e8f5c335234a19af8c56a84fc",
+          "auxRandHex": "0d6b80f76bdb16bb87510db4ed0acdf1f4dbcb390b13b3c896b2129db761d80a"
+        },
+        "output": {
+          "peek": 1,
+          "result": {
+            "epoch": 1,
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ],
+            "closed": false,
+            "at": 1799999000,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "current": {
+              "epoch": 0,
+              "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+            },
+            "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de"
+          },
+          "result": {
+            "epoch": 1,
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ],
+            "closed": false,
+            "at": 1799999000,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "secretHex": "3d3480782bd9eabca24b6f9a541531aa2ca4dc535342d8abf1c2347d58ab26cb"
+          }
+        }
+      },
+      {
+        "name": "rekey-read-by-the-removed-device",
+        "kind": "positive",
+        "note": "The same event, decoded by the device it removes. It decodes - the notice is encrypted to the epoch that device still holds - and it carries no `secret`, because no copy was sealed to it. A client must treat \"decoded, no secret\" as \"you are out\", not as an error: it is how a removed member learns it has been removed, and it is the only notice it will get.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "1"
+              ]
+            ],
+            "content": "AoO5rvD56/1qncZx+6GpPUsuFX9oEhRM59Ew2V5tGsEJLh8PbHyTAJBz1+Q4s8C54egFnpXKtusbE0JKwsmIACdwRXkmEX/nFGXzN6sgblDOt4t/X1RLygvxPBGiv264zMOQzrBKmZG3LIyN0x3QISgwQcfaKiK+P+Em5pcifbVqENhWIv3kj1g7jgjbNLeivnLBY73P14E5GOOJgT0RVXbi4+ZtE9t7lpw58KlwWNdrfPiGM+antUOTD3vptFSXmjw1LfMNzWEV19vqIFheK9luoLiQ6lXjpz3w4s9rJJCioIjM2K6Q2S+bHWmnaZMmOMC7ZtX8Yjt8jtPjLPMwJtkGSN+ewQRVgzLCDAczcbas9tpE1sitWA3r29meWHsIO/XKmA1FnuxelkamYRMkcVhl6Hg+Dc5WyFtZIDC9WBTo39yNkIWDqFKxuArvaZjYaxWq/cfk3UCsiYjgkuccEuZ+ZEktV5jGsaQaJFgl7HB0DYPWIZPVS4UKZnRyQruD9RYoK4dHVPtP16MkbetK6TOs3Re5HJpi/c0rX6RoP31nVdIP0EVsXdagxzABVz6P+u/d8KSDaeEKGm3txnaIfgftJIqTyv38J8e0CXPgdSMFtI44seJODzMO3mUWHl7mkBrmatxF3Yw/XQv+Ifn/nH0toK0gb3ObJ/5gXjLLtcDsqXA=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "0f2be00e697df3d8e1f9e9a7ce0eef906ae69886460ff8a5af969f4628280287",
+            "sig": "0eeff57ea5996cd84ee3a43941f085cc3788b5ae3cbf6875e3a5f7585810605dacb143225dcfe136a2fe975d90ea708d0d271f2593ff731d32f6926ce579f371"
+          }
+        },
+        "output": {
+          "result": {
+            "epoch": 1,
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ],
+            "closed": false,
+            "at": 1799999000,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "current": {
+              "epoch": 0,
+              "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+            },
+            "deviceSkHex": "f785badbca3915e8138c6bb54bc5cf69e8798485d7ea084daec5bae58db6d9e6"
+          },
+          "result": {
+            "epoch": 1,
+            "removed": [
+              "5defbe2990a67eb3589071a06ddf03c405276fa90373f9028be03b8fdc666428"
+            ],
+            "closed": false,
+            "at": 1799999000,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          }
+        }
+      },
+      {
+        "name": "rekey-closed",
+        "kind": "positive",
+        "note": "Closing a room is a rekey with no sealed copies at all: the epoch advances and nobody is given the successor, so nothing further can be published or read. `closed` is inside the ciphertext and is only a JSON `true`; the empty `keys` object is what actually closes the room, and a client that ignored the flag would still find itself with no key.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "1"
+              ]
+            ],
+            "content": "AsJHGiHMdGf9Lyh+V6t8YAB522hkumHqYMOBpXj/xyPwr4AmvHyQVFAQe3bPRGssKZggHOPlMuCrU2OALnfwdhgAPMjYalin3wvvHeucJ7laIUlPAVc5Jt78SBK9dxcn01O1KXc1o0HgM64kk3R95lmgexGgScTKNjIYAYb5KBhlBcg=",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "eda9f0c935062c12dd80c6e24129390f5820101843b2cf5ded52ddd1adb6c0e8",
+            "sig": "5bf0cd13c2a77875306e3843110f695434cafc765543cb783b848d7b40cf7dfef3a9e822013cc2ac4d4145a671808a6afd1e62ec1c41199be10317bc32f7052a"
+          }
+        },
+        "output": {
+          "result": {
+            "epoch": 1,
+            "removed": [],
+            "closed": true,
+            "at": 1799999000
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "current": {
+              "epoch": 0,
+              "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+            },
+            "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de"
+          },
+          "result": {
+            "epoch": 1,
+            "removed": [],
+            "closed": true,
+            "at": 1799999000
+          }
+        }
+      },
+      {
+        "name": "rekey-not-the-authority",
+        "kind": "negative",
+        "note": "A perfectly formed rekey, correctly encrypted to the current epoch, signed by a member who is not the room authority - which is to say, by anybody else who holds the room key, which is everybody in the room. It is REFUSED before decryption, on the signing key alone. Without this check any member could remove any other, and \"removal\" would mean nothing.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "1"
+              ]
+            ],
+            "content": "AqBigkXsdPEEP96tDIA2af3Cb5YPB1nvr6ylEcFq1ZCHBP7IFSnMaA32dxfnRA7pLdnKbLGyyBKSmHWtY1I3mA7UfGYyJK+8ZB+BJQmGvzXwSTo2GgcXviwglwO0dYGGV35Ces/+Z3tYSNy1QzrkjmY3RMfQjPufwnYN+4wFJjlbNnFWq6/Q+qCDgHqg7YT74su8AYy8LgCRl/Gj4SCqtlIOpTrL9VtOspU2OTykvevA1tDAl8Nt0ewtCdbucjmy817Px8hjIp6eHM76/14nMGujLDDYFAjDmg7Vz3y8Clc1hVkkzZWwl2YSG6hUd28ljHuXdMs2LzfqOuJRqnwKyoExGbayLzNgI8LagylQkSp888D54T5I6Kr7Uyogf2kztshLwv056mpMdSNRhwMkv/tssDciFBl1MNel2CI5JarPIgNUBsfMqKuR40v/UwgjqpoE/YrVvHCYUIB1TXF9j0hooDLcTSdqGnESnOyNHNdHeMKqQgd9vrSxnGB7/x7eNrsJ0BRK1SNW2qwXoaioWeBI3S9zBdoyEf1nipXC1cOD/KElmiJZSJIgfr1dptjdldyXmdbfQwZk11WhnKKaVwEh6w==",
+            "pubkey": "9d62f4907fa01b43a61acd6f9e81671b5a87f603ab51dc2aad4eb52cde8613f5",
+            "id": "f3825bb7a65bba2df778f82c6432fc291478e40c702013a61f9a7876cedc53c9",
+            "sig": "b7fed265169375a270e45fe840aa13e8c85755af872b06e8412756bd03083df9af3254334eb08d67bcc44e86bdff638aec9974c4e6679bf2e2a327cafe2c3f04"
+          },
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "current": {
+              "epoch": 0,
+              "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+            },
+            "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de"
+          }
+        },
+        "output": {
+          "peek": null,
+          "result": null
+        }
+      },
+      {
+        "name": "rekey-skips-an-epoch",
+        "kind": "negative",
+        "note": "The authority naming epoch 3 while this device is at epoch 0. Refused: only the very next epoch is applied, so a device cannot be walked forward past a removal it never saw, and a replayed rekey from an epoch already passed cannot move it backwards either. `peekRekeyEvent` still answers 3, which is how a client knows it is behind and should ask.",
+        "input": {
+          "event": {
+            "kind": 1462,
+            "created_at": 1799999000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "epoch",
+                "3"
+              ]
+            ],
+            "content": "AmQtYEk0dMPHUFrz+bhTOF2FVPUOvVAlNCGka828T+NSpwOC5UCCs+pe2W+1R35i3VLAGP/Td+LQ3PXsMezani1ZvJ/kbCsbwx6OoObtknb/82UHmetg3Y13lG2ockSLEZyyc8NugcikYA/pPLty3AeqR+Iw0TwTMuflSl7CQbGb+60zksgOFm59lZyxdejz1mAzyvoqzBAaxxSuBcEmcoLonhqd8Gu3j1I5ljqRfJyLkToBUnXfC9MuS5iErTZLk6baxjJLztHbTz82FiGXrUEXAP5JzJ1L712UXF4rU/i4QQR9dznjMoe+LuJnWcscv0SFind/RrWyfa05UlPfmy8PNoVLw8dSP08Yzl8tTS41WfBlF6YbHOGUEXGcZ4jTAyQ428ffXDiHoMRCAOU/nsN4y6n5DhejbKclODDPc8AO7JeuQza7AC7LgOrOsfaNqqyDOnexeNCDpDOWeUSpAQS1rV7YwQLMgDdgDybjpjCgyQeEzEdY+4CFLznpohaOxP++v8mJP4gZrGS7eeJNYxezqmbjTkRSI/jjfh0mAYZKE5xBcEO0iOuX/x82dL/dwnWUGc5jZEaeHbFC1RxesJvw1A==",
+            "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "id": "7eb7072786de21eaeb4fe995940149552f60cb84eec269f845f8f431efe6408c",
+            "sig": "12d46a5632376aad4c35f3bf1d703f731ebf2906d88db3999806adc903a88b9557d525af9b2b09ffd425dba16a748cf9a0bd1fdeabc22ffec31e8bf559a0b34c"
+          },
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+            "current": {
+              "epoch": 0,
+              "id": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+            },
+            "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de"
+          }
+        },
+        "output": {
+          "peek": 3,
+          "result": null
+        }
+      },
+      {
+        "name": "admins-signature",
+        "kind": "positive",
+        "note": "Who may remove somebody, said by the authority and checkable by everybody. The message is `sha256(\"kithmoot/v1/admins:<roomId>:<epoch>:<admins joined by comma>\")` over the CANONICAL list - lower-cased, deduplicated, sorted - so two clients that hold the same set in different orders verify the same signature. The epoch is inside the message, so a list signed for one epoch does not authorise anybody after the next removal.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "epoch": 1,
+          "admins": [
+            "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+          ],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/admins:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1:49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525,b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "auxRandHex": "d27fcbb1f770e6772986f7e9b8a25c52db8088ad519f70b9cdc76d82b722dc5d"
+        },
+        "output": {
+          "canonical": [
+            "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          ],
+          "sig": "8655aa16882d3be3397a7987f3727f9e38a2640973a81c828b1a36a4bf804d55bdf5c2d2d4a55e8d9d3f28d38772ed9e0e3bfb309083a914ce9bbff30e66f2be"
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "epoch": 1,
+            "admins": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+            ],
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "admins-signature-another-epoch",
+        "kind": "negative",
+        "note": "The same signature, offered for epoch 2. Refused: a list is authorised for the epoch it names and no other, so an admin set from before a removal cannot be replayed to re-authorise somebody after it.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "epoch": 2,
+          "admins": [
+            "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+          ],
+          "sig": "8655aa16882d3be3397a7987f3727f9e38a2640973a81c828b1a36a4bf804d55bdf5c2d2d4a55e8d9d3f28d38772ed9e0e3bfb309083a914ce9bbff30e66f2be",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      }
+    ],
+    "agentOwnership": [
+      {
+        "name": "valid",
+        "kind": "positive",
+        "note": "The smallest honest proof: an agent pubkey, a principal pubkey, when it was issued, and a BIP-340 signature over `sha256(\"kithmoot/v1/agent-owner:<agent>:<principal>:<issuedAt>:<expiresAt>:<label>\")`. Note the two empty fields: an absent expiry and an absent label are the EMPTY STRING in the signed message, not omitted, so a proof with no expiry and one whose expiry is the empty string cannot be made to collide.",
+        "input": {
+          "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+          "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+          "issuedAt": 1799900000,
+          "sig": "cd0695bd8d67749b6c7bf28dfb9bc631a1cd0a0b2a51747855f03fb2284ba41cf422439c2e3908ab0dd619cb775ae23f22f1651fbffca2c532f255649b3d6a3e",
+          "canonicalMessage": "kithmoot/v1/agent-owner:e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc:86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c:1799900000::",
+          "principalSkHex": "e1e529c318e89dafc8f60b2c9eb9cb8760cab781d80b5087941a75d9b53b28b0",
+          "auxRandHex": "4bd9a5c2da2114a85eac203b1c38fb7b8480fc446c296f5e5abecb956cfcef7a"
+        },
+        "output": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "sig": "cd0695bd8d67749b6c7bf28dfb9bc631a1cd0a0b2a51747855f03fb2284ba41cf422439c2e3908ab0dd619cb775ae23f22f1651fbffca2c532f255649b3d6a3e"
+          }
+        },
+        "expected": {
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          },
+          "result": {
+            "ok": true,
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c"
+          }
+        }
+      },
+      {
+        "name": "with-expiry-and-label",
+        "kind": "positive",
+        "note": "The same proof with a horizon and a human label. The label is sanitised BEFORE it is signed, so what a reader renders is what the principal actually put their name to - and a reader must re-sanitise and compare, which is the `label-not-as-signed` negative below.",
+        "input": {
+          "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+          "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+          "issuedAt": 1799900000,
+          "expiresAt": 1800086400,
+          "label": "Ada, my research agent",
+          "sig": "87f7d17db66ea7e3e2458beae9070fe41076d58af07a6006e9f061729d52442bbdff01e6bc711601d473fffb6911b3f79ffeb77c9b2d4b68bc1c5fc19478c192",
+          "canonicalMessage": "kithmoot/v1/agent-owner:e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc:86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c:1799900000:1800086400:Ada, my research agent",
+          "auxRandHex": "50370f16a182819572d4962e613c3096255095a9298b0a233a45f540e9e84581"
+        },
+        "output": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "expiresAt": 1800086400,
+            "label": "Ada, my research agent",
+            "sig": "87f7d17db66ea7e3e2458beae9070fe41076d58af07a6006e9f061729d52442bbdff01e6bc711601d473fffb6911b3f79ffeb77c9b2d4b68bc1c5fc19478c192"
+          }
+        },
+        "expected": {
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          },
+          "result": {
+            "ok": true,
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "label": "Ada, my research agent"
+          }
+        }
+      },
+      {
+        "name": "names-another-agent",
+        "kind": "negative",
+        "note": "A genuine, correctly signed proof presented for a DIFFERENT agent - the exact move an agent would make to borrow somebody else standing. The check is against the agent whose roster entry or chat message carries it, never against the agent named inside, so the proof is refused with `names another agent`.",
+        "input": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "sig": "cd0695bd8d67749b6c7bf28dfb9bc631a1cd0a0b2a51747855f03fb2284ba41cf422439c2e3908ab0dd619cb775ae23f22f1651fbffca2c532f255649b3d6a3e"
+          },
+          "verify": {
+            "agent": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "names another agent"
+          }
+        }
+      },
+      {
+        "name": "expired",
+        "kind": "negative",
+        "note": "Signed properly and out of date. Expiry is the only revocation this proof has, so it is checked strictly: `expiresAt <= now` is expired, not \"expired a moment ago is fine\".",
+        "input": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "expiresAt": 1799999999,
+            "sig": "650d509b62e4935154cede777ef8f779b861988c554fa344bce97f8ccdaed0616acac7264f3670d9d816b15ba7b5f2e443d889929193a87788532b37d59c9c2d"
+          },
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "expired"
+          }
+        }
+      },
+      {
+        "name": "label-not-as-signed",
+        "kind": "negative",
+        "note": "A label carrying a right-to-left override, signed exactly as written. The signature verifies; the proof does not. A reader sanitises the label and refuses when the result differs from what was signed, because otherwise a principal could sign one thing and every reader would render another. `label is not as signed` is the reason.",
+        "input": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "label": "Ada‮ evil",
+            "sig": "16bce50339b4a197fd5074b919e75e2e2a93e35578205fe397ca4f3116e8118f3f8ef378bf789b998f4631c1f366336e719ddd4154e14742bddebe85110b8097"
+          },
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "label is not as signed"
+          }
+        }
+      },
+      {
+        "name": "its-own-principal",
+        "kind": "negative",
+        "note": "An agent signing for itself, which is a valid signature over a meaningless claim: the whole point of the proof is that somebody ELSE vouched. Refused on the two keys being equal, before the signature is even checked.",
+        "input": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "issuedAt": 1799900000,
+            "sig": "9f35e3bcb2dfa1330c7f3ed9e346cccbf931b96952a8bef8612dacd66534a75ca5071450d3c600a26588a9a838e8a1b6004a1d02ece11c66f0b8600cb31402fd"
+          },
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "an agent cannot be its own principal"
+          }
+        }
+      },
+      {
+        "name": "bad-signature",
+        "kind": "negative",
+        "note": "Every field right and the signature wrong. Checked last, because it is the expensive one, but checked.",
+        "input": {
+          "proof": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "sig": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          },
+          "verify": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "ok": false,
+            "reason": "bad signature"
+          }
+        }
+      },
+      {
+        "name": "normalised-shape",
+        "kind": "positive",
+        "note": "What a reader must make of an ownership proof off the wire before it verifies anything: keys lower-cased, unknown fields dropped, and the surviving fields written back in a fixed order - `agent, principal, issuedAt, sig, expiresAt, label`. This is the order the roster and chat encoders re-serialise, so an implementation that keeps the sender order produces different bytes for the same proof.",
+        "input": {
+          "raw": {
+            "principal": "86EB46720A924DA0D3A41E53BC37AC940FAE17D4330BDB587A65D06FC3646B1C",
+            "label": "kept",
+            "agent": "E2DDD9C3418B608A130FE3A6FBE2AAA38BE6AB7D0B4D3C5B69F1CA467FBE0FCC",
+            "sig": "CD0695BD8D67749B6C7BF28DFB9BC631A1CD0A0B2A51747855F03FB2284BA41CF422439C2E3908AB0DD619CB775AE23F22F1651FBFFCA2C532F255649B3D6A3E",
+            "issuedAt": 1799900000,
+            "junk": "dropped"
+          }
+        },
+        "output": {
+          "result": {
+            "agent": "e2ddd9c3418b608a130fe3a6fbe2aaa38be6ab7d0b4d3c5b69f1ca467fbe0fcc",
+            "principal": "86eb46720a924da0d3a41e53bc37ac940fae17d4330bdb587a65d06fc3646b1c",
+            "issuedAt": 1799900000,
+            "sig": "cd0695bd8d67749b6c7bf28dfb9bc631a1cd0a0b2a51747855f03fb2284ba41cf422439c2e3908ab0dd619cb775ae23f22f1651fbffca2c532f255649b3d6a3e",
+            "label": "kept"
+          }
+        }
+      }
+    ],
+    "chatAttachment": [
+      {
+        "name": "chat-with-attachment",
+        "kind": "positive",
+        "note": "One share on one message. Everything that matters is inside the ciphertext: a relay carrying this sees a chat event for a room id and nothing about a file, and the Blossom server that holds the bytes sees a hash being fetched and never the key. `name`, `type` and `size` are the sender's hints for rendering before the envelope is opened; the envelope carries its own metadata and that is the authority.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999800,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AhxHS7hNpML1VwGUuDS1kaM66RqH5KhKLr1TD7MKcn2n1qp8TGbpr/VQ8bLUfpIl5pdeFrKZ2WpFYpDoixzWzVs3yoxaVQ/NnM/4IaviJIajViJjLZlBY2W56HSD6hkhkz2CdxmAsp78dMPLdbxjYnBdzxH8Uk77XLNyB5QSubhumFaF2ILgh862VbmGK2jf88cswYagrV8U1NmKhugAyuinta6/e8s20CGfuZzIRvV8GwEIEcrpb/KGxNS5pUyY750LKNzclmyyLxEe9VApkoe4K0ptKnt4ssYOkc3Hr49pkTW6/XJXHPPohrxNIyEB5f8AjP0oVwrEiQZgfIo72qBIXcSvTbWFpC9DaVs1M3AEnarU7RtdTNqIR1qRd3gZX1l8esg9V7J6tygl5nwBZ36ZvagAg7VqVn2/F/O3V3k8tGHVS0IKlW0lraw45VDRww9U+qxIzNhvEoUXJKxuFh/PALDbOtc/pcvtiu/KOS+HywcZ5eq7LJ2f2TMZBdPpTEVydY8GySXZ5/TzSuZFOt7S/xeL1Ou0E081ZfBemavQhwR6tWZIAI417kuCKfprY1PFVcVnBw04JKXAjWrmSxtBMo2hhy0WPlTBZtXJckwCJZrwfNnrR/qCz3rLD9YgWbaAHIuDWUXDcvC66CxImZ7pchHQsd8x6Rjq0jaZCf31ocFGHyAe2KCVc51jKpE8eGY5NGoI+0XbhwDhaiDThcnvctojQFoUPgnHPorAFcVEo5+1EBSSe3RhZ3JelDOITpSpS6qudEdKdeuVfIFW5VBiOLe0xDXcchU6QJ9hTLxawtqVxYIyq+DU5zaWbx0YetuQSicSxk9XzI21OO2eUUDsj8GU6RN0dLwFTAjU1ignXTw8DdIKmXY2m25P2pmvFfIYaT3nM9SZDQUaEVJru1aT7wpN5LRY0j5g4eBshIwrDGnxK5RzE0qpUi9VDs8Oa2Rc+ol6x3Z6Z1Y5bEVxTGsh/mrurIm001NEc8LUPDSFcIbsWR3UG7KRpLeurWstW2gLiJcndJQ+M2/lPnUurs5tz1NoLzx2w4yMx6NKV122Z76S9M1P/+DZnycqMcpDRP2fVNNE672uJHO4DiQp13F4KbbwFf4tqmL9BvClUCr9PATUcpaW7sWP/Y5xRCMKKr9XirxQvLOzQ1Oi4Je+LRKCeqqltDFAv5GBRe3Q8wsCQO7st6lf8cFqmp0jbm7N2c2stBPIkU+j80rsD0sZr0V+U6vYzXpTC+CJ7DJAatzs5k/x/zPnEZn6QatFHjzLVlneeQvMpyi2oyFJ8UKOPkcVReD0xxvVfCvjgzw5DG4J3kl5FCl9Mih4sYgR2ETE12397eZ68VmiWmKFyM1rWScZiV6o+JJQneHIspEQCcEwL1SIoDE1+2Bf4FAVeUcIcLUORd9ndOH0KNH+HXQtrjcfNWTH1TjY2efC0EG6DsBmDF8cDtu7hG58Yfu2eqe9eV6F75SjPkKJrEEiUunkSJQ5m5b/ROCgwMKGHiRLqk9Tlto1a0Nr3mzww+TtRaD8u0kSOTkVmKvkJ8r46DQZld06RoBJ1aADOHQqU6SQpGjEBBETC3UGoaV9YMS6H4gATY3gsfVRfCelCPWavaBj83jb6M0V0stLdMjbm8hFscyIKDaStGCWIr5HP39Z8taoheb35Gr5Zhu/eelBaC8+c274OnROBEw7rTA1cjAfTIvleMUi8NWhDdjAdu0676K8KiNGLtHKMZGxnDXp4sL424JpW8Eeqm80pTbyE0ihtv0oW4W+6VT6WG5TmGroBE+/Q6W+",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b9ceb0bae98e0973de8ffb565f985d646cff21156946b0335d563184f402fb5e",
+            "sig": "b433f6d24970857fe34e1e0d5e184c6b852fcb2c35a844a882508a0e13e2b4440d4a11540213be4d844582aeaf4484c8231508c46d1b8f5fe80624f939691efd"
+          },
+          "nonceHex": "1c474bb84da4c2f5570194b834b591a33ae91a87e4a84a2ebd530fb30a727da7",
+          "auxRandHex": "b021941d85e6ce0e8640829be5488fd8b587d6a0873edf8f0c2822648bd8aca6"
+        },
+        "output": {
+          "result": {
+            "id": "attachment-message-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "376abd887236ad9e0b9b3fb4c6030a533eaeb6960b7be12a129020abdf6564022ae9b911a9020723b0299f62cbfd5317c4b917aed7172c763888c57780794ba4"
+            },
+            "text": "the minutes, sealed",
+            "sentAt": 1799999800,
+            "attachments": [
+              {
+                "event": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "url": "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "key": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                "name": "minutes.pdf",
+                "type": "application/pdf",
+                "size": 131072
+              }
+            ]
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "id": "attachment-message-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "376abd887236ad9e0b9b3fb4c6030a533eaeb6960b7be12a129020abdf6564022ae9b911a9020723b0299f62cbfd5317c4b917aed7172c763888c57780794ba4"
+            },
+            "text": "the minutes, sealed",
+            "sentAt": 1799999800,
+            "attachments": [
+              {
+                "event": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "url": "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "key": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                "name": "minutes.pdf",
+                "type": "application/pdf",
+                "size": 131072
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "attachments-a-reader-must-defuse",
+        "kind": "positive",
+        "note": "Three attachments from a client that checked nothing. The first is served over plain HTTP and is DROPPED - a share is https or it is not a share, because the URL is fetched by the browser and a downgrade is a downgrade. The second has a key that is not 32 bytes of hex and is dropped. The third survives with its name defused (the right-to-left override goes), its media type lower-cased, and its non-integer size dropped. The MESSAGE is kept throughout: a bad attachment costs the attachment, never the sentence somebody wrote.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999800,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "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",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b30788e34f44dd07b374a328b3af32ae18e1fbcce8dbe7cec6628071647f43ee",
+            "sig": "16abfef32e350c04edd4e8473ec40956c46f74d8d2570d34007dc071f0debc533e634593db88f26b8b30227284ef563828348eb730de6ce1367f08636d832051"
+          }
+        },
+        "output": {
+          "result": {
+            "id": "attachment-message-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "376abd887236ad9e0b9b3fb4c6030a533eaeb6960b7be12a129020abdf6564022ae9b911a9020723b0299f62cbfd5317c4b917aed7172c763888c57780794ba4"
+            },
+            "text": "two of these are not shares",
+            "sentAt": 1799999800,
+            "attachments": [
+              {
+                "event": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "url": "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "key": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                "name": "quarterlyreport.pdf",
+                "type": "application/pdf"
+              }
+            ]
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "id": "attachment-message-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "376abd887236ad9e0b9b3fb4c6030a533eaeb6960b7be12a129020abdf6564022ae9b911a9020723b0299f62cbfd5317c4b917aed7172c763888c57780794ba4"
+            },
+            "text": "two of these are not shares",
+            "sentAt": 1799999800,
+            "attachments": [
+              {
+                "event": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+                "url": "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+                "key": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                "name": "quarterlyreport.pdf",
+                "type": "application/pdf"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "more-attachments-than-a-message-may-carry",
+        "kind": "negative",
+        "note": "Five shares on one message. The WHOLE MESSAGE is refused rather than the extras being trimmed, and the count is taken as sent rather than after filtering: a cap that silently truncates is a cap an attacker tunes, and one that counts survivors can be walked past with junk entries.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999800,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "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",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b0bb74cbf2f6715c2b47d96ef9e30c71e885a9241c4cbb85b9eb97ae296ea2ed",
+            "sig": "d2249ad030aa6727bd8527f028953653c3e5c668fa145b396bf1e6f81f279f26e6384ebe94b6155b11c28fb90a6a5149e49c2fa8bd529ff763eac366916261cc"
+          },
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "envelope-key-derivation",
+        "kind": "positive",
+        "note": "The recovery key in the chat is not the AES key: the AES key is `HKDF-SHA256(ikm = recovery key, salt = the envelope header salt, info = \"forgesworn-aes-256-gcm-chunked/v2\", 32)`. The salt is in the header of the envelope being opened, so the same recovery key opens exactly one envelope and knowing it tells you nothing about another.",
+        "input": {
+          "recoveryKeyHex": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+          "saltHex": "fbb36102494143499bca19f123c620392e40828a0aee5c78fe1dcc44c4535aea"
+        },
+        "output": {
+          "keyHex": "e054880f08711d8a3ae62ba31695eb0d8e09317a12d4890a41b6cfdf305209fa"
+        }
+      },
+      {
+        "name": "padded-plaintext-length",
+        "kind": "positive",
+        "note": "What an envelope's length is allowed to say about the file inside it. Everything up to 64 KiB is padded to 64 KiB; up to a mebibyte, to the next power of two; beyond that, to the next whole mebibyte. A watcher who can see only the size of an upload therefore learns a bucket rather than a fingerprint.",
+        "input": {
+          "lengths": [
+            0,
+            1,
+            65536,
+            65537,
+            100000,
+            1048576,
+            1048577,
+            5000000
+          ]
+        },
+        "output": {
+          "padded": [
+            65536,
+            65536,
+            65536,
+            131072,
+            131072,
+            1048576,
+            2097152,
+            5242880
+          ]
+        }
+      },
+      {
+        "name": "file-event",
+        "kind": "positive",
+        "note": "The NIP-94 kind-1063 event that announces a sealed envelope: tags in a fixed order, `x` and `ox` both the hash of the served bytes, the media type the opaque envelope type rather than the file's own, and an `alt` that says nothing about the contents. Deterministic given the url, hash, size and time, so two implementations announcing the same upload produce the same event.",
+        "input": {
+          "url": "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "size": 131072,
+          "now": 1799999800
+        },
+        "output": {
+          "template": {
+            "kind": 1063,
+            "created_at": 1799999800,
+            "tags": [
+              [
+                "url",
+                "https://kithmoot.example/blossom/b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+              ],
+              [
+                "m",
+                "application/vnd.forgesworn.encrypted"
+              ],
+              [
+                "x",
+                "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+              ],
+              [
+                "ox",
+                "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+              ],
+              [
+                "size",
+                "131072"
+              ],
+              [
+                "encryption",
+                "forgesworn-aes-256-gcm-chunked-v2"
+              ],
+              [
+                "alt",
+                "Encrypted Wildbloom file"
+              ]
+            ],
+            "content": "wildbloom.wbenc"
+          }
+        }
+      },
+      {
+        "name": "upload-authorisation",
+        "kind": "positive",
+        "note": "The kind-24242 Blossom authorisation an uploader signs: bound to one hash and one server, expiring ninety seconds later, and stamped a second early so a server whose clock is a moment behind does not refuse a fresh one.",
+        "input": {
+          "sha256": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+          "server": "https://kithmoot.example",
+          "now": 1799999800
+        },
+        "output": {
+          "template": {
+            "kind": 24242,
+            "created_at": 1799999799,
+            "tags": [
+              [
+                "t",
+                "upload"
+              ],
+              [
+                "expiration",
+                "1799999889"
+              ],
+              [
+                "server",
+                "kithmoot.example"
+              ],
+              [
+                "x",
+                "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+              ]
+            ],
+            "content": "Upload blob b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2 to kithmoot.example"
+          }
+        }
+      }
+    ],
+    "approvalControl": [
+      {
+        "name": "approval-request",
+        "kind": "positive",
+        "note": "A question, its options and its horizon. The id is what an answer refers to; the options are what an answer may say, exactly, case-sensitively. Encoded as JSON in the text of a chat message on the `control` channel, so everybody in the room can read both the question and every answer to it - an agent asking permission in private would not be asking permission.",
+        "input": {
+          "message": {
+            "op": "approval-request",
+            "id": "spend-1",
+            "text": "Publish the minutes to the town hall room?",
+            "options": [
+              "approve",
+              "decline"
+            ],
+            "expiresAt": 1800000600
+          }
+        },
+        "output": {
+          "text": "{\"op\":\"approval-request\",\"id\":\"spend-1\",\"text\":\"Publish the minutes to the town hall room?\",\"options\":[\"approve\",\"decline\"],\"expiresAt\":1800000600}",
+          "result": {
+            "op": "approval-request",
+            "id": "spend-1",
+            "text": "Publish the minutes to the town hall room?",
+            "options": [
+              "approve",
+              "decline"
+            ],
+            "expiresAt": 1800000600
+          }
+        }
+      },
+      {
+        "name": "approval-request-without-options",
+        "kind": "positive",
+        "note": "Options are optional on the wire; a reader keeps the message as sent, with no options field. The default pair - approve and decline - is applied by the agent that asked, not by the decoder, so a decoder never invents an option the asker did not offer.",
+        "input": {
+          "message": {
+            "op": "approval-request",
+            "id": "spend-2",
+            "text": "Delete the room?"
+          }
+        },
+        "output": {
+          "text": "{\"op\":\"approval-request\",\"id\":\"spend-2\",\"text\":\"Delete the room?\"}",
+          "result": {
+            "op": "approval-request",
+            "id": "spend-2",
+            "text": "Delete the room?"
+          }
+        }
+      },
+      {
+        "name": "approval",
+        "kind": "positive",
+        "note": "An answer names the question it answers and says one of its options. Nothing here says who answered: that is the chat message's participant, bound to a device credential, which is the only attribution that cannot be typed by somebody else.",
+        "input": {
+          "message": {
+            "op": "approval",
+            "id": "spend-1",
+            "verdict": "approve",
+            "note": "go ahead"
+          }
+        },
+        "output": {
+          "text": "{\"op\":\"approval\",\"id\":\"spend-1\",\"verdict\":\"approve\",\"note\":\"go ahead\"}",
+          "result": {
+            "op": "approval",
+            "id": "spend-1",
+            "verdict": "approve",
+            "note": "go ahead"
+          }
+        }
+      },
+      {
+        "name": "approval-request-duplicate-options",
+        "kind": "positive",
+        "note": "Repeated options are deduplicated in the order they were first offered, and NOT sorted or lower-cased: an option list is a menu a person reads, so the order is the asker's and the comparison against a verdict is exact.",
+        "input": {
+          "message": {
+            "op": "approval-request",
+            "id": "spend-3",
+            "text": "Which?",
+            "options": [
+              "yes",
+              "no",
+              "yes",
+              "maybe"
+            ]
+          }
+        },
+        "output": {
+          "text": "{\"op\":\"approval-request\",\"id\":\"spend-3\",\"text\":\"Which?\",\"options\":[\"yes\",\"no\",\"yes\",\"maybe\"]}",
+          "result": {
+            "op": "approval-request",
+            "id": "spend-3",
+            "text": "Which?",
+            "options": [
+              "yes",
+              "no",
+              "maybe"
+            ]
+          }
+        }
+      },
+      {
+        "name": "approval-verdict-with-a-newline",
+        "kind": "negative",
+        "note": "A verdict carrying a newline, which a renderer might show as one word and a comparison might treat as another. Refused whole: a verdict is a short token from a fixed alphabet, and anything else is not an answer.",
+        "input": {
+          "text": "{\"op\":\"approval\",\"id\":\"spend-1\",\"verdict\":\"approve\\nand pay\"}"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "approval-request-option-list-too-long",
+        "kind": "negative",
+        "note": "Nine options where eight is the cap. Refused whole rather than trimmed, for the same reason the attachment cap refuses the message: a limit that silently drops the tail is a limit an attacker aims at.",
+        "input": {
+          "text": "{\"op\":\"approval-request\",\"id\":\"spend-4\",\"text\":\"Pick\",\"options\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]}"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "approval-request-id-that-is-a-path",
+        "kind": "negative",
+        "note": "An id is a short token, not a name a reader might resolve against anything. Refused.",
+        "input": {
+          "text": "{\"op\":\"approval-request\",\"id\":\"../../etc/passwd\",\"text\":\"Read this?\"}"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "not-a-control-message",
+        "kind": "negative",
+        "note": "Somebody typing into the control channel by hand. It is a perfectly good chat message and not a control message, and a reader must treat it as the former: the channel is a place in the room, and people can write there.",
+        "input": {
+          "text": "have you seen the minutes?"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "admins-announcement",
+        "kind": "positive",
+        "note": "Who may answer an approval, announced on the same channel. ANY member may publish this op - the channel is the room's - and only the authority's signature over the canonical list makes it believed, which is what the `roomEpoch/admins-signature` vector pins. A reader that took the list on the word of whoever sent it would let any member appoint themselves.",
+        "input": {
+          "message": {
+            "op": "admins",
+            "host": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "admins": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+            ],
+            "epoch": 1,
+            "sig": "f0e1f8fe02f1321379d786d82cb62edd2b7d644ed5fd43d861065dc6d5f88a7c7c60ad648559d68e4d1125eeaddfecf8b465c1d3af5e0a6d4b4e451d0d1d96b6"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "auxRandHex": "71b7daa277b5b3b816a5b6cab285b719c9b14c90ea9745597533f655f28c2b9f"
+        },
+        "output": {
+          "text": "{\"op\":\"admins\",\"host\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"admins\":[\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525\"],\"epoch\":1,\"sig\":\"f0e1f8fe02f1321379d786d82cb62edd2b7d644ed5fd43d861065dc6d5f88a7c7c60ad648559d68e4d1125eeaddfecf8b465c1d3af5e0a6d4b4e451d0d1d96b6\"}",
+          "result": {
+            "op": "admins",
+            "host": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "admins": [
+              "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+            ],
+            "epoch": 1,
+            "sig": "f0e1f8fe02f1321379d786d82cb62edd2b7d644ed5fd43d861065dc6d5f88a7c7c60ad648559d68e4d1125eeaddfecf8b465c1d3af5e0a6d4b4e451d0d1d96b6"
+          }
         }
       }
     ]

@@ -42,6 +42,19 @@ data class RosterEntry(
     val participant: String,
     val device: String,
     val credential: NostrEvent,
+    /**
+     * What this person would like to be called.
+     *
+     * Self-asserted, always: anybody can type anything, and nothing here or
+     * anywhere else checks it. It is a label on a pubkey, never a substitute
+     * for one - `DisplayName.sanitise` bounds what it can look like, and
+     * every renderer is required to show a short pubkey beside it so two
+     * people called "Robin" stay apart and an impersonation is visible.
+     *
+     * Null when nobody typed one, which keeps the wire byte-identical for
+     * anyone who does not use this at all.
+     */
+    val name: String? = null,
     val tracks: List<TrackRef> = emptyList(),
     val claims: Map<String, Long> = emptyMap(),
     val updatedAt: Long,
@@ -51,6 +64,22 @@ data class RosterEntry(
      * arrival, or a farewell. Neither provokes an answer, which is what stops
      * the room talking to itself for ever. Absent on a first announcement.
      */
+    /**
+     * True when this device is an automated participant: an agent that acts
+     * for a person, or for itself, and is in the room to read, write and
+     * listen rather than to be looked at.
+     *
+     * Self-declared, and a claim like every other field here - nothing stops
+     * a person's client saying it and nothing stops an agent not saying it.
+     * What it is FOR is consent: a member may choose not to send its media to
+     * anything that says it is an agent, and a room may show which of its
+     * members are people. An agent that hides the flag receives media it was
+     * not meant to have, which is the same betrayal as a person recording a
+     * call, and no protocol prevents either. Absent on every entry that is
+     * not one, so the wire is byte-identical for a client that has never
+     * heard of agents.
+     */
+    val agent: Boolean = false,
     val reply: Boolean = false,
     /**
      * True on the last entry a device publishes: it has left the room.
@@ -68,6 +97,10 @@ data class RosterEntry(
         put("participant", participant)
         put("device", device)
         put("credential", credential.toJson())
+        // Sanitised on the way out as well as on the way in. Out, so this
+        // client never publishes something another has to defuse; in (see
+        // `fromJson`), because no other client is obliged to have bothered.
+        DisplayName.sanitise(name)?.let { put("name", it) }
         proof?.let { put("proof", it.toJson()) }
         put(
             "tracks",
@@ -85,6 +118,7 @@ data class RosterEntry(
         put("claims", buildJsonObject { for ((role, since) in claims) put(role, since) })
         put("updatedAt", updatedAt)
         if (reply) put("reply", true)
+        if (agent) put("agent", true)
         if (left) put("left", true)
     }
 
@@ -102,8 +136,14 @@ data class RosterEntry(
                 )
             },
             claims = (json["claims"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.long }.orEmpty(),
+            name = DisplayName.sanitise((json["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content),
             updatedAt = json.getValue("updatedAt").jsonPrimitive.long,
             reply = json["reply"].isHonestTrue(),
+            // Only an honest `true` declares an agent, for the same reason
+            // only an honest `true` is a farewell: the flag decides what a
+            // member sends this device, so a looser client's `1` or `"yes"`
+            // is a person.
+            agent = json["agent"].isHonestTrue(),
             left = json["left"].isHonestTrue(),
         )
 

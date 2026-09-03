@@ -39,6 +39,7 @@ import dev.forgesworn.kithmoot.session.KITHMOOT_JOIN_BASE
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.decodeInvitationPairingLink
@@ -99,6 +100,19 @@ data class RoomState(
     val canAddDevice: Boolean = false,
     val canRotateInvitation: Boolean = false,
     val pairingLink: String? = null,
+    /**
+     * Whether anything in this room that says it is an agent is sent this
+     * device's camera and microphone.
+     *
+     * Off by default, and it is a switch on the SENDER: off means the tracks
+     * are never handed to the connection to an agent, so the media does not
+     * leave this device for them. A request not to listen would be a request;
+     * not sending is a fact.
+     */
+    val agentsMayHear: Boolean = false,
+    /** How many members of this room say they are agents. The switch is
+     *  hidden when there are none, because it would mean nothing. */
+    val agentCount: Int = 0,
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
     val notice: String? = null,
@@ -616,7 +630,33 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             scope.launch {
                 media.localMedia.tracks.collect { tracks -> onLocalTracks(tracks) }
             }
+            // Who this device's media may go to, re-decided whenever the
+            // switch moves or an agent arrives.
+            scope.launch {
+                live.agentDevices.collect { agents ->
+                    _room.value = _room.value.copy(agentCount = agents.size)
+                    applyAudience(media, agents)
+                }
+            }
         }
+    }
+
+    /**
+     * Turn "agents can hear me" on or off, and act on it now.
+     *
+     * The rule is applied to every connection this device holds, so an agent
+     * that was receiving stops receiving at once rather than at the next
+     * renegotiation - and one that arrives later is judged by the same rule
+     * when its connection is opened.
+     */
+    fun setAgentsMayHear(on: Boolean) {
+        _room.value = _room.value.copy(agentsMayHear = on)
+        val media = engine ?: return
+        applyAudience(media, session?.agentDevices?.value ?: emptySet())
+    }
+
+    private fun applyAudience(media: WebRtcEngine, agents: Set<String>) {
+        media.setAudience(mediaAudience(agents, _room.value.agentsMayHear))
     }
 
     fun leave() {

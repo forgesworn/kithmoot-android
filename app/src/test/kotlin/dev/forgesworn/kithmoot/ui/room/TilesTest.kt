@@ -30,7 +30,7 @@ class TilesTest {
         device: String,
         tracks: List<TrackRef> = emptyList(),
         claims: Map<String, Long> = emptyMap(),
-    ) = RosterEntry(participant, device, credential, tracks, claims, updatedAt = 0)
+    ) = RosterEntry(participant, device, credential, tracks = tracks, claims = claims, updatedAt = 0)
 
     private fun tiles(
         roster: List<RosterEntry>,

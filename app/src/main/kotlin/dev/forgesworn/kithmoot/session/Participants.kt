@@ -44,6 +44,13 @@ data class Participant(
         it.role != Roles.MIC || it.device == micDevice
     }
 
+    /**
+     * True when any of this person's devices says it is an automated
+     * participant. Self-declared - see `RosterEntry.agent` - and what the
+     * "agents can hear me" switch acts on.
+     */
+    val agent: Boolean = devices.any { it.agent }
+
     val deviceCount: Int get() = devices.size
 }
 
@@ -65,3 +72,19 @@ fun groupByParticipant(entries: Collection<RosterEntry>): List<Participant> = en
         )
     }
     .sortedBy { it.participant }
+
+/**
+ * Who this device's media may be sent to.
+ *
+ * The switch is on the SENDER, and that is the whole of why it means
+ * anything: a device the rule refuses is handed no tracks at all, so nothing
+ * of this camera or microphone leaves for them. A flag asking an agent not
+ * to listen would be a request; not sending is a fact.
+ *
+ * `agentsMayHear` off refuses every device belonging to a participant that
+ * says it is an agent - see `RosterEntry.agent`. It is per person and per
+ * device, because it is that person's media: a room where three people allow
+ * agents and one does not has three transcribed voices and one silence.
+ */
+fun mediaAudience(agentDevices: Set<String>, agentsMayHear: Boolean): (String) -> Boolean =
+    { device -> agentsMayHear || device !in agentDevices }

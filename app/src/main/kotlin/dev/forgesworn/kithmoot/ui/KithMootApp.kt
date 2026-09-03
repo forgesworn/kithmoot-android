@@ -149,6 +149,7 @@ fun KithMootApp(model: RoomViewModel) {
                         )
                     }
                 },
+                onToggleAgentsMayHear = { model.setAgentsMayHear(!roomState.agentsMayHear) },
                 onToggleCamera = {
                     if (roomState.cameraOn) {
                         model.toggleCamera()

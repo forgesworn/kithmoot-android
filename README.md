@@ -33,9 +33,15 @@ What is *not* here:
 - No persisted identity. Leaving a room and rejoining it makes you a new
   participant, because nothing is written to disk yet. A second device stays
   paired only for as long as the application is running.
-- No room descriptor. The 6 `roomDescriptor` vectors are carried in the
-  published set and counted by the coverage guard, but nothing on this side
-  implements them yet.
+- No room descriptor, epochs, agent ownership, attachments or approvals. The
+  `roomDescriptor`, `roomEpoch`, `agentOwnership`, `chatAttachment` and
+  `approvalControl` vectors are carried in the published set and counted by
+  the coverage guard, but nothing on this side implements them yet. The one
+  that matters most is `roomEpoch`: this client does not follow a room that
+  has removed somebody, so it will simply stop hearing that room rather than
+  saying why.
+- No peer assist. An assist offer on somebody's roster entry is read and
+  dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.
 - No TURN server configured. The only ICE server is a public STUN, so two
   devices behind symmetric NATs will not find each other.
@@ -46,6 +52,7 @@ What is *not* here:
 
 | Piece | What it does |
 |---|---|
+| Agents, and who may hear you | A member that says it is an agent is marked as one, and a control in the room decides whether this device's camera and microphone are sent to it at all - refused means the tracks are never handed to that connection |
 | Room derivation | HKDF-SHA256 from the 32-byte room secret to a public `roomId` and a secret `roomKey`, under two separate info strings |
 | Join URL | V2 links carry a bearer invitation plus a pinned per-link root key in the URL **fragment**, never the room traffic secret. Each admitted client receives a bounded root-authenticated delegation and keeps the link available if the creator leaves; a durable root-signed tombstone retires it. Legacy v1 links remain readable |
 | Device credentials | Kind 20460, signed by the participant key, naming one device, one room, and a NIP-40 `expiration` |
@@ -74,17 +81,27 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **56 vectors across 9
-groups**. The suite runs each vector in the 8 groups this implementation covers
-as its own named test case, so a failure names the vector, and adds three
-guards that fail the build if a vector goes missing or a group loses its
+published vectors, never an edited one. There are **95 vectors across 14
+groups**. The suite runs each vector in the 8 groups this implementation
+covers as its own named test case, so a failure names the vector, and adds
+three guards that fail the build if a vector goes missing or a group loses its
 negative cases.
 
-**47 of the 53 pass**, positive and negative, including byte-exact reproduction
-of every recorded signature and ciphertext. The remaining 6 are the
-`roomDescriptor` group, which nothing here implements yet; they are counted by
-`VectorCoverageTest`, so the day the descriptor lands the guard already knows
-how many cases it owes.
+The 6 groups this client does not implement - `channelDerivation`,
+`roomEpoch`, `agentOwnership`, `chatAttachment`, `approvalControl` and
+`roomDescriptor` - are counted by `VectorCoverageTest` without being run, so
+the day one of them lands the guard already knows how many cases it owes.
+
+One guard is worth its own paragraph, because it caught something. A roster
+vector used to be checked by parsing the expected entry through the same
+model as the decoded one, which meant any field this client did not model was
+dropped from BOTH sides and the vector passed without the behaviour existing.
+That is what happened to display names for months: the `display-name` and
+`display-name-hostile` vectors were green while nothing here read a name at
+all. The test now re-encodes what it decoded and compares the JSON, and holds
+a declared list of the fields this client knowingly drops - one, `assist` -
+so the list can only shrink by somebody doing the work, never grow by
+somebody not noticing.
 
 The negative vectors are the ones that matter. An implementation that accepts
 every well-formed structure passes all the positive vectors; only the negatives

@@ -14,22 +14,32 @@ class VectorCoverageTest {
 
     @Test
     fun everyGroupIsFullyCovered() {
+        // Every group in the published file, and how many vectors it holds.
+        // A group this client does not yet implement is still counted here,
+        // the way `roomDescriptor` always has been: the count is what makes a
+        // silently-dropped vector impossible, and the missing test is what
+        // the README's gap list is for.
         val expectedSizes = mapOf(
             "roomDerivation" to 4,
+            "channelDerivation" to 3,
             "joinUrl" to 9,
             "deviceCredential" to 4,
-            "rosterEvent" to 10,
+            "rosterEvent" to 12,
             "signalWrap" to 5,
             "kindredProof" to 3,
             "accessEvaluation" to 11,
             "turnCredential" to 4,
             "roomDescriptor" to 6,
+            "roomEpoch" to 10,
+            "agentOwnership" to 8,
+            "chatAttachment" to 7,
+            "approvalControl" to 9,
         )
         assertEquals("group names", expectedSizes.keys, Vectors.groups.keys)
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 56, expectedSizes.values.sum())
+        assertEquals("total vectors", 95, expectedSizes.values.sum())
     }
 
     @Test

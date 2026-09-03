@@ -71,6 +71,19 @@ class WebRtcEngine(
     private val lock = Any()
     private val links = mutableMapOf<String, ManagedLink>()
 
+    /**
+     * Which remote devices this device's media may be sent to.
+     *
+     * Everybody, until a caller says otherwise. A device this refuses is
+     * sent an EMPTY track list, which `syncLocalTracks` turns into removed
+     * senders rather than muted ones: the media never leaves this device for
+     * them, which is the only version of that promise worth making. See
+     * `setAudience`, and `Mesh.#audience` in the TypeScript client, which
+     * this mirrors.
+     */
+    @Volatile
+    private var audience: (String) -> Boolean = { true }
+
     private val _remoteTracks = MutableStateFlow<List<RemoteTrack>>(emptyList())
 
     /** Every track arriving from every remote device, keyed by the device that sent it. */
@@ -168,16 +181,37 @@ class WebRtcEngine(
         val connection = factory.createPeerConnection(configuration, managed.observer)
             ?: throw IllegalStateException("could not create a peer connection to $device")
         managed.attach(connection)
-        for (track in localMedia.tracks.value) managed.addLocalTrack(track)
+        // Judged per link rather than per publish, so a device that arrives
+        // after the rule was set is judged by the same rule.
+        for (track in tracksFor(device)) managed.addLocalTrack(track)
         return managed
     }
+
+    /**
+     * Say who this device's media may be sent to, and act on it now.
+     *
+     * A participant the rule refuses has its senders removed from the
+     * connection to it - not muted, removed - so nothing further of this
+     * device's camera or microphone reaches them. Called whenever the rule
+     * or the roster moves.
+     */
+    fun setAudience(rule: (String) -> Boolean) {
+        audience = rule
+        val tracks = localMedia.tracks.value
+        synchronized(lock) {
+            for ((device, link) in links) link.syncLocalTracks(tracksFor(device, tracks))
+        }
+    }
+
+    private fun tracksFor(device: String, tracks: List<LocalTrack> = localMedia.tracks.value): List<LocalTrack> =
+        if (runCatching { audience(device) }.getOrDefault(false)) tracks else emptyList()
 
     private suspend fun onLocalTracksChanged(tracks: List<LocalTrack>) {
         // Tell the room what we are publishing, so a receiver can map an
         // incoming WebRTC track back to the role we said it was for.
         session.setTracks(tracks.map { TrackRef(it.trackId, it.role) })
         synchronized(lock) {
-            for (link in links.values) link.syncLocalTracks(tracks)
+            for ((device, link) in links) link.syncLocalTracks(tracksFor(device, tracks))
         }
     }
 

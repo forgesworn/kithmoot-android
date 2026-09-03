@@ -142,6 +142,20 @@ class RoomSession(
      */
     val remoteDevices: StateFlow<Set<String>> = _remoteDevices.asStateFlow()
 
+    private val _agentDevices = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Every remote device that says it is an automated participant.
+     *
+     * Self-declared - see `RosterEntry.agent` - and published here so the
+     * media engine can be told who this device's person is willing to be
+     * heard by. A device is in this set if ANY of its participant's devices
+     * declares itself an agent: the switch is about a person, and a person
+     * who brought an agent and a phone under one participant key is one
+     * member either way.
+     */
+    val agentDevices: StateFlow<Set<String>> = _agentDevices.asStateFlow()
+
     private val _localRoles = MutableStateFlow(LocalRoles())
     val localRoles: StateFlow<LocalRoles> = _localRoles.asStateFlow()
 
@@ -443,10 +457,10 @@ class RoomSession(
         val snapshot = synchronized(lock) { roster.values.toList() }
         val grouped = groupByParticipant(snapshot)
         _participants.value = grouped
-        _remoteDevices.value = snapshot
-            .filter { it.participant != identity.participant }
-            .map { it.device }
-            .toSet()
+        val remote = snapshot.filter { it.participant != identity.participant }
+        _remoteDevices.value = remote.map { it.device }.toSet()
+        val agentParticipants = grouped.filter { it.agent }.map { it.participant }.toSet()
+        _agentDevices.value = remote.filter { it.participant in agentParticipants }.map { it.device }.toSet()
         val me = grouped.firstOrNull { it.participant == identity.participant }
         _localRoles.value = LocalRoles(
             holdsMic = me?.micDevice == identity.devicePubkey,
