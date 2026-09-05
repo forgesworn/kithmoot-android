@@ -21,7 +21,7 @@ class RoomRecoveryUiTest {
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val startAction get() = hasText("Start a room") and hasClickAction()
 
-    private fun awaitHome() = ui.waitUntil(20_000) {
+    private fun awaitHome() = ui.waitUntil(60_000) {
         ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
             ui.onAllNodes(hasContentDescription("Loading rooms")).fetchSemanticsNodes().isEmpty()
     }

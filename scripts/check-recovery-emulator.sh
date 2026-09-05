@@ -30,7 +30,8 @@ run_tests() {
     dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$reports/$report.txt"
   # am instrument may exit zero after an assertion failure or process crash.
   if ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
-    adb_device logcat -d -t 1000 > "$reports/$report-logcat.txt"
+    adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt"
+    adb_device exec-out screencap -p > "$reports/$report-screen.png"
     echo "Instrumentation did not pass: $report" >&2
     exit 1
   fi
