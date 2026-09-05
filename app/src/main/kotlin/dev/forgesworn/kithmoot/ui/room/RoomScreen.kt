@@ -139,7 +139,7 @@ private fun Header(state: RoomState, onLeave: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "Room ${shortId(state.roomId)}",
+                    text = state.name.ifBlank { "Room ${shortId(state.roomId)}" },
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

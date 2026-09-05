@@ -40,6 +40,9 @@ class PrimaryIdentity(
     override val devicePubkey: String = Schnorr.publicKeyHex(deviceSecretKey)
     override val participant: String = Schnorr.publicKeyHex(participantSecretKey)
 
+    /** Only the encrypted local room store needs a copy of this key. */
+    internal fun participantKeyForStorage(): ByteArray = participantSecretKey.copyOf()
+
     /**
      * Mints a credential for another of this person's devices, so it can join
      * the room as them without ever being handed the participant key.

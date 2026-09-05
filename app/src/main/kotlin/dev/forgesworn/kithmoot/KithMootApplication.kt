@@ -1,10 +1,13 @@
 package dev.forgesworn.kithmoot
 
 import android.app.Application
+import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
+import dev.forgesworn.kithmoot.storage.RoomRepository
 
 /**
- * Exists so the process has a name in a stack trace and somewhere to put
- * anything that must outlive an activity. Deliberately empty otherwise - a room
- * belongs to the view model that opened it, not to the process.
+ * Owns one serialised repository for saved room access across activities.
+ * Live connections belong to the view model that opened the room.
  */
-class KithMootApplication : Application()
+class KithMootApplication : Application() {
+    val savedRooms: RoomRepository by lazy { RoomRepository(EncryptedRoomStorage(this)) }
+}

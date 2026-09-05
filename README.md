@@ -30,9 +30,6 @@ lifecycle all behave as they do on the emulator. Both sets of captures are in
 
 What is *not* here:
 
-- No persisted identity. Leaving a room and rejoining it makes you a new
-  participant, because nothing is written to disk yet. A second device stays
-  paired only for as long as the application is running.
 - No room descriptor, agent ownership, attachments or approvals. Those
   vectors are carried in the published set and counted by the coverage
   guard, but nothing on this side implements them yet.
@@ -49,8 +46,37 @@ What is *not* here:
 - No forwarder support and no end-to-end encrypted media.
 - No TURN server configured. The only ICE server is a public STUN, so two
   devices behind symmetric NATs will not find each other.
-- The interface has had no accessibility pass beyond contrast and type size,
-  and there are no instrumented tests.
+- Accessibility acceptance with TalkBack and physical-device testing of the
+  new saved-room flows remain to do. Emulator tests cover the entry, recovery
+  and destructive-confirmation controls.
+
+### Saved rooms and identities
+
+The home screen lists rooms saved on this device, with local names, search,
+rename and a confirmed Forget action. Reopening preserves the participant and
+device keys. The room creator can return alone and serve the saved invitation;
+recovery does not depend on another member being online. Audio, camera and
+screen sharing remain off until requested.
+
+Room secrets, identity keys and invitation-host capabilities are encrypted
+together using AES-256-GCM and an Android Keystore wrapping key, written
+atomically under `noBackupFilesDir`. App backups are disabled. The signing keys
+are decrypted into app memory while used; only the wrapping key is
+non-exportable through Android Keystore. This is local recovery, not an export
+or cross-device backup. Clearing app data or uninstalling loses the saved access.
+
+Main-device credentials renew with the same keys. Paired devices keep only
+their device key and the original bounded credential, never the participant
+private key; an expired pairing needs a new pairing link. Expired admission
+delegations are not renewed by recovery. Known retired invitations stay
+retired, and known room-key changes block reopening with the old secret.
+Invitation rotation saves the replacement and a signed retirement together
+before publishing; pending retirement events are replayed on return.
+
+Unreadable or corrupted data blocks room entry and stays intact until an
+explicit deletion. Forget removes local access and identity for that room; it
+does not delete other members or relay messages. Room names are local labels,
+not shared room descriptors.
 
 ## What it implements
 
@@ -125,6 +151,7 @@ app/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── session/    Room session, presence, roles, chat, identity, pairing links
 ├── media/      WebRTC engine, negotiation, local capture
 ├── service/    The foreground service a screen share runs under
+├── storage/    Encrypted saved rooms, identities and invitation capabilities
 └── ui/         Compose: theme, start screen, room, tiles, chat, controls
 ```
 
@@ -144,10 +171,26 @@ Check the protocol vectors, app unit tests, Android lint and both build variants
 ```
 
 The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
-and pushes to `main`, and retains test and lint reports for seven days. These
-checks build a debug APK and an unsigned release APK; they do not install either
-or exercise a device. Release signing and device acceptance remain separate
-requirements.
+and pushes to `main`, and retains reports for seven days. A separate API 35
+emulator job installs the debug app and tests actual Android Keystore storage,
+corruption and missing-key handling, saved-room controls and identity continuity
+across a forced process restart. Release signing and physical-device acceptance
+remain separate requirements.
+
+To run the recovery checks on a **disposable emulator** (they replace KithMoot's
+saved room data on that emulator):
+
+```sh
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+ANDROID_SERIAL=emulator-5554 bash scripts/check-recovery-emulator.sh
+```
+
+The script requires an explicit emulator serial and refuses physical devices.
+It checks instrumentation summaries because Android can return a successful
+shell exit code after a test-process crash. Restart preparation and reopening
+run in separate processes, with participant/device identifiers compared and
+creator controls retained. These checks do not prove media delivery or live
+relay admission.
 
 To install the debug build on a connected development device or emulator:
 

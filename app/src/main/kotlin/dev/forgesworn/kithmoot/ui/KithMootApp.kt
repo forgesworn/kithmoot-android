@@ -122,10 +122,16 @@ fun KithMootApp(model: RoomViewModel) {
         when (stage) {
             Stage.START -> StartScreen(
                 state = startState,
+                onRoomNameChanged = model::onRoomNameChanged,
                 onJoinUrlChanged = model::onJoinUrlChanged,
                 onRelaysChanged = model::onRelaysChanged,
                 onStartRoom = model::startRoom,
                 onJoin = { model.joinFromUrl(startState.joinUrl) },
+                onReopen = model::reopenRoom,
+                onForget = model::forgetRoom,
+                onRename = model::renameRoom,
+                onRetryStorage = model::refreshSavedRooms,
+                onResetStorage = model::resetSavedRooms,
                 modifier = Modifier.padding(padding),
             )
 
@@ -178,6 +184,8 @@ fun KithMootApp(model: RoomViewModel) {
             )
         }
     }
+
+    LaunchedEffect(stage) { if (stage == Stage.START) chatOpen = false }
 
     if (chatOpen) {
         ModalBottomSheet(
