@@ -133,6 +133,24 @@ keeps the vector suite fast and leaves the protocol reusable outside the app.
 
 ### Running it
 
+Use JDK 21 and an Android SDK with platform 35 and build tools 34.0.0. Set
+`ANDROID_HOME` to the SDK directory, or put `sdk.dir=/path/to/sdk` in the
+gitignored `local.properties` file.
+
+Check the protocol vectors, app unit tests, Android lint and both build variants:
+
+```sh
+./gradlew :protocol:test :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease
+```
+
+The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
+and pushes to `main`, and retains test and lint reports for seven days. These
+checks build a debug APK and an unsigned release APK; they do not install either
+or exercise a device. Release signing and device acceptance remain separate
+requirements.
+
+To install the debug build on a connected development device or emulator:
+
 ```sh
 ./gradlew :app:installDebug
 ```
