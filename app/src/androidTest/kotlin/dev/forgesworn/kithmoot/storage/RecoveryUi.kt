@@ -69,7 +69,7 @@ internal class RecoveryUi {
     }
 
     fun click(text: String) {
-        val target = reveal { button(text) }
+        val target = reveal { button(text)?.takeIf { it.isEnabled } }
         assertTrue("$text must be enabled", target.isEnabled)
         assertTrue("$text must accept a click", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
