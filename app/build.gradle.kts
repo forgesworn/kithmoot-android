@@ -14,8 +14,8 @@ android {
         // java.util.Base64, which only lands in the platform at API 26.
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -52,6 +52,8 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir("../protocol/src/test/resources")
 
     packaging {
         resources {
@@ -108,6 +110,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

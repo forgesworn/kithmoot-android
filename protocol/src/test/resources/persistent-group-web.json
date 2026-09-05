@@ -1,0 +1,36 @@
+{
+  "source": "forgesworn/kithmoot 171de0a0e697add5d7ca0793b6f3980f4242b50c; synthetic public test keys",
+  "inviterKey": "1111111111111111111111111111111111111111111111111111111111111111",
+  "secret": "2222222222222222222222222222222222222222222222222222222222222222",
+  "room": "fbd9597e3835c2c5ebd30839e80ea3dc041b8a3b49bad27790dca548be67c3ae",
+  "url": "https://kithmoot.forgesworn.dev/j/#eyJ2IjozLCJqIjoiTXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TSIsImgiOiI0ZjM1NWJkY2I3Y2MwYWY3MjhlZjNjY2ViOTYxNWQ5MDY4NGJiNWIyY2E1Zjg1OWFiMGYwYjcwNDA3NTg3MWFhIiwiciI6WyJ3czovLzEwLjAuMi4yOjE4Nzc3Il19",
+  "event": {
+    "kind": 1463,
+    "created_at": 1800000000,
+    "tags": [
+      [
+        "d",
+        "cd7b31f33f00b7ee452cb5a92bf7fbf11b70e7bce06fd8ee8a6b374affaeaf9b"
+      ]
+    ],
+    "content": "AqvitnYk+QmJARcffe2qQ+CIjXWZaaUKASk+niYWsp78ljY3pfIUdSxvf4LXlRhWOozOZcgIMc+4l2NsyGVVHdlzy5ma0zaDMiGyQYIWa4QHrjPL9neCp6va5E6oWRNEqsE2zokc9LhpA3oq2y1lkM57z6KefKxqcR3jYifNx78RJwNrWgNcRMCphGkdVFkvBagxvTc2dBXIxLvXkY/HF/pLQTijpJE9sfrZ6Nn8RwxqwlxdKYoEsjAvFmLEv4/lvNMavIzgtezkY4C5TYYDnMx7SunlNwcNf3Jjpt5DgLMoI4Q=",
+    "pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+    "id": "ae2cbd8ae7c68b51589406ccdb78392465d43e959c929f48d1830fa3aa682e98",
+    "sig": "1a3ed2f857667417307fc237c84820f01164cdb7e4407f30543ce310351d7e78617e4ca6f22cb16dbe6885dca9878071169082bb4d0122524eb80223f0d86377"
+  },
+  "retirement": {
+    "kind": 1461,
+    "created_at": 1800000060,
+    "tags": [
+      [
+        "d",
+        "cd7b31f33f00b7ee452cb5a92bf7fbf11b70e7bce06fd8ee8a6b374affaeaf9b"
+      ]
+    ],
+    "content": "{\"v\":1}",
+    "pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+    "id": "ac017d941336c6190463b643b592e55c0455883cb37e478f6dae14aa516f5b7f",
+    "sig": "1197aabd340c65d7fe476cc7f12a3394a7fe2195c3ee5a355656e077fecd0be6b9ed543a7312a70f4d6a4c29f98200eacdd72d18f5bc38a8f9951b6409994bc3"
+  },
+  "nonce": "abe2b67624f9098901171f7dedaa43e0888d759969a50a01293e9e2616b29efc"
+}

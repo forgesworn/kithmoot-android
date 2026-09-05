@@ -45,7 +45,7 @@ class PairingPayload(
     val credential: NostrEvent,
 )
 
-/** The same credential-bearing extension over a v2 invitation link. */
+/** The same credential-bearing extension over a v2 or v3 invitation link. */
 class InvitationPairingPayload(
     val join: InvitationPayload,
     val deviceSecretKey: ByteArray,
@@ -100,7 +100,7 @@ fun encodeInvitationPairingLink(
 ): String {
     require(deviceSecretKey.size == 32) { "a device secret key is 32 bytes" }
     val payload = buildJsonObject {
-        put("v", 2)
+        put("v", if (invitation.persistent) 3 else 2)
         put("j", encode(invitation.bearer))
         put("h", invitation.canonicalInviter)
         put("r", buildJsonArray { for (relay in relays) add(JsonPrimitive(relay)) })

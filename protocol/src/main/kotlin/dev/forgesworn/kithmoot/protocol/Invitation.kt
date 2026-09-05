@@ -30,7 +30,7 @@ const val INVITATION_DELEGATION_TTL_SECONDS: Long = 12 * 60 * 60
 const val MAX_INVITATION_DELEGATION_DEPTH: Int = 16
 
 /** A share-link capability. The bearer is not the room traffic secret. */
-class RoomInvitation(val bearer: ByteArray, val inviter: String) {
+class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent: Boolean = false) {
     init {
         require(bearer.size == 32) { "an invitation bearer is 32 bytes" }
         require(inviter.matches(Regex("^[0-9a-fA-F]{64}$"))) { "an inviter is a 32-byte hex pubkey" }
@@ -39,9 +39,9 @@ class RoomInvitation(val bearer: ByteArray, val inviter: String) {
     val canonicalInviter: String = inviter.lowercase()
 
     override fun equals(other: Any?): Boolean =
-        other is RoomInvitation && bearer.contentEquals(other.bearer) && canonicalInviter == other.canonicalInviter
+        other is RoomInvitation && bearer.contentEquals(other.bearer) && canonicalInviter == other.canonicalInviter && persistent == other.persistent
 
-    override fun hashCode(): Int = 31 * bearer.contentHashCode() + canonicalInviter.hashCode()
+    override fun hashCode(): Int = 31 * (31 * bearer.contentHashCode() + canonicalInviter.hashCode()) + persistent.hashCode()
 }
 
 data class InvitationDelegation(
@@ -80,6 +80,7 @@ class RoomInvitationHost(
     val delegation: List<InvitationDelegation> = emptyList(),
 ) {
     init {
+        require(!invitation.persistent || delegation.isEmpty()) { "group members do not receive invitation delegations" }
         require(inviterSecretKey.size == 32) { "an inviter secret key is 32 bytes" }
         require(
             verifyInvitationDelegation(invitation, delegation, 0L) == Schnorr.publicKeyHex(inviterSecretKey),
@@ -89,7 +90,7 @@ class RoomInvitationHost(
     }
 }
 
-data class RoomAdmission(val secret: ByteArray, val delegate: RoomInvitationHost)
+data class RoomAdmission(val secret: ByteArray, val delegate: RoomInvitationHost?)
 
 class InvitationPayload(
     val invitation: RoomInvitation,
@@ -97,10 +98,10 @@ class InvitationPayload(
     val policy: RoomPolicy?,
 )
 
-fun createRoomInvitation(): RoomInvitationHost {
+fun createRoomInvitation(persistent: Boolean = false): RoomInvitationHost {
     val secretKey = Entropy.bytes(32)
     return RoomInvitationHost(
-        RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(secretKey)),
+        RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(secretKey), persistent),
         secretKey,
     )
 }
@@ -128,7 +129,7 @@ fun encodeInvitationUrl(
     policy: RoomPolicy? = null,
 ): String {
     val payload = buildJsonObject {
-        put("v", 2)
+        put("v", if (invitation.persistent) 3 else 2)
         put("j", base64UrlEncode(invitation.bearer))
         put("h", invitation.canonicalInviter)
         put("r", buildJsonArray { for (relay in relays) add(JsonPrimitive(relay)) })
@@ -137,7 +138,7 @@ fun encodeInvitationUrl(
     return "$base#${base64UrlEncode(payload.toString().toByteArray(Charsets.UTF_8))}"
 }
 
-/** Returns null for a legacy v1 link and throws for a malformed v2 link. */
+/** Returns null for a legacy link; unknown versions and malformed invitations fail closed. */
 fun decodeInvitationUrl(url: String): InvitationPayload? {
     val fragment = url.substringAfter('#', "")
     if (fragment.isEmpty()) throw JoinUrlException("join URL fragment is not valid")
@@ -146,7 +147,10 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     } catch (_: Exception) {
         throw JoinUrlException("join URL fragment is not valid")
     }
-    if (payload["v"]?.jsonPrimitive?.longOrNull != 2L) return null
+    val version = payload["v"]?.jsonPrimitive?.longOrNull
+    if ((version == null && "v" !in payload) || version == 1L) return null
+    if (version != 2L && version != 3L) throw JoinUrlException("This invitation needs a newer version of KithMoot.")
+    if (payload.getValue("v").jsonPrimitive.isString) throw JoinUrlException("join URL fragment is not valid")
 
     val bearer = try {
         base64UrlDecode(payload.getValue("j").jsonPrimitive.content)
@@ -159,7 +163,7 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
         throw JoinUrlException("join URL carries a malformed invitation")
     }
     val invitation = try {
-        RoomInvitation(bearer, inviter)
+        RoomInvitation(bearer, inviter, version == 3L)
     } catch (_: Exception) {
         throw JoinUrlException("join URL carries a malformed invitation")
     }

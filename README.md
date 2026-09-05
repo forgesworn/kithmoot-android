@@ -52,6 +52,25 @@ What is *not* here:
 
 ### Saved rooms and identities
 
+New rooms default to **Group: come back any time**, matching the web app. A v3
+group link can admit someone while the creator and every member are offline.
+The app fetches a signed, encrypted invitation from relay storage and checks
+for retirement before entering. Creation and link replacement wait for a relay
+to acknowledge storage before exposing the new link. Uncheck the group option
+for a temporary meeting using the existing v2 live handshake.
+
+Group membership is saved without a twelve-hour limit. Members receive no
+inviter signing key or admission delegation. Creator keys remain in the encrypted
+local vault, and returning from an old temporary link cannot overwrite saved
+group authority. Device pairing retains its own credential expiry.
+
+Stored admission depends on relay availability and retention. A group link and
+its encrypted envelope provide durable access to epoch 0, including retained
+history. Replacing the link asks cooperative clients to refuse new admission;
+it cannot revoke copies of the key. Managed member removal, later-epoch recovery
+and mobile push are separate features. See the published
+[persistent group contract](https://github.com/forgesworn/kithmoot/blob/171de0a0e697add5d7ca0793b6f3980f4242b50c/docs/persistent-groups.md).
+
 The home screen lists rooms saved on this device, with local names, search,
 rename and a confirmed Forget action. Reopening preserves the participant and
 device keys. The room creator can return alone and serve the saved invitation;
@@ -84,7 +103,7 @@ not shared room descriptors.
 |---|---|
 | Agents, and who may hear you | A member that says it is an agent is marked as one, and a control in the room decides whether this device's camera and microphone are sent to it at all - refused means the tracks are never handed to that connection |
 | Room derivation | HKDF-SHA256 from the 32-byte room secret to a public `roomId` and a secret `roomKey`, under two separate info strings |
-| Join URL | V2 links carry a bearer invitation plus a pinned per-link root key in the URL **fragment**, never the room traffic secret. Each admitted client receives a bounded root-authenticated delegation and keeps the link available if the creator leaves; a durable root-signed tombstone retires it. Legacy v1 links remain readable |
+| Join URL | V3 group links carry a bearer and pinned inviter in the URL **fragment**, with the traffic secret in a signed, encrypted kind-1463 relay event. V2 temporary meetings keep the live handshake and bounded delegation. Legacy v1 links remain readable |
 | Device credentials | Kind 20460, signed by the participant key, naming one device, one room, and a NIP-40 `expiration` |
 | Roster events | Kind 20461, NIP-44 encrypted to the room key, with the device credential verified on the way in |
 | Signal wrapping | Kind 21059 ephemeral gift wrap carrying SDP and ICE, NIP-44 encrypted to the recipient under a throwaway key |
@@ -121,6 +140,11 @@ The 6 groups this client does not implement - `channelDerivation`,
 `roomEpoch`, `agentOwnership`, `chatAttachment`, `approvalControl` and
 `roomDescriptor` - are counted by `VectorCoverageTest` without being run, so
 the day one of them lands the guard already knows how many cases it owes.
+
+`persistent-group-web.json` is a separate synthetic fixture produced by the
+TypeScript implementation at `171de0a`. Native tests decode its welcome and
+retirement, then reproduce its encrypted content and event id using the same
+nonce. The original 95-vector file remains unchanged.
 
 One guard is worth its own paragraph, because it caught something. A roster
 vector used to be checked by parsing the expected entry through the same

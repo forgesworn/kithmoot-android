@@ -117,13 +117,13 @@ class InvitationTest {
         assertNotNull(first)
         assertEquals(
             Schnorr.publicKeyHex(requesterKey),
-            verifyInvitationDelegation(invitation, first!!.delegate.delegation, now),
+            verifyInvitationDelegation(invitation, first!!.delegate!!.delegation, now),
         )
 
         val nextKey = ByteArray(32) { 44 }
         val nextRequest = encodeInvitationRequest(invitation, nextKey, now)
         val delegatedGrant = encodeInvitationGrant(
-            first.delegate,
+            first.delegate!!,
             Schnorr.publicKeyHex(nextKey),
             nextRequest.id,
             roomSecret,
@@ -146,7 +146,7 @@ class InvitationTest {
             now,
         )
         val admitted = decodeRoomAdmissionGrant(grant, invitation, requesterKey, request.id, now)!!
-        val tampered = admitted.delegate.delegation.map { it.copy(delegate = "a".repeat(64)) }
+        val tampered = admitted.delegate!!.delegation.map { it.copy(delegate = "a".repeat(64)) }
         assertNull(verifyInvitationDelegation(invitation, tampered, now))
         assertThrows(IllegalArgumentException::class.java) {
             RoomInvitationHost(invitation, requesterKey, tampered)
@@ -154,7 +154,7 @@ class InvitationTest {
         val nextKey = ByteArray(32) { 45 }
         assertThrows(IllegalArgumentException::class.java) {
             encodeInvitationGrant(
-                admitted.delegate,
+                admitted.delegate!!,
                 Schnorr.publicKeyHex(nextKey),
                 "a".repeat(64),
                 ByteArray(32) { 99.toByte() },
