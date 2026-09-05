@@ -1,10 +1,9 @@
 package dev.forgesworn.kithmoot.storage
 
 import android.os.Process
-import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
@@ -17,51 +16,35 @@ import org.junit.runners.MethodSorters
 import java.io.File
 import java.util.Properties
 
-/** Run each method in its own instrumentation invocation with a force-stop between
- * them and `-e requireRestart true` on b_reopen to prove a different process. */
+/** Each method runs in its own instrumentation process, with a force-stop
+ * between them and requireRestart=true to prove a different process. */
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class RoomRestartTest {
-    @get:Rule val ui = createAndroidComposeRule<MainActivity>()
+    @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
+    private val ui = RecoveryUi()
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val marker get() = File(app.noBackupFilesDir, "restart-test.properties")
-    private val startAction get() = hasText("Start a room") and hasClickAction()
-    private fun home() {
-        // A fresh CI process loads Keystore, crypto and Compose classes. This
-        // checks readiness, not startup speed, and a saved list can put the
-        // new-room button below the viewport.
-        try {
-            ui.waitUntil(60_000) {
-                ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
-                    ui.onAllNodesWithContentDescription("Loading rooms").fetchSemanticsNodes().isEmpty()
-            }
-        } catch (failure: Throwable) {
-            throw AssertionError("Home did not become ready:\n" + ui.onRoot(useUnmergedTree = true).printToString(), failure)
-        }
-    }
-    private fun room() = ui.waitUntil(60_000) { ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun a_prepare() {
-        run {
-            home()
-            app.savedRooms.reset()
-            ui.activityRule.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
-            home()
-            ui.onNodeWithText("Relay settings").performScrollTo().performClick()
-            ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:59999")
-            ui.onNodeWithText("Room name (optional)").performScrollTo().performTextInput("Restart workshop")
-            ui.onNode(startAction).performScrollTo().performClick()
-            room()
-            val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
-            val identity = saved.identity(System.currentTimeMillis() / 1000)
-            val expected = Properties().apply {
-                setProperty("id", saved.id)
-                setProperty("participant", identity.participant)
-                setProperty("device", identity.devicePubkey)
-                setProperty("pid", Process.myPid().toString())
-            }
-            marker.outputStream().use { output -> expected.store(output, "Synthetic restart-test identifiers only") }
+        ui.home()
+        app.savedRooms.reset()
+        activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
+        ui.home()
+        ui.click("Relay settings")
+        ui.replace("Relays, one per line", "ws://10.0.2.2:59999")
+        ui.replace("Room name (optional)", "Restart workshop")
+        ui.click("Start a room")
+        ui.room()
+        val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
+        val identity = saved.identity(System.currentTimeMillis() / 1000)
+        val expected = Properties().apply {
+            setProperty("id", saved.id)
+            setProperty("participant", identity.participant)
+            setProperty("device", identity.devicePubkey)
+            setProperty("pid", Process.myPid().toString())
         }
+        marker.outputStream().use { expected.store(it, "Synthetic restart-test identifiers only") }
     }
 
     @Test fun b_reopen() {
@@ -70,21 +53,18 @@ class RoomRestartTest {
         if (InstrumentationRegistry.getArguments().getString("requireRestart") == "true") {
             assertNotEquals(expected.getProperty("pid"), Process.myPid().toString())
         }
-        run {
-            val scenario = ui.activityRule.scenario
-            home()
-            ui.onNode(hasText("Restart workshop") and hasClickAction() and !hasSetTextAction()).performScrollTo().performClick()
-            room()
-            scenario.onActivity { activity ->
-                val state = ViewModelProvider(activity)[RoomViewModel::class.java].room.value
-                assertEquals(expected.getProperty("id"), state.roomId)
-                assertEquals(expected.getProperty("participant"), state.selfParticipant)
-                assertEquals(expected.getProperty("device"), state.selfDevice)
-                assertTrue(state.canRotateInvitation)
-                assertFalse(state.micOn)
-                assertFalse(state.cameraOn)
-                assertFalse(state.screenOn)
-            }
+        ui.home()
+        ui.click("Restart workshop")
+        ui.room()
+        activity.scenario.onActivity { activity ->
+            val state = ViewModelProvider(activity)[RoomViewModel::class.java].room.value
+            assertEquals(expected.getProperty("id"), state.roomId)
+            assertEquals(expected.getProperty("participant"), state.selfParticipant)
+            assertEquals(expected.getProperty("device"), state.selfDevice)
+            assertTrue(state.canRotateInvitation)
+            assertFalse(state.micOn)
+            assertFalse(state.cameraOn)
+            assertFalse(state.screenOn)
         }
     }
 }
