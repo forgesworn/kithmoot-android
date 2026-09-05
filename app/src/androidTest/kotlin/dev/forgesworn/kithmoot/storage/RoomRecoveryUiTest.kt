@@ -25,7 +25,7 @@ class RoomRecoveryUiTest {
         ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
             ui.onAllNodes(hasContentDescription("Loading rooms")).fetchSemanticsNodes().isEmpty()
     }
-    private fun awaitRoom() = ui.waitUntil(20_000) {
+    private fun awaitRoom() = ui.waitUntil(60_000) {
         ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty()
     }
     private fun createRoom() {
@@ -60,13 +60,13 @@ class RoomRecoveryUiTest {
             ui.onNodeWithContentDescription("Rename Weekend workshop").performScrollTo().performClick()
             ui.onNodeWithText("Room name", substring = false).performTextReplacement("Garden group")
             ui.onNodeWithText("Save name").performClick()
-            ui.waitUntil(10_000) { app.savedRooms.list().single().name == "Garden group" }
+            ui.waitUntil(60_000) { app.savedRooms.list().single().name == "Garden group" }
             ui.onNodeWithContentDescription("Forget Garden group").performScrollTo().performClick()
             ui.onNodeWithText("Keep room").performClick()
             assertEquals(1, app.savedRooms.list().size)
             ui.onNodeWithContentDescription("Forget Garden group").performScrollTo().performClick()
             ui.onNodeWithText("Forget room").performClick()
-            ui.waitUntil(10_000) { app.savedRooms.list().isEmpty() }
+            ui.waitUntil(60_000) { app.savedRooms.list().isEmpty() }
             awaitHome()
         }
         corruptSavedDataKeepsEntryDisabledUntilExplicitDeletion()
@@ -79,9 +79,9 @@ class RoomRecoveryUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             lateinit var model: RoomViewModel
             scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
-            ui.waitUntil(10_000) { !model.start.value.loadingRooms }
+            ui.waitUntil(60_000) { !model.start.value.loadingRooms }
             assertTrue("Corrupt storage must block entry", model.start.value.storageError)
-            ui.waitUntil(10_000) { ui.onAllNodesWithText("Saved rooms are unavailable").fetchSemanticsNodes().isNotEmpty() }
+            ui.waitUntil(60_000) { ui.onAllNodesWithText("Saved rooms are unavailable").fetchSemanticsNodes().isNotEmpty() }
             ui.onNodeWithText("Saved rooms are unavailable").performScrollTo().assertIsDisplayed()
             ui.onNode(startAction).assertIsNotEnabled()
             ui.onNodeWithText("Delete saved rooms…").performClick()

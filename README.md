@@ -240,3 +240,9 @@ wants the bare x coordinate.
 ## Licence
 
 MIT. See `LICENSE`.
+
+Chat shows timestamps above messages, searches loaded messages and people, and offers an emoji picker and encrypted quick reactions. Public kind-0 names and pictures are off by default and can be enabled for the current visit from Chat. Names remain paired with shortened keys; profiles are self-reported. Image requests use HTTPS, bounded downloads and a memory cache cleared when profile lookup is disabled or the room is closed.
+
+Tap **Expand screen share** on a shared-screen pane for a full-window viewer. Pinch or use +/− to zoom, drag to pan, and use **Fit to screen** to reset. **Pop out** opens Android picture-in-picture on supported devices; Android supplies its movement and resizing controls. Closing the viewer keeps the call track alive. These controls have emulator coverage using generated video; physical-device acceptance remains a separate release check.
+
+The emulator script also checks chat/search/emoji/reactions and a live synthetic screen in the fullscreen and picture-in-picture viewers. It saves synthetic UI captures with the recovery reports. No camera, microphone or desktop capture is used for this viewer check.

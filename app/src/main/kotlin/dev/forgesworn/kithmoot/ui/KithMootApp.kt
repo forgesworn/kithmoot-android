@@ -45,7 +45,7 @@ import dev.forgesworn.kithmoot.ui.start.StartScreen
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KithMootApp(model: RoomViewModel) {
+fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPopOut: (() -> Unit)? = null) {
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
@@ -54,6 +54,7 @@ fun KithMootApp(model: RoomViewModel) {
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
     var chatOpen by remember { mutableStateOf(false) }
+    var expandedScreen by remember { mutableStateOf<dev.forgesworn.kithmoot.ui.room.SharedScreen?>(null) }
 
     LaunchedEffect(roomState.notice) {
         val notice = roomState.notice ?: return@LaunchedEffect
@@ -98,6 +99,20 @@ fun KithMootApp(model: RoomViewModel) {
         } else {
             launch()
         }
+    }
+
+    LaunchedEffect(stage) { if (stage != Stage.ROOM) expandedScreen = null }
+    val expanded = expandedScreen
+    if (expanded != null && stage == Stage.ROOM) {
+        val tile = roomState.tiles.find { it.participant == expanded.participant }
+        val meta = tile?.videos?.find { it.device == expanded.device && it.role == dev.forgesworn.kithmoot.session.Roles.SCREEN }
+        dev.forgesworn.kithmoot.ui.room.ScreenShareViewer(
+            track = meta?.let { videos["${it.device}|${it.trackId}"] }, eglBase = model.eglBase,
+            title = if (tile?.isSelf == true) "Your screen" else "${dev.forgesworn.kithmoot.ui.room.shortId(expanded.participant)}’s screen",
+            inPictureInPicture = inPictureInPicture, onPopOut = onPopOut,
+            onClose = { expandedScreen = null },
+        )
+        return
     }
 
     Scaffold(
@@ -177,6 +192,7 @@ fun KithMootApp(model: RoomViewModel) {
                     if (roomState.screenOn) model.stopScreenShare() else requestScreenShare()
                 },
                 onOpenChat = { chatOpen = true },
+                onExpandScreen = { expandedScreen = it; chatOpen = false },
                 onAddDevice = model::mintPairingLink,
                 onRotateInvitation = model::rotateInvitation,
                 onLeave = model::leave,
@@ -198,6 +214,10 @@ fun KithMootApp(model: RoomViewModel) {
                 messages = roomState.chat,
                 selfParticipant = roomState.selfParticipant,
                 onSend = model::sendChat,
+                onReact = model::react,
+                profilesEnabled = roomState.profilesEnabled,
+                profiles = roomState.profiles,
+                onProfilesEnabled = model::setProfilesEnabled,
                 modifier = Modifier.fillMaxHeight(0.9f),
             )
         }

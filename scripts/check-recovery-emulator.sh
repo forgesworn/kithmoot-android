@@ -42,3 +42,8 @@ run_tests storage-and-ui 6 -e class \
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests restart-reopen 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#b_reopen -e requireRestart true
+
+run_tests chat-and-screen-share 1 -e class dev.forgesworn.kithmoot.ui.ChatAndShareUiTest
+for picture in chat viewer pip; do
+  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
+done

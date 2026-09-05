@@ -1,5 +1,11 @@
 package dev.forgesworn.kithmoot.ui
 
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import dev.forgesworn.kithmoot.ui.room.PublicProfile
+import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
+
 import android.app.Application
 import android.content.Intent
 import dev.forgesworn.kithmoot.KithMootApplication
@@ -103,6 +109,8 @@ data class RoomState(
     val relaysTotal: Int = 0,
     val tiles: List<ParticipantTile> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
+    val profilesEnabled: Boolean = false,
+    val profiles: Map<String, PublicProfile> = emptyMap(),
     val selfParticipant: String = "",
     val selfDevice: String = "",
     val micOn: Boolean = false,
@@ -683,6 +691,25 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _start.value = _start.value.copy(error = null, busy = false)
         _stage.value = Stage.ROOM
 
+        scope.launch {
+            _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
+                .distinctUntilChanged().collectLatest { authors ->
+                    if (authors.isEmpty()) return@collectLatest
+                    val requested = authors.toSet()
+                    kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                        transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                            val profile = decodePublicProfile(event, requested, epochSeconds()) ?: return@collect
+                            _room.update { state ->
+                                if (!state.profilesEnabled || state.roomId != derived.roomId) state else {
+                                    val old = state.profiles[event.pubkey]
+                                    if (old != null && (old.createdAt > profile.createdAt || (old.createdAt == profile.createdAt && old.eventId >= profile.eventId))) state
+                                    else state.copy(profiles = state.profiles + (event.pubkey to profile))
+                                }
+                            }
+                        }
+                    }
+                }
+        }
         transport.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
@@ -824,6 +851,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun closeSession() {
+        dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
         ScreenShareService.stop(getApplication())
@@ -938,7 +966,20 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         note("Screen sharing needs Android's permission. Nothing was shared.")
     }
 
+    fun setProfilesEnabled(enabled: Boolean) {
+        if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+        _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
+    }
+
     fun sendChat(body: String) = act { session?.sendChat(body) }
+
+    fun react(message: ChatMessage, emoji: String) = act {
+        val live = session ?: return@act
+        runCatching {
+            val reaction = dev.forgesworn.kithmoot.session.toggleReaction(_room.value.chat, message, _room.value.selfParticipant, emoji)
+            live.sendChat(dev.forgesworn.kithmoot.session.reactionText(reaction), reaction)
+        }.onFailure { note("The reaction could not be sent. Try again.") }
+    }
 
     // --- adding a device -----------------------------------------------------
 

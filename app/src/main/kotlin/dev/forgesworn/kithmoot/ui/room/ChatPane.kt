@@ -1,197 +1,134 @@
 package dev.forgesworn.kithmoot.ui.room
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import dev.forgesworn.kithmoot.session.ChatMessage
-import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
+import dev.forgesworn.kithmoot.session.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * The room's text channel.
- *
- * Lines are attributed to the **person**, not the device that typed them, the
- * same way tiles are. Somebody who moves from their laptop to their phone
- * mid-sentence carries on as themselves.
- */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatPane(
     messages: List<ChatMessage>,
     selfParticipant: String,
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onReact: (ChatMessage, String) -> Unit = { _, _ -> },
+    profilesEnabled: Boolean = false,
+    profiles: Map<String, PublicProfile> = emptyMap(),
+    onProfilesEnabled: (Boolean) -> Unit = {},
 ) {
-    var draft by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf(TextFieldValue("")) }
+    var query by remember { mutableStateOf("") }
+    var emojiOpen by remember { mutableStateOf(false) }
+    var profileSettings by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    val conversation = messages.filter { it.reaction == null }
+    val visible = conversation.filter { message ->
+        query.isBlank() || listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
+            .any { it.contains(query.trim(), ignoreCase = true) }
     }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Chat",
-            modifier = Modifier.padding(horizontal = 20.dp),
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Encrypted to the room. Relays may retain ciphertext and timing metadata.",
-            modifier = Modifier.padding(horizontal = 20.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        Box(Modifier.weight(1f, fill = true)) {
-            if (messages.isEmpty()) {
-                Text(
-                    text = "Nothing said yet.",
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 20.dp,
-                        vertical = 4.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    items(messages, key = { it.id }) { message ->
-                        ChatLine(message, message.participant == selfParticipant)
+    LaunchedEffect(conversation.size, query) {
+        if (query.isBlank() && visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
+    }
+    fun send() {
+        if (draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
+    }
+    Column(modifier.fillMaxWidth().imePadding()) {
+        Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
+        Text("Encrypted to the room. Search covers loaded messages on this device.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            label = { Text("Search messages or people") }, singleLine = true,
+            trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("Clear") } })
+        TextButton(onClick = { profileSettings = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("Profile pictures: ${if (profilesEnabled) "on" else "off"}")
+        }
+        Box(Modifier.weight(1f)) {
+            if (visible.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
+            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                items(visible, key = { it.id }) { message ->
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ProfileAvatar(message.participant, message.name, profiles[message.participant], Modifier.size(32.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                val name = if (message.participant == selfParticipant) "You" else message.name ?: profiles[message.participant]?.name
+                                Text(listOfNotNull(name, shortId(message.participant)).joinToString(" · "), style = MaterialTheme.typography.labelMedium)
+                                Text(messageTime(message.sentAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Text(message.body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
+                        val updates = reactionUpdates(messages, message)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            REACTION_EMOJIS.forEach { emoji ->
+                                val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
+                                if (emoji in listOf("👍", "❤️", "🤦") || active.isNotEmpty()) {
+                                    val mine = active.any { it.participant == selfParticipant }
+                                    FilterChip(selected = mine, onClick = { onReact(message, emoji) },
+                                        label = { Text(emoji + if (active.isEmpty()) "" else " ${active.size}") },
+                                        modifier = Modifier.semantics { contentDescription = "${if (mine) "Remove" else "Add"} $emoji reaction, ${active.size}" })
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f),
+                placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
+            IconButton(onClick = { send() }, enabled = draft.text.isNotBlank(), modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+        }
+        TextButton(onClick = { emojiOpen = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("😊 Emoji") }
+    }
+    if (emojiOpen) EmojiDialog(onDismiss = { emojiOpen = false }) { emoji ->
+        val start = draft.selection.min; val end = draft.selection.max
+        val text = draft.text.replaceRange(start, end, emoji)
+        if (text.length <= MAX_CHAT_TEXT_LENGTH) { draft = TextFieldValue(text, TextRange(start + emoji.length)); emojiOpen = false }
+    }
+    if (profileSettings) AlertDialog(onDismissRequest = { profileSettings = false }, title = { Text("Public profile pictures") },
+        text = { Column {
+            Text("Look up public Nostr profiles for this visit. Room relays will see participant keys, and picture hosts will see image requests. Names and pictures are self-reported. A new room identity may have no public profile.")
+            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Look up public profiles") }
+        } }, confirmButton = { TextButton(onClick = { profileSettings = false }) { Text("Done") } })
+}
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it.take(MAX_CHAT_TEXT_LENGTH) },
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text(
-                        "Say something",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                textStyle = MaterialTheme.typography.bodyLarge,
-                maxLines = 4,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(
-                    onSend = {
-                        if (draft.isNotBlank()) {
-                            onSend(draft)
-                            draft = ""
-                        }
-                    },
-                ),
-            )
-            Spacer(Modifier.width(10.dp))
-            IconButton(
-                onClick = {
-                    if (draft.isNotBlank()) {
-                        onSend(draft)
-                        draft = ""
-                    }
-                },
-                enabled = draft.isNotBlank(),
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    // Material's disabled default is the surface colour at 38%,
-                    // which is grey on grey and unreadable. An empty box says
-                    // "nothing to send" perfectly well at full contrast.
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    modifier = Modifier.size(28.dp),
-                )
+private val EMOJIS = listOf("👍" to "thumbs up yes like", "❤️" to "heart love", "🤦" to "facepalm head against wall", "😂" to "laugh tears joy", "😊" to "smile happy", "🎉" to "party celebration", "👀" to "eyes", "🙏" to "thanks please", "😢" to "sad cry", "🤯" to "mind blown", "🙄" to "eye roll", "😅" to "sweat smile", "🔥" to "fire", "👏" to "clap applause", "💯" to "hundred", "✅" to "done check", "❌" to "cross no", "🤔" to "thinking", "👋" to "wave hello", "🤗" to "hug", "😍" to "heart eyes", "😡" to "angry", "💔" to "broken heart", "🍻" to "cheers", "☕" to "coffee", "🚀" to "rocket", "💪" to "muscle", "🤞" to "fingers crossed")
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmojiDialog(onDismiss: () -> Unit, choose: (String) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Choose an emoji") }, text = {
+        Column {
+            OutlinedTextField(query, { query = it }, label = { Text("Search emoji") }, singleLine = true)
+            LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                item { FlowRow { EMOJIS.filter { (emoji, words) -> "$emoji $words".contains(query, true) }.forEach { (emoji, words) ->
+                    TextButton(onClick = { choose(emoji) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "$emoji $words" }) { Text(emoji, style = MaterialTheme.typography.headlineSmall) }
+                } } }
             }
         }
-    }
+    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
 }
 
-@Composable
-private fun ChatLine(message: ChatMessage, isSelf: Boolean) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = if (isSelf) "You" else shortId(message.participant),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (isSelf) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.secondary
-                },
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = clockTime(message.sentAt),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            text = message.body,
-            modifier = Modifier.heightIn(min = 0.dp),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-private fun clockTime(epochSeconds: Long): String =
-    SimpleDateFormat("HH:mm", Locale.UK).format(Date(epochSeconds * 1000))
+internal fun messageTime(seconds: Long): String = SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(seconds * 1000))

@@ -315,7 +315,7 @@ class RoomSession(
         announce()
     }
 
-    fun sendChat(body: String) {
+    fun sendChat(body: String, reaction: ChatReaction? = null) {
         val text = body.trim()
         if (text.isEmpty()) return
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
@@ -329,6 +329,7 @@ class RoomSession(
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
             proof = proof,
+            reaction = reaction,
         )
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id

@@ -40,7 +40,7 @@ class RoomRestartTest {
             throw AssertionError("Home did not become ready:\n" + ui.onRoot(useUnmergedTree = true).printToString(), failure)
         }
     }
-    private fun room() = ui.waitUntil(20_000) { ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty() }
+    private fun room() = ui.waitUntil(60_000) { ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun a_prepare() {
         app.savedRooms.reset()

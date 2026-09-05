@@ -50,6 +50,7 @@ fun ParticipantTileView(
     videoFor: (TileTrack) -> VideoTrack?,
     eglBase: EglBase?,
     modifier: Modifier = Modifier,
+    onExpandScreen: (TileTrack) -> Unit = {},
 ) {
     val speaking = tile.hasMic
     Card(
@@ -96,7 +97,9 @@ fun ParticipantTileView(
                                 fill = meta.role != Roles.SCREEN,
                             )
                             if (meta.role == Roles.SCREEN) {
-                                PaneLabel("Screen", Modifier.align(Alignment.TopStart))
+                                androidx.compose.material3.TextButton(onClick = { onExpandScreen(meta) }, modifier = Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface)) {
+                                    Text("Expand screen share")
+                                }
                             } else if (panes.size > 1) {
                                 PaneLabel("Camera", Modifier.align(Alignment.TopStart))
                             }
