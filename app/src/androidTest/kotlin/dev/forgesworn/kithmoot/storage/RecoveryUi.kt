@@ -53,8 +53,13 @@ internal class RecoveryUi {
 
     private fun <T> reveal(find: () -> T?): T {
         find()?.let { return it }
+        // A fresh instrumentation process can attach before Compose exposes
+        // its scroll container. Do not spend the backward scroll attempts on
+        // an empty tree and then scroll past the heading as it first appears.
+        await("rendered screen content") { find() != null || nodes().any { it.isScrollable } }
         // Home controls can sit above or below the current scroll position.
         repeat(8) {
+            find()?.let { return it }
             val scroll = nodes().firstOrNull { it.isScrollable } ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) SystemClock.sleep(120)
         }
