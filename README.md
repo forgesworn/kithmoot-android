@@ -189,8 +189,8 @@ The script requires an explicit emulator serial and refuses physical devices.
 It checks instrumentation summaries because Android can return a successful
 shell exit code after a test-process crash. Restart preparation and reopening
 run in separate processes, with participant/device identifiers compared and
-creator controls retained. These checks do not prove media delivery or live
-relay admission.
+creator controls retained. Recovery uses an unavailable loopback relay to verify
+that saved rooms work offline. These checks do not prove live relay admission.
 
 To install the debug build on a connected development device or emulator:
 

@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.util.Consumer
@@ -65,7 +66,7 @@ class ChatAndShareUiTest {
                     it.setContent {
                         KithMootTheme {
                             when (phase) {
-                                0 -> ChatPane(messages, self, { body -> messages = messages + first.copy(id = "sent", participant = self, body = body) }, Modifier.fillMaxSize(),
+                                0 -> ChatPane(messages, self, { body -> messages = messages + first.copy(id = "sent", participant = self, body = body) }, Modifier.fillMaxSize().systemBarsPadding(),
                                     onReact = { target, emoji -> messages = messages + first.copy(id = "reaction-${messages.size}", participant = self, reaction = toggleReaction(messages, target, self, emoji)) })
                                 1 -> ScreenShareViewer(live, egl, "Synthetic workshop presentation", pip,
                                     onPopOut = { assertTrue(activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())) },
@@ -106,6 +107,8 @@ class ChatAndShareUiTest {
                 assertNotEquals("The shared picture must render, not just negotiate", left, right)
                 ui.onNodeWithText("Pop out").performClick()
                 ui.waitUntil(20_000) { pip }
+                ui.onNodeWithText("Synthetic workshop presentation").assertDoesNotExist()
+                ui.onNodeWithText("Pop out").assertDoesNotExist()
                 ui.waitUntil(20_000) {
                     var movingPicture = false
                     InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -116,10 +119,27 @@ class ChatAndShareUiTest {
                     }
                     movingPicture
                 }
-                // The platform owns the PiP opening animation; capture it once
-                // after rendering, rather than repeatedly allocating full screens.
-                android.os.SystemClock.sleep(500)
-                screenshot("pip")
+                // Synchronise Compose before checking the platform window: a
+                // live TextureView bitmap alone does not prove it is visible.
+                val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+                val serviceInfo = automation.serviceInfo
+                serviceInfo.flags = serviceInfo.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                automation.serviceInfo = serviceInfo
+                ui.waitUntil(20_000) {
+                    val window = automation.windows.firstOrNull { it.isInPictureInPictureMode }
+                    if (window == null) false else {
+                        val bounds = android.graphics.Rect()
+                        window.getBoundsInScreen(bounds)
+                        val picture = screenshot("pip")
+                        val y = bounds.centerY().coerceIn(0, picture.height - 1)
+                        val left = picture.getPixel((bounds.left + bounds.width() / 4).coerceIn(0, picture.width - 1), y)
+                        val right = picture.getPixel((bounds.left + bounds.width() * 3 / 4).coerceIn(0, picture.width - 1), y)
+                        picture.recycle()
+                        android.graphics.Color.red(left) > 180 &&
+                            android.graphics.Color.red(left) > android.graphics.Color.blue(left) + 30 &&
+                            android.graphics.Color.red(left) > android.graphics.Color.red(right) + 30
+                    }
+                }
                 // A fresh explicit intent expands the PiP task. Restore the
                 // launch intent afterwards: ActivityScenario matches lifecycle
                 // callbacks by that intent, while MainActivity retains new ones.

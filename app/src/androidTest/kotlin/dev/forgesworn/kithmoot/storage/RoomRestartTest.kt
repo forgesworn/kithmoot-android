@@ -48,7 +48,7 @@ class RoomRestartTest {
             ui.activityRule.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
             home()
             ui.onNodeWithText("Relay settings").performScrollTo().performClick()
-            ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:7777")
+            ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:59999")
             ui.onNodeWithText("Room name (optional)").performScrollTo().performTextInput("Restart workshop")
             ui.onNode(startAction).performScrollTo().performClick()
             room()

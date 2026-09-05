@@ -20,16 +20,27 @@ class RoomRecoveryUiTest {
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val startAction get() = hasText("Start a room") and hasClickAction()
 
-    private fun awaitHome() = ui.waitUntil(60_000) {
-        ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
-            ui.onAllNodes(hasContentDescription("Loading rooms")).fetchSemanticsNodes().isEmpty()
+    private fun awaitHome() {
+        try {
+            ui.waitUntil(60_000) {
+                ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
+                    ui.onAllNodes(hasContentDescription("Loading rooms")).fetchSemanticsNodes().isEmpty()
+            }
+        } catch (failure: Throwable) {
+            var state = ""
+            ui.activityRule.scenario.onActivity {
+                val model = ViewModelProvider(it)[RoomViewModel::class.java]
+                state = "stage=${model.stage.value}, loading=${model.start.value.loadingRooms}, busy=${model.start.value.busy}, storageError=${model.start.value.storageError}"
+            }
+            throw AssertionError("Home did not become ready ($state):\n" + ui.onRoot(useUnmergedTree = true).printToString(), failure)
+        }
     }
     private fun awaitRoom() = ui.waitUntil(60_000) {
         ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty()
     }
     private fun createRoom() {
         ui.onNodeWithText("Relay settings").performScrollTo().performClick()
-        ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:7777")
+        ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:59999")
         ui.onNodeWithText("Room name (optional)").performScrollTo().performTextInput("Weekend workshop")
         ui.onNode(startAction).performScrollTo().performClick()
         awaitRoom()

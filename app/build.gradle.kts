@@ -85,6 +85,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.service)
 
     implementation(platform(libs.androidx.compose.bom))
+    // Includes the missed snapshot invalidation fix in b/419527812, which can
+    // leave a completed asynchronous load displaying its initial state.
+    implementation("androidx.compose.runtime:runtime:1.9.5")
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
