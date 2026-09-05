@@ -27,9 +27,18 @@ class RoomRestartTest {
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val marker get() = File(app.noBackupFilesDir, "restart-test.properties")
     private val startAction get() = hasText("Start a room") and hasClickAction()
-    private fun home() = ui.waitUntil(20_000) {
-        ui.onAllNodes(startAction).fetchSemanticsNodes().isNotEmpty() &&
-            ui.onAllNodesWithContentDescription("Loading rooms").fetchSemanticsNodes().isEmpty()
+    private fun home() {
+        // A fresh CI process loads Keystore, crypto and Compose classes. This
+        // checks readiness, not startup speed, and a saved list can put the
+        // new-room button below the viewport.
+        try {
+            ui.waitUntil(60_000) {
+                ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
+                    ui.onAllNodesWithContentDescription("Loading rooms").fetchSemanticsNodes().isEmpty()
+            }
+        } catch (failure: Exception) {
+            throw AssertionError("Home did not become ready:\n" + ui.onRoot(useUnmergedTree = true).printToString(), failure)
+        }
     }
     private fun room() = ui.waitUntil(20_000) { ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty() }
 

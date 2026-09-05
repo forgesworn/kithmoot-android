@@ -22,7 +22,7 @@ class RoomRecoveryUiTest {
     private val startAction get() = hasText("Start a room") and hasClickAction()
 
     private fun awaitHome() = ui.waitUntil(20_000) {
-        ui.onAllNodes(startAction).fetchSemanticsNodes().isNotEmpty() &&
+        ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
             ui.onAllNodes(hasContentDescription("Loading rooms")).fetchSemanticsNodes().isEmpty()
     }
     private fun awaitRoom() = ui.waitUntil(20_000) {
