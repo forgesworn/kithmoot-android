@@ -35,10 +35,13 @@ jobs:
             gradle.properties
 
       - name: Install the Android build SDK
-        run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0'
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
 
       - name: Test, lint and build
-        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lint :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
+        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
 
       - name: Keep test and lint reports
         if: always()
