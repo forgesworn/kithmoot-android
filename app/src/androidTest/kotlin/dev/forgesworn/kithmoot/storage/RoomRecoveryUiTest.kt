@@ -1,10 +1,9 @@
 package dev.forgesworn.kithmoot.storage
 
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
@@ -17,7 +16,7 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class RoomRecoveryUiTest {
-    @get:Rule val ui = createEmptyComposeRule()
+    @get:Rule val ui = createAndroidComposeRule<MainActivity>()
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val startAction get() = hasText("Start a room") and hasClickAction()
 
@@ -37,8 +36,11 @@ class RoomRecoveryUiTest {
     }
 
     @Test fun saved_room_recovery_and_corrupt_storage_keep_destructive_actions_explicit() {
-        app.savedRooms.reset()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        run {
+            val scenario = ui.activityRule.scenario
+            awaitHome()
+            app.savedRooms.reset()
+            scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
             awaitHome()
             createRoom()
             val before = app.savedRooms.list().single()
@@ -76,9 +78,10 @@ class RoomRecoveryUiTest {
         app.savedRooms.reset()
         val file = File(app.noBackupFilesDir, "kithmoot.rooms.v1.vault")
         file.writeText("broken ciphertext")
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        run {
+            val scenario = ui.activityRule.scenario
             lateinit var model: RoomViewModel
-            scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+            scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java]; model.refreshSavedRooms() }
             ui.waitUntil(60_000) { !model.start.value.loadingRooms }
             assertTrue("Corrupt storage must block entry", model.start.value.storageError)
             ui.waitUntil(60_000) { ui.onAllNodesWithText("Saved rooms are unavailable").fetchSemanticsNodes().isNotEmpty() }

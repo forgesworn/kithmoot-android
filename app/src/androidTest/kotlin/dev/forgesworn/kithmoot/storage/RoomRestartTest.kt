@@ -2,9 +2,8 @@ package dev.forgesworn.kithmoot.storage
 
 import android.os.Process
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
-import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -23,7 +22,7 @@ import java.util.Properties
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class RoomRestartTest {
-    @get:Rule val ui = createEmptyComposeRule()
+    @get:Rule val ui = createAndroidComposeRule<MainActivity>()
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val marker get() = File(app.noBackupFilesDir, "restart-test.properties")
     private val startAction get() = hasText("Start a room") and hasClickAction()
@@ -36,15 +35,17 @@ class RoomRestartTest {
                 ui.onAllNodesWithText("KithMoot").fetchSemanticsNodes().isNotEmpty() &&
                     ui.onAllNodesWithContentDescription("Loading rooms").fetchSemanticsNodes().isEmpty()
             }
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             throw AssertionError("Home did not become ready:\n" + ui.onRoot(useUnmergedTree = true).printToString(), failure)
         }
     }
     private fun room() = ui.waitUntil(60_000) { ui.onAllNodesWithText("Leave").fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun a_prepare() {
-        app.savedRooms.reset()
-        ActivityScenario.launch(MainActivity::class.java).use {
+        run {
+            home()
+            app.savedRooms.reset()
+            ui.activityRule.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
             home()
             ui.onNodeWithText("Relay settings").performScrollTo().performClick()
             ui.onNodeWithText("Relays, one per line").performTextReplacement("ws://10.0.2.2:7777")
@@ -69,7 +70,8 @@ class RoomRestartTest {
         if (InstrumentationRegistry.getArguments().getString("requireRestart") == "true") {
             assertNotEquals(expected.getProperty("pid"), Process.myPid().toString())
         }
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+        run {
+            val scenario = ui.activityRule.scenario
             home()
             ui.onNode(hasText("Restart workshop") and hasClickAction() and !hasSetTextAction()).performScrollTo().performClick()
             room()
