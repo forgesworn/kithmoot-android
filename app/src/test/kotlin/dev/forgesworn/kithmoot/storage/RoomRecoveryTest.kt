@@ -16,13 +16,42 @@ class RoomRecoveryTest {
     private val relays = listOf("wss://relay.example")
     private val base = "https://kithmoot.example/j/"
 
-    private fun room(name: String = "Workshop"): SavedRoom {
+    private fun room(name: String = "Workshop", persistent: Boolean = false): SavedRoom {
         val secret = Entropy.bytes(32)
         val derived = deriveRoom(secret)
         val who = PrimaryIdentity.create(derived.roomId, now + 3600, now)
-        val host = createRoomInvitation()
+        val host = createRoomInvitation(persistent)
         return SavedRoom.create(secret, who, encodeInvitationUrl(base, host.invitation, relays), relays,
             name, now, host, host.invitation.canonicalInviter)
+    }
+
+    @Test fun `group members return days later without holding any inviter key`() {
+        val original = room(persistent = true)
+        val member = PrimaryIdentity.create(original.id, now + 3600, now)
+        val saved = SavedRoom.create(original.secret, member, original.joinUrl, relays, "Group", now, null, original.authority)
+        val disk = MemoryStorage()
+        RoomRepository(disk).save(saved)
+        val restored = RoomRepository(disk).get(saved.id)!!
+        val later = now + 4 * 24 * 60 * 60
+        assertEquals(member.participant, restored.identity(later).participant)
+        assertEquals(member.devicePubkey, restored.identity(later).devicePubkey)
+        assertContentEquals(original.secret, restored.secret)
+        assertTrue(restored.invitation!!.invitation.persistent)
+        assertNull(restored.host(later))
+        assertFalse(restored.json.containsKey("host"))
+        RoomRepository(disk).forget(saved.id)
+        assertNull(RoomRepository(disk).get(saved.id))
+    }
+
+    @Test fun `old temporary links cannot erase saved group creator authority`() {
+        val group = room(persistent = true)
+        val oldHost = createRoomInvitation()
+        val old = SavedRoom.create(group.secret, group.identity(now), encodeInvitationUrl(base, oldHost.invitation, relays),
+            relays, "Old meeting", now + 20, oldHost, group.authority)
+        val retained = old.retainingHistory(group)
+        assertEquals(group.joinUrl, retained.joinUrl)
+        assertEquals(group.host(now)!!.invitation, retained.host(now + 4 * 24 * 60 * 60)!!.invitation)
+        assertEquals(group.authority, retained.authority)
     }
 
     @Test fun `a fresh repository restores the creator and can admit somebody with nobody else online`() {

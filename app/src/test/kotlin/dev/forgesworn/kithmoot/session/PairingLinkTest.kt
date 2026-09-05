@@ -16,6 +16,19 @@ import kotlin.test.assertTrue
 
 class PairingLinkTest {
 
+    @Test fun `group pairing keeps v3 membership and the original bounded device credential`() {
+        val invitation = createRoomInvitation(true).invitation
+        val deviceKey = Fixtures.key(41)
+        val credential = owner.enrol(Schnorr.publicKeyHex(deviceKey), room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
+        val url = encodeInvitationPairingLink(invitation = invitation, relays = relays,
+            deviceSecretKey = deviceKey, credential = credential)
+        val decoded = assertNotNull(decodeInvitationPairingLink(url))
+        assertTrue(decoded.join.invitation.persistent)
+        assertEquals(credential, decoded.credential)
+        assertContentEquals(deviceKey, decoded.deviceSecretKey)
+        assertNull(SecondaryIdentity.adopt(decoded.credential, decoded.deviceSecretKey, room.roomId, Fixtures.CREDENTIAL_EXPIRY))
+    }
+
     private val room = deriveRoom(ByteArray(32) { 7 })
     private val secret = ByteArray(32) { 7 }
     private val relays = listOf("wss://relay.damus.io", "wss://nos.lol")

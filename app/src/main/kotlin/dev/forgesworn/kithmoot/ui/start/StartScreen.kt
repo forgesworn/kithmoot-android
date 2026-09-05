@@ -24,6 +24,7 @@ fun StartScreen(
     onRoomNameChanged: (String) -> Unit,
     onJoinUrlChanged: (String) -> Unit,
     onRelaysChanged: (String) -> Unit,
+    onPersistentGroupChanged: (Boolean) -> Unit,
     onStartRoom: () -> Unit,
     onJoin: () -> Unit,
     onReopen: (String) -> Unit,
@@ -107,6 +108,14 @@ fun StartScreen(
                         label = { Text("Room name (optional)") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = { if (enabled) onStartRoom() }))
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Checkbox(state.persistentGroup, onPersistentGroupChanged, enabled = enabled,
+                            modifier = Modifier.semantics { contentDescription = "Group: come back any time" })
+                        Text("Group: come back any time")
+                    }
+                    Text(if (state.persistentGroup) "People can join while everyone is away."
+                        else "Temporary meeting: someone must be online to admit new arrivals.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(onStartRoom, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Start a room") }
                     Text("The name is yours to recognise this room on this device.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

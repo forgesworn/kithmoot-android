@@ -34,6 +34,7 @@ class RoomRestartTest {
         ui.click("Relay settings")
         ui.replace("Relays, one per line", "ws://10.0.2.2:59999")
         ui.replace("Room name (optional)", "Restart workshop")
+        ui.click("Group: come back any time")
         ui.click("Start a room")
         ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!

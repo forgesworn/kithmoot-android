@@ -69,11 +69,17 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     fun renamed(name: String): SavedRoom = changed { put("name", cleanName(name, id)) }
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
-    fun retainingHistory(previous: SavedRoom): SavedRoom = changed {
-        put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
-        if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
-            put("retired", true)
-            remove("host")
+    fun retainingHistory(previous: SavedRoom): SavedRoom {
+        // An old meeting link must not replace durable membership or creator authority.
+        if (previous.invitation?.invitation?.persistent == true && invitation?.invitation?.persistent != true) {
+            return previous.opened(openedAt)
+        }
+        return changed {
+            put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
+            if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
+                put("retired", true)
+                remove("host")
+            }
         }
     }
 

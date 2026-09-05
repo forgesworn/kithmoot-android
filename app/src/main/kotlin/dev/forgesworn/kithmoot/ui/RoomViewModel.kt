@@ -24,6 +24,9 @@ import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.WebRtcEngine
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
 import dev.forgesworn.kithmoot.protocol.InvitationPayload
+import dev.forgesworn.kithmoot.protocol.encodePersistentInvitation
+import dev.forgesworn.kithmoot.session.requestPersistentAdmission
+import dev.forgesworn.kithmoot.session.GroupInvitationException
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
@@ -97,6 +100,7 @@ data class StartState(
     val busy: Boolean = false,
     val error: String? = null,
     val roomName: String = "",
+    val persistentGroup: Boolean = true,
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
@@ -291,6 +295,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 when (e) {
                     is RoomStorageException -> storageFailed()
                     is RoomRecoveryException -> _start.update { it.copy(error = e.message) }
+                    is GroupInvitationException -> _start.update { it.copy(error = e.message) }
                     else -> _start.update { it.copy(error = "The room could not be opened. Try again.") }
                 }
             } finally {
@@ -314,6 +319,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _start.value = _start.value.copy(relays = value, error = null)
     }
 
+    fun onPersistentGroupChanged(value: Boolean) {
+        _start.update { it.copy(persistentGroup = value, error = null) }
+    }
+
     /**
      * Opens a room.
      *
@@ -330,9 +339,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val name = _start.value.roomName
+        val persistent = _start.value.persistentGroup
         enter {
             val secret = Entropy.bytes(32)
-            val invitationHost = createRoomInvitation()
+            val invitationHost = createRoomInvitation(persistent)
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
             val derived = deriveRoom(secret)
             val at = epochSeconds()
@@ -341,6 +351,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 expiresAt = at + CREDENTIAL_TTL_SECONDS,
                 createdAt = at,
             )
+            if (persistent) publishGroup(invitationHost, secret, relays)
             open(
                 derived = derived,
                 secret = secret,
@@ -444,6 +455,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
         val admission = try {
             requestAdmission(payload, relays)
+        } catch (e: GroupInvitationException) {
+            _start.update { it.copy(busy = false, error = e.message) }
+            return
         } catch (_: RetiredInvitationException) {
             _start.value = _start.value.copy(
                 busy = false,
@@ -454,7 +468,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         if (admission == null) {
             _start.value = _start.value.copy(
                 busy = false,
-                error = "The room is not answering this invitation. Ask for a fresh link.",
+                error = if (payload.invitation.persistent) "The group invitation could not be loaded from its relays. Try again."
+                    else "The room is not answering this invitation. Ask for a fresh link.",
             )
             return
         }
@@ -463,6 +478,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         val derived = deriveRoom(secret)
         val at = epochSeconds()
         val pairing = decodeInvitationPairingLink(url)
+        if (pairing == null && !payload.invitation.persistent) {
+            savedRooms.get(derived.roomId)?.takeIf { it.invitation?.invitation?.persistent == true }
+                ?.let { openSaved(it); return }
+        }
         if (pairing != null) {
             val secondary = SecondaryIdentity.adopt(
                 credential = pairing.credential,
@@ -508,6 +527,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     /** Exchange the bearer for a traffic secret and a bounded responder
      * delegation, without an account or prompt. */
     private suspend fun requestAdmission(payload: InvitationPayload, relays: List<String>): RoomAdmission? {
+        if (payload.invitation.persistent) return withGroupRelays(relays) { transport ->
+            try {
+                requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                throw GroupInvitationException("The group invitation could not be loaded from its relays. Try again.")
+            } catch (e: GroupInvitationException) { throw e
+            } catch (_: Exception) {
+                throw GroupInvitationException("The group invitation could not be loaded from its relays. Try again.")
+            }
+        }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
         val requesterKey = Entropy.bytes(32)
@@ -568,6 +598,29 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun <T> withGroupRelays(relays: List<String>, action: suspend (RelayPool) -> T): T {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
+        transport.start()
+        return try { action(transport) } finally { transport.stop(); scope.cancel() }
+    }
+
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>) {
+        try {
+            withGroupRelays(relays) {
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds()))) {
+                    throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+            throw GroupInvitationException("The group invitation could not be saved to its relays. Try again.")
+        } catch (e: GroupInvitationException) { throw e
+        } catch (_: Exception) {
+            throw GroupInvitationException("The group invitation could not be saved to its relays. Try again.")
+        }
+    }
+
     /** Auto-admit holders of the current link while any admitted member is
      * online, and stop permanently on the creator's durable tombstone. */
     private fun serveInvitation(
@@ -612,7 +665,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     return@collect
                 }
-                if (retired || dev.forgesworn.kithmoot.protocol.verifyInvitationDelegation(host.invitation, host.delegation, epochSeconds()) == null) return@collect
+                if (host.invitation.persistent || retired || dev.forgesworn.kithmoot.protocol.verifyInvitationDelegation(host.invitation, host.delegation, epochSeconds()) == null) return@collect
                 val request = decodeInvitationRequest(event, host.invitation, epochSeconds()) ?: return@collect
                 // Lenient relays sometimes retain and replay ephemeral
                 // requests. A newly admitted delegate must not answer the
@@ -687,14 +740,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         session = live
         identity = who
         roomSecret = secret
-        roomInvitation = invitation
+        roomInvitation = record.invitation
         roomInvitationHost = record.host(epochSeconds())
         relayUrls = relays
 
         _room.value = RoomState(
             roomId = derived.roomId,
             name = record.name,
-            joinUrl = joinUrl,
+            joinUrl = record.joinUrl,
             relaysTotal = relays.size,
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
@@ -1048,7 +1101,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val secret = roomSecret ?: return@withLock
                 val scope = sessionScope ?: return@withLock
                 val transport = pool ?: return@withLock
-                val nextHost = createRoomInvitation()
+                val nextHost = RoomInvitationHost(
+                    dev.forgesworn.kithmoot.protocol.RoomInvitation(Entropy.bytes(32), oldHost.invitation.canonicalInviter, oldHost.invitation.persistent),
+                    oldHost.inviterSecretKey,
+                )
+                if (nextHost.invitation.persistent) {
+                    try { publishGroup(nextHost, secret, relayUrls) }
+                    catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
+                }
                 val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)
                 val url = encodeInvitationUrl(KITHMOOT_JOIN_BASE, nextHost.invitation, relayUrls, saved.policy)
                 val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds())

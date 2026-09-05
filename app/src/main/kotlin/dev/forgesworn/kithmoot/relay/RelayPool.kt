@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -62,6 +64,8 @@ class RelayPool(
     private val lock = Any()
     private val links = mutableMapOf<String, RelayLink>()
     private val subscriptions = linkedMapOf<String, PoolSubscription>()
+    private val storedQueries = linkedMapOf<String, StoredQuery>()
+    private val publications = linkedMapOf<String, Publication>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
 
@@ -89,6 +93,10 @@ class RelayPool(
             closing = links.values.toList()
             links.clear()
             subscriptions.clear()
+            storedQueries.values.forEach { it.result.completeExceptionally(IllegalStateException("Relays stopped")) }
+            storedQueries.clear()
+            publications.values.forEach { it.result.complete(false) }
+            publications.clear()
         }
         for (link in closing) {
             link.job?.cancel()
@@ -102,6 +110,57 @@ class RelayPool(
         val targets: List<RelayLink>
         synchronized(lock) { targets = links.values.toList() }
         for (link in targets) link.sendOrQueue(frame)
+    }
+
+    /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
+    suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean = withTimeout(timeoutMs) {
+        connected.first { it.isNotEmpty() }
+        val publication: Publication
+        val targets: List<RelayLink>
+        synchronized(lock) {
+            targets = links.values.filter { it.isOpen }
+            check(targets.isNotEmpty()) { "No relay is connected" }
+            check(event.id !in publications) { "Event publication is already pending" }
+            publication = Publication(targets.map { it.url }.toSet())
+            publications[event.id] = publication
+        }
+        try {
+            targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
+            publication.result.await()
+        } finally { synchronized(lock) { publications.remove(event.id) } }
+    }
+
+    /** A complete snapshot from the currently connected relays. Disconnection, CLOSED,
+     * overflow or missing EOSE fails the query; partial events never become admission. */
+    suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> = withTimeout(timeoutMs) {
+        connected.first { it.isNotEmpty() }
+        val id = "km-stored-${nextSubscriptionId.incrementAndGet()}"
+        val query: StoredQuery
+        val targets: List<RelayLink>
+        synchronized(lock) {
+            targets = links.values.filter { it.isOpen }
+            check(targets.isNotEmpty()) { "No relay is connected" }
+            query = StoredQuery(targets.map { it.url }.toSet())
+            storedQueries[id] = query
+        }
+        try {
+            targets.forEach { it.sendIfOpen(RelayCodec.requestFrame(id, filters)) }
+            query.result.await()
+        } finally {
+            synchronized(lock) { storedQueries.remove(id) }
+            targets.forEach { it.sendIfOpen(RelayCodec.closeFrame(id)) }
+        }
+    }
+
+    private fun storedMessage(url: String, message: RelayMessage) = synchronized(lock) {
+        when (message) {
+            is RelayMessage.Event -> storedQueries[message.subscriptionId]?.event(url, message.event)
+            is RelayMessage.EndOfStoredEvents -> storedQueries[message.subscriptionId]?.end(url)
+            is RelayMessage.Closed -> storedQueries[message.subscriptionId]?.failed(url)
+            is RelayMessage.Ok -> publications[message.eventId]?.acknowledge(url, message.accepted)
+            else -> Unit
+        }
+        Unit
     }
 
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
@@ -156,6 +215,7 @@ class RelayPool(
     }
 
     private fun onLinkClosed(link: RelayLink) {
+        synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
@@ -172,7 +232,9 @@ class RelayPool(
                 }
 
                 override fun onMessage(text: String) {
-                    when (val message = RelayCodec.parse(text)) {
+                    val message = RelayCodec.parse(text)
+                    storedMessage(link.url, message)
+                    when (message) {
                         is RelayMessage.Event -> deliver(message.subscriptionId, message.event)
                         // Everything else is informational. A CLOSED from one
                         // relay does not end the subscription: the others are
@@ -259,6 +321,39 @@ class RelayPool(
     }
 
     private class Pending(val frame: String, val queuedAt: Long)
+
+    private class Publication(private val pending: Set<String>) {
+        val result = CompletableDeferred<Boolean>()
+        private val rejected = mutableSetOf<String>()
+        fun acknowledge(url: String, accepted: Boolean) {
+            if (url !in pending) return
+            if (accepted) result.complete(true)
+            else if (rejected.add(url) && rejected.containsAll(pending)) result.complete(false)
+        }
+    }
+
+    private class StoredQuery(private val targets: Set<String>) {
+        val result = CompletableDeferred<List<NostrEvent>>()
+        private val ended = mutableSetOf<String>()
+        private val events = linkedMapOf<String, NostrEvent>()
+        private var bytes = 0L
+        fun event(url: String, event: NostrEvent) {
+            if (url !in targets || url in ended || result.isCompleted) return
+            if (!dev.forgesworn.kithmoot.protocol.Events.verify(event)) return
+            if (event.id in events) return
+            bytes += event.toJson().toString().length * 2L
+            if (events.size >= 2_048 || bytes > 4 * 1024 * 1024) {
+                result.completeExceptionally(IllegalStateException("Stored relay query exceeded its limit"))
+            } else events[event.id] = event
+        }
+        fun end(url: String) {
+            if (url in targets) ended.add(url)
+            if (ended.containsAll(targets)) result.complete(events.values.toList())
+        }
+        fun failed(url: String) {
+            if (url in targets && url !in ended) result.completeExceptionally(IllegalStateException("Stored relay query was interrupted"))
+        }
+    }
 
     /**
      * One subscription across the whole pool.
