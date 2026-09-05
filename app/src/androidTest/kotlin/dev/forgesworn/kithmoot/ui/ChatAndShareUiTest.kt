@@ -98,12 +98,20 @@ class ChatAndShareUiTest {
                 ui.onNodeWithContentDescription("Shared screen, 156 percent zoom. Pinch to zoom and drag to pan.").performTouchInput { swipe(center, center + androidx.compose.ui.geometry.Offset(80f, 40f)) }
                 ui.onNodeWithText("Fit to screen").performClick()
                 ui.onNodeWithText("100%").assertIsDisplayed()
-                // Prove the TextureView reaches the composed screen as non-flat pixels.
-                ui.waitUntil(20_000) { frameNumber > 10 }
-                val bitmap = screenshot("viewer")
+                // Captured source frames can predate this viewer. Wait for the
+                // expected colours on the composed screen, not a source count.
                 val viewport = ui.onNodeWithContentDescription("Shared screen, 100 percent zoom. Pinch to zoom and drag to pan.").fetchSemanticsNode().boundsInWindow
-                val left = bitmap.getPixel((viewport.left + viewport.width / 3).toInt(), viewport.center.y.toInt())
-                val right = bitmap.getPixel((viewport.left + viewport.width * 2 / 3).toInt(), viewport.center.y.toInt())
+                var left = android.graphics.Color.BLACK
+                var right = android.graphics.Color.BLACK
+                ui.waitUntil(20_000) {
+                    val bitmap = screenshot("viewer")
+                    left = bitmap.getPixel((viewport.left + viewport.width / 3).toInt(), viewport.center.y.toInt())
+                    right = bitmap.getPixel((viewport.left + viewport.width * 2 / 3).toInt(), viewport.center.y.toInt())
+                    bitmap.recycle()
+                    android.graphics.Color.red(left) > 180 &&
+                        android.graphics.Color.red(left) > android.graphics.Color.blue(left) + 30 &&
+                        android.graphics.Color.red(left) > android.graphics.Color.red(right) + 30
+                }
                 assertNotEquals("The shared picture must render, not just negotiate", left, right)
                 ui.onNodeWithText("Pop out").performClick()
                 ui.waitUntil(20_000) { pip }
