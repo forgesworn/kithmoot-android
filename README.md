@@ -1,8 +1,10 @@
 # kithmoot-android
 
-A native Kotlin implementation of the KithMoot protocol: the conference-room
-protocol over Nostr where one person can be present on several devices at once
-and still appear to the room as a single participant.
+A native Kotlin implementation of the KithMoot protocol: an open workspace
+with agents over Nostr, encrypted end to end, where one person can be present
+on several devices at once and still appear to the room as a single
+participant, and where calls are a feature of the room rather than the
+product.
 
 The TypeScript reference client is at
 [`forgesworn/kithmoot`](https://github.com/forgesworn/kithmoot), live at
