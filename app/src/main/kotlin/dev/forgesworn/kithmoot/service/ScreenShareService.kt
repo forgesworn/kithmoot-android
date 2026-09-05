@@ -72,6 +72,9 @@ class ScreenShareService : Service() {
     private fun types(): Int {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0
         var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        // Android 10 knows media projection; camera and microphone service
+        // types only exist from Android 11.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return types
         if (held(Manifest.permission.CAMERA)) {
             types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
         }

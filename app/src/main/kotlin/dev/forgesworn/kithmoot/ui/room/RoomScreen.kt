@@ -73,6 +73,7 @@ fun RoomScreen(
     onRotateInvitation: () -> Unit,
     onLeave: () -> Unit,
     modifier: Modifier = Modifier,
+    onExpandScreen: (SharedScreen) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -99,6 +100,7 @@ fun RoomScreen(
                         tile = tile,
                         videoFor = { track -> videos["${track.device}|${track.trackId}"] },
                         eglBase = eglBase,
+                        onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
                     )
                 }
                 if (state.movedOn != null) {
@@ -139,7 +141,7 @@ private fun Header(state: RoomState, onLeave: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "Room ${shortId(state.roomId)}",
+                    text = state.name.ifBlank { "Room ${shortId(state.roomId)}" },
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

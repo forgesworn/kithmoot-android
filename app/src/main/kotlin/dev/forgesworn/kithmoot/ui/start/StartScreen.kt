@@ -1,209 +1,161 @@
 package dev.forgesworn.kithmoot.ui.start
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
 
-/**
- * The way in: open a room, or take up somebody else's link.
- *
- * Two things and no more. Everything that could be configured here - relays,
- * access tiers, credential lifetimes - has a working default, and the one that
- * people do occasionally need to change is folded away rather than put in front
- * of them.
- */
 @Composable
 fun StartScreen(
     state: StartState,
+    onRoomNameChanged: (String) -> Unit,
     onJoinUrlChanged: (String) -> Unit,
     onRelaysChanged: (String) -> Unit,
     onStartRoom: () -> Unit,
     onJoin: () -> Unit,
+    onReopen: (String) -> Unit,
+    onForget: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onRetryStorage: () -> Unit,
+    onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var relaysShown by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var renamed by remember { mutableStateOf("") }
+    var resetting by remember { mutableStateOf(false) }
+    val enabled = !state.busy && !state.loadingRooms && !state.storageError
 
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 560.dp)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .systemBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-        ) {
-            Text(
-                text = "KithMoot",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "A room where all of your devices are one person.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(40.dp))
-
-            Button(
-                onClick = onStartRoom,
-                enabled = !state.busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 64.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Text("Start a room", style = MaterialTheme.typography.titleMedium)
+    Box(modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().systemBarsPadding().imePadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("KithMoot", style = MaterialTheme.typography.displaySmall)
+                Text(if (state.savedRooms.isEmpty()) "Make room for a conversation." else "Pick up the conversation.",
+                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (state.busy || state.loadingRooms) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading rooms" })
+            }
+            if (state.storageError) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Saved rooms are unavailable", style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        Text("Your saved data has been kept. Try again before deleting anything.")
+                        OutlinedButton(onRetryStorage, enabled = !state.busy && !state.loadingRooms) { Text("Try again") }
+                        TextButton({ resetting = true }, enabled = !state.busy && !state.loadingRooms) { Text("Delete saved rooms…") }
+                    }
+                }
+            } else if (state.error != null) {
+                Text(state.error, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
 
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Opens a new room and gives you a link to send.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(32.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-                Text(
-                    text = "or",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-            }
-            Spacer(Modifier.height(32.dp))
-
-            Text(
-                text = "Join a room",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = state.joinUrl,
-                onValueChange = onJoinUrlChanged,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Join link", style = MaterialTheme.typography.bodyMedium) },
-                placeholder = {
-                    Text(
-                        "https://kithmoot.forgesworn.dev/j/#…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                textStyle = MaterialTheme.typography.bodyLarge,
-                isError = state.error != null,
-                singleLine = false,
-                maxLines = 3,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { onJoin() }),
-            )
-
-            if (state.error != null) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = state.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.error,
-                )
+            if (state.savedRooms.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Your rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                    Text("Saved on this device. Reopen as the same person.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Find a saved room") },
+                        trailingIcon = { if (query.isNotEmpty()) TextButton({ query = "" }) { Text("Clear") } })
+                    val found = state.savedRooms.filter { it.name.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
+                    if (found.isEmpty()) Text("No rooms match your search.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    for (room in found) {
+                        key(room.id) {
+                            OutlinedCard(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    TextButton({ onReopen(room.id) }, enabled = enabled,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                        Text(room.name, style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    Text(if (room.secondary) "Paired device" else "Main device",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton({ renaming = room; renamed = room.name }, enabled = enabled,
+                                            modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
+                                        TextButton({ forgetting = room }, enabled = enabled,
+                                            modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Spacer(Modifier.height(16.dp))
-            OutlinedButton(
-                onClick = onJoin,
-                enabled = !state.busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 60.dp),
-            ) {
-                Text("Join", style = MaterialTheme.typography.titleMedium)
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Start a room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                    OutlinedTextField(state.roomName, onRoomNameChanged, Modifier.fillMaxWidth(), enabled = enabled,
+                        label = { Text("Room name (optional)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(onGo = { if (enabled) onStartRoom() }))
+                    Button(onStartRoom, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Start a room") }
+                    Text("The name is yours to recognise this room on this device.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "The fragment carries a revocable invitation, not the room's " +
-                    "traffic key, so the web server and link preview do not receive it. " +
-                    "The messaging service can still read the link unless that chat is " +
-                    "end-to-end encrypted. Anyone it is forwarded to can enter while it is current.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(32.dp))
-            TextButton(onClick = { relaysShown = !relaysShown }) {
-                Text(
-                    if (relaysShown) "Hide relays" else "Relays",
-                    style = MaterialTheme.typography.labelLarge,
-                )
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Have an invitation?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                    OutlinedTextField(state.joinUrl, onJoinUrlChanged, Modifier.fillMaxWidth(), enabled = enabled,
+                        label = { Text("Invitation link") }, maxLines = 3,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(onGo = { if (enabled) onJoin() }))
+                    OutlinedButton(onJoin, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Join room") }
+                    Text("Only share invitations with people you want in the room. Your camera and microphone start off.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            if (relaysShown) {
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = state.relays,
-                    onValueChange = onRelaysChanged,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("One per line", style = MaterialTheme.typography.bodyMedium) },
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    minLines = 2,
-                    maxLines = 5,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Used for rooms you open here. A room you join uses the relays " +
-                        "its own link names. No single relay is load-bearing.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column {
+                TextButton({ relaysShown = !relaysShown }) { Text(if (relaysShown) "Hide relays" else "Relay settings") }
+                if (relaysShown) {
+                    OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
+                        label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
+                    Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
+                }
             }
-
-            Spacer(Modifier.height(40.dp))
-            Text(
-                text = "Nothing here is stored on a server. Presence and chat are encrypted " +
-                    "to the room; audio and video go device to device.",
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Start,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
+                "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+
+    forgetting?.let { room ->
+        AlertDialog(onDismissRequest = { forgetting = null }, title = { Text("Forget ${room.name}?") },
+            text = { Text("Remove this room and your identity for it from this device. Creator controls saved here will be lost. " +
+                "You will need an invitation or pairing link to return. Other members keep the room.") },
+            confirmButton = { TextButton({ forgetting = null; onForget(room.id) }) { Text("Forget room") } },
+            dismissButton = { TextButton({ forgetting = null }) { Text("Keep room") } })
+    }
+    renaming?.let { room ->
+        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Name on this device") },
+            text = { OutlinedTextField(renamed, { renamed = it.take(80) }, label = { Text("Room name") }, singleLine = true) },
+            confirmButton = { TextButton({ renaming = null; onRename(room.id, renamed) }, enabled = renamed.isNotBlank()) { Text("Save name") } },
+            dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } })
+    }
+    if (resetting) {
+        AlertDialog(onDismissRequest = { resetting = false }, title = { Text("Delete all saved rooms?") },
+            text = { Text("Permanently remove every saved room and identity from this device. You may lose access to rooms you created. " +
+                "Other members and relay messages are unaffected. This cannot be undone.") },
+            confirmButton = { TextButton({ resetting = false; onResetStorage() }) { Text("Delete saved rooms") } },
+            dismissButton = { TextButton({ resetting = false }) { Text("Keep saved data") } })
     }
 }

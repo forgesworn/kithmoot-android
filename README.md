@@ -30,9 +30,6 @@ lifecycle all behave as they do on the emulator. Both sets of captures are in
 
 What is *not* here:
 
-- No persisted identity. Leaving a room and rejoining it makes you a new
-  participant, because nothing is written to disk yet. A second device stays
-  paired only for as long as the application is running.
 - No room descriptor, agent ownership, attachments or approvals. Those
   vectors are carried in the published set and counted by the coverage
   guard, but nothing on this side implements them yet.
@@ -49,8 +46,37 @@ What is *not* here:
 - No forwarder support and no end-to-end encrypted media.
 - No TURN server configured. The only ICE server is a public STUN, so two
   devices behind symmetric NATs will not find each other.
-- The interface has had no accessibility pass beyond contrast and type size,
-  and there are no instrumented tests.
+- Accessibility acceptance with TalkBack and physical-device testing of the
+  new saved-room flows remain to do. Emulator tests cover the entry, recovery
+  and destructive-confirmation controls.
+
+### Saved rooms and identities
+
+The home screen lists rooms saved on this device, with local names, search,
+rename and a confirmed Forget action. Reopening preserves the participant and
+device keys. The room creator can return alone and serve the saved invitation;
+recovery does not depend on another member being online. Audio, camera and
+screen sharing remain off until requested.
+
+Room secrets, identity keys and invitation-host capabilities are encrypted
+together using AES-256-GCM and an Android Keystore wrapping key, written
+atomically under `noBackupFilesDir`. App backups are disabled. The signing keys
+are decrypted into app memory while used; only the wrapping key is
+non-exportable through Android Keystore. This is local recovery, not an export
+or cross-device backup. Clearing app data or uninstalling loses the saved access.
+
+Main-device credentials renew with the same keys. Paired devices keep only
+their device key and the original bounded credential, never the participant
+private key; an expired pairing needs a new pairing link. Expired admission
+delegations are not renewed by recovery. Known retired invitations stay
+retired, and known room-key changes block reopening with the old secret.
+Invitation rotation saves the replacement and a signed retirement together
+before publishing; pending retirement events are replayed on return.
+
+Unreadable or corrupted data blocks room entry and stays intact until an
+explicit deletion. Forget removes local access and identity for that room; it
+does not delete other members or relay messages. Room names are local labels,
+not shared room descriptors.
 
 ## What it implements
 
@@ -125,6 +151,7 @@ app/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── session/    Room session, presence, roles, chat, identity, pairing links
 ├── media/      WebRTC engine, negotiation, local capture
 ├── service/    The foreground service a screen share runs under
+├── storage/    Encrypted saved rooms, identities and invitation capabilities
 └── ui/         Compose: theme, start screen, room, tiles, chat, controls
 ```
 
@@ -132,6 +159,40 @@ app/src/main/kotlin/dev/forgesworn/kithmoot/
 keeps the vector suite fast and leaves the protocol reusable outside the app.
 
 ### Running it
+
+Use JDK 21 and an Android SDK with platform 35 and build tools 34.0.0. Set
+`ANDROID_HOME` to the SDK directory, or put `sdk.dir=/path/to/sdk` in the
+gitignored `local.properties` file.
+
+Check the protocol vectors, app unit tests, Android lint and both build variants:
+
+```sh
+./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease
+```
+
+The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
+and pushes to `main`, and retains reports for seven days. A separate API 35
+emulator job installs the debug app and tests actual Android Keystore storage,
+corruption and missing-key handling, saved-room controls and identity continuity
+across a forced process restart. Release signing and physical-device acceptance
+remain separate requirements.
+
+To run the recovery checks on a **disposable emulator** (they replace KithMoot's
+saved room data on that emulator):
+
+```sh
+./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+ANDROID_SERIAL=emulator-5554 bash scripts/check-recovery-emulator.sh
+```
+
+The script requires an explicit emulator serial and refuses physical devices.
+It checks instrumentation summaries because Android can return a successful
+shell exit code after a test-process crash. Restart preparation and reopening
+run in separate processes, with participant/device identifiers compared and
+creator controls retained. Recovery uses an unavailable loopback relay to verify
+that saved rooms work offline. These checks do not prove live relay admission.
+
+To install the debug build on a connected development device or emulator:
 
 ```sh
 ./gradlew :app:installDebug
@@ -179,3 +240,9 @@ wants the bare x coordinate.
 ## Licence
 
 MIT. See `LICENSE`.
+
+Chat shows timestamps above messages, searches loaded messages and people, and offers an emoji picker and encrypted quick reactions. Public kind-0 names and pictures are off by default and can be enabled for the current visit from Chat. Names remain paired with shortened keys; profiles are self-reported. Image requests use HTTPS, bounded downloads and a memory cache cleared when profile lookup is disabled or the room is closed.
+
+Tap **Expand screen share** on a shared-screen pane for a full-window viewer. Pinch or use +/− to zoom, drag to pan, and use **Fit to screen** to reset. **Pop out** opens Android picture-in-picture on supported devices; Android supplies its movement and resizing controls. Closing the viewer keeps the call track alive. These controls have emulator coverage using generated video; physical-device acceptance remains a separate release check.
+
+The emulator script also checks chat/search/emoji/reactions and a live synthetic screen in the fullscreen and picture-in-picture viewers. It saves synthetic UI captures with the recovery reports. No camera, microphone or desktop capture is used for this viewer check.

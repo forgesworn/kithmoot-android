@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
 
     /** A link that has arrived and not yet been acted on. */
     private val incoming = MutableStateFlow<String?>(null)
+    private val pictureInPicture = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,9 +42,18 @@ class MainActivity : ComponentActivity() {
                     model.onJoinUrlChanged(url)
                     model.joinFromUrl(url)
                 }
-                KithMootApp(model)
+                val inPip by pictureInPicture.collectAsState()
+                KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
+                    val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
+                    if (!opened) model.showNotice("Picture-in-picture could not open. You can still zoom in fullscreen.")
+                }) else null)
             }
         }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pictureInPicture.value = isInPictureInPictureMode
     }
 
     override fun onNewIntent(intent: Intent) {

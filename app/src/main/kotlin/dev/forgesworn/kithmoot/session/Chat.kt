@@ -43,6 +43,8 @@ data class ChatMessage(
     val device: String,
     val body: String,
     val sentAt: Long,
+    val name: String? = null,
+    val reaction: ChatReaction? = null,
 )
 
 fun encodeChatEvent(
@@ -57,7 +59,9 @@ fun encodeChatEvent(
     id: String = Entropy.bytes(16).toHex(),
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    reaction: ChatReaction? = null,
 ): NostrEvent {
+    require(reaction == null || parseReaction(reaction.toJson()) != null) { "Invalid reaction" }
     val plaintext: JsonObject = buildJsonObject {
         put("id", id)
         put("participant", participant)
@@ -66,6 +70,7 @@ fun encodeChatEvent(
         proof?.let { put("proof", it.toJson()) }
         put("text", body)
         put("sentAt", sentAt)
+        reaction?.let { put("reaction", it.toJson()) }
     }
     return Events.sign(
         secretKey = deviceSecretKey,
@@ -104,8 +109,10 @@ fun decodeChatEvent(
             val body = json.getValue("text").jsonPrimitive.content
             val sentAt = json.getValue("sentAt").jsonPrimitive.long
             val proof = (json["proof"] as? JsonObject)?.let { KindredProof.fromJson(it) }
+            val reaction = json["reaction"]?.let(::parseReaction)
             val check = verifyDeviceCredential(credential, roomId, sentAt)
             when {
+                json.containsKey("reaction") && (reaction == null || json.containsKey("kind") || json.containsKey("attachments")) -> null
                 id.isEmpty() || id.length > 128 -> null
                 body.isEmpty() || body.length > MAX_CHAT_TEXT_LENGTH -> null
                 sentAt > now + MAX_CHAT_CLOCK_SKEW_SECONDS -> null
@@ -124,6 +131,8 @@ fun decodeChatEvent(
                     device = device,
                     body = body,
                     sentAt = sentAt,
+                    name = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise((json["name"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content),
+                    reaction = reaction,
                 )
             }
         }

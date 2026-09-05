@@ -48,13 +48,13 @@ object DisplayName {
      * the list grows with Unicode, and a filter that has to be updated to
      * stay correct is one that will one day be out of date.
      *
-     * `\p{C}` in Java's regex flavour needs `UNICODE_CHARACTER_CLASS` to
-     * cover more than Latin-1, which `(?U)` turns on.
+     * Unicode categories work on both the JVM and Android without flags.
+     * Android rejects Java's `(?U)` inline flag.
      */
-    private val INVISIBLE = Regex("(?U)\\p{C}")
+    private val INVISIBLE = Regex("\\p{C}")
 
-    /** Any run of whitespace, including the Unicode ones. */
-    private val WHITESPACE = Regex("(?U)\\s+")
+    /** ECMAScript whitespace, explicit so Java and Android agree with the wire reference. */
+    private val WHITESPACE = Regex("[\\p{Zs}\\t\\n\\x0B\\f\\r\\u2028\\u2029\\uFEFF]+")
 
     /**
      * Make a name safe to put next to somebody else's, or return null if

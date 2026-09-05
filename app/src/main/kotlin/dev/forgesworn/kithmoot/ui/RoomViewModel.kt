@@ -1,7 +1,21 @@
 package dev.forgesworn.kithmoot.ui
 
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import dev.forgesworn.kithmoot.ui.room.PublicProfile
+import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
+
 import android.app.Application
 import android.content.Intent
+import dev.forgesworn.kithmoot.KithMootApplication
+import dev.forgesworn.kithmoot.storage.RoomRecoveryException
+import dev.forgesworn.kithmoot.storage.RoomStorageException
+import dev.forgesworn.kithmoot.storage.SavedRoom
+import dev.forgesworn.kithmoot.storage.SavedRoomSummary
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.update
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.forgesworn.kithmoot.crypto.Entropy
@@ -52,6 +66,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
@@ -81,15 +96,22 @@ data class StartState(
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
     val busy: Boolean = false,
     val error: String? = null,
+    val roomName: String = "",
+    val loadingRooms: Boolean = true,
+    val storageError: Boolean = false,
+    val savedRooms: List<SavedRoomSummary> = emptyList(),
 )
 
 data class RoomState(
     val roomId: String = "",
+    val name: String = "",
     val joinUrl: String = "",
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     val tiles: List<ParticipantTile> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
+    val profilesEnabled: Boolean = false,
+    val profiles: Map<String, PublicProfile> = emptyMap(),
     val selfParticipant: String = "",
     val selfDevice: String = "",
     val micOn: Boolean = false,
@@ -187,11 +209,102 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * the new session's relay pool is stopped by the old session's teardown.
      */
     private val gate = Mutex()
+    private val entering = AtomicBoolean(false)
+    private val savedRooms = (application as KithMootApplication).savedRooms
+    private var savedRoom: SavedRoom? = null
+
+    init { refreshSavedRooms() }
 
     /** The GL context the renderers share. Null until the media stack is up. */
     val eglBase: EglBase? get() = engine?.eglBase
 
     // --- start screen --------------------------------------------------------
+
+    fun onRoomNameChanged(value: String) {
+        _start.update { it.copy(roomName = value.take(80)) }
+    }
+
+    fun refreshSavedRooms() {
+        _start.update { it.copy(loadingRooms = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rooms = savedRooms.list()
+                _start.update { it.copy(savedRooms = rooms, loadingRooms = false, storageError = false, error = null) }
+            } catch (_: RoomStorageException) { storageFailed() }
+        }
+    }
+
+    private fun storageFailed() {
+        _start.update { it.copy(loadingRooms = false, storageError = true, savedRooms = emptyList(),
+            error = "Saved rooms could not be unlocked or saved. Try again. Your saved data has been kept.") }
+    }
+
+    fun forgetRoom(id: String) = changeSavedRooms { savedRooms.forget(id) }
+    fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
+    fun resetSavedRooms() = changeSavedRooms { savedRooms.reset() }
+
+    private fun changeSavedRooms(change: () -> Unit) {
+        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        _start.update { it.copy(busy = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                change()
+                val rooms = savedRooms.list()
+                _start.update { it.copy(savedRooms = rooms, storageError = false, error = null) }
+            } catch (_: RoomStorageException) { storageFailed() }
+            finally { entering.set(false); _start.update { it.copy(busy = false) } }
+        }
+    }
+
+    fun reopenRoom(id: String) = enter {
+        openSaved(savedRooms.get(id) ?: throw RoomRecoveryException("This room is no longer saved on this device."))
+    }
+
+    private suspend fun openSaved(saved: SavedRoom) {
+        val who = saved.identity(epochSeconds())
+        open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary,
+            saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+    }
+
+    private fun primaryFor(roomId: String, now: Long): RoomIdentity = savedRooms.get(roomId)?.identity(now)
+        ?: PrimaryIdentity.create(roomId, now + CREDENTIAL_TTL_SECONDS, now)
+
+    /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
+    private fun enter(block: suspend () -> Unit) {
+        if (_stage.value != Stage.START) {
+            note("Leave this room before opening another. The invitation will be waiting on the home screen.")
+            return
+        }
+        if (!entering.compareAndSet(false, true)) return
+        _start.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            var opened = false
+            try {
+                start.first { !it.loadingRooms }
+                if (!_start.value.storageError) {
+                    block()
+                    opened = session != null
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                gate.withLock { closeSession(); _room.value = RoomState(); _stage.value = Stage.START }
+                when (e) {
+                    is RoomStorageException -> storageFailed()
+                    is RoomRecoveryException -> _start.update { it.copy(error = e.message) }
+                    else -> _start.update { it.copy(error = "The room could not be opened. Try again.") }
+                }
+            } finally {
+                // Publish room controls only once entry has released its guard.
+                // Otherwise a fast Leave tap can be silently rejected. Keep the
+                // unlock and UI transition on Main so a tap cannot interleave.
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    entering.set(false)
+                    _start.update { it.copy(busy = false) }
+                    if (opened && session != null) _stage.value = Stage.ROOM
+                }
+            }
+        }
+    }
 
     fun onJoinUrlChanged(value: String) {
         _start.value = _start.value.copy(joinUrl = value, error = null)
@@ -216,8 +329,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             _start.value = _start.value.copy(error = "Name at least one relay.")
             return
         }
-        _start.value = _start.value.copy(busy = true, error = null)
-        viewModelScope.launch(Dispatchers.Default) {
+        val name = _start.value.roomName
+        enter {
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation()
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
@@ -237,6 +350,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 joinUrl = encodeInvitationUrl(KITHMOOT_JOIN_BASE, invitation.invitation, relays),
                 invitation = invitation,
                 invitationHost = invitationHost,
+                localName = name,
             )
         }
     }
@@ -248,8 +362,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             _start.value = _start.value.copy(error = "Paste a join link first.")
             return
         }
-        _start.value = _start.value.copy(busy = true, error = null)
-        viewModelScope.launch(Dispatchers.Default) { join(url) }
+        enter { join(url) }
     }
 
     private suspend fun join(url: String) {
@@ -264,6 +377,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (invitation != null) {
+            if (decodeInvitationPairingLink(url) == null) {
+                savedRooms.findInvitation(url)?.let { openSaved(it); return }
+            }
             joinInvitation(url, invitation)
             return
         }
@@ -311,17 +427,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val primary = PrimaryIdentity.create(
-            roomId = derived.roomId,
-            expiresAt = at + CREDENTIAL_TTL_SECONDS,
-            createdAt = at,
-        )
+        savedRooms.get(derived.roomId)?.let { openSaved(it); return }
+        val primary = primaryFor(derived.roomId, at)
         open(
             derived,
             payload.secret,
             relays,
             primary,
-            secondary = false,
+            secondary = primary is SecondaryIdentity,
             joinUrl = encodeJoinUrl(KITHMOOT_JOIN_BASE, payload.secret, relays, payload.policy),
             policy = payload.policy,
         )
@@ -378,17 +491,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val primary = PrimaryIdentity.create(
-            roomId = derived.roomId,
-            expiresAt = at + CREDENTIAL_TTL_SECONDS,
-            createdAt = at,
-        )
+        val primary = primaryFor(derived.roomId, at)
         open(
             derived,
             secret,
             relays,
             primary,
-            secondary = false,
+            secondary = primary is SecondaryIdentity,
             joinUrl = encodeInvitationUrl(KITHMOOT_JOIN_BASE, payload.invitation, relays, payload.policy),
             invitation = payload,
             invitationHost = admission.delegate,
@@ -491,16 +600,19 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 if (event.kind == KIND_INVITATION_RETIREMENT) {
                     if (!decodeInvitationRetirement(event, host.invitation)) return@collect
                     retired = true
-                    if (roomInvitation?.invitation == host.invitation) {
-                        roomInvitationHost = null
-                        _room.value = _room.value.copy(
-                            canRotateInvitation = false,
-                            notice = "This invitation was retired by its creator. The live room is unchanged.",
-                        )
+                    gate.withLock {
+                        if (roomInvitation?.invitation == host.invitation) {
+                            roomInvitationHost = null
+                            savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
+                            _room.value = _room.value.copy(
+                                canRotateInvitation = false,
+                                notice = "This invitation was retired by its creator. The live room is unchanged.",
+                            )
+                        }
                     }
                     return@collect
                 }
-                if (retired) return@collect
+                if (retired || dev.forgesworn.kithmoot.protocol.verifyInvitationDelegation(host.invitation, host.delegation, epochSeconds()) == null) return@collect
                 val request = decodeInvitationRequest(event, host.invitation, epochSeconds()) ?: return@collect
                 // Lenient relays sometimes retain and replay ephemeral
                 // requests. A newly admitted delegate must not answer the
@@ -533,6 +645,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         invitation: InvitationPayload? = null,
         invitationHost: RoomInvitationHost? = null,
         policy: dev.forgesworn.kithmoot.protocol.RoomPolicy? = null,
+        restoring: SavedRoom? = null,
+        localName: String = "",
     ) = gate.withLock {
         if (policy != null && policy.tier != KindredTier.OPEN) {
             _start.value = _start.value.copy(
@@ -541,8 +655,20 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             )
             return@withLock
         }
+        val previous = savedRooms.get(derived.roomId)
+        if (previous != null && (previous.participant != who.participant || (!previous.secondary && secondary))) {
+            throw RoomRecoveryException("This room is saved with a different identity. Forget the saved room first if you want to replace it.")
+        }
+        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, relays,
+            previous?.name ?: localName, epochSeconds(), invitationHost,
+            previous?.authority ?: invitation?.invitation?.canonicalInviter)
+            .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds())
+        savedRooms.save(record)
+        val summaries = savedRooms.list()
+        _start.update { it.copy(savedRooms = summaries) }
         closeSession()
-        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob())
+        savedRoom = record
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
         val live = RoomSession(
             derived,
@@ -553,7 +679,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             // The root inviter, and the only key whose rekey this client
             // believes. A legacy link carries none, and a room opened from
             // one goes quiet the old way if it ever moves on.
-            authority = invitation?.invitation?.canonicalInviter,
+            authority = record.authority,
         )
 
         sessionScope = scope
@@ -562,25 +688,44 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         identity = who
         roomSecret = secret
         roomInvitation = invitation
-        roomInvitationHost = invitationHost
+        roomInvitationHost = record.host(epochSeconds())
         relayUrls = relays
 
         _room.value = RoomState(
             roomId = derived.roomId,
+            name = record.name,
             joinUrl = joinUrl,
             relaysTotal = relays.size,
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
             canAddDevice = who is PrimaryIdentity,
-            canRotateInvitation = invitationHost?.delegation?.isEmpty() == true,
+            canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
         )
-        _start.value = _start.value.copy(error = null, busy = false)
-        _stage.value = Stage.ROOM
+        _start.update { it.copy(error = null) }
 
+        scope.launch {
+            _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
+                .distinctUntilChanged().collectLatest { authors ->
+                    if (authors.isEmpty()) return@collectLatest
+                    val requested = authors.toSet()
+                    kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                        transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                            val profile = decodePublicProfile(event, requested, epochSeconds()) ?: return@collect
+                            _room.update { state ->
+                                if (!state.profilesEnabled || state.roomId != derived.roomId) state else {
+                                    val old = state.profiles[event.pubkey]
+                                    if (old != null && (old.createdAt > profile.createdAt || (old.createdAt == profile.createdAt && old.eventId >= profile.eventId))) state
+                                    else state.copy(profiles = state.profiles + (event.pubkey to profile))
+                                }
+                            }
+                        }
+                    }
+                }
+        }
         transport.start()
-        if (invitationHost != null) {
-            invitationHostJob = serveInvitation(scope, transport, invitationHost, secret)
+        record.host(epochSeconds())?.let { host ->
+            invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
         // This device plays the room's audio unless one of your others takes it
@@ -597,10 +742,30 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
         scope.launch {
-            transport.connected.collect { up -> _room.value = _room.value.copy(relaysUp = up.size) }
+            transport.connected.collect { up ->
+                gate.withLock {
+                    if (session !== live) return@withLock
+                    _room.update { it.copy(relaysUp = up.size) }
+                    // The transport's offline queue is bounded and expires. Replay
+                    // durable retirements on reconnect, including rotations made
+                    // during this session, so a long outage cannot drop them.
+                    if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                }
+            }
         }
         scope.launch {
-            live.movedOn.collect { epoch -> _room.value = _room.value.copy(movedOn = epoch) }
+            live.movedOn.collect { epoch ->
+                gate.withLock {
+                    if (session !== live) return@withLock
+                    _room.value = _room.value.copy(movedOn = epoch)
+                    if (epoch != null) {
+                        invitationHostJob?.cancel()
+                        roomInvitationHost = null
+                        _room.value = _room.value.copy(canRotateInvitation = false)
+                        persistLiveRoom(record.id) { it.keysChanged() }
+                    }
+                }
+            }
         }
         scope.launch {
             live.localRoles.collect { roles ->
@@ -679,21 +844,27 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leave() {
+        if (!entering.compareAndSet(false, true)) return
         val live = session
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
         _videos.value = emptyMap()
         _room.value = RoomState()
         _stage.value = Stage.START
-        viewModelScope.launch(Dispatchers.Default) {
-            gate.withLock {
-                live?.leave()
-                closeSession()
+        _start.update { it.copy(busy = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                gate.withLock { try { live?.leave() } finally { closeSession() } }
+            } finally {
+                entering.set(false)
+                _start.update { it.copy(busy = false) }
+                refreshSavedRooms()
             }
         }
     }
 
     private fun closeSession() {
+        dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
         ScreenShareService.stop(getApplication())
@@ -704,6 +875,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         pool = null
         session = null
         identity = null
+        savedRoom = null
         roomSecret = null
         roomInvitation = null
         roomInvitationHost = null
@@ -807,7 +979,20 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         note("Screen sharing needs Android's permission. Nothing was shared.")
     }
 
+    fun setProfilesEnabled(enabled: Boolean) {
+        if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+        _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
+    }
+
     fun sendChat(body: String) = act { session?.sendChat(body) }
+
+    fun react(message: ChatMessage, emoji: String) = act {
+        val live = session ?: return@act
+        runCatching {
+            val reaction = dev.forgesworn.kithmoot.session.toggleReaction(_room.value.chat, message, _room.value.selfParticipant, emoji)
+            live.sendChat(dev.forgesworn.kithmoot.session.reactionText(reaction), reaction)
+        }.onFailure { note("The reaction could not be sent. Try again.") }
+    }
 
     // --- adding a device -----------------------------------------------------
 
@@ -854,41 +1039,42 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Replace the public admission capability without moving the live room. */
-    fun rotateInvitation() = act {
-        val oldHost = roomInvitationHost
-        if (oldHost == null || oldHost.delegation.isNotEmpty()) {
-            return@act note("Only the device that opened this room can rotate its link.")
+    fun rotateInvitation() {
+        viewModelScope.launch(Dispatchers.IO) {
+            gate.withLock {
+                val oldHost = roomInvitationHost
+                if (oldHost == null || oldHost.delegation.isNotEmpty()) return@withLock note("Only the device that opened this room can rotate its link.")
+                val saved = savedRoom ?: return@withLock
+                val secret = roomSecret ?: return@withLock
+                val scope = sessionScope ?: return@withLock
+                val transport = pool ?: return@withLock
+                val nextHost = createRoomInvitation()
+                val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)
+                val url = encodeInvitationUrl(KITHMOOT_JOIN_BASE, nextHost.invitation, relayUrls, saved.policy)
+                val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds())
+                val next = try {
+                    saved.rotated(nextHost, url, retirement).also(savedRooms::save)
+                } catch (_: Exception) { return@withLock note("The new invitation could not be saved. The current link is unchanged.") }
+                savedRoom = next
+                transport.publish(retirement)
+                invitationHostJob?.cancel()
+                roomInvitationHost = nextHost
+                roomInvitation = nextInvitation
+                invitationHostJob = serveInvitation(scope, transport, nextHost, secret)
+                _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
+            }
         }
-        val oldInvitation = roomInvitation ?: return@act
-        val secret = roomSecret ?: return@act
-        val scope = sessionScope ?: return@act
-        val transport = pool ?: return@act
+    }
 
-        val nextHost = createRoomInvitation()
-        val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, oldInvitation.policy)
-        // Stored before local teardown. Delegated responders that are online
-        // stop immediately; those offline see the tombstone when they next
-        // connect and cannot innocently revive the old group link.
-        transport.publish(
-            encodeInvitationRetirement(
-                oldInvitation.invitation,
-                oldHost.inviterSecretKey,
-                epochSeconds(),
-            ),
-        )
-        invitationHostJob?.cancel()
-        roomInvitationHost = nextHost
-        roomInvitation = nextInvitation
-        invitationHostJob = serveInvitation(scope, transport, nextHost, secret)
-        _room.value = _room.value.copy(
-            joinUrl = encodeInvitationUrl(
-                KITHMOOT_JOIN_BASE,
-                nextInvitation.invitation,
-                relayUrls,
-                nextInvitation.policy,
-            ),
-            notice = "A fresh link is ready. Current clients will no longer answer the old link. Existing members stay.",
-        )
+    private suspend fun persistLiveRoom(id: String, change: (SavedRoom) -> SavedRoom) {
+        withContext(Dispatchers.IO) {
+            try {
+                val saved = savedRooms.update(id, change)
+                if (savedRoom?.id == id) savedRoom = saved
+            } catch (_: RoomStorageException) {
+                note("The room's changed access could not be saved. Check its current invitation before returning.")
+            }
+        }
     }
 
     /** Says something short to the person in the room. Shown once, then cleared. */
