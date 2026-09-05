@@ -59,6 +59,21 @@ class PersistentGroupUiTest {
         assertTrue(created.invitation!!.invitation.persistent)
         assertNotNull(created.host(System.currentTimeMillis() / 1000))
         assertTrue(server.snapshot().any { decodePersistentInvitation(it, created.invitation!!.invitation) != null })
+        activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].rotateInvitation() }
+        ui.await("stored replacement link") { app.savedRooms.get(created.id)?.joinUrl != created.joinUrl }
+        val rotated = app.savedRooms.get(created.id)!!
+        assertTrue(rotated.invitation!!.invitation.persistent)
+        assertEquals(created.authority, rotated.invitation!!.invitation.canonicalInviter)
+        assertEquals(created.participant, rotated.participant)
+        assertTrue(rotated.retirements.any { decodeInvitationRetirement(it, created.invitation!!.invitation) })
+        ui.click("Leave")
+        reset()
+        activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].joinFromUrl(created.joinUrl) }
+        ui.await("retirement of previous group link") { ui.hasText("This invitation was retired. Ask for the current room link.") }
+        ui.home()
+        activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].joinFromUrl(rotated.joinUrl) }
+        ui.room()
+        assertEquals(created.id, app.savedRooms.list().single().id)
         ui.click("Leave")
         reset()
         // Nobody serves the web fixture. Admission can only come from relay storage.
@@ -108,6 +123,7 @@ class PersistentGroupUiTest {
         ui.click("Start a room")
         ui.await("publication rejection") { ui.hasText("The relays refused this group invitation. Try again or choose another relay.") }
         assertTrue(app.savedRooms.list().isEmpty())
+        ui.home()
         ui.assertEnabled("Start a room", true)
         server.events.add(NostrEvent.fromJson(fixture.getValue("event")))
         server.events.add(NostrEvent.fromJson(fixture.getValue("retirement")))

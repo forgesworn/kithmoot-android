@@ -73,9 +73,9 @@ and mobile push are separate features. See the published
 
 The home screen lists rooms saved on this device, with local names, search,
 rename and a confirmed Forget action. Reopening preserves the participant and
-device keys. The room creator can return alone and serve the saved invitation;
-recovery does not depend on another member being online. Audio, camera and
-screen sharing remain off until requested.
+device keys. Creators can return alone, and temporary meetings can serve their
+saved invitation again; recovery does not depend on another member being online.
+Audio, camera and screen sharing remain off until requested.
 
 Room secrets, identity keys and invitation-host capabilities are encrypted
 together using AES-256-GCM and an Android Keystore wrapping key, written
@@ -270,3 +270,10 @@ Chat shows timestamps above messages, searches loaded messages and people, and o
 Tap **Expand screen share** on a shared-screen pane for a full-window viewer. Pinch or use +/− to zoom, drag to pan, and use **Fit to screen** to reset. **Pop out** opens Android picture-in-picture on supported devices; Android supplies its movement and resizing controls. Closing the viewer keeps the call track alive. These controls have emulator coverage using generated video; physical-device acceptance remains a separate release check.
 
 The emulator script also checks chat/search/emoji/reactions and a live synthetic screen in the fullscreen and picture-in-picture viewers. It saves synthetic UI captures with the recovery reports. No camera, microphone or desktop capture is used for this viewer check.
+
+Persistent-group emulator checks use a local WebSocket relay and the web fixture.
+They cover group creation, acknowledged link replacement, retirement of the old
+link, admission with no member online, a forced process restart, and rejected
+publication. Snapshot queries wait for EOSE from every relay connected when the
+query begins; a missing EOSE or dropped connection fails the query. Relays that
+were unavailable at that point are not proof of a complete global history.
