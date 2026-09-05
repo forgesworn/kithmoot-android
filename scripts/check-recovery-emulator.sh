@@ -23,6 +23,20 @@ mkdir -p "$reports"
 adb_device install -r app/build/outputs/apk/debug/app-debug.apk
 adb_device install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
+# Fresh API 35 images can leave Pixel Launcher in a first-boot ANR, whose
+# system dialog covers the test activity. Restart only the emulator's known
+# home process before acceptance starts. App crashes and ANRs still fail the
+# normal visible-UI assertions; nothing dismisses dialogs during a test.
+launcher="$(adb_device shell cmd package resolve-activity --brief \
+  -a android.intent.action.MAIN -c android.intent.category.HOME | tr -d '\r' | tail -1)"
+case "$launcher" in
+  com.google.android.apps.nexuslauncher/*|com.android.launcher3/*)
+    adb_device logcat -d -t 4000 > "$reports/emulator-setup-logcat.txt"
+    echo "Restarting emulator home before acceptance: ${launcher%%/*}"
+    adb_device shell am force-stop "${launcher%%/*}"
+    ;;
+esac
+
 run_tests() {
   local report="$1" count="$2"
   shift 2
