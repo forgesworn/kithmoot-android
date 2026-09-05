@@ -66,6 +66,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
@@ -277,9 +278,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         if (!entering.compareAndSet(false, true)) return
         _start.update { it.copy(busy = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
+            var opened = false
             try {
                 start.first { !it.loadingRooms }
-                if (!_start.value.storageError) block()
+                if (!_start.value.storageError) {
+                    block()
+                    opened = session != null
+                }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 gate.withLock { closeSession(); _room.value = RoomState(); _stage.value = Stage.START }
@@ -288,7 +293,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     is RoomRecoveryException -> _start.update { it.copy(error = e.message) }
                     else -> _start.update { it.copy(error = "The room could not be opened. Try again.") }
                 }
-            } finally { entering.set(false); _start.update { it.copy(busy = false) } }
+            } finally {
+                // Publish room controls only once entry has released its guard.
+                // Otherwise a fast Leave tap can be silently rejected. Keep the
+                // unlock and UI transition on Main so a tap cannot interleave.
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    entering.set(false)
+                    _start.update { it.copy(busy = false) }
+                    if (opened && session != null) _stage.value = Stage.ROOM
+                }
+            }
         }
     }
 
@@ -688,8 +702,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             canAddDevice = who is PrimaryIdentity,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
         )
-        _start.value = _start.value.copy(error = null, busy = false)
-        _stage.value = Stage.ROOM
+        _start.update { it.copy(error = null) }
 
         scope.launch {
             _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
