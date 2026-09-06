@@ -35,6 +35,14 @@ What is *not* here:
 - No room descriptor, agent ownership, attachments or approvals. Those
   vectors are carried in the published set and counted by the coverage
   guard, but nothing on this side implements them yet.
+- **The message layer is read, not yet written.** Replies and threads,
+  edits, retractions, mentions on the wire, direct-message invitations and
+  read positions are decoded and resolved exactly as the reference does,
+  checked against every `chatThread`, `chatEdit`, `chatRetract`,
+  `chatMention`, `chatInvite` and `readPosition` vector, and the chat pane
+  shows edits, retractions and threads. The composer still sends plain
+  messages: no reply, edit or retract control, no DM started from here, and
+  read positions are not published. `members` on a room policy is enforced.
 - **Cannot follow a room epoch, but says so.** When somebody is removed the
   room moves to a key this client was not given, and everything would
   otherwise simply stop - no roster, no chat, no error, which reads as an
@@ -110,6 +118,7 @@ not shared room descriptors.
 | Roster events | Kind 20461, NIP-44 encrypted to the room key, with the device credential verified on the way in |
 | Signal wrapping | Kind 21059 ephemeral gift wrap carrying SDP and ICE, NIP-44 encrypted to the recipient under a throwaway key |
 | Durable chat | Kind 1460, matching the TypeScript wire format and fixed interop event; room-key encrypted, credential/proof checked, 2,000-character and 30-per-minute sender bounds, 30-day query horizon and 500-message in-memory cap |
+| The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); a two-member `members` policy enforced at the gate |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
 
@@ -132,16 +141,19 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **95 vectors across 14
-groups**. The suite runs each vector in the 8 groups this implementation
-covers as its own named test case, so a failure names the vector, and adds
-three guards that fail the build if a vector goes missing or a group loses its
-negative cases.
+published vectors, never an edited one. There are **136 vectors across 21
+groups**. The suite runs each vector in the groups this implementation covers
+as its own named test case, so a failure names the vector, and adds three
+guards that fail the build if a vector goes missing or a group loses its
+negative cases. The six message-layer groups are run from the `:app` module,
+where the chat codec lives, by `MessageLayerVectorsTest`
+(`./gradlew :app:testDebugUnitTest`), reading the same file.
 
-The 6 groups this client does not implement - `channelDerivation`,
-`roomEpoch`, `agentOwnership`, `chatAttachment`, `approvalControl` and
-`roomDescriptor` - are counted by `VectorCoverageTest` without being run, so
-the day one of them lands the guard already knows how many cases it owes.
+The groups this client does not implement - `channelDerivation`,
+`roomEpoch` beyond the peek, `agentOwnership`, `chatAttachment`,
+`approvalControl`, `roomDescriptor` and `verificationWords` - are counted by
+`VectorCoverageTest` without being run, so the day one of them lands the
+guard already knows how many cases it owes.
 
 `persistent-group-web.json` is a separate synthetic fixture produced by the
 TypeScript implementation at `171de0a`. Native tests decode its welcome and

@@ -14,6 +14,9 @@ import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -45,6 +48,17 @@ data class ChatMessage(
     val sentAt: Long,
     val name: String? = null,
     val reaction: ChatReaction? = null,
+    /** The message this answers, and the root of its thread. See Messages.kt. */
+    val reply: MessageRef? = null,
+    val thread: MessageRef? = null,
+    /** The id of the ORIGINAL this replaces, same author: an edit. */
+    val replaces: String? = null,
+    /** The id of the original this retracts, same author: a tombstone. */
+    val retracts: String? = null,
+    /** Who this addresses: participant keys, and `everyone`. */
+    val mentions: List<String>? = null,
+    /** A direct-message invitation sealed to one member. */
+    val invite: ChatInvite? = null,
 )
 
 fun encodeChatEvent(
@@ -60,8 +74,18 @@ fun encodeChatEvent(
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
     reaction: ChatReaction? = null,
+    reply: MessageRef? = null,
+    thread: MessageRef? = null,
+    replaces: String? = null,
+    retracts: String? = null,
+    mentions: List<String>? = null,
+    invite: ChatInvite? = null,
 ): NostrEvent {
     require(reaction == null || parseReaction(reaction.toJson()) != null) { "Invalid reaction" }
+    require(listOfNotNull(reaction, replaces, retracts, invite).size <= 1) { "a message says one thing about another message, not two" }
+    require(replaces == null || validMessageId(replaces)) { "an edit must name the message it replaces" }
+    require(retracts == null || validMessageId(retracts)) { "a retraction must name the message it retracts" }
+    require(mentions == null || mentions.size <= MAX_MENTIONS) { "a message names at most $MAX_MENTIONS participants" }
     val plaintext: JsonObject = buildJsonObject {
         put("id", id)
         put("participant", participant)
@@ -71,6 +95,12 @@ fun encodeChatEvent(
         put("text", body)
         put("sentAt", sentAt)
         reaction?.let { put("reaction", it.toJson()) }
+        reply?.let { put("reply", it.toJson()) }
+        thread?.let { put("thread", it.toJson()) }
+        replaces?.let { put("replaces", it) }
+        retracts?.let { put("retracts", it) }
+        mentions?.takeIf { it.isNotEmpty() }?.let { list -> put("mentions", buildJsonArray { for (m in list) add(JsonPrimitive(m)) }) }
+        invite?.let { put("invite", it.toJson()) }
     }
     return Events.sign(
         secretKey = deviceSecretKey,
@@ -111,8 +141,28 @@ fun decodeChatEvent(
             val proof = (json["proof"] as? JsonObject)?.let { KindredProof.fromJson(it) }
             val reaction = json["reaction"]?.let(::parseReaction)
             val check = verifyDeviceCredential(credential, roomId, sentAt)
+            // One statement per message, checked on the keys as they arrived:
+            // a reaction, an edit, a retraction and an invitation each say one
+            // thing about one other message, and a payload carrying two of
+            // them, or one beside conversation it has no business carrying,
+            // is refused whole. Mirrors `decodeChatEvent` in src/chat.ts.
+            val statements = listOf("reaction", "replaces", "retracts", "invite").count { json.containsKey(it) }
+            val conversationKeys = listOf("kind", "attachments", "reply", "thread", "mentions")
+            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite")
+            val invite = json["invite"]?.let(::parseInvite)
+            val replaces = json["replaces"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
+            val retracts = json["retracts"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
+            val mentionsRaw = json["mentions"]
+            val mentions = (mentionsRaw as? kotlinx.serialization.json.JsonArray)?.let(::normaliseMentions)?.takeIf { it.isNotEmpty() }
             when {
-                json.containsKey("reaction") && (reaction == null || json.containsKey("kind") || json.containsKey("attachments")) -> null
+                statements > 1 -> null
+                hasStatementAlone && conversationKeys.any { json.containsKey(it) } -> null
+                json.containsKey("replaces") && listOf("kind", "reply", "thread").any { json.containsKey(it) } -> null
+                json.containsKey("reaction") && reaction == null -> null
+                json.containsKey("replaces") && !validMessageId(replaces) -> null
+                json.containsKey("retracts") && !validMessageId(retracts) -> null
+                json.containsKey("invite") && invite == null -> null
+                mentionsRaw is kotlinx.serialization.json.JsonArray && mentionsRaw.size > MAX_MENTIONS -> null
                 id.isEmpty() || id.length > 128 -> null
                 body.isEmpty() || body.length > MAX_CHAT_TEXT_LENGTH -> null
                 sentAt > now + MAX_CHAT_CLOCK_SKEW_SECONDS -> null
@@ -133,6 +183,14 @@ fun decodeChatEvent(
                     sentAt = sentAt,
                     name = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise((json["name"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content),
                     reaction = reaction,
+                    // A reference that does not check out is dropped and the
+                    // message stays, which is what an older client shows.
+                    reply = parseMessageRef(json["reply"]),
+                    thread = parseMessageRef(json["thread"]),
+                    replaces = replaces,
+                    retracts = retracts,
+                    mentions = mentions,
+                    invite = invite,
                 )
             }
         }

@@ -43,10 +43,25 @@ fun ChatPane(
     var emojiOpen by remember { mutableStateOf(false) }
     var profileSettings by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val conversation = messages.filter { it.reaction == null }
-    val visible = conversation.filter { message ->
-        query.isBlank() || listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
-            .any { it.contains(query.trim(), ignoreCase = true) }
+    // The log as a person reads it: the latest edit's words on each message,
+    // a retracted one shown as such, replies under the message they answer.
+    // See Messages.kt and docs/messages.md in the reference implementation.
+    val resolved = resolveConversation(messages)
+    val rows = buildList {
+        for (r in resolved.stream) {
+            add(r to false)
+            for (reply in r.replies) add(reply to true)
+        }
+    }
+    val conversation = rows.map { it.first.shown }
+    val visible = rows.filter { (r, _) ->
+        val message = r.shown
+        when {
+            r.retracted -> query.isBlank()
+            query.isBlank() -> true
+            else -> listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
+                .any { it.contains(query.trim(), ignoreCase = true) }
+        }
     }
     LaunchedEffect(conversation.size, query) {
         if (query.isBlank() && visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
@@ -66,8 +81,11 @@ fun ChatPane(
         Box(Modifier.weight(1f)) {
             if (visible.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(visible, key = { it.id }) { message ->
-                    Column(Modifier.fillMaxWidth()) {
+                items(visible, key = { it.first.original.id }) { (r, nested) ->
+                    val message = r.shown
+                    val addressed = !r.retracted && mentionedBy(message, selfParticipant)
+                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp)
+                        .then(if (addressed) Modifier.background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)) else Modifier)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ProfileAvatar(message.participant, message.name, profiles[message.participant], Modifier.size(32.dp))
                             Spacer(Modifier.width(8.dp))
@@ -77,14 +95,26 @@ fun ChatPane(
                                 Text(messageTime(message.sentAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Text(message.body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
-                        val updates = reactionUpdates(messages, message)
+                        if (r.retracted) {
+                            Text("Message retracted", Modifier.padding(top = 4.dp).semantics { contentDescription = "Message retracted by its author. Devices that received it keep their copy." },
+                                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text(message.body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
+                        }
+                        val chips = listOfNotNull(
+                            if (r.edited && !r.retracted) "edited" else null,
+                            if (r.orphan) "in a thread" else null,
+                            if (nested && r.reply != null && r.thread != null && r.reply != r.thread) "replying to ${shortId(r.reply.participant)}" else null,
+                        )
+                        if (chips.isNotEmpty()) Text(chips.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (r.retracted) return@Column
+                        val updates = reactionUpdates(messages, r.original)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             REACTION_EMOJIS.forEach { emoji ->
                                 val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
                                 if (emoji in listOf("👍", "❤️", "🤦") || active.isNotEmpty()) {
                                     val mine = active.any { it.participant == selfParticipant }
-                                    FilterChip(selected = mine, onClick = { onReact(message, emoji) },
+                                    FilterChip(selected = mine, onClick = { onReact(r.original, emoji) },
                                         label = { Text(emoji + if (active.isEmpty()) "" else " ${active.size}") },
                                         modifier = Modifier.semantics { contentDescription = "${if (mine) "Remove" else "Add"} $emoji reaction, ${active.size}" })
                                 }

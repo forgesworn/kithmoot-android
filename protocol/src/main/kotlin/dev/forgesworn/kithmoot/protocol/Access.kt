@@ -38,18 +38,30 @@ enum class KindredTier(val wire: String, val closeness: Int) {
     }
 }
 
-/** A room's access gate: the tier required, and whose vouching counts. */
-data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null) {
+/**
+ * A room's access gate: the tier required, whose vouching counts, and, when
+ * [members] is set, the only participants admitted whatever the tier says.
+ * A direct message is a room whose policy lists two; see docs/messages.md
+ * in the reference implementation.
+ */
+data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null, val members: List<String>? = null) {
 
     fun toJson(): JsonObject = buildJsonObject {
         put("tier", tier.wire)
         if (admitted != null) {
             put("admitted", buildJsonArray { for (issuer in admitted) add(JsonPrimitive(issuer)) })
         }
+        if (members != null) {
+            put("members", buildJsonArray { for (member in members) add(JsonPrimitive(member)) })
+        }
     }
 
     companion object {
-        /** Null when the tier is not one we recognise - never a silent downgrade. */
+        private val HEX_64 = Regex("[0-9a-fA-F]{64}")
+
+        /** Null when the tier is not one we recognise, or a members list is
+         *  malformed - never a silent downgrade: a dropped members list is an
+         *  open room. */
         fun fromJson(json: JsonObject): RoomPolicy? {
             val tier = KindredTier.fromWire(json["tier"]?.jsonPrimitive?.content ?: return null) ?: return null
             // The allow-list is exactly the case this rule was written for:
@@ -57,7 +69,16 @@ data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null)
             // here, at the point they enter the system off the URL, rather
             // than relying on every reader to compare them case-insensitively.
             val admitted = (json["admitted"] as? JsonArray)?.map { it.jsonPrimitive.content.normaliseHex() }
-            return RoomPolicy(tier, admitted)
+            val members = when (val raw = json["members"]) {
+                null -> null
+                is JsonArray -> {
+                    val entries = raw.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
+                    if (entries.isEmpty() || entries.any { !HEX_64.matches(it) }) return null
+                    entries.map { it.normaliseHex() }.distinct()
+                }
+                else -> return null
+            }
+            return RoomPolicy(tier, admitted, members)
         }
     }
 }
@@ -199,6 +220,11 @@ fun evaluateAccess(
     now: Long,
     roomId: String,
 ): AccessDecision {
+    // A members list closes the door before any tier is considered: a
+    // direct message is open in tier and shut to everybody but its two.
+    if (policy.members != null && policy.members.none { it.hexEquals(participant) }) {
+        return AccessDecision(false, "not a member")
+    }
     if (policy.tier == KindredTier.OPEN) return AccessDecision(true, "open room")
     if (proof == null) return AccessDecision(false, "no kindred proof")
     if (!proof.participant.hexEquals(participant)) return AccessDecision(false, "proof names another participant")

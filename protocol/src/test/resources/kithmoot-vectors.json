@@ -204,6 +204,43 @@
         }
       },
       {
+        "name": "members-policy-round-trip",
+        "kind": "positive",
+        "note": "A two-member policy, the shape of a direct message, round-trips with its members list normalised to lower case. A malformed list is refused rather than dropped, because a dropped list is an open room.",
+        "input": {
+          "base": "https://kithmoot.com/j",
+          "secretHex": "d65ea38d656270d9eebcb949759dec4599cade320bd53cf2bce301e2c23fd72d",
+          "relays": [
+            "wss://relay.damus.io",
+            "wss://nos.lol"
+          ],
+          "policy": {
+            "tier": "open",
+            "members": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ]
+          }
+        },
+        "output": {
+          "url": "https://kithmoot.com/j#eyJzIjoiMWw2ampXVmljTm51dkxsSmRaM3NSWm5LM2pJTDFUenl2T01CNHNJXzF5MCIsInIiOlsid3NzOi8vcmVsYXkuZGFtdXMuaW8iLCJ3c3M6Ly9ub3MubG9sIl0sImEiOnsidGllciI6Im9wZW4iLCJtZW1iZXJzIjpbImIwN2ZmNjZmZmNhMmQ1NDQ1Y2ZiNGEzODRlOTRmYmE4ZWNjNTAwMDI4M2I0M2YyZDU0MjVjODVkZjUwMzJlNzQiLCJlMDYyYmQzYmIzNjUwOGNjOTRlZGFmYzEzMmE5ZjJlZGZiNjkwZmIzNjliN2VhOGRkN2Y2MmUzOGI4ZjRkOGVhIl19fQ",
+          "decoded": {
+            "secretHex": "d65ea38d656270d9eebcb949759dec4599cade320bd53cf2bce301e2c23fd72d",
+            "relays": [
+              "wss://relay.damus.io",
+              "wss://nos.lol"
+            ],
+            "policy": {
+              "tier": "open",
+              "members": [
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              ]
+            }
+          }
+        }
+      },
+      {
         "name": "decode-malformed-fragment",
         "kind": "negative",
         "note": "A fragment that is not valid base64url must be refused, not silently treated as an open room.",
@@ -1906,6 +1943,103 @@
           "result": {
             "admitted": false,
             "reason": "untrusted issuer"
+          }
+        }
+      },
+      {
+        "name": "members-admit-a-listed-participant",
+        "kind": "positive",
+        "note": "An open room with a members list admits a participant on the list, with no proof, as an open room does.",
+        "input": {
+          "policy": {
+            "tier": "open",
+            "members": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+              "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": null,
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "open room"
+          }
+        }
+      },
+      {
+        "name": "members-refuse-a-stranger",
+        "kind": "negative",
+        "note": "A members list shuts the door to anybody not on it, whatever the tier says ('not a member'). This is what makes a two-member room a direct message.",
+        "input": {
+          "policy": {
+            "tier": "open",
+            "members": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8",
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": null,
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "not a member"
+          }
+        }
+      },
+      {
+        "name": "members-compared-case-insensitively",
+        "kind": "positive",
+        "note": "A members entry in upper-case hex names the same participant. The rule every hex identifier here follows.",
+        "input": {
+          "policy": {
+            "tier": "open",
+            "members": [
+              "49EBB8E92DE99C03390BB88AB02704AB2A66332101FF895C512756AD7648E525"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": null,
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": true,
+            "reason": "open room"
+          }
+        }
+      },
+      {
+        "name": "members-still-need-the-tier",
+        "kind": "negative",
+        "note": "A listed member of a kith-gated room still needs a kith proof ('no kindred proof'): the list narrows who may enter, it never widens what they must show.",
+        "input": {
+          "policy": {
+            "tier": "kith",
+            "admitted": [
+              "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
+            ],
+            "members": [
+              "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525"
+            ]
+          },
+          "participant": "49ebb8e92de99c03390bb88ab02704ab2a66332101ff895c512756ad7648e525",
+          "proof": null,
+          "now": 1800000000,
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+        },
+        "output": {
+          "result": {
+            "admitted": false,
+            "reason": "no kindred proof"
           }
         }
       },
@@ -3850,6 +3984,2882 @@
             "epoch": 1,
             "sig": "f0e1f8fe02f1321379d786d82cb62edd2b7d644ed5fd43d861065dc6d5f88a7c7c60ad648559d68e4d1125eeaddfecf8b465c1d3af5e0a6d4b4e451d0d1d96b6"
           }
+        }
+      }
+    ],
+    "verificationWords": [
+      {
+        "name": "pair-a-b",
+        "kind": "positive",
+        "note": "The reference pair. Each side gets three space-separated words from the spoken-token wordlist; the two sides differ, so the second speaker cannot pass by repeating the first.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "banner hire lumen",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "erosion benefit drafter"
+        }
+      },
+      {
+        "name": "pair-b-a-same-as-a-b",
+        "kind": "positive",
+        "note": "The same pair, given the other way round. Both clients sort the keys, so the output is identical to `pair-a-b` - neither side has to agree who goes first.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+          "b": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "banner hire lumen",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "erosion benefit drafter"
+        }
+      },
+      {
+        "name": "pair-a-c-differs-from-a-b",
+        "kind": "positive",
+        "note": "A's words against C, which must NOT equal A's words against B. An implementation that derives from the speaker alone gives A one word for everybody and passes against an impostor standing in for anyone.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8"
+        },
+        "output": {
+          "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8": "casual juice tool",
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "osprey basket faculty"
+        }
+      },
+      {
+        "name": "pair-a-b-other-room",
+        "kind": "positive",
+        "note": "The same pair under a different room key. The words move with the room, which is what makes an epoch rekey change them.",
+        "input": {
+          "roomKeyHex": "deb56b230478ea80360cf944c2f67e3ff54bbeed6bc177419cc81ac66d0c3cfa",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74": "fennel reason family",
+          "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea": "annual affair coyote"
+        }
+      },
+      {
+        "name": "same-participant-refused",
+        "kind": "negative",
+        "note": "A participant cannot verify against itself. There is no honest answer, and returning a plausible-looking word would put something on screen that proves nothing.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "throws": true
+        }
+      },
+      {
+        "name": "short-room-key-refused",
+        "kind": "negative",
+        "note": "The room key is 32 bytes. Anything else is a caller error, not something to derive from.",
+        "input": {
+          "roomKeyHex": "00000000000000000000000000000000",
+          "a": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "b": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+        },
+        "output": {
+          "throws": true
+        }
+      }
+    ],
+    "chatThread": [
+      {
+        "name": "reply-to-root",
+        "kind": "positive",
+        "note": "B answers A. A reply to a root carries `reply` and `thread`, equal, each naming the target by id AND author: an id is chosen by its sender, so an id alone is anybody's to reuse. The reader nests the reply under the root and the main stream shows one message.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ajh/7Xl0DROxnvSJxthABL82ftr/igqZnIo+Cw7+Wuy3qKedLTbL0zsKl4RT+EPrD5L5rYTCc2tEn0jBhqg/tE1K4TZGLfX5zc8QliPycLBbvxkiVxP7UNHzKmEOMtybb7efHNqzPKM5YEFLPI5ZKC5Wmyqo2VPbQSXlfg9o/Yh05OEOuy91JZsWW7MvdnUIdCujB4Is1MfakoGTRZhcKbewItrW+zTd+8syws//ghqBTZ7Tqx+1WvZUHtC8kFd581kJ4wvli3YLtvz/zT2yTqSJaRH3AlWZQpYQOxGXGiQfFTiIxFCwo8UrHy3cE97xK0r7rn+j9J3ARWp6QlHeXTjyQRuCItSQMr+T4/nM/SfU1qeqLNv8RoMbVIBZVdcitzxlvQLBuF+l3HJbQewZiiCmRKuIzmDG64VN2yRMCXMv/fF84dVcAlC4tIlM7NrIGWFdy2oxObEDere+Whb60lCLIur0nRa2ECWHSTYaX6s+IsKYeHYwr3pUvr9N4K4N8cWDrLZcsAxf3RZNNoTw3SSCsUesNvxhJZjsZBhVZfYjSs7I1IaJsGsIFFgsHXUsDhLCvY7GcppaSp7spQwFBzOREZ5XasSPXfXUM+UEW8iH5DHh53p3qLz4NvME5zXfJmmGAp1Tf/H2tjUe5j/sZQU1ohMO8g1Kmy+OgyVeiSRXEd8Lwma04suxhqVqAnhvyFZD/MElmkCvyvS9mwa3FkQtj4OW86ZUws9d+L6o387Q38kDII+HkWyaMkG2DtV7PXA+diMyF+mqad8AN3iLD8MlId9rs8/rVq2Wu6vQpnw1Ta8nrROAy08he53zDVNoanjFcIYbtjJK2zbfXq9drS8cCn9tdc5KH4h74XiywkHsk+2iyvzwFx8KoEGQbWfvCZtahcxYbocw6fTjpPeXn1mxImYkHpeyRxGd5dlKIP6TrQ2VWaVMYlqaSvQSzUynYt8ELJUCVkb0DBR09xsSw6uqXzD/AJsOp3XraSuzCozuEgtggUmi7i6GUprYcAX8uChYYu3mZZfuKv0Z0pj/UTawxw8dbbZOGiYE9O6H1gbuqORFa8pULoYqJmDVJsBk6Z8layaIY4YpGhZlynYNfsxmVQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "43ed695e699240dd3146e241f82c06c6a359415e93298aea0ff8f4ed1c841ce3",
+                "sig": "ede4c84870df539b405a51ea4aba9985c51cc35c6af0e04b03ebfddd7d7f9b321357f603fd1f0c31ac6999a880abed14be5f6e01ac28bb7184fd90f69eaa421b"
+              },
+              "nonceHex": "387fed79740d13b19ef489c6d84004bf367edaff8a0a999c8a3e0b0efe5aecb7",
+              "auxRandHex": "188d2e0895413499170b161d77855d690a87b2fb59be960a249aade143c416e0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999710,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AsZcLM5p8q7V5s/AmxpiYCia216heSqANDwK/6xdN4u362rQMG7EMjRyDxpGEzkFRaSjwnGIkDB+QzS0N5X1GpOpEc/2rSljRBMXPaf64w/zp7buHPdtD86dzULlhWuXxNI0UcSpzlHIMztQnjxGPEERgBaoXLSezuvzjvsPIq/Zyz0DAVV+aj/6nDN9QJ3GkzPjAneJ6PzNWMlllHlMezjHe9QyX1Cpsuh+cwpnK7unXBxSbtLGJ3XceH6jg9x+5HcUH1ExDZj5o1biEJPVWWTAsOzIHGWcGZ+ySUlRiAXp7G4gha3n1WizpQUrJzTE0eg4rUJj4yU1CcbERTv2/iy7mPDeGnKpYkJzCsnQWRfV2XbUQQs265f2By3cbDeePnIGqpW2XiBbkjMhM9hdj2ZIdy3EmjbDDoR04xCaeuUfzkJDEMXQb4i4HdjaewLT9oT3+YtyaLzqJRDBBuaB19uWgpbkg/Z9kXtlCZVEpUUS8Jbh5kyHE9Ilw98BRN7p8mWUx/pBXuso+cknFrr3kpHdelfh22MPX5wF1Ixvps/ExfejaFzF/wIRltZw7RtzT3R2Z0DqswsrS0Ru8GLtEoxFr87k3CNqvJt1EfAMpnCkXm+9oLnhl+792VCSyFrd2IrZcI83slxhuC+6nDiJR6fNnWTPUOwFcEKk68miC+wA4HxTn7Ohq+l7HAAWfLK7yVXi4NdLsVICxPiNmKk0LMjDD53pCbDUVQ96dP+wFFM92L+zumZRMcv5gce99DgDZTF540Nx8eyjC6qy3ZYCBNgRhQrHPhGn7xWUcfrRgIWWVunEVZOWcg7nP8prnl7MngamxCIXogNFTw3odv0Y8Hmgpy7dAbPgA2t7caXcTQHVBfgqEZecta6lF/kDYnu2nN6xWyiFaalkdb9wenx7eG2cjI/l77vWYFBU6yXf6PvXEIHnxbo/XyKyIAkHG+YPG0I2fpoYczvcmnYB2Ve7u9iFLJF6F6Y8Cey+DPMcL99UDOqOUn2dbGNv6OtTwyQNWOqmT/uQ+2BRm0J+D7ZHMI6QNRiZCX86G0D3R+/2fmoDX5Qk6fmZjWbBLt6GKT9ZiQyAwXJGSPEocU4I6OYeVgHO4M1qmFFDk49i2pqKtKXFjhspYshKtl0TLc8wP9k+mVMiE7dMnaoLxCW8kr+afM9DUmYpGFbXcTra4hhXG9a5uDck8L9FvWJixjXnCsOjOVY+N41MY+bXKHv0FlxJBQcmxqWBcQQqzuUcphlD89vsLNuEJsGS/61L0NWWBYTDDpqAd7U9rltk5Vs5yZaKYmIMHSD7/qxrkG4SLGekefpi79u5EDHmq+v5BMgR3RvdyJfeveO7PWgQdxaxTqIO92OcE7+iL/Cz9Uy7wgDnEpQRM9Ak4Ht8uWEif6uGo1l+rHL1QfcUuLljuQPBDIII5lfllXVyqZsZbB1FwiohJ0wxr/I=",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "dc2f06c54f43e19cbd5a1b5b3ff5dbbc032536372445334adae9ef12805a138a",
+                "sig": "569c44c0233ffbe41f2ab79b0f0fc09d700c14350e8d4aaae5f12149ac941a64d0301d85a9c551d339584371ae27432f4d1cb47eb2c895f9c1a2e08a3216baad"
+              },
+              "nonceHex": "c65c2cce69f2aed5e6cfc09b1a6260289adb5ea1792a80343c0affac5d378bb7",
+              "auxRandHex": "e3505493d85e43c568c5c578a1c47853a896be4b82d6b0701f907c1e50856892"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "reply-1",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Yes, if the vectors are green",
+              "sentAt": 1799999710,
+              "reply": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              },
+              "thread": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": [
+                {
+                  "id": "reply-1",
+                  "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                  "text": "Yes, if the vectors are green",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "replies": []
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "reply-deeper-in-a-thread",
+        "kind": "positive",
+        "note": "A answers B's reply. `thread` still names the root; `reply` names the message answered. Both replies sit under the root, in time order, and the second records which message it answered.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ajh/7Xl0DROxnvSJxthABL82ftr/igqZnIo+Cw7+Wuy3qKedLTbL0zsKl4RT+EPrD5L5rYTCc2tEn0jBhqg/tE1K4TZGLfX5zc8QliPycLBbvxkiVxP7UNHzKmEOMtybb7efHNqzPKM5YEFLPI5ZKC5Wmyqo2VPbQSXlfg9o/Yh05OEOuy91JZsWW7MvdnUIdCujB4Is1MfakoGTRZhcKbewItrW+zTd+8syws//ghqBTZ7Tqx+1WvZUHtC8kFd581kJ4wvli3YLtvz/zT2yTqSJaRH3AlWZQpYQOxGXGiQfFTiIxFCwo8UrHy3cE97xK0r7rn+j9J3ARWp6QlHeXTjyQRuCItSQMr+T4/nM/SfU1qeqLNv8RoMbVIBZVdcitzxlvQLBuF+l3HJbQewZiiCmRKuIzmDG64VN2yRMCXMv/fF84dVcAlC4tIlM7NrIGWFdy2oxObEDere+Whb60lCLIur0nRa2ECWHSTYaX6s+IsKYeHYwr3pUvr9N4K4N8cWDrLZcsAxf3RZNNoTw3SSCsUesNvxhJZjsZBhVZfYjSs7I1IaJsGsIFFgsHXUsDhLCvY7GcppaSp7spQwFBzOREZ5XasSPXfXUM+UEW8iH5DHh53p3qLz4NvME5zXfJmmGAp1Tf/H2tjUe5j/sZQU1ohMO8g1Kmy+OgyVeiSRXEd8Lwma04suxhqVqAnhvyFZD/MElmkCvyvS9mwa3FkQtj4OW86ZUws9d+L6o387Q38kDII+HkWyaMkG2DtV7PXA+diMyF+mqad8AN3iLD8MlId9rs8/rVq2Wu6vQpnw1Ta8nrROAy08he53zDVNoanjFcIYbtjJK2zbfXq9drS8cCn9tdc5KH4h74XiywkHsk+2iyvzwFx8KoEGQbWfvCZtahcxYbocw6fTjpPeXn1mxImYkHpeyRxGd5dlKIP6TrQ2VWaVMYlqaSvQSzUynYt8ELJUCVkb0DBR09xsSw6uqXzD/AJsOp3XraSuzCozuEgtggUmi7i6GUprYcAX8uChYYu3mZZfuKv0Z0pj/UTawxw8dbbZOGiYE9O6H1gbuqORFa8pULoYqJmDVJsBk6Z8layaIY4YpGhZlynYNfsxmVQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "43ed695e699240dd3146e241f82c06c6a359415e93298aea0ff8f4ed1c841ce3",
+                "sig": "ede4c84870df539b405a51ea4aba9985c51cc35c6af0e04b03ebfddd7d7f9b321357f603fd1f0c31ac6999a880abed14be5f6e01ac28bb7184fd90f69eaa421b"
+              },
+              "nonceHex": "387fed79740d13b19ef489c6d84004bf367edaff8a0a999c8a3e0b0efe5aecb7",
+              "auxRandHex": "188d2e0895413499170b161d77855d690a87b2fb59be960a249aade143c416e0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999710,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AsZcLM5p8q7V5s/AmxpiYCia216heSqANDwK/6xdN4u362rQMG7EMjRyDxpGEzkFRaSjwnGIkDB+QzS0N5X1GpOpEc/2rSljRBMXPaf64w/zp7buHPdtD86dzULlhWuXxNI0UcSpzlHIMztQnjxGPEERgBaoXLSezuvzjvsPIq/Zyz0DAVV+aj/6nDN9QJ3GkzPjAneJ6PzNWMlllHlMezjHe9QyX1Cpsuh+cwpnK7unXBxSbtLGJ3XceH6jg9x+5HcUH1ExDZj5o1biEJPVWWTAsOzIHGWcGZ+ySUlRiAXp7G4gha3n1WizpQUrJzTE0eg4rUJj4yU1CcbERTv2/iy7mPDeGnKpYkJzCsnQWRfV2XbUQQs265f2By3cbDeePnIGqpW2XiBbkjMhM9hdj2ZIdy3EmjbDDoR04xCaeuUfzkJDEMXQb4i4HdjaewLT9oT3+YtyaLzqJRDBBuaB19uWgpbkg/Z9kXtlCZVEpUUS8Jbh5kyHE9Ilw98BRN7p8mWUx/pBXuso+cknFrr3kpHdelfh22MPX5wF1Ixvps/ExfejaFzF/wIRltZw7RtzT3R2Z0DqswsrS0Ru8GLtEoxFr87k3CNqvJt1EfAMpnCkXm+9oLnhl+792VCSyFrd2IrZcI83slxhuC+6nDiJR6fNnWTPUOwFcEKk68miC+wA4HxTn7Ohq+l7HAAWfLK7yVXi4NdLsVICxPiNmKk0LMjDD53pCbDUVQ96dP+wFFM92L+zumZRMcv5gce99DgDZTF540Nx8eyjC6qy3ZYCBNgRhQrHPhGn7xWUcfrRgIWWVunEVZOWcg7nP8prnl7MngamxCIXogNFTw3odv0Y8Hmgpy7dAbPgA2t7caXcTQHVBfgqEZecta6lF/kDYnu2nN6xWyiFaalkdb9wenx7eG2cjI/l77vWYFBU6yXf6PvXEIHnxbo/XyKyIAkHG+YPG0I2fpoYczvcmnYB2Ve7u9iFLJF6F6Y8Cey+DPMcL99UDOqOUn2dbGNv6OtTwyQNWOqmT/uQ+2BRm0J+D7ZHMI6QNRiZCX86G0D3R+/2fmoDX5Qk6fmZjWbBLt6GKT9ZiQyAwXJGSPEocU4I6OYeVgHO4M1qmFFDk49i2pqKtKXFjhspYshKtl0TLc8wP9k+mVMiE7dMnaoLxCW8kr+afM9DUmYpGFbXcTra4hhXG9a5uDck8L9FvWJixjXnCsOjOVY+N41MY+bXKHv0FlxJBQcmxqWBcQQqzuUcphlD89vsLNuEJsGS/61L0NWWBYTDDpqAd7U9rltk5Vs5yZaKYmIMHSD7/qxrkG4SLGekefpi79u5EDHmq+v5BMgR3RvdyJfeveO7PWgQdxaxTqIO92OcE7+iL/Cz9Uy7wgDnEpQRM9Ak4Ht8uWEif6uGo1l+rHL1QfcUuLljuQPBDIII5lfllXVyqZsZbB1FwiohJ0wxr/I=",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "dc2f06c54f43e19cbd5a1b5b3ff5dbbc032536372445334adae9ef12805a138a",
+                "sig": "569c44c0233ffbe41f2ab79b0f0fc09d700c14350e8d4aaae5f12149ac941a64d0301d85a9c551d339584371ae27432f4d1cb47eb2c895f9c1a2e08a3216baad"
+              },
+              "nonceHex": "c65c2cce69f2aed5e6cfc09b1a6260289adb5ea1792a80343c0affac5d378bb7",
+              "auxRandHex": "e3505493d85e43c568c5c578a1c47853a896be4b82d6b0701f907c1e50856892"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999720,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AodwDktuK+hQul0tdYbWeNUklEBlY+unRMnD2+nIz7I0Vg6XG6lNgxPowocWdsOBfgfrIpWDRanVJRWswmZhD4PyQM2NDo7WOfOwHr10rrITMw8IKgQOcX8Yqn8psOxjPRJfLIvveoaXWj+FiDOFyadN7KdkXcvorp3L+PmxInfKLMN9dfkxGP0fiApgKTxWsPkDmR38rroD4FnBspMEX/5RZTk03jiQTtAIgHkUzbt5qPOJ/mWN7a/1LI+ep0NPNvo2KjAP2+3pGGGprMz7oNxEAYndCsr0q0iFVuaj/EoM/S0OOWH8Ul2ZiLOv8la0Uw7IpJbsfVC2XQJTR1JX5JNMPvNIuUpDNLtxft3qecigO8V2vNM9PO2a205PtE2nZTB9w+Vhz8xXhfxRJQl5JypBmmdmyuGLiRuDhM3pbva1B2iDl+20vS2Ooey4RUdbMgJn9pD7MQDKhkXQMUOZ58xzsgciMtU1C2OCMLcjNi83tMEEDIyAsYGVLjfC4rRECkLW6ypVlPDNciuD5RfeZnSWuqDk0lZY/LLcoLQOOz+DfxbpzkEqAkYIHid/k7O93cmgTe9M7MPuhQ+RMPLe5ZSF+UfoxD73D/IGnuqy+Yuhs5pRjm/veXQpemDZYSiq2Rsvnf6dn2FidVLFVpcvwgZvsrhTBNJD0SKojngjAZI6gPUliQlbgJbpTMsxCxV++wfU74k6cwQ2eP6uLND33e0WwY8URMQpFHekQAp8OAcxmPJqzeXlNxasLq9Fl5YuM11DPJCKnrlRy+jpLM4GChbCVuHEG1JeweHqNCA62ah3yrOTwUqXfh1sZ/pg6mVDF8tAFy9ruyyOo5G2/atIltAXcl1pJVTQFRg4ooO93dv0S6mVzw0jaGbeF4EUOhO453sEiE5u9LqskYvE3WktTx0aBGhCjFln+a3YhYVxSTtHq1UchFCSxRTRbMKtoYzoTIUedX/ZFupBjGPcKeI5ZTnuNzG3mz9Xt/LxFoISHqz2hS2LzC9PQdPkor6aWQPMs32M8ka3gq4ZID9moo7tePl77amu+XIERmNV/VR6NMIxRXm1e2CGdL3C5MumXkgCal4JknaNmbhy3VBbMumREnRWhyh7d108CRmVvt1Yrk4Z3ek9Pu17t0Kz7WgaOwPdz4H0hhQ3d51Fn0VFew8QrkJtmnyiMMMcd5DFGJfhqMTlnKVYBbmJlsK0JrKHxMjq7mi/NUIhVTsElsIwK5Ccbqr9iF2n7CcPtLfG9+Gn1uUEXuGwGOLA0wy4b9Ic+vTyvyWgxeK3THDlwOxgZ94fDl8wADXAydn8qDlzV2sC+2vWDeKz9DkgyXdNm4xPDXJ/axEBGdnO/v2e+uKLzDZY5oDqz7/f9S03ByroWOEvoe+Pa+lDs1Axqz7++sJIWBA8arst5fNAOyjla7McLyXmns3Ys63Wa0Bnn9eIJ4dDfgOS1uc=",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "9e26d98075e50ca7ce2f0539fbed3a0c8df8c1b668af5d3af5d3b2e39c98962f",
+                "sig": "bb06d6383333a0ad58a2b535f651862ead058cd1309dc08422eeb7ba1d78f651aebed1b6d60f479be9ec8d9a5de8b9d77e26bf09b734023baae280a3e7738af4"
+              },
+              "nonceHex": "87700e4b6e2be850ba5d2d7586d678d52494406563eba744c9c3dbe9c8cfb234",
+              "auxRandHex": "f2dbed13960faa293e70db783fbd394af42a85f58ff0a2dd83ca8a5e0780305a"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "reply-1",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Yes, if the vectors are green",
+              "sentAt": 1799999710,
+              "reply": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              },
+              "thread": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            },
+            {
+              "id": "reply-2",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "They will be",
+              "sentAt": 1799999720,
+              "reply": {
+                "messageId": "reply-1",
+                "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              },
+              "thread": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": [
+                {
+                  "id": "reply-1",
+                  "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                  "text": "Yes, if the vectors are green",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "replies": []
+                },
+                {
+                  "id": "reply-2",
+                  "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "text": "They will be",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "reply-1",
+                    "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+                  },
+                  "replies": []
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "reply-with-no-thread-field",
+        "kind": "positive",
+        "note": "A reply that names only a parent: the parent is the root. Walked up through loaded messages, so a reply to a reply with no `thread` still lands under the top of the thread.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ajh/7Xl0DROxnvSJxthABL82ftr/igqZnIo+Cw7+Wuy3qKedLTbL0zsKl4RT+EPrD5L5rYTCc2tEn0jBhqg/tE1K4TZGLfX5zc8QliPycLBbvxkiVxP7UNHzKmEOMtybb7efHNqzPKM5YEFLPI5ZKC5Wmyqo2VPbQSXlfg9o/Yh05OEOuy91JZsWW7MvdnUIdCujB4Is1MfakoGTRZhcKbewItrW+zTd+8syws//ghqBTZ7Tqx+1WvZUHtC8kFd581kJ4wvli3YLtvz/zT2yTqSJaRH3AlWZQpYQOxGXGiQfFTiIxFCwo8UrHy3cE97xK0r7rn+j9J3ARWp6QlHeXTjyQRuCItSQMr+T4/nM/SfU1qeqLNv8RoMbVIBZVdcitzxlvQLBuF+l3HJbQewZiiCmRKuIzmDG64VN2yRMCXMv/fF84dVcAlC4tIlM7NrIGWFdy2oxObEDere+Whb60lCLIur0nRa2ECWHSTYaX6s+IsKYeHYwr3pUvr9N4K4N8cWDrLZcsAxf3RZNNoTw3SSCsUesNvxhJZjsZBhVZfYjSs7I1IaJsGsIFFgsHXUsDhLCvY7GcppaSp7spQwFBzOREZ5XasSPXfXUM+UEW8iH5DHh53p3qLz4NvME5zXfJmmGAp1Tf/H2tjUe5j/sZQU1ohMO8g1Kmy+OgyVeiSRXEd8Lwma04suxhqVqAnhvyFZD/MElmkCvyvS9mwa3FkQtj4OW86ZUws9d+L6o387Q38kDII+HkWyaMkG2DtV7PXA+diMyF+mqad8AN3iLD8MlId9rs8/rVq2Wu6vQpnw1Ta8nrROAy08he53zDVNoanjFcIYbtjJK2zbfXq9drS8cCn9tdc5KH4h74XiywkHsk+2iyvzwFx8KoEGQbWfvCZtahcxYbocw6fTjpPeXn1mxImYkHpeyRxGd5dlKIP6TrQ2VWaVMYlqaSvQSzUynYt8ELJUCVkb0DBR09xsSw6uqXzD/AJsOp3XraSuzCozuEgtggUmi7i6GUprYcAX8uChYYu3mZZfuKv0Z0pj/UTawxw8dbbZOGiYE9O6H1gbuqORFa8pULoYqJmDVJsBk6Z8layaIY4YpGhZlynYNfsxmVQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "43ed695e699240dd3146e241f82c06c6a359415e93298aea0ff8f4ed1c841ce3",
+                "sig": "ede4c84870df539b405a51ea4aba9985c51cc35c6af0e04b03ebfddd7d7f9b321357f603fd1f0c31ac6999a880abed14be5f6e01ac28bb7184fd90f69eaa421b"
+              },
+              "nonceHex": "387fed79740d13b19ef489c6d84004bf367edaff8a0a999c8a3e0b0efe5aecb7",
+              "auxRandHex": "188d2e0895413499170b161d77855d690a87b2fb59be960a249aade143c416e0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999730,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ao7QFbdldybTc6FG5e5p4GpUM/AuofZo/p9CuECCM6M2PD1b+zx8L6SNgIEreSEWWIPlzo/G3/5F3yKXvrc4xpVsorYxNnIc9QgJicy7yG5Eg29V3ytEqdhmIEUXYyVfRRj2fFwh2RkIYPdnLtJxz5H/RKCNAtQZoMMSsPFhlQB+jVjZs6ZMW+t0Pt5b/r/BBnCPHj9UHP+FSKf7ZiucNKMDTZZTgWvLUkT1av19A5/0yIFoKcjLCbHriJjlVvMLMMtUDuaG5+NEv9qwQjwbvxubw9nIjwPeIumsuvP0HW1+PYiP8Hhj+I0mAUidM3c9V8Rw72SeAGtJIxtzido1uxD0sIVr/xuWppop7lRMvly97dXPt8DUZdd26hhgv+lBQDBUhHX7WZK9snu0Axt1EMPJozaC4K5JkLd6b6LZH4+zRuYUCHu88qj1gikJRCAjgz/IXz48kGHOT6b40Myl3AZyD3p+UyMFzHMrOlNHhOrt7hs+Bq8r7UtBCiK+bdpkZEPeW34B7IKSip6Ljc/iaOCikMuHsG0pX727zSxMCM8wtdWcZnWXUttH3uHupiwU55Ov3EhMCbSVZwgh4yLa8AXDaUE+wfE93p1486wuQrH06zhWblYEI+0j969Y4vT+mjuoRiVdv4409fpcSSD7QgzRsKPX/6I2rBpOp09+7uBRwQSkFebPTmGW4bcMOTmse9U5C8lMD7CP7Zb4GXCWF/ilg96akkwpkAWfwMRNpTTpEg8eH1q9bjnDg7DEglEt+M6naZESdaFEKjVdiCtPi2RjFuKWzWy/WHQkZ66QZNxmqRdG6um3klHBhFgz9sqNC+lY7itPKGp+F8UxuxfZ1DgP+04/KOZwuBl9vZ2Te6cOwhFnGhVLBfS7fvUvrRXnAns7VDLdlkW8x+u8elCJv/hafJtzrc/SF8CQTjd+I0aoxHbiDgZTGDd60lvuSn9vcNeZ8llXtdbQueGEYEyq0Cx5T6pK/mM7czHWiqjKaop+5CBF43PEs25sR8pa1PUfYclLn9ecIxbFK524aeR0O/0TP8MpIkgFKQxE9qig8ePWXmgmeFPQGmSEZlNcEXw4mN/So7C8pXRn0iWdfh4h9KvzQJQrikuIrMyZ3TOAtsjSuJN+iXqvmdaSm2oeO+ZQIknY8oXF4bMhj17nNC4ZFV4MgYPnkr+0T6QUKzUPCaYYI7GdV/FWxZDHRkBstvPAcF7a+0ViRdDfDVSsHXHxE3dCSx9Cv7bQg1TU7N8D+R+EZgeMpNDPVWIs4VOm12famvFn",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "d3b85736de0b0977be331ff5bcf08210b75ba0f0e9167336d1709cb8e3fcf3c7",
+                "sig": "2cad2866f0cb3d56d1c46e8945f9a4986b74e625f2c772abe3d23f6197609ae0fa7a8031c61571eb70a7b82cd3153c1852642971fdb126d4b654d8a7de53feb9"
+              },
+              "nonceHex": "8ed015b7657726d373a146e5ee69e06a5433f02ea1f668fe9f42b8408233a336",
+              "auxRandHex": "4964da871d8a83d15a49fdf13ccae3dad8e286f62dc4611910b44572616d0e8b"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999740,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "ApOr/P9h95bB354n6OTo4Mihru72z1U6tdbHk4fUm1vrY2KSvBznKE0P15+mbqUKkO2q7rFf5V1fG4K+p0OuisNiCvsoDWQSB05vbm9YCbu9gzwXz03el4KFBR4OamkpQW9PtlniIWUpOM4qxHf4jzgvATvEzOgJw8Qe5KuumRzzgM7BI//6UW2+ohAPzqPiGfB/Yd6YCaUvM6OF7qSogtLRvmpLkA1Dkg/XlstrlDsYQsvrygDfVWcdQx8NEZPGiXOGf7aCroCoL/pjT7W3GJUiIlYO3FTL7z0Hmm35FJ7JNha70qlJKMQMnpp+U6utIpc2C6NPwJq+Q6BRFWdiW4c/GFUAqrUkZgH0WFiazipoyyIHC7qQF41rvcD15KRuDrf1e6WL+0L7O32LiT5wxUfGt+AJY30mEKxfF1gYBHwTGlxLi0w4bfj0V7mpcaMqx5tHgOKt5p5xWi1sAf/1qa0U2NeR8hG9ze7PsAbMnSVNzmXeZz0qBREaOkPfwiIgfztNvmzzWv7t/uuTf8lnyp8NI8/XSWuZ7HQFYwrb2sxRf0HM9AAuNifR5cT6hVjF0jY01XVxyfs3UyX0TdcZxXj2Dj7GpEY5xnOWeZYBsbY+JTtjJmctjg4oEhwsIsFGUVwHOaN/+rdoKTOgMrrdtPwGdPW5HtiffN90P/8NF1DdSACkVPSJmlic45l7hQQAt6TB9Q2LcKRS2QDZ1uFbQqEHzDUvY05VGhu5fXYrQ0l5E9nRAjTLLKm9om4QcbIyCRPMsnGtCS+t8XVc6QOoCOfvahHviPoNP4kz3Cn6b2y+GTgypIJKfR5t84Cs1pgQahjm/rFO1Dqr3RQZK0+oIifr2dWDFVNa2dODn1TRlyj/T4uxn076Q4seJO+5/GGdpjc4wSWyprlbKO7mA6KRVQm+pFY26vMk2R7ZLNyaV4r0YxCDOTwpv6LePzg3rweBTh6/H1vqzw0K4PWRhh4APZY3WYRVhuPIBw6aSQR3EHJ9bEwFvbzJR89ii5DyN7M5vsC6MzqEwBoVTdYLf6ZqB+TQ8FN54FaisG6V0aKaInj0iD3Z1WK6AtVc6w8hSn29anKWZXCdNZ8IhKHXZrRqH3+TH3QBKYb/8hmoVbShMBsZILHKfJ9AzWIfH+IssKr/h8qFGcRvKuULX5+xwfwOTDBe3PKMJ7hlzSlvSgdmcOco9UKTF2Ol+YbVm1IY7faBmdG7OLdErtB0egZD8sZE0MzI4UjbZe+mPEQ5YWZ8gRYl0Ictl4xFGDFmtylYclV589Vf",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "f16851f29d6af548b6ad1076f0ce0ce6c85fd972d3337e64255813538e3f8b2a",
+                "sig": "f168926f50216e0822429d78075f993162cdef0653f29373860004fc84784d720c77a85459b00884f9ff34a531d312ba8321a4fa97d54dcf1d5385017f2c9e9d"
+              },
+              "nonceHex": "93abfcff61f796c1df9e27e8e4e8e0c8a1aeeef6cf553ab5d6c79387d49b5beb",
+              "auxRandHex": "c15d14a9e2d4e86932b756e74b04dd929c7133cad25e3ddbded279b04979d39b"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "reply-3",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "parent only",
+              "sentAt": 1799999730,
+              "reply": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            },
+            {
+              "id": "reply-4",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "grandchild",
+              "sentAt": 1799999740,
+              "reply": {
+                "messageId": "reply-3",
+                "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              }
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": [
+                {
+                  "id": "reply-3",
+                  "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                  "text": "parent only",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "replies": []
+                },
+                {
+                  "id": "reply-4",
+                  "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "text": "grandchild",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "reply-3",
+                    "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+                  },
+                  "replies": []
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "reply-to-a-root-not-loaded",
+        "kind": "positive",
+        "note": "A reply whose root this reader does not hold. The reference is kept, the message stays in the main stream marked `orphan`, and it moves under the root when the root arrives. Nothing somebody said disappears because the message it answered is older than the window.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999750,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ao2qmGSuwpLFz9lQrixIECFNck7pgNpoR3DjzvW/ve0JaRXKBXs+bQg1IIE85UwAROR3Qt6hp2ggaNkywaGOfkjYptukEnRsfj9BzTM9IQHQ+v4+I2DBYDYhlNg0+DzDvp/35yMyTotEiAHwcasNvAM77nHyZynDGW2lfvyyfSWJLUxdVSKnyNbr8cOcoN07jXadi3g6/S/nnRObX7PO+Pf6WueZ1b5K1SYp17FKkbGzLbxuxAxKtw2DE7V77DxODKR4MGvmxn9TnNSM6fPmTuJ4BzE9KD98tcFL39xdVncHowyEIbeblDzujBDM/nKPONxTMXvRIDJy4lJzIX6RNCR7rNjeyCTHAO4s5jUq0aBax7h1RiTR7SDW483K66mrrwv7VgcPPg5TgW02nrTu3i+MeIyVmNAUm0GqTbpTSxwFBHme3CHhJVSo1e2e0wYBWxavmG9q3R1yA4bkCZJySTN8qnm+3gZA+4hAtdrVpbZLKo9fJHIjl7jcwLdvQLOA4Psw7VoyhMkXUJ6uDYfrBzSH8u/5b2bvSud1OvJleXFdyl+44WtNgTl3TcEWub1r77n9W2RdpQTLM+mRE2OH4LNbXoGuumdWltLo69tbAH7fIG2E27sCIEQh1jgXACBKqMcsXKamsXd2c40pVaP1eploYeaXWbVrnOpfJX4Wl8cHzeoFvPTx3YqB/XujAr+8ty/0iPPBXXpkkXvkWB6G//Y4y/J7IirSXjjbFV6aOMcqH1lXKRP4+k9pHi9JXYON7oUVD+QxlWAQPWCDfnyX/3AhzlvoQU4UJ0hF5kaE3a1xuZRmzv3VWXf2CZ4ulsXRfoLhF3KZ5nIJO/eB/52lAC+W5eOLeO6Ex0n2SIYBIGq7/mrrn7H15qehO1FABvaDFLVmgisF1Flj3WAemajIl+PbhOAfyGcbZO1iZpXBe0Rk9yhl2S9Ol1obeOrQZTnIj7FVcUJ/F7R8Knu36gc+sCI6FMRamm85tXAXBzuEli8IPA322STGgogQqxhmLeRWw8Kg9BbCSIJHpDZcFuT0SpnpBEfoABfUDl9UfLwFU7QwuZFwm1GS5/+b0SkNNAGM4mFD19mKrWmNLlg0rhh6vNACUBNIQh4Qms7xMbctd03s4MnUQiU4rdqkzs9jTjNGojcrhWQPEUZzRHyttmkJ6nQisrzJT978kS2SfyYz7WK0iYPYE8T+t7191lP9KjPBXEprVhVnjqFC7DlxzVQjjBkpzLVLsNjqedQVL43JFqmSlGy/WcPnTE/EomOmpyb7drjw",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "8946be5eb898b4aec89ce50d3d42f21cfe5a4c3eda45ae163b78ab64cac3d494",
+                "sig": "ab681bc85ed24139370600c8e7354873ea8d2b85792ad9f68fdbe241afb5bba828672380ebeed58b7b5206ce6730b3ff9d1511b7f0458dbb2ff0ca9794df6d47"
+              },
+              "nonceHex": "8daa9864aec292c5cfd950ae2c4810214d724ee980da684770e3cef5bfbded09",
+              "auxRandHex": "4afcd459556be29a924ee0bdcd559f20c27e2e4867cb911493e8f92e632d84a9"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "reply-5",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "answering something older",
+              "sentAt": 1799999750,
+              "thread": {
+                "messageId": "gone-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            }
+          ],
+          "conversation": [
+            {
+              "id": "reply-5",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "answering something older",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": true,
+              "thread": {
+                "messageId": "gone-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              },
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "malformed-reference-dropped",
+        "kind": "positive",
+        "note": "A `reply` that does not check out - here the author is not a key - is dropped and the message stays, which is exactly what an older client shows. The decoded message carries no `reply` and no `thread`.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999760,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AvNqQT7X13BvoeGDAOA3pPUeGOjQXZAIAhx49oWpRLx2ZKdEIGbR9QAryYAfpEhQHyF891eBiBhYiLHb/lnWNO80tUy8isNX3RDtZSJzBVSm4PUOoRbLiEQL5IqQjyT7JJetMg/pDnmg5Lz3TrEg27dKkuNK/eLItjbt+REuUz8gLlNCAYChWasGl4B6UAl73Cm6YwKl0AE17L2bQiwWER4BGZmZXoQJwN/fe/BVih6dkhs+q1UQSPAyvAyGJtdiUkZA1c9n5aY4Mwa+SX8IrPcRjFIZmfeN4lK3BST5hb1SnoJcbazSJaAYv/+iKt2RfLj3Hi9+W/TYgBZNtCzEHoCd2Tf0t92w1pylaFI6EWGOHs3HnbltTsEi0rnkHq5nG6Oq5tTQLqTbTRVMNSVeynKPBlyQ+P26t8gZi3u+uhsuaczPAcrziK/fsb8ZqQ2SVl3MtmS+NaWIHQGry3fiz+80iz4oOMPRTngmSc+6wAHdmRyuklCu9r9ux+ALNPiXsOSbaXXdPeN+ep9kZK2+mle3z0WuNCAZdJ2jZ1xGU30XIl8lwWLPUzcnhBkaBaEr12PvQF53CL5o4po/GoiVPdrag0NPCT7Ixiaf+xvpOkzivdnQAxFrh825cyqbjNzVWGpfTTk9UfPswCngGTR2/kidXvDqq3jzDeUKXYbOu7B/0JAo8pBxb2YZW2LnELuE0E6uab+iK3Ur2MZ946WENVtkOTQMOD2kgJMlvuCBijp/9sQlX2kZqQDaHZC+0qKCVbmpFKyY2ebb2F0MQDiaArYAQ43IT/NE519bGjbvpb1sNLUGVSwB/vFNjx3GVODJWwQ+2O67EvM4HSI3/zSsk4C+Nn0C7dfQXB/1FmEYk6xj6h04KWmgaH4drNkC+p2w2NGMd0/Rpblbwgwp8+7NCNzkTHPMLb49pRs0cvhQsPWndac0QbX2knJMfkpQWeBvqPJFF/XlXwwc/AnE5UQul4OCTwZyuZ1Y6sVBxIzF1oppSNcfEN2tfCQE/D7/VfzW4ZabfcyQD8E4zLR2cvtle1Dm1p8V+mALKXy/BwZXn6R27znXkXbAp91E4LNWwp8RKsJbrxFhjzNyz1pmreMOa0tmEad+2eMkxuT06TGrmTfhBhffdi/fHnGqmUWFfnagHl0KAgaCnlVrKFxVMWitiX2GA09yclwZcbmp2eIssMyVqCMtd+X3njPgKLDJgHbNbZ7eByw280Yk1MJ6cUiZlR8KlU8jNR3RjkuGQ525EXOdPBLaxtUemTRNu8mtZP2xUdX8wK7VPEfBTZmrRm3xngv7BrD/Y3Mf6sNT3s2rkTQcarvOWtKA19/3NNQTXWEGpt4hbQXkp+sfPzzrD4lfG5hAWVeSsuMhU3H00yIQkNoc+X+69bal+AWN1l/3kcWQpWZO7jxlum3XaQo4oCIvDyFWCLWCmvlyjjPaanNhV2b4s/E=",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "f49f50e478e3b9ba8cc197d7b8c6418e97f6154223bc50e8e7868502acfb4743",
+                "sig": "5d961c8ff2185e22b10819641aba8851220bcb72e8f02b0a98aced407c8c3c56898c3a59f25f89d52137e6f8b3618239d2f4aaed84dc95b61c9db3405fa28195"
+              },
+              "nonceHex": "f36a413ed7d7706fa1e18300e037a4f51e18e8d05d9008021c78f685a944bc76",
+              "auxRandHex": "127cce5d45b7c68300571f7716c1972a874d034367c52bfb47eb206ddc4b8492"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "reply-6",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "still a message",
+              "sentAt": 1799999760
+            }
+          ],
+          "conversation": [
+            {
+              "id": "reply-6",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "still a message",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "reply-beside-a-reaction-refused",
+        "kind": "negative",
+        "note": "A reaction is not a message and cannot answer one. A payload carrying both is refused whole; the check is on the keys as they arrived.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999770,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "At2ZbINWDvB7pnrj5S/abyh7S4uAzw6x2BFwl+pgwhq6lghw60RzVltBRDJ1ITyq3dN6IchuD0Q4YCsXKStd3qa48No4cmSKCx/D/2RvTHuo8QhAijYgR6SaUGczTl+n3JLorZ/9hyAic+ieU2nLTOmBhmDYhNWy5jOHz9TmnX6bJIwyIUO8SDr8eaw69qAOYdi5uDu2ejWLY77Hwpky9LR9EKnfJ/Jafa9ROMiWq/jW/0JXQzpyXifTie8Fpz3mITSvGNUQIcsKd51mb+TgvIG09B3ycFyEuyoH+tKK++FajbAdHrZ5wUIGA+0mBVTNsXl9cM0Yc1mKtua0QlYiJFZmg504ZXLUv1lISeyGlZEa7axY44+V8dPaBaQLqbQ5sv8bZHdECYZvP2DDQDq5732doiiDjo2WalF3w4h8OSfXA5bs4WCWUcJ67/LgPPAJLr9CZMFhG7xuvKFABDg4mFcryBXkWvKNACwOMsp607ULthCKSghuOvDXabdBIYOdbmA2k/r9lq+DXHaodJ4Nzd6lGQXCkVQ4i8/rRDi8N1d2fGcWlFPxbvAd+sHaeJsG79brJUf0QiLY4a1JZZZ7eUWQXsnwMlxUIK/twsR4LEG5pOhBwuaRXq4ZMtpHbSy8oVomuh/OfqO3xnKx86UJYZyCd5q2auv6ECA9Sz5QfpPFzLtZU/MtK77/5x3R6AuW0ggdLEvkS1lvwH46PPEHeDtf0qndsozg7htpYbvVSMSUTZPhKqqdG6rls77VUkkDifjuUWZy9KcWlIfve8goBvnRRrpZjkBosrqS5CPNnhHEvh/6KghUCPNHN5UUvN0k5Tsu7QPfLDfGelOIm2UlXGPjyuLNCHjllZv1WV5be0dk0DJOzWk/WYs9G/9HAl+GtY/6Z0N5lnaKpbLbwAha1yYWK+YsSOklox4+UVgl5XTe+2fJv6FOCJIAAh4z5GSDKZXJ5lVaVFu6XB66Yddg5J+756d8Di841ZGwGGnHpfqG4VQ23RpZmcVMsnlft6AZmpBCE/Er5SB4Wi+PoW5ajOkLeCkO5NZg+hBK/YyvPqPDD5ZKRHoAalG/1lXKVUDLxq7T9vYAZOEFHEJqkvfoUnG6/saM5vTlppPzx5F1V5ws4A30CKTTV2MbZqba1+MpbgyLe0pRl/x+CrqOgPjeayfS0puv7ukKFAhZQ0AMm4Gk+8kOF6chseBtj8iDEUsd4vaIJreEiZsaUdMgCahSh2NYmOejQvaTEPtt4AaYxMVU7Q/RKL0mnEFjxVNElbE8RLHw/Q7uAzNd89OOoSNXn2Edn2rHarKolN1D2rJoAekwIptZlmEWSP/IRLLLuI2kj2dLUVCQ3O3GBH+IARCJDJ//GCYiw/kTsoJklu7T4cf58hBOBMpqQ+0XeNxsUEcQ/v31IYd5McZN/4C6R5Tc2Q3/lqHesSlefJu1Zxno50a/J5cRIAZtx7HRyUVWEfgh1l+AvzWeIieEqlV7uN+G4N03mU/RfsU2FPiC316Nu1ZRhvcRgLoWiZW59QagnJCQViDmp0Q3UIyoCc3swmqZ1BTMgknXpJLeViMXayxvNzii9Z302dLjy4bXTwvBqZxpxG00GdrPQCAXQzGza8CcY1I09j91r3MdspXGgWRX6VCRqT2+6up5Jni/az5Bdq+IpkKWgSosmbwPb+np1VBp91zE6rPWEQiaNtuHBWafBF2qKvgmgNJmWMO43R55iluv3OvkCVSd4jthE7PhhuV8uRVx5vRnNYvHdozBtHcSF0rc+wyl5KMUV9im+2XqnPdBoe/A",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "da5a90059d93a23a70e80c669d7a810462a7bcfd552f4ac38f60abc8f238688a",
+                "sig": "55c1b75cfd66dc8332dad757f046bd5fc44d9d00f5969669da9d428c1546eca8a9ec4c70cffd34b65fce0807adac0fcb1aa2e4a707ec6004fdd21e3d0066103b"
+              },
+              "nonceHex": "dd996c83560ef07ba67ae3e52fda6f287b4b8b80cf0eb1d8117097ea60c21aba",
+              "auxRandHex": "1f7b7fd71e8ab84ebcf19e4d750176d74cb0863229b35c2e0fc6281a8bad7270"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      }
+    ],
+    "chatEdit": [
+      {
+        "name": "edit",
+        "kind": "positive",
+        "note": "A replaces its own message. `replaces` names the ORIGINAL's id; the author is the message's own participant, so same-author is structural. The reader shows the edit's text on the original's frame - id, sender, time, place - marks it edited, and keeps the chain.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aue6+bvCO08PGHkIeK/BsXy7jPce1DMYaUnsuEgydwXD3jJ63YkebUml2LEU8fqlw6qVw+ybmIqUbeCTZh6TrojFQlOGWjBy6KqOK4SFnLi32zMu1e/EFh2RO5kMJfsl0bs85q5kC3uGn5WeqvULpY2RklussFPn89xo2VuO1Wd61dJc3slaVgPD6xp6HzTsDJ7HVudYRYkvzboLhMyQ5qUtZKp86ROIJQvSK1tCvQUdgDDOEzBWHg/kT/DDdmG7152TGELqc/cHNlBmIB0RRS50xsYB8+7l2GJWZ9fecK1ObCuMGaRhkCN9bB5vXPg2r6XLCkseAYkiYuNpjOPpGOEAX2fUa9B8BpsAYnJOArgqWitEghH05nUPIu8rEbyH/CAraEMD0Qu9xdwx/7TE/ZyWphfKnUZ8CsztlquqEO24DLwe5Z7QqTRhfJ1I2BwseK8cqk0CO8R/Ek1iywgglT1rIlj6R1KiZjwmG+2vi/zPDj4Sl/NWc3qGewMVTtsfp7oqkVieGVHzfqU2CVFpJbh87bueQDt/WA/YwCvuggz5jYfChPJNwaycc9A+yGxSWwkekP7zAMUJCktvQhAc6CIb+QP7V8UYJaE17hbPv0tl/bofabJ8RuT6UoV+KJ8ImSnmII3k5oj/kJh/ws/I63H22GUU0fcfQrdQNQzFFco1TuyCgkw34G+uiX0H4yoBwoHHDuO/Dx24mSgvPpJasX7sXxmAg7Gu/1gT2y1ZBk0B5nxxt4498JUxdksr5LzNYp5PDS1uq03vxrkWeDgaq8l8Bmbq6IgdHdiLYDKLrAhiOOxbNHyd1GnjZkOiV8j9V0vh/0RwR/EtSROTJ9brxODsdDXEnlHgiy2D9W1OlNw6cvjULio1hvJVWJQUIaM7Q0kpx7LTeEs1es+uYN4q8FB5JE0EtUarVedECM6yXATUrOufiuPRQPZifhdrypOZjou3IwcozReDWJxmR2TN+KXA3oTgXIgK5Es7Uva+A0jbJgZg0hzonkZhOkMpUmNlsQP+hRqiC9B/3Rlvd3V8G295er7OOw5NcjOJU0VRpN9wjN0g6lsXYCD516zhbOgBJ0/nFNC39z6Dswl4UUZxsJhPmQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "b694f372080b35c7122b11bfb945639fae7e4d96cc585d733d21350435f303c4",
+                "sig": "2b7c4492aea040588e01f2e95785b29df5cadca375dbf940b7a4d38fc907e264c6c4a7d86cfb942e897e94eed21ca715c31cfec468103eb99fd37d4a0fda2119"
+              },
+              "nonceHex": "e7baf9bbc23b4f0f18790878afc1b17cbb8cf71ed433186949ecb848327705c3",
+              "auxRandHex": "7aaa5343fb2c807a124d896a7fc8e9a588e6190d6566c14aeaec0b07f1193148"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999800,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ai68kokaXsSzYYt0Ulrr3f/p0vHizjawD4UkSlzdIA34rduaMSXOsr3gnWrcQ/0wAnkqvJx5H+ltiP7rTGB5P1r9ECRBsAbTMpLMmb85zg4JUYhdHjeQIZ0cP1HX27+4S4TFo53h6UUtP6tPrsCUvAbWoBkSMVTa58zABS1nYsI02L4zlSmKERF2f1sBgEhE2QLUI1ruDDGDCQbAXvGZY9+O2K1WRNdJVz1Bt95y5xFxkAQBq66lKwmzbQjnulXRQ8ZAMMk5DhQbxjWHPIvv8QYrHyUM6Rq2lxHWFK9Px/nsiIpAx30KHLY3nkUg4aoIncG/yV/zJWDZf7xZB4qN8+7/IhKGlL7GeH7fcp6OYlsZYwhYbiyB/JFkoafKa0AsuBqSfnrQ0WArBqj9OychIa/jUsmpcynMS8F3gjrKq5oqY0BUItBGuEEYpg0zpZVq+aPiJ6Sdp+/6QiCQJt/Fxmjnlnk++kdyDv+SJIh+nWU4vu07dWtf1msVURvkmr8xKVj8/sLMxcd/mZekSknBQKCYnpGhb5lOmqsSat+3PY9LNIz6s4YrjOCh/+xJBj7UApIMzQtMhjyBMlQWYWq21CXHIykP/FvsumZI4tyap0+j2yF8NzAP9VdN7O+twcOSbD97c6W8X9yIrI1A9d5fhjmKe1yG+JUAwGXMp5sxp0nAJX8U2XQTW1TMV4OS8k6ip/p2Fwv6y0SKOt+rbjha7Xx0ehIWujz9lPSR9l+17uwAdkwPNo9KmHiHsgFxTWS/yheZlHSvB+ChJJyKGlLnXyveLmtkj8RuiqoBkP4KA4oKKBbzPYDPuUJzV4n623LUO7NGDPwMlGH4/8dcEILMoAAmapAQKSr+9WfnFBwRF70aN9spCUWnEOD0IkdMi3f8n8RIaYocdJuNS4kFT1nvkvQsQeV85yJ+59XrlwfhE7IPCMGLd/iLoHv+Brn6FLCUo5EvcGBjAsXV25jYfqszLtCoDyA1qWcE7cW5jvWhoq8GzC/WySFTtiwoiD0BYhD0ik4pKsVHAYPBUd85B91+GBhgZNmfnRFeUaDe4qFcltQ0TO5oJSiy7W6CiwIKKTOtH4BPz7JouM1P/QsevjzfZfUUs7hmWpZRB9xCDgRHSdm5FulMt8kkxDMin9rqOlTUUj6AboP+Mq3ENfTnJNL1tlpKuksF/uQVWDb0flD6mq3MgngeksTMAhCJ9rBmOCmWmteTgTzDOhI9zR7RbYvKgdUV/PSVnpq96MJFuGkJow9tXJqELK/6egWdZWYtnIRXpM2/",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "244d8402566a1337a4e50930da36a65b4b6f9d39c66b31a1cbf454123e5d259b",
+                "sig": "ad8e9420624e9628c0d17e00f6ba6ff164476a3f1ee4ca1510f85638d82d759062aa2a12caf582a61994e13d140bd0f8e4c73f9826fc1f7a8e7de794ad1a48ce"
+              },
+              "nonceHex": "2ebc92891a5ec4b3618b74525aebddffe9d2f1e2ce36b00f85244a5cdd200df8",
+              "auxRandHex": "1745ecffab585990cdb67cbfac212410969c52540d14b25ae2942c04f49218b0"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "edit-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Thursday?",
+              "sentAt": 1799999800,
+              "replaces": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Thursday?",
+              "edited": true,
+              "edits": [
+                "edit-1"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "edit-latest-wins",
+        "kind": "positive",
+        "note": "Two edits of one message in the same second: the greater id wins, exactly as reactions resolve. The winning edit's mentions replace the original's.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aue6+bvCO08PGHkIeK/BsXy7jPce1DMYaUnsuEgydwXD3jJ63YkebUml2LEU8fqlw6qVw+ybmIqUbeCTZh6TrojFQlOGWjBy6KqOK4SFnLi32zMu1e/EFh2RO5kMJfsl0bs85q5kC3uGn5WeqvULpY2RklussFPn89xo2VuO1Wd61dJc3slaVgPD6xp6HzTsDJ7HVudYRYkvzboLhMyQ5qUtZKp86ROIJQvSK1tCvQUdgDDOEzBWHg/kT/DDdmG7152TGELqc/cHNlBmIB0RRS50xsYB8+7l2GJWZ9fecK1ObCuMGaRhkCN9bB5vXPg2r6XLCkseAYkiYuNpjOPpGOEAX2fUa9B8BpsAYnJOArgqWitEghH05nUPIu8rEbyH/CAraEMD0Qu9xdwx/7TE/ZyWphfKnUZ8CsztlquqEO24DLwe5Z7QqTRhfJ1I2BwseK8cqk0CO8R/Ek1iywgglT1rIlj6R1KiZjwmG+2vi/zPDj4Sl/NWc3qGewMVTtsfp7oqkVieGVHzfqU2CVFpJbh87bueQDt/WA/YwCvuggz5jYfChPJNwaycc9A+yGxSWwkekP7zAMUJCktvQhAc6CIb+QP7V8UYJaE17hbPv0tl/bofabJ8RuT6UoV+KJ8ImSnmII3k5oj/kJh/ws/I63H22GUU0fcfQrdQNQzFFco1TuyCgkw34G+uiX0H4yoBwoHHDuO/Dx24mSgvPpJasX7sXxmAg7Gu/1gT2y1ZBk0B5nxxt4498JUxdksr5LzNYp5PDS1uq03vxrkWeDgaq8l8Bmbq6IgdHdiLYDKLrAhiOOxbNHyd1GnjZkOiV8j9V0vh/0RwR/EtSROTJ9brxODsdDXEnlHgiy2D9W1OlNw6cvjULio1hvJVWJQUIaM7Q0kpx7LTeEs1es+uYN4q8FB5JE0EtUarVedECM6yXATUrOufiuPRQPZifhdrypOZjou3IwcozReDWJxmR2TN+KXA3oTgXIgK5Es7Uva+A0jbJgZg0hzonkZhOkMpUmNlsQP+hRqiC9B/3Rlvd3V8G295er7OOw5NcjOJU0VRpN9wjN0g6lsXYCD516zhbOgBJ0/nFNC39z6Dswl4UUZxsJhPmQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "b694f372080b35c7122b11bfb945639fae7e4d96cc585d733d21350435f303c4",
+                "sig": "2b7c4492aea040588e01f2e95785b29df5cadca375dbf940b7a4d38fc907e264c6c4a7d86cfb942e897e94eed21ca715c31cfec468103eb99fd37d4a0fda2119"
+              },
+              "nonceHex": "e7baf9bbc23b4f0f18790878afc1b17cbb8cf71ed433186949ecb848327705c3",
+              "auxRandHex": "7aaa5343fb2c807a124d896a7fc8e9a588e6190d6566c14aeaec0b07f1193148"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999800,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ai68kokaXsSzYYt0Ulrr3f/p0vHizjawD4UkSlzdIA34rduaMSXOsr3gnWrcQ/0wAnkqvJx5H+ltiP7rTGB5P1r9ECRBsAbTMpLMmb85zg4JUYhdHjeQIZ0cP1HX27+4S4TFo53h6UUtP6tPrsCUvAbWoBkSMVTa58zABS1nYsI02L4zlSmKERF2f1sBgEhE2QLUI1ruDDGDCQbAXvGZY9+O2K1WRNdJVz1Bt95y5xFxkAQBq66lKwmzbQjnulXRQ8ZAMMk5DhQbxjWHPIvv8QYrHyUM6Rq2lxHWFK9Px/nsiIpAx30KHLY3nkUg4aoIncG/yV/zJWDZf7xZB4qN8+7/IhKGlL7GeH7fcp6OYlsZYwhYbiyB/JFkoafKa0AsuBqSfnrQ0WArBqj9OychIa/jUsmpcynMS8F3gjrKq5oqY0BUItBGuEEYpg0zpZVq+aPiJ6Sdp+/6QiCQJt/Fxmjnlnk++kdyDv+SJIh+nWU4vu07dWtf1msVURvkmr8xKVj8/sLMxcd/mZekSknBQKCYnpGhb5lOmqsSat+3PY9LNIz6s4YrjOCh/+xJBj7UApIMzQtMhjyBMlQWYWq21CXHIykP/FvsumZI4tyap0+j2yF8NzAP9VdN7O+twcOSbD97c6W8X9yIrI1A9d5fhjmKe1yG+JUAwGXMp5sxp0nAJX8U2XQTW1TMV4OS8k6ip/p2Fwv6y0SKOt+rbjha7Xx0ehIWujz9lPSR9l+17uwAdkwPNo9KmHiHsgFxTWS/yheZlHSvB+ChJJyKGlLnXyveLmtkj8RuiqoBkP4KA4oKKBbzPYDPuUJzV4n623LUO7NGDPwMlGH4/8dcEILMoAAmapAQKSr+9WfnFBwRF70aN9spCUWnEOD0IkdMi3f8n8RIaYocdJuNS4kFT1nvkvQsQeV85yJ+59XrlwfhE7IPCMGLd/iLoHv+Brn6FLCUo5EvcGBjAsXV25jYfqszLtCoDyA1qWcE7cW5jvWhoq8GzC/WySFTtiwoiD0BYhD0ik4pKsVHAYPBUd85B91+GBhgZNmfnRFeUaDe4qFcltQ0TO5oJSiy7W6CiwIKKTOtH4BPz7JouM1P/QsevjzfZfUUs7hmWpZRB9xCDgRHSdm5FulMt8kkxDMin9rqOlTUUj6AboP+Mq3ENfTnJNL1tlpKuksF/uQVWDb0flD6mq3MgngeksTMAhCJ9rBmOCmWmteTgTzDOhI9zR7RbYvKgdUV/PSVnpq96MJFuGkJow9tXJqELK/6egWdZWYtnIRXpM2/",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "244d8402566a1337a4e50930da36a65b4b6f9d39c66b31a1cbf454123e5d259b",
+                "sig": "ad8e9420624e9628c0d17e00f6ba6ff164476a3f1ee4ca1510f85638d82d759062aa2a12caf582a61994e13d140bd0f8e4c73f9826fc1f7a8e7de794ad1a48ce"
+              },
+              "nonceHex": "2ebc92891a5ec4b3618b74525aebddffe9d2f1e2ce36b00f85244a5cdd200df8",
+              "auxRandHex": "1745ecffab585990cdb67cbfac212410969c52540d14b25ae2942c04f49218b0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999800,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Am1g+EXAkao5UiyrmyKadT97HA5LAGNsg5NsmZHr8ZbKrdnsVwGwGk6WmBFKhdhMqg2k3CqfA8V0P+lpegp7fkv3DdX12SUr0UdArw5zvLn6QtIUZ81zwq+5FUzuC7+WEaX2uYjqnGUjA+32TOkkQzukxjmCCLs67YW1ojAlz3a5Db4C0NFGqHvETxHI+D4Mk4KASXKXBsUUk/bpJpSkmeWKtELq9zlWHwqmvS7U59hWgGs8GoLiarNGVMY+9HpJr9mF5gqFHi84pKW/eNAxPIY6iV3glhlUVGYVzH0QmYTd72E+hxYFNvqlNh6YCJ9t9ksneSTEX8xRZ9mbUYLBG7pYEWwYUTjNuIJe+MXkukpEL95dgFq0GJUs4oenx1rU/96HOhfvnZz4/YoFoa+eq8cflFjkZWgo0kri4K1kAvWWnVbC6STPWlbRXRiQdWp96jaMeGbUPwN9WkD/Py4/xbXkefGDZTauWNokyaTJ8E/6J2er6HUUAm6kVmeakhZzvoG62FRg8CSYVeMBqNic6RYx8VOkUj6obXgm8trAucL/4dlznIBGyoy6FRS+HBZNB4sch1+x3UkHysNkSCC3DdxSIjLVYrnNj9Lpj+dQOORP0xYV/PVm/OqA+54kLeellXfaW6BG/W+asoc3pPIv5xUENza7iNlDNHE7ZCt1BTgKMCrOMftIvjcdfcUD/mjzPlePPTz+wbzsjeP2CTdYqB2QNgFheIhS9B6tX2Ynk9+t/YdFrDJolAeYdGOBsnEiH0vhNGKbxbPYsOvB7/cV3bzrbP3rrv0K/iI2SdTgLcooy8z47GWkVHbIyqEIybnpKaBKc5QWLGzsdYFAB2c2AYI/6POJdvY6Z8TtPloDZMt14bbA4p5gSeHhyAiyKLZe/RzmHkwIB9RAZpaL1oSDwOeWUpgnZM9u6QkfZoVX051Sqw/jmNS6AP19/G4ziBqxKfVTxIppvrFNJLkv7RX3GXwzjmx8waJYtdQaIKkTwSI4aLvJRXrbOnpYbYRSh8P3kVdkaOOsZ45T9YiXxJ0b7921gQtwsIClhGHVYZEh/qTbM0hcSPogwXy0c2DmIvVX0Jcb+7UV/v91Ae3dNQW7IMaM8i1SyadeiNvWGFEVYmrTGN+8dZ54nASW6IM3Nj5klhoEPRvdQl20z1wN2682F+YqL7LDpCaTVzf30fidtcWFSybAIOFLOsMpmc5V/xZsMfc0uFEQCfeSBZ4xfUWDHjVRNujPDRJM6lRuAIEM167gX6cr9b+LYbfaofYK398m+Wev",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5cea5c9b35501117140f9231ac7ea11f26acf14c56076a3af11b69ed8fd29ace",
+                "sig": "efb48af575726ab9d67de2099d42c7c7d41c66fbb55b251a9d50a3d24f4ef8405660247a4afca1dc75f139dcfcb4c17ac507c6aca21992faedfc2f175d0d7614"
+              },
+              "nonceHex": "6d60f845c091aa39522cab9b229a753f7b1c0e4b00636c83936c9991ebf196ca",
+              "auxRandHex": "d5df797ba3e73d974e26daf93d2a1174485db8e1b5f28a172238982869fbffb8"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "edit-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Thursday?",
+              "sentAt": 1799999800,
+              "replaces": "root-1"
+            },
+            {
+              "id": "edit-2",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Thursday, early?",
+              "sentAt": 1799999800,
+              "replaces": "root-1",
+              "mentions": [
+                "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              ]
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Thursday, early?",
+              "edited": true,
+              "edits": [
+                "edit-1",
+                "edit-2"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "edit-of-an-edit-lands-on-the-original",
+        "kind": "positive",
+        "note": "An edit that names an earlier edit rather than the original is read as naming that edit's original, so a client that got the rule wrong still converges.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aue6+bvCO08PGHkIeK/BsXy7jPce1DMYaUnsuEgydwXD3jJ63YkebUml2LEU8fqlw6qVw+ybmIqUbeCTZh6TrojFQlOGWjBy6KqOK4SFnLi32zMu1e/EFh2RO5kMJfsl0bs85q5kC3uGn5WeqvULpY2RklussFPn89xo2VuO1Wd61dJc3slaVgPD6xp6HzTsDJ7HVudYRYkvzboLhMyQ5qUtZKp86ROIJQvSK1tCvQUdgDDOEzBWHg/kT/DDdmG7152TGELqc/cHNlBmIB0RRS50xsYB8+7l2GJWZ9fecK1ObCuMGaRhkCN9bB5vXPg2r6XLCkseAYkiYuNpjOPpGOEAX2fUa9B8BpsAYnJOArgqWitEghH05nUPIu8rEbyH/CAraEMD0Qu9xdwx/7TE/ZyWphfKnUZ8CsztlquqEO24DLwe5Z7QqTRhfJ1I2BwseK8cqk0CO8R/Ek1iywgglT1rIlj6R1KiZjwmG+2vi/zPDj4Sl/NWc3qGewMVTtsfp7oqkVieGVHzfqU2CVFpJbh87bueQDt/WA/YwCvuggz5jYfChPJNwaycc9A+yGxSWwkekP7zAMUJCktvQhAc6CIb+QP7V8UYJaE17hbPv0tl/bofabJ8RuT6UoV+KJ8ImSnmII3k5oj/kJh/ws/I63H22GUU0fcfQrdQNQzFFco1TuyCgkw34G+uiX0H4yoBwoHHDuO/Dx24mSgvPpJasX7sXxmAg7Gu/1gT2y1ZBk0B5nxxt4498JUxdksr5LzNYp5PDS1uq03vxrkWeDgaq8l8Bmbq6IgdHdiLYDKLrAhiOOxbNHyd1GnjZkOiV8j9V0vh/0RwR/EtSROTJ9brxODsdDXEnlHgiy2D9W1OlNw6cvjULio1hvJVWJQUIaM7Q0kpx7LTeEs1es+uYN4q8FB5JE0EtUarVedECM6yXATUrOufiuPRQPZifhdrypOZjou3IwcozReDWJxmR2TN+KXA3oTgXIgK5Es7Uva+A0jbJgZg0hzonkZhOkMpUmNlsQP+hRqiC9B/3Rlvd3V8G295er7OOw5NcjOJU0VRpN9wjN0g6lsXYCD516zhbOgBJ0/nFNC39z6Dswl4UUZxsJhPmQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "b694f372080b35c7122b11bfb945639fae7e4d96cc585d733d21350435f303c4",
+                "sig": "2b7c4492aea040588e01f2e95785b29df5cadca375dbf940b7a4d38fc907e264c6c4a7d86cfb942e897e94eed21ca715c31cfec468103eb99fd37d4a0fda2119"
+              },
+              "nonceHex": "e7baf9bbc23b4f0f18790878afc1b17cbb8cf71ed433186949ecb848327705c3",
+              "auxRandHex": "7aaa5343fb2c807a124d896a7fc8e9a588e6190d6566c14aeaec0b07f1193148"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999800,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Ai68kokaXsSzYYt0Ulrr3f/p0vHizjawD4UkSlzdIA34rduaMSXOsr3gnWrcQ/0wAnkqvJx5H+ltiP7rTGB5P1r9ECRBsAbTMpLMmb85zg4JUYhdHjeQIZ0cP1HX27+4S4TFo53h6UUtP6tPrsCUvAbWoBkSMVTa58zABS1nYsI02L4zlSmKERF2f1sBgEhE2QLUI1ruDDGDCQbAXvGZY9+O2K1WRNdJVz1Bt95y5xFxkAQBq66lKwmzbQjnulXRQ8ZAMMk5DhQbxjWHPIvv8QYrHyUM6Rq2lxHWFK9Px/nsiIpAx30KHLY3nkUg4aoIncG/yV/zJWDZf7xZB4qN8+7/IhKGlL7GeH7fcp6OYlsZYwhYbiyB/JFkoafKa0AsuBqSfnrQ0WArBqj9OychIa/jUsmpcynMS8F3gjrKq5oqY0BUItBGuEEYpg0zpZVq+aPiJ6Sdp+/6QiCQJt/Fxmjnlnk++kdyDv+SJIh+nWU4vu07dWtf1msVURvkmr8xKVj8/sLMxcd/mZekSknBQKCYnpGhb5lOmqsSat+3PY9LNIz6s4YrjOCh/+xJBj7UApIMzQtMhjyBMlQWYWq21CXHIykP/FvsumZI4tyap0+j2yF8NzAP9VdN7O+twcOSbD97c6W8X9yIrI1A9d5fhjmKe1yG+JUAwGXMp5sxp0nAJX8U2XQTW1TMV4OS8k6ip/p2Fwv6y0SKOt+rbjha7Xx0ehIWujz9lPSR9l+17uwAdkwPNo9KmHiHsgFxTWS/yheZlHSvB+ChJJyKGlLnXyveLmtkj8RuiqoBkP4KA4oKKBbzPYDPuUJzV4n623LUO7NGDPwMlGH4/8dcEILMoAAmapAQKSr+9WfnFBwRF70aN9spCUWnEOD0IkdMi3f8n8RIaYocdJuNS4kFT1nvkvQsQeV85yJ+59XrlwfhE7IPCMGLd/iLoHv+Brn6FLCUo5EvcGBjAsXV25jYfqszLtCoDyA1qWcE7cW5jvWhoq8GzC/WySFTtiwoiD0BYhD0ik4pKsVHAYPBUd85B91+GBhgZNmfnRFeUaDe4qFcltQ0TO5oJSiy7W6CiwIKKTOtH4BPz7JouM1P/QsevjzfZfUUs7hmWpZRB9xCDgRHSdm5FulMt8kkxDMin9rqOlTUUj6AboP+Mq3ENfTnJNL1tlpKuksF/uQVWDb0flD6mq3MgngeksTMAhCJ9rBmOCmWmteTgTzDOhI9zR7RbYvKgdUV/PSVnpq96MJFuGkJow9tXJqELK/6egWdZWYtnIRXpM2/",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "244d8402566a1337a4e50930da36a65b4b6f9d39c66b31a1cbf454123e5d259b",
+                "sig": "ad8e9420624e9628c0d17e00f6ba6ff164476a3f1ee4ca1510f85638d82d759062aa2a12caf582a61994e13d140bd0f8e4c73f9826fc1f7a8e7de794ad1a48ce"
+              },
+              "nonceHex": "2ebc92891a5ec4b3618b74525aebddffe9d2f1e2ce36b00f85244a5cdd200df8",
+              "auxRandHex": "1745ecffab585990cdb67cbfac212410969c52540d14b25ae2942c04f49218b0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999810,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AuGRsf9MU/F18cADT9+cLCu02fJm0w46A84QefoobRz/xXghUOZsKSwcmNbFllo+BKUl6Ae47LJjRCsxcTQgqROlpA0bCK3CeR5DHPQLmZQNpJIOBql3JHAc9w9JIUxT44mRofj6IMRPqzlANWJns5F/D+nf+dgQxWjMloskSJN+6ncoFgRYsBFKNqBHklFhQQZ7bDL3w1h9vWUrDFvcYn6sFipS67mP0OZxg9vADHEzDdVtPPtQuhte7h4qmETu9OCNd+N2KhbGFKmYBTO3GjyWvjw4VsJ+f6QP87czLAEec+R9KIl5nRfQjJuMkzvFXjCbOpvkHjV1h/IuptbcV3E5d9VDmQAFSAo+7Yt++55Xvz4k0AGM/36sKBYCe1s7xiUFG/ZtpNfW2azYuv0sqjAHlFCR6PQGcLLq+TucEQOPKalWymM6Ffjyc85VyYYmIu2pth9w2KH7ZmxDa5s5Dir/XXByKz4eBy6wwK1GQixzT0smmG2GdYlIBcBpUAytJTUgARxd9HSUIss6qiSV5RfBwNxL8zlXYwJJMyBFZ9NSh2nlOcijzMwyhVGmCxWYd1TAlvfkbOIwpryo+OR+7EPxeLAmQ7pjPNSqniv/01gJMM/mV6LerL0rUMfeSXW3MugWxl+ve6lFG4Mij4LQIlRp6gYPkpLx7uAxL97eWUekATT677/W2/44m7VScIieZMyionl94GEhbmEi9i8KTGUU7du4waTo8ooS1ELuUg1DLE8+I5bcXJtxfOSIdP9eOZOTswaV4YL6fjEX1sPfisvh1joZuOWpIpVTLNQU9Bs5PMR0zkFOdJdywVC0ygAb55wI45ipL/hmYwVvkihcjJVHX09mATtBq6L5OYIJtgaDfWobsHyakgx9ukosPzp0D1yukBGxikUsdXaUGbE9pRzffRvc/PAUoicwp22loNU/Nyx8mZYErxaciqtIOnGmR2Q1iRarV4FFaMmKgqRdmHJPyivZlBNQ+GxJKNMsgCzNxHDT3o6Em3ke9dm/85dT8uW0zycBbPwzHH8hDgZFOzRh7WAKMDBCZz/pt0MoUpHvHbczPGPgChr/GTEF9yRWZ9g+5dG4uaGL6VT69kpGgSuRAax0a5nG/DQJUyE/DDX9jGiYNNZT/aqz6IXmPDowlVMqCorM61pYleZPa0p5smj2N9Tk50xdpNpWYESb5U+on32oCSYFx4PY6YD/tB8le/yPPxOE6qzMT59Z8CBAhPMPO0Bomr0AdTzDcrsyADyt08DZpWhpTSESJAP/Ffwd5MKV",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "6b71785128da78faea04b9d7ec96ef1ba10d1657508118f2aaf3d1c647d45a24",
+                "sig": "507cdae2676b42849ddf2a503e6c8d9f871e2e687cb385cdebabe9d144356e2cbd4c91cdb454c4cc6535faa7cff735a20660521fc59a3f6f7a03fc6f974a08b3"
+              },
+              "nonceHex": "e191b1ff4c53f175f1c0034fdf9c2c2bb4d9f266d30e3a03ce1079fa286d1cff",
+              "auxRandHex": "0c32f06630cf2e2ef9af279c910bec05524792fc324ead4ba229f2212939440d"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "edit-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Thursday?",
+              "sentAt": 1799999800,
+              "replaces": "root-1"
+            },
+            {
+              "id": "edit-3",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Wednesday?",
+              "sentAt": 1799999810,
+              "replaces": "edit-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Wednesday?",
+              "edited": true,
+              "edits": [
+                "edit-1",
+                "edit-3"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "edit-by-somebody-else-ignored",
+        "kind": "positive",
+        "note": "B \"edits\" A's message. It decodes - it is a well-formed message from B - but it names a message B never sent, so the original is untouched and B's edit stands as its own message, marked edited. Nobody puts words in anyone else's mouth.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aue6+bvCO08PGHkIeK/BsXy7jPce1DMYaUnsuEgydwXD3jJ63YkebUml2LEU8fqlw6qVw+ybmIqUbeCTZh6TrojFQlOGWjBy6KqOK4SFnLi32zMu1e/EFh2RO5kMJfsl0bs85q5kC3uGn5WeqvULpY2RklussFPn89xo2VuO1Wd61dJc3slaVgPD6xp6HzTsDJ7HVudYRYkvzboLhMyQ5qUtZKp86ROIJQvSK1tCvQUdgDDOEzBWHg/kT/DDdmG7152TGELqc/cHNlBmIB0RRS50xsYB8+7l2GJWZ9fecK1ObCuMGaRhkCN9bB5vXPg2r6XLCkseAYkiYuNpjOPpGOEAX2fUa9B8BpsAYnJOArgqWitEghH05nUPIu8rEbyH/CAraEMD0Qu9xdwx/7TE/ZyWphfKnUZ8CsztlquqEO24DLwe5Z7QqTRhfJ1I2BwseK8cqk0CO8R/Ek1iywgglT1rIlj6R1KiZjwmG+2vi/zPDj4Sl/NWc3qGewMVTtsfp7oqkVieGVHzfqU2CVFpJbh87bueQDt/WA/YwCvuggz5jYfChPJNwaycc9A+yGxSWwkekP7zAMUJCktvQhAc6CIb+QP7V8UYJaE17hbPv0tl/bofabJ8RuT6UoV+KJ8ImSnmII3k5oj/kJh/ws/I63H22GUU0fcfQrdQNQzFFco1TuyCgkw34G+uiX0H4yoBwoHHDuO/Dx24mSgvPpJasX7sXxmAg7Gu/1gT2y1ZBk0B5nxxt4498JUxdksr5LzNYp5PDS1uq03vxrkWeDgaq8l8Bmbq6IgdHdiLYDKLrAhiOOxbNHyd1GnjZkOiV8j9V0vh/0RwR/EtSROTJ9brxODsdDXEnlHgiy2D9W1OlNw6cvjULio1hvJVWJQUIaM7Q0kpx7LTeEs1es+uYN4q8FB5JE0EtUarVedECM6yXATUrOufiuPRQPZifhdrypOZjou3IwcozReDWJxmR2TN+KXA3oTgXIgK5Es7Uva+A0jbJgZg0hzonkZhOkMpUmNlsQP+hRqiC9B/3Rlvd3V8G295er7OOw5NcjOJU0VRpN9wjN0g6lsXYCD516zhbOgBJ0/nFNC39z6Dswl4UUZxsJhPmQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "b694f372080b35c7122b11bfb945639fae7e4d96cc585d733d21350435f303c4",
+                "sig": "2b7c4492aea040588e01f2e95785b29df5cadca375dbf940b7a4d38fc907e264c6c4a7d86cfb942e897e94eed21ca715c31cfec468103eb99fd37d4a0fda2119"
+              },
+              "nonceHex": "e7baf9bbc23b4f0f18790878afc1b17cbb8cf71ed433186949ecb848327705c3",
+              "auxRandHex": "7aaa5343fb2c807a124d896a7fc8e9a588e6190d6566c14aeaec0b07f1193148"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999820,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aq0imro3Kwww2psdnf4su8YSofSWpOW2wITvjrTX7mc6desXFHG/F7kBQwOIpLXPL3/AOq7fI06ZbDOS6wr1KtISE1gjYz/ksALzHnyrsfCUABM7a/kwxO9bXfKwUd2/aM8rlfqvcZa52Ncs6xd3GGhmIZ7vqaQL2fFD7g98YYEaIx7IcGtwVj2eY12vWRRR1C9OTKbupECe829IgomsK7lx+JAuhpGtFsYjgfP+ybMt1g7djNmiaMZOJ4I9debkf98TFoK36frEKXf0/eaO1eat6kSVRjYhOq+dcvcmFtL2dTBOd88+kFlACtN1Gk6R8mGjcyO9cx4j9tagek4TkfuBw7mCLN2a1zxnKHAIFzvoTk3YNRtN4Gb88DUkAMKKDinU4tKc2QMAUsdJuVwwGm7wWe+xg2oUXVCrlZOu7Nm+WoQSW7rp56eeFrGWAHzvPviUBPVqNk2cVeALVF0TbBfoFwYb2ibhKtHMQdlDsKpmLEoXIqWSi8WB57JyV4QkNDvCw+M5tfbslZzpOg54n3R7ThxurEEeXwF9xQ/O8+xDO8j2pn9/BWdmJwTJnKxdCAQYsMqfi8/IMXBTkAMQ+O151dryuGYYgRrkAU1lnhMddTn42Q2/fnsaUOvmhXGTNYtkvKPZGUDW2rYfM4SmPREvbGhqeeCSHivKYRe9lSjH0W5HOMzrSb7my05BZ2Z3nbj3CL/wxub8gzxoIAUjnWqZLyRrcY7cp/3zsANnogfgr2PKx/cE8+zpWYf5JE0L9q/CGDpmlfc2O9yK3JXO3kxhycwm3gUG9hlqEpMbQGSKz7ZRRji9W82wTT/G2NJNx+iMv2NtB/a//QIXn1/GQnTcu3ifjXmpuUNNCqPk937QIHQIzi5IaGq43XW9WnLSsKsNvVmUt837bMCTzL0Juz0hnSAKESFNxVwxoABxMA8e8XId46xJne9pyjnoFD5csJ/k1eO13rytJ+i1KZ3Kk1MTqgod5az4clswT5wYXDriI3PskCayYdsjfaebUF/3YoL/LNo13vwFiTzsP3Rtgo05GZM8YxjC1b5fxLBpzAgUEXkEMsvtfHK4pXLYCNmNNh75p4X7avpUbXOxyWAhk7ogU5YV1rk4mxOYUN14FZA4VRiAl7pjiLIuO2OGM+kjnHc4P0KCOv81oWTrQUGdnHFgq3TOC0di/kYp+7LT381Rq9ITWWh+7X5KCUhB1grh3Ya996ty9cvOXW7vFH8UvSaaAyIATA6DN8Lo5mdM92hVX/JXOfoV9FdeHRwVZfj5ikGd",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "7009f9e442b6fc161d6d990f08aacfb84a007fe55f99efcede9bba808655ba78",
+                "sig": "64b6b9a0b9729cac0155254ee0167495faa21f704f3e24350c94250afb99212554271408c83d25741577da0a8b928ff5346fd350f8565015484b83490c08d1a6"
+              },
+              "nonceHex": "ad229aba372b0c30da9b1d9dfe2cbbc612a1f496a4e5b6c084ef8eb4d7ee673a",
+              "auxRandHex": "76fce6649823c3b03d6196436f8a1cdcd2cedccfe0c8d705af85f535da73054e"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "edit-4",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Ship never",
+              "sentAt": 1799999820,
+              "replaces": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            },
+            {
+              "id": "edit-4",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "Ship never",
+              "edited": true,
+              "edits": [
+                "edit-4"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "edit-of-a-message-not-loaded",
+        "kind": "positive",
+        "note": "An edit whose original this reader does not hold stands in for it, marked edited: a correction is still something somebody said.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999830,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AhDKzYP6avQmJmsc0PDFhGLfZtKoh/PPNyL5BwKIjkrbbHha2muwsQ7oTuzuuDGGwLWghB5fXHax8Mtntuw0RLX1FBHMYtVhQQeSAzgkE+E2fIckdushI5lWt+sqJ+Q/ILTrOKgYHwJXi7MZWRdV9b8KPW16/cCeZoYk9zvpK93Qse4a8HYKtY9fyzIje1N1rf4wjJCsWDlDTyALxZXAiRRRV16UgDnVUAlC3XEm3uS/FmdKZq8CaxQE/zQ+ggn1y0KVsRsbAiWfa9dBrNRnba8F6s1K1lTDoafslv+eiQmg7H2KHmZV6XDo9arLPwiPxtyKM0vlCEkK3H/zRmfcyrH0VukRiCWCVPRRuCDnQEB4abuWpdO/CJdw5NpVXk9utC1Allby0+AbCuageZZgIdlMnd+zOig2hb8oufYlJhHPZ+9NNfPiFzYTOtDPAr8MnGihDko1HUmNfoSBlmTpWkivaCyDfrb01/6GIHWQM/Nc7u2SfQCF+nwaPZzvfWq9Ngt3fUO7tm/Z3LGp+8pUjlIpep8KTD3Ib4bxTfJHHzwEGww+6GPGSZAdouSWzaJhno76i4J4sKSTE7TSDItGnvxVUpvR2tnewPjR/10f/zSu7eLYh3PiwZuqdQxaJ29etNYFpOieqpXFV+GvkkDLYj/0QsMtxHeYjCfmgFflLotGdr8SRr7Nd+8m8gRrP8hifB2SXTLcBsBFZu8upHSnfc7CCQk//p+CivPYEVEYwiTNfp7XJ26kATL7SIhHB4eu4taye/TzGutbyovt1UoSXnR0C41m6yIMv9exZFT7x3oTNxaqGAuhdLihWaislZLiv5SiLvrWGXLH2q+EgwHNfeLDcdpbdOsJQV6RbiTVd8sjfiNvV0F3iv7r7dV9ZrInZ9xmPfCUaLv3i8E4QwzOtRzq6Gx9D3lMprastoOg+eN+S0aEHiUb2GS2FjGBBs08Q4GN/s2on0Al9zSIVk82SxOVLDWXaMsIvlfvxrfxaeeUr1ZujuJEotronciJOdaDvZJneoVNO0WiNYXhEv/lGy1Rv/2pKxCYc5xCsX3oK/TykWTtYKlb6t0wcUX7/oFmJx3DgVadmVbzX2t5mwoBLQyWCB5TPnEQ8/FlbuQ6d3oz+P3d+i/MPfy+oAfsjJ+lPqulkK1YhxQlVNP4+X9pmSzyU62LhaXMg3s4KigfwK5rVGXAAKBDk8du3I8L3jR73izNLPpQLpe/7FBOaACMy8RkWbttGHfBAjUl0JFbEaepXhftvzaHC2Yg2K+gyOKv77eA",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "43822f357c06498dbe1e4a0e88cda908bcaa88a28017722511d4a922f4edd6c4",
+                "sig": "96d8aac9f056596c69ad46e915a4c0b62ba2d72a44167a80469c75667c2131d088390c2d418337f532de1fdbe35dac8b6c7014faaa9d51b9815484bb98f88029"
+              },
+              "nonceHex": "10cacd83fa6af426266b1cd0f0c58462df66d2a887f3cf3722f90702888e4adb",
+              "auxRandHex": "4580eaf03a43ae309f877012a3b972c77a966e9afd87717c47b11313f4048eaa"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "edit-5",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "corrected, original older than the window",
+              "sentAt": 1799999830,
+              "replaces": "gone-2"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "edit-5",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "corrected, original older than the window",
+              "edited": true,
+              "edits": [
+                "edit-5"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "edit-naming-nothing-refused",
+        "kind": "negative",
+        "note": "An edit with an empty `replaces` is refused whole. Shown as a message it would duplicate what it meant to replace.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999840,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AowjdykXbznrh/tQISA/ILfBEJuDqoeLk85c/xMLQQHZvnKhH9YH2RtBmQ4hgrcUWJEjmsDfYNEbYTlQiUMqnpTwm8sc6Y4v/EICH9GEO9XvKY0f6xYc1IHaKuTf8rW3HIttnHhZ7DZLGn3xtl4KYGxGtwSMIN5OUYREP3fh221Gqo4aCQehrI/r40kyi0khljIOtbBEhB8QAdHeCBYLeiZjgTn6drwyA59CzCmIp8W19YSasDYgC4tltWUwh/S2dWueRhmS+d5uGWLi4BVDkx3VlkM0pW+gQXZ7LiOY6yCosHWdrz5kClbw39q5D+uAjkJ2A1uWF6d1Q1rfYQMJ0Egimn/CSNPbAqWEoZMXeieT8wBpIVKD3J32uHFVTFEhlaX2SIXCL+7pKos4d1A1vzjhsL+4W4sqMkwGUQKAuS34qXLzEWAID/IUSGMxS4Qtgf7VseVfPyIYBrZJxiemI34ChbQxHzpiv5bNjwGocVM9I3oVTSchVdF1R2NaGO1gTBsTnppdZPg6qX53A9tpO7tknUHrsYoCVzAS7M9CRIlm3B2ZOhuI7wqE3bLYxe78XV/knAwrBorJ5oXCRCJL9S/paBIeK4pxGE7ep3nPVaqZQmkg871oPqwuW/iAow/9Bmq6a7+x5JJKACTNebwqDYnou2VHYxXtYbDkZLF0tQLePet5m9XXSPzDiW5BRr5nGZI/j+64TyF6LKtuDK4otPygTK4V37tqZbfZhbNsbnJ2pYSCgHanq8BgbZfakycJ4OA45xYDCYSIz44hUA3Vt5wDn87uy9etH3tO9il8uoaACwiPDUjm99IT/LObIrvjdEP3iU93zdJZkAVWVYtY/IomHaJt8lAL40zIcLFHQ5Jj+Hxw6qY6TMC0Hat2nvq+0QFckB1KvtFSYgaYGXBp/scM953QJUw3/ydvJgaAU1ICZqma0R7JEsnUq7Oy0mZ+rk31yG7crrElp++RWYgVu8iWgYw8B/VIzu0HoLhQOGEoexTyf1VPu08mxuPyQdlV2P7Cgb3tRkmfjTVAdSPMxjuHKJwJaQP7joSSKZxJdy65cwEsenGjz8mFI+07LkCiB8IvwUqWDWXF2icmCGQ3hIf4Qg==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "28231b7bcc366afb1057614d039189b2265cb425b73b149489484bdd3a6dfd5d",
+                "sig": "ac8a35fa732a4fb3166a0cd81eecaff7ece4b4233e3622f186e5ad16b83a07e624146f97b114c661f0909b146729e57737250af602d338a893e2396623e0ddac"
+              },
+              "nonceHex": "8c237729176f39eb87fb5021203f20b7c1109b83aa878b93ce5cff130b4101d9",
+              "auxRandHex": "0adc773abe098a0333b3135f5282c4d1a6e18c7d8d977c9b94ea25e31de592a5"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      },
+      {
+        "name": "edit-with-a-thread-refused",
+        "kind": "negative",
+        "note": "An edit keeps the original's place in a thread and its kind; one that carries `reply`, `thread` or `kind` of its own is refused.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999850,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AqB1AmV59BWmMY8TO80q9mSI3RpreGNmdEeJTkwqJ0ZMzNwIqRJf6K8wdDzqINeKwZuNAQXlqwLWJqCOn5okaiWvFCIjw9CQFy1OeoMh33LGyW0CBTXeCBRFBAbsHC4u+VkJX1sH2OyTD3lFqbIuZxI9EWv/6ysrqE4yfyfR+neJjz5Lwkb2Y8Npv0FuOYKcliBLbct3DR69YxG7UYI3SAkZLN2w41CCyg1SFpnP4XnlHP9bZZs/jbI4ezFVLRDPBpxqRtOhts1gh94g+YKFZ1fccBwGPEwoI6130t32UwVHwn9LJBffnfhAF0GmXrcUtmJhyMmHY5l16XzxXy0bBNmLkrehBCk7TCgz0vYxI/+e+G5pZi19hschksCz+7/XAG8jpj7C7iny84rwkbocJhHjH7DcDDhHtor0uQlMC7dLv6NvCj/DU+Upfr6VBzevT/0soJDXySFdsKBG+rii0j/5wFQUyOohf+FQN5Ax7J0/Kcd/h20SMjLulfY/EI1oVmohCm0YO95ti++Vne/VuxRnnM/R2k5u02JpGrqv//mit9llzQWy2IhK9hPwW4r5eJ9+PQI7QyiyEUoarFGJGHSDVZaj+7TBmybA4Avs0iEtwMzrZOUC/JzEgLtm1Fw+wqrwhlyKGbwn9q6roc3Gwaxxgqyu23l+beOqexgy9v60dqu2/iC6IQOsnVQpHQI6cR3q+FbaHSGB9uBk1yhOzQRp8xDJlRX+vQ1V5ylzng4rvxWJJZeGZ4zpIUsMQMHBU0FU6znWLhpxLsNSI05XO+KomI+RtKiezMpzKZ5RCwlvf+MSKyJBgzPsbt00BS9CNOUskVQWLBfM+FFUzd1iJbzWclXRBzCkJipID79u/Ip07uXEa5uI2Ht6owsJ67W/Y0lECSnY5XpTza9ut82Lo1JR7RFRSPrRaNKRlYBeUP71k7amrmPFDJuyOlJLOE5QDlnnhZHEs4goI5P594W3F/3vxf4FS30WOClPj//jhdwga17UewpKeiMbhIRwocsHrkx5BXvV1Nl4l9IDv8A/uCNL3ws7ErKchO9Cg+alOFST6d433p4tRMCA5d4pxaGy660gMSSuKvDuStmiewFhwHuiNmG7XZO99JB8LskQ1jzzzPgckd+Wt8qq7ulOduDLgVzo29npWvtVg3qtMNhHb2ICB5mEGGEuMpIfmfs2KSbfZnlW5bZAPUMAFqBuvnddO8WhdGXdVkIaXQcPOTwPn9TcSM9Q/oeVdEpfwq4te+6bqsRFVMW7AGjVsf5HCXUwJd8/",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "9dad79c0f154e2db7fb1339c4a2222bd297b3c807d7d5788be2a5ce49fbea8cb",
+                "sig": "e384906e676aabc2bae48f547ae2b7b42e59c9e17b223f9fde517b7b92dc42c9199603ae82ee77f944a2431a96ed0f46a507d7d7c9a33efacb1bafd7edf0440f"
+              },
+              "nonceHex": "a075026579f415a6318f133bcd2af66488dd1a6b7863667447894e4c2a27464c",
+              "auxRandHex": "1f567f9a9a2dd8fc8b13b3adcf12a56825ca670187f8bfda30ceb5a548c3f401"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      }
+    ],
+    "chatRetract": [
+      {
+        "name": "retract",
+        "kind": "positive",
+        "note": "A retracts its own message. The original and every edit of it are shown as one retracted placeholder, whatever their times: here the edit was sent AFTER the retraction and is still hidden. Once retracted, always retracted. Cooperative, like every deletion here: every admitted device already holds the plaintext.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AsDZrGplMP/cEr4rGjSFmyp/D81UB1X39L8B4LFgB4OwIuLX8gHKW9HQwWSnEVWzyGaErBbzdDGihVGk7hBfTzVLqoj6aoJtPrCvyfiVrqy+Ktxoj0iIp+xdrjFWomtOJ1A3Rs7yXJAVb6VZWZKGuzvdQkPLG1TbvOQ0X2ebIis//Q6/OYdQOumxLDZlBKzeZCRD8/fxdbMxgN/CrYQFvBG/qclF+npdHZlXuiWFiEXBzt5NIC7GrT9jX6NyA7sf1duX2l3qXIG1M91we4RVXHnzxTcoyZ4V6nYjjDrIyBBSwTWJVbgUkVMRLwbeePmJ56SFjHMiNPMGHp69f0tc5lZWvsbpYZPrAWjxUoyz2KN3jdS9Ik2d8wp0Qcfs766YKYDZkXpGty61uJ7368zRzs6xSQt0OkmnAMTk0/AExYNw/9beYq+Xn9PURl9nNwrWlNq7EbAtm3OyAHCMEXd3dfzNHT7qDiMU+1rYKL7cHeLja4cFtK75AV/lsfueEF7W1KSKQOSrLYgyWgkBLIe8GdmhZIz5KKasXCn1mhSFOLvqfCngQgM/eZSLf51p+kXjNz74LB+cqKMWXf2c6xsXwiSbid3aFsGyfiTQN3wsAx865mdxd0rjf9EIlBLkICrGMyNorK5c1q37nK7zbNQqO+KtmzKSNndJAoi98ZWvuyrtE7f1d4DYNdkcQ/rIDscMueWGWopnoz1+yula5TsnW7VNqCrbKZ9fdck5SbJJ8hmt6xW2uJkdwY2iyoqFq265yrP4b8w21+2FWf4qMF7jbEJgysj1y7yQ3lmGACyRnB4FQp/MnzSEKT+QxRj4RiOxgshwkXZT3d5PxoxJHFdkR2DIWmTAoorbwJkHOenEkAMHgq9px8YG2dxHadLbEaovRojmEIl2tpy72hn72BaOgZn1igDTwzCzCruDBMPTFiWq/ky32L587P2nf8OO1SPRW9QDZqOkpIWWfZjHyx8uJXOplCF5+ZaQ8LTgredOK1UlmS1D4mSO9/RwwhUNcJ9W4mbdJFI+m99qTsLD9Tm8r2fG6Xc4guaYnkZ9Hw1hAtBwPwuYamxZWmPnjaInECxn4D5jpg2Ri+lC/MsQYmXbb6GaLw==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "45ad7662098c33a7ee8bff7204d9500c6dbd758cabfebb40bdccda089854ade4",
+                "sig": "d6d304d10986cfaebd4676a181fc19fe340ac04ab355da774a1098c1e09c134a67b1f29321eb7421d810cf8e018f73b34f9604000d95547356040edf38ff2180"
+              },
+              "nonceHex": "c0d9ac6a6530ffdc12be2b1a34859b2a7f0fcd540755f7f4bf01e0b1600783b0",
+              "auxRandHex": "ddf6aebbe6dbe24222deafe8c07e068ca067d69f3ef0ec7515491714b315eaf1"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AuXeNod+E8dtuDWwM0p0dv/MtlchyN6dukqyCVJU+irMxlf22rF/qzabrvIHJOlDrFOVMl48cFb0TnnkRYOCFz+yN6wO10t3HF5QBRICMcBKUq/cfqr7h2AcWdAf2S6t2rbKDRpxlK6OumeFrNZU0brPzWvYGt9jr/S7wYYth8NOmGQmoBlCc478RhXEDFUL3jNEJmJtecz8czMUjjJ6t6HBWdC9sYpUQ136z3zAFKDxAcM3EyAq9sjJRXd3LJoeX4f5vaRmhrzBL2t1Tc4bMj/kDBUSWldKj3sr/6vjFUa+9/D+61v9ghcAVj/sjV+gEbeTF5/OLDPKcxlULpW/HZbw7d8yhXAwOF7X2D6liBMvrDQH/ZbaYGFHhWGSeUBhDNSRnJaLZkwEkDx2tIO0YEuzdG4mb0hZLLelnu37EJnRm/zSdT1ElHAfQcR7kg0kzIpZIZbV0A7qWWIKnwqCh9gKQJcLxLN07poGVhDo04tnEongU7dBuBJcoFfkx9ti8Y5KQIl39mIXFNcgeHtzUPBOfBAwEiY3WZa0lkCqN4TPtFk7V22b72TIB+R7Tg82wFr9QxRY+z6WgM3GBU7xzpORFObOLm3E+vKrHlbZuLp5jpExpH8mJvFyL1AAj62imNl4SsHelSTd0FXZ6VPR5Or0D3IKvD0DwqXUNnziLZ4QxZ8hfD75VgGEQ4Va0hjXlKB8YerguJOTjK4K2KBwxP2IAsX5cxZ4FN2JTfMlPYrYQKPuzYIsCJtfFbk8qq1u6K29LDLKQdgG6T0TcKRRYYWrvTPcnp4ut+FEnJPv5tJfPEINgMujGaUGgUlKIoBQxxvqNsvbdKpAyhD3Mi/5b31q4i/L8Y8hPNIr5VpTAb7kJ1vsB3NY3Po5kEhb8Lbi2Vw/se+d79/j7oXuzcfnvlmhyYglnvSa4nIWJ8cKIb34I9RC/oVt4NGAiVB0W6J7yur/FrGHJAS4cdaf6OvKdBy0NDQ5PGtWPvtFl10JikF81Cofr3TfG8HK/lKTluj95sPPNbDpxqEVI9hakpawqer0mCufpSzX3YKlGJIUn4d/LCPkdc0S/o+7MwRH1twGg/Xusn7c+NhmeSPFpL1DTV5aXIL+yoRaO03A6aiyCzjrQKsKfRm05arZaPmteEtO8dmZMqgai+hMMMnh6xa4n9aURl7e99BbpR3iJk0wRPhm/g/DVoRHuUVbUNHVqJfO5/hxP1DB8UjnrRRr1Z082MY+TQ6Z7Cm93RxMKjKLmOaWAYhiesQxRXsTmAud93LOVCFW",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "e26de18408fec900b5deea46e5bbb4e02500e3af910298a6be6f8385a41f94c3",
+                "sig": "9f0b830436ba536ac5e40b4b63d9f564cdefb6c2bf0d52d59bd328daf4ef055e4475eb9f073bc007d9bd6faaf79051af8a7b1a809df43aebf690fdaf792b9462"
+              },
+              "nonceHex": "e5de36877e13c76db835b0334a7476ffccb65721c8de9dba4ab2095254fa2acc",
+              "auxRandHex": "d5841160fd01f7d47f37e159276319b7c2e7eb4003270d7e2d964db18c94e0d0"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1800000000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AvmXYHJpkd9/5NTVVWax5EsqbKnbqg6F0w2bXth5t/OBoNixLraqI5mNNPV6z0hWWDWD6SS1q1qTbeCpBIO5Y8MJ9TMotqioQ2c+2I1/4rza48dsDkbFsOhXEcRmWkRt59ZS+TrmvBGdDHEl/WV3vCzI+ABB0P2D7ssfyb8bJphX98JsQRbgplVKTB4I1LsmAmcaRTmE7kliqw6fqyw3fyXHQ7Bq3ZluYWAzkcTe11T+V1OCgl05qs6UXW104TLNy8/e7lx+8TWfgOqIkvjU+U0G0Ll/8rHY1gduDYeoP7FN89E4OBG01H3CyDiTb06TmbbQO3omcdTmI91hdcqNlN4dUc1Ywb5txmQrvPgz1/pao2sCIOa4vajtY6GzrZdPBFHrdGj+0uWJIIiwzKDMyf+W0EQqCINZAJJjqYObGdWZ/LANl1z+DKgbsDuKu1uHQ26NXz7XYBNl80zH9LGD5QURniB6JuTcrOBF5B/LKITv2+n1i5BXCTuvEia1Fg7MsvEASNri26I/ZAhf50aM62rqD6wBurzuFTZkySnHd7mw/ZMhysjbQkkgVKsviSPh3rYHJC+smn1VVwDyMzDxp/jDfa/0yBCOaR1/BMCq+YXPCKGaH4LVz3aKt5RexDEwAttjNfciGpftMLns4Q3vu1Q99+4TOXAEteYJdYUdNATHFw4Wjjc3/wfZ5Aw5zz3uoqpQYYkjwsS8MBV86nEi4G6fk/d1MBMVaCJisSUA7bARciQpYDybfWCc/gRpztcFmE3jq4WTNQtggwMm6pvYKB7E+JJCl7M0EfZSSSsaGooo2rW+vTDVerW45CJo4MxazvtmauTspKBTi5PeK12UwSi8kx5Pb0Wf+S4UBUxG5HUQL+pkVxoQtm7Iu/r+9f+fZW/AwqHqa2M9a5JnOzWYYPuR1xxUOtvszDnZwFloaYHmtR3Cy9LJ639kA13zxplk9WnowA9xaXUthEDpk+1ki70lrGhoeIws+mQN+nY+VIZwGLtrtjSUN4gh0mCnXbPk77Y8vIg7QFrnBKGheFKIVMoIWXNbCIEf+HgQcDfDlV88AutYvZ11y6hI8sNSJ6cWsbwMaRZhQ7klL1JDrsmhWezG/g==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "eae05f76a6c8c94924f60ea9b3b087ddca5f34ffcddbe2c266e32e1cf6ef98b4",
+                "sig": "cfa8cae54c8e80374df979f65a9807781f200467ee6d2585a7f830de4730e091bf904d9c42ae3c5902eb32e69f4358125c58171707626d5a4a332016469d3254"
+              },
+              "nonceHex": "f99760726991df7fe4d4d55566b1e44b2a6ca9dbaa0e85d30d9b5ed879b7f381",
+              "auxRandHex": "a719c85fadb70bf9f6269d25aeceba96d458004ef4f6bc185047dfdfdc5bd1ea"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "retract-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Retracted a message",
+              "sentAt": 1799999900,
+              "retracts": "root-1"
+            },
+            {
+              "id": "edit-8",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "too late",
+              "sentAt": 1800000000,
+              "replaces": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "too late",
+              "edited": true,
+              "edits": [
+                "edit-8"
+              ],
+              "retracted": true,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "retract-keeps-replies",
+        "kind": "positive",
+        "note": "Replies to a retracted root stay under it. The root shows as retracted; what people said in answer is theirs.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AsDZrGplMP/cEr4rGjSFmyp/D81UB1X39L8B4LFgB4OwIuLX8gHKW9HQwWSnEVWzyGaErBbzdDGihVGk7hBfTzVLqoj6aoJtPrCvyfiVrqy+Ktxoj0iIp+xdrjFWomtOJ1A3Rs7yXJAVb6VZWZKGuzvdQkPLG1TbvOQ0X2ebIis//Q6/OYdQOumxLDZlBKzeZCRD8/fxdbMxgN/CrYQFvBG/qclF+npdHZlXuiWFiEXBzt5NIC7GrT9jX6NyA7sf1duX2l3qXIG1M91we4RVXHnzxTcoyZ4V6nYjjDrIyBBSwTWJVbgUkVMRLwbeePmJ56SFjHMiNPMGHp69f0tc5lZWvsbpYZPrAWjxUoyz2KN3jdS9Ik2d8wp0Qcfs766YKYDZkXpGty61uJ7368zRzs6xSQt0OkmnAMTk0/AExYNw/9beYq+Xn9PURl9nNwrWlNq7EbAtm3OyAHCMEXd3dfzNHT7qDiMU+1rYKL7cHeLja4cFtK75AV/lsfueEF7W1KSKQOSrLYgyWgkBLIe8GdmhZIz5KKasXCn1mhSFOLvqfCngQgM/eZSLf51p+kXjNz74LB+cqKMWXf2c6xsXwiSbid3aFsGyfiTQN3wsAx865mdxd0rjf9EIlBLkICrGMyNorK5c1q37nK7zbNQqO+KtmzKSNndJAoi98ZWvuyrtE7f1d4DYNdkcQ/rIDscMueWGWopnoz1+yula5TsnW7VNqCrbKZ9fdck5SbJJ8hmt6xW2uJkdwY2iyoqFq265yrP4b8w21+2FWf4qMF7jbEJgysj1y7yQ3lmGACyRnB4FQp/MnzSEKT+QxRj4RiOxgshwkXZT3d5PxoxJHFdkR2DIWmTAoorbwJkHOenEkAMHgq9px8YG2dxHadLbEaovRojmEIl2tpy72hn72BaOgZn1igDTwzCzCruDBMPTFiWq/ky32L587P2nf8OO1SPRW9QDZqOkpIWWfZjHyx8uJXOplCF5+ZaQ8LTgredOK1UlmS1D4mSO9/RwwhUNcJ9W4mbdJFI+m99qTsLD9Tm8r2fG6Xc4guaYnkZ9Hw1hAtBwPwuYamxZWmPnjaInECxn4D5jpg2Ri+lC/MsQYmXbb6GaLw==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "45ad7662098c33a7ee8bff7204d9500c6dbd758cabfebb40bdccda089854ade4",
+                "sig": "d6d304d10986cfaebd4676a181fc19fe340ac04ab355da774a1098c1e09c134a67b1f29321eb7421d810cf8e018f73b34f9604000d95547356040edf38ff2180"
+              },
+              "nonceHex": "c0d9ac6a6530ffdc12be2b1a34859b2a7f0fcd540755f7f4bf01e0b1600783b0",
+              "auxRandHex": "ddf6aebbe6dbe24222deafe8c07e068ca067d69f3ef0ec7515491714b315eaf1"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999710,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AvIFqwPIc/p5L8SmJ8t+a1wH9knMD4mPwMGKgNxWyJyXfVvA+R0lK7qGy8BDRd1pdvSlYLsmQpv+9UFLNuWlKf3fJfwZwhiuzA6jVvp7JIGGbrhaKvk3Tx5NwvISK01lT6chF1cdRtq5efdBWb/gPZsUbJT1nu+Pq29rebL2vM7DJ/PRD5f7rfnPtGteVekHNs+hBvYPzKhOGu1SCpq2uzTTrU6ZOcKRymWmLltCX5QPupxA6pNpgKJESWDN5a8qn/8ixceHSXF6zKajYumiwn/SBc9MMwpGnPKgvFbzEW3yNfEeJQY+zY4l2Tp2YF3uve6/wexuyo0HIlogjj32IxS1maRK4Zaq8h5ge61yNiOUHUgV6OasvokP13YmwvhxLG79sgKZ2cr05DNvVx+/TyXtkFWOIL7BVW7/0y/3Wuoky6LkSgByDY43b8ZiJqYXNqfXwfcQjwhslcTZh7RRz8Fmdz25HIEj0AhoWLVecsjczCKggV+tDFdzTlnCGhzOrOqbA666uv5DtuYYpFf9Td9Q8YN5lI5eDIzcnLr4XP1mjU/mbRYCsuFE5Xu5pXF0+/QX7UbZjwshm5iM3a4421b+T4JAVaY8oUiXcu03SbfGujzGCDq520n6dIm5F9RNXyWXRIgAiQZ/p7ES+a5Hr6OigEri9p2ST3L39VeanDhlBDT6KgqsMhPXQax90a9n7pDZ/xSZq49ivuIaPGeHiI4NGg+/8WocBCjV8lUD8jC0RaEBbS4RGpNuCJI8+exY4+vBXw3lKpHdvV2uyP0Jqo0i1EV/IBllPv3+PSh5sbeBtINxYub7+fbWkAHGqZa10H87soGBprRKmG0b9mOLvLo9g+uN8HzQssaorUUqPVuDygXFPJUZKeTk98nkI2WFJBtzdw4txV95XdF2MW905RM67B6v0QhDES4rmqb+e2uffljPMBFjoIvntQBqb1Dw6BoPFmLioWj3TBpFA8JOmW6/F32lbpvdtXXpQrb6DkIQtTKNyoXoSWOWos0xWcm2ZcI657ZCUjMwgonftlGIIJMMID2L2zoLp/qHbw4zTQVIcdKr+ACU3T0IXAf+K2uSV1+X16q1AdGEAXxOeIM6S4fAKFpqDDY7ThjveiE1jrGyKoVtwVoLsL+N3B8q8Gyd38SIRQFkq9c41bDVXP3TYKQwXUcIeu4qa95MzsCNSurv4ZZgiKs5OMlFEVzi6CSf/nIrJmsdkptDJD5viNTNtCb1hTQnu9TMcf6uZeN6GIyeyngvuwxOdO9pQY+CtGTmpmXaV+QrPSwwiOoxANfQjfrPLYhf87UoVmwM5eFkBIYewOyB7yMdELA1d0bs8VEocz1ahyzJdxUERhhoUcuOD/rUtlrlnrwUf/I8QFmkXdm4pse12sIUcTLtoVA5/KVRzEH6tbfFaWt/JcSsboFTo2lHWtQWNEUAoFxBXBopMQLHuO8=",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "cc575fec5f9134408e83dd35d577df504afdde44ee30242aed4d4c01e83d278b",
+                "sig": "9980994adfb8303ecb7a991441a1a90136fa54835342e9978bd97fec40b7f5e233b63bd359cd9d1ab1e239d352f3b185b20d0380d3fd080f8bf2181c625d63ba"
+              },
+              "nonceHex": "f205ab03c873fa792fc4a627cb7e6b5c07f649cc0f898fc0c18a80dc56c89c97",
+              "auxRandHex": "8c99447c12bd8ceba1e2f1863c6f8524bc24728f90c670f3c0b1bb1d47f2f22a"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999900,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AuXeNod+E8dtuDWwM0p0dv/MtlchyN6dukqyCVJU+irMxlf22rF/qzabrvIHJOlDrFOVMl48cFb0TnnkRYOCFz+yN6wO10t3HF5QBRICMcBKUq/cfqr7h2AcWdAf2S6t2rbKDRpxlK6OumeFrNZU0brPzWvYGt9jr/S7wYYth8NOmGQmoBlCc478RhXEDFUL3jNEJmJtecz8czMUjjJ6t6HBWdC9sYpUQ136z3zAFKDxAcM3EyAq9sjJRXd3LJoeX4f5vaRmhrzBL2t1Tc4bMj/kDBUSWldKj3sr/6vjFUa+9/D+61v9ghcAVj/sjV+gEbeTF5/OLDPKcxlULpW/HZbw7d8yhXAwOF7X2D6liBMvrDQH/ZbaYGFHhWGSeUBhDNSRnJaLZkwEkDx2tIO0YEuzdG4mb0hZLLelnu37EJnRm/zSdT1ElHAfQcR7kg0kzIpZIZbV0A7qWWIKnwqCh9gKQJcLxLN07poGVhDo04tnEongU7dBuBJcoFfkx9ti8Y5KQIl39mIXFNcgeHtzUPBOfBAwEiY3WZa0lkCqN4TPtFk7V22b72TIB+R7Tg82wFr9QxRY+z6WgM3GBU7xzpORFObOLm3E+vKrHlbZuLp5jpExpH8mJvFyL1AAj62imNl4SsHelSTd0FXZ6VPR5Or0D3IKvD0DwqXUNnziLZ4QxZ8hfD75VgGEQ4Va0hjXlKB8YerguJOTjK4K2KBwxP2IAsX5cxZ4FN2JTfMlPYrYQKPuzYIsCJtfFbk8qq1u6K29LDLKQdgG6T0TcKRRYYWrvTPcnp4ut+FEnJPv5tJfPEINgMujGaUGgUlKIoBQxxvqNsvbdKpAyhD3Mi/5b31q4i/L8Y8hPNIr5VpTAb7kJ1vsB3NY3Po5kEhb8Lbi2Vw/se+d79/j7oXuzcfnvlmhyYglnvSa4nIWJ8cKIb34I9RC/oVt4NGAiVB0W6J7yur/FrGHJAS4cdaf6OvKdBy0NDQ5PGtWPvtFl10JikF81Cofr3TfG8HK/lKTluj95sPPNbDpxqEVI9hakpawqer0mCufpSzX3YKlGJIUn4d/LCPkdc0S/o+7MwRH1twGg/Xusn7c+NhmeSPFpL1DTV5aXIL+yoRaO03A6aiyCzjrQKsKfRm05arZaPmteEtO8dmZMqgai+hMMMnh6xa4n9aURl7e99BbpR3iJk0wRPhm/g/DVoRHuUVbUNHVqJfO5/hxP1DB8UjnrRRr1Z082MY+TQ6Z7Cm93RxMKjKLmOaWAYhiesQxRXsTmAud93LOVCFW",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "e26de18408fec900b5deea46e5bbb4e02500e3af910298a6be6f8385a41f94c3",
+                "sig": "9f0b830436ba536ac5e40b4b63d9f564cdefb6c2bf0d52d59bd328daf4ef055e4475eb9f073bc007d9bd6faaf79051af8a7b1a809df43aebf690fdaf792b9462"
+              },
+              "nonceHex": "e5de36877e13c76db835b0334a7476ffccb65721c8de9dba4ab2095254fa2acc",
+              "auxRandHex": "d5841160fd01f7d47f37e159276319b7c2e7eb4003270d7e2d964db18c94e0d0"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "reply-1",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Yes, if the vectors are green",
+              "sentAt": 1799999710,
+              "reply": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              },
+              "thread": {
+                "messageId": "root-1",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              }
+            },
+            {
+              "id": "retract-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Retracted a message",
+              "sentAt": 1799999900,
+              "retracts": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": true,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": [
+                {
+                  "id": "reply-1",
+                  "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                  "text": "Yes, if the vectors are green",
+                  "edited": false,
+                  "edits": [],
+                  "retracted": false,
+                  "orphan": false,
+                  "thread": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "reply": {
+                    "messageId": "root-1",
+                    "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+                  },
+                  "replies": []
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "retract-by-somebody-else-ignored",
+        "kind": "positive",
+        "note": "B \"retracts\" A's message. It decodes and does nothing: the tombstone names a message B never sent. A reader never shows a retraction as a message either; it is a statement, not conversation.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AsDZrGplMP/cEr4rGjSFmyp/D81UB1X39L8B4LFgB4OwIuLX8gHKW9HQwWSnEVWzyGaErBbzdDGihVGk7hBfTzVLqoj6aoJtPrCvyfiVrqy+Ktxoj0iIp+xdrjFWomtOJ1A3Rs7yXJAVb6VZWZKGuzvdQkPLG1TbvOQ0X2ebIis//Q6/OYdQOumxLDZlBKzeZCRD8/fxdbMxgN/CrYQFvBG/qclF+npdHZlXuiWFiEXBzt5NIC7GrT9jX6NyA7sf1duX2l3qXIG1M91we4RVXHnzxTcoyZ4V6nYjjDrIyBBSwTWJVbgUkVMRLwbeePmJ56SFjHMiNPMGHp69f0tc5lZWvsbpYZPrAWjxUoyz2KN3jdS9Ik2d8wp0Qcfs766YKYDZkXpGty61uJ7368zRzs6xSQt0OkmnAMTk0/AExYNw/9beYq+Xn9PURl9nNwrWlNq7EbAtm3OyAHCMEXd3dfzNHT7qDiMU+1rYKL7cHeLja4cFtK75AV/lsfueEF7W1KSKQOSrLYgyWgkBLIe8GdmhZIz5KKasXCn1mhSFOLvqfCngQgM/eZSLf51p+kXjNz74LB+cqKMWXf2c6xsXwiSbid3aFsGyfiTQN3wsAx865mdxd0rjf9EIlBLkICrGMyNorK5c1q37nK7zbNQqO+KtmzKSNndJAoi98ZWvuyrtE7f1d4DYNdkcQ/rIDscMueWGWopnoz1+yula5TsnW7VNqCrbKZ9fdck5SbJJ8hmt6xW2uJkdwY2iyoqFq265yrP4b8w21+2FWf4qMF7jbEJgysj1y7yQ3lmGACyRnB4FQp/MnzSEKT+QxRj4RiOxgshwkXZT3d5PxoxJHFdkR2DIWmTAoorbwJkHOenEkAMHgq9px8YG2dxHadLbEaovRojmEIl2tpy72hn72BaOgZn1igDTwzCzCruDBMPTFiWq/ky32L587P2nf8OO1SPRW9QDZqOkpIWWfZjHyx8uJXOplCF5+ZaQ8LTgredOK1UlmS1D4mSO9/RwwhUNcJ9W4mbdJFI+m99qTsLD9Tm8r2fG6Xc4guaYnkZ9Hw1hAtBwPwuYamxZWmPnjaInECxn4D5jpg2Ri+lC/MsQYmXbb6GaLw==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "45ad7662098c33a7ee8bff7204d9500c6dbd758cabfebb40bdccda089854ade4",
+                "sig": "d6d304d10986cfaebd4676a181fc19fe340ac04ab355da774a1098c1e09c134a67b1f29321eb7421d810cf8e018f73b34f9604000d95547356040edf38ff2180"
+              },
+              "nonceHex": "c0d9ac6a6530ffdc12be2b1a34859b2a7f0fcd540755f7f4bf01e0b1600783b0",
+              "auxRandHex": "ddf6aebbe6dbe24222deafe8c07e068ca067d69f3ef0ec7515491714b315eaf1"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999910,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AgplEunWAuKiKcZZUKoeyLiyHIktYmquw4p5YSKiVhbMXM1A2ivAs8SAL6jJx8XMLaKEQU99MduJ1DrdEfiFltwUT6X35F40M99rV/IMVmfNjY26+zZZAIIS68C8SGZWDHRjKRjlxL260tn71OWJsxbJVjlSLuADLpQdeWDFctNVSUVklY6eA233Q119WLqn1kzS2DsoFKEUH/Bjer6sFtzOW1djb9Dy4SRSByH6kZlLC7L+w51Zsuz2xV6mDu5uGJHsu2ivN6md1izJH18LOjT4OxV4the7olEju2Dd9XWk0WzXbliLbxGAxVSsFdMb08aN7OjRQyVv+1wIPkDm0dLBflaGprNgYfmgS3mCxW4Ky3zVRXNOenH72dnmHHY+SbmX/CBiumwcC04yWYmiaLbn1d6pluePgAOdORIJenwrdzmTn+7MRs9c/Hw5Gy3CAuP2/OPkL/38FP5pEJUAW5xLZ3FIRL9l3q0uCqMPKPF50Lg81OMRuOoBGdNAbV1z7hy9mPwPi8rpejpfFBvLbA2IOHOmnZ2rvkMlN/OUo6PxAG4E+YAsO28FEUQowNPTMFTdDVQ+68jTJTD6XgsZsRjqQ5tYcdnk7JOIp3CqeHZgokcReeWaCiRANExvZvyy3/M62kIjkMiUMD/8wOyDOid7I6Oiw+fkUs8apRhDj9g67uIJfGjwQG/7/6H3kPC/l36VKSiiLk/+I20vqe3Kk95W6tf3hbC1hJmLl2BguBYtwdI35KYEYwJFS1MpOgE0TeM9ta2Dgu/Q0dMNocoHE7mlv7PITc5xMFx//reX4KjnsErTYCBS9inZ7pIIi6xO48RVz+RQ5uw3nosQ721welGERlPC8hzzDK5IjX6/gG8GCmCbJb/AM2klGOlK7QqvsiUz2y3iwuotWVuBVPSBBhtQ5ZTdsp2Xt1sE4qzR6NhDd/mgtZhX/EXFcqyvpRdvMzisEVpRJki8IUEZhFOoyxNHedHL3A5S4LFs3aqeOr5rwZ3vz8UZgYgOpoRSlfbs3Yx6g3+TpEcPDfeFLY3/RqSWfzJXzmCJsq8M4bUOOyNGdctM5y3GYSCvkBlr7v04wq+jcPFiuaptKyxwrkZXkeHuArgHrDrrfSBBfWe+FeauD02aJ53EdUU6Y58Zi17pWrvrFDQNb+HBlBk/YnyTvuVjEXLimfasOnRZNKaJlVF+UZuURlMmh2p9BAKu2Mvq06N837rC6endQb981R530TBl/lgOEjbd0QCActzP+9VASC8aZMn4Q90kFeu/rBjMo+n2",
+                "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+                "id": "4ebe1276ec9991e062a6749e4acc6d8616c4606523619f2a8de46b655a9f93cb",
+                "sig": "ef1ab00648be5fe9780638913275d1fd6fdb7012356cd0631b917df1c3c32c1a2b19f326fca04ca0e04f277f2e422bb3ebbc46658664828c07d01f93f5565723"
+              },
+              "nonceHex": "0a6512e9d602e2a229c65950aa1ec8b8b21c892d626aaec38a796122a25616cc",
+              "auxRandHex": "a87551414377a5d6c77e5df760b2405f48315cb7c9cc03d06a619d94dc1b2a7a"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "retract-2",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Retracted a message",
+              "sentAt": 1799999910,
+              "retracts": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ]
+        }
+      },
+      {
+        "name": "retract-with-attachments-refused",
+        "kind": "negative",
+        "note": "A retraction carries nothing else. One with attachments, mentions, a reference or a kind is refused whole.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999920,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aoc9moE20yXWNF6rJ81IuB1vV4q3sGXDwAVZOzaRHUSdAu4p+DJbfZW253YJP6gF+lEuOA5IzcNbFlhE5Oxg1ry+BBGp1ZdlVGQpDKJm+8YRYHaGKJefw4hQ5W5rDJW/5hHU9NlGdc1qdvVhShdjN3/3VBnvF/xhraVKNThVoVLBpNqboOPcaGUwZ8lnRrmLG8S6xTXVT7BvoGdUPr6CgBVXD5VWs1fdJH5SB9cDJ6eZms77L2/Zv8VRVFk+SCFTde2IYL9tF3t8goCGzzsetLdu3DxxJ0FcbgvTp1wTaSiQm74dMkjXJch5bsrVQQ10Os9m2Qc3L0Kd0uprEzEQsKFhTr/FMQbx8U5DSUQ/XUxFm0dsZbr9Mz7dZuBUgG5NnTJwx7D8tHOu3oTXEVsIqRf7enaOFFFtNkkYa7JjoYeknWEB3mntXLxj2Z8QMNyuhLr+3HltVg29avWHJbCrblPyDcEhHaglbU97nEA/OBFbumPr7WrZViX1I6CswhzmD946ovH93Q22BJHTIFZLluDi6qCLwmmeyH6LLMbIMTfRYh+Hyq+/XMLbprZ1bunEZSpdVvleIoLf1WnyYh05OvJrw6Vgnu0gy+//G0JZcaXJo32bI9kad02VKi3YK1GX1+IlQxm//T3EUtzO/qHq9DvgPWJsCFniyOBWc9HmGOfMcXExcZccu97t4qH6NGe73P6liqtwqC8x0uxFjRDyuger+roXYsF+7tYV5e+ClUUbF7wO/yRZFpONZrLtR4UQhrk9tBx+CStU9mUz8PNEybCDys5aM49zjAmVg+uO4GCIyNY0fJZv4Wp2aOIGSNGGCpMyp3dgRhvBtGdI+rUAjvPwbZrzbAu+OKu4+JZYEkDDtJR2kUdshqvDvZGEE191A7tOdznHV5jKPzautmTHWMadAU3XBYln5JkZg4xIv/tkk/qCbF2f70tiHIYnInvn7O6fEwfcw95y+S0o3t2owQg/MVcjAPyGCLN7p+EwVgpBOPW+/qn7aDBQadpgVXTfxzPy7/TVLJhAVBc7sfY4z31sBLXk2yP8kK3+7jVpZp+RvMjdH0uqY2YDsJzLmRRM4FXd94BreX4R/dHJAupRiVl5p5FTOoIrnnZ5IV3/A8S0e9YXVb8s7Kw+v3VMHQLVYNdjIM0N+4ODRhcR6pMvmNVg3OEzdxWMipXEkOjnu7CAMKNjC4lbZ6KKgjpblZ+1n3pGqVvmv8GhuAPkvczaafKacmmEJcgR4m8QFCiOkk2rjBS+ZfxossjFEBSPzDRv3nJH",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "36fd414071edaa76938306c3a2b99794cf31f5006a7775ba7c92f0872f529d8f",
+                "sig": "160a2f96c1618760d96604588c543ba34cd2aae8e630256099dd6216e18f4ff5aaf6009d08bceceb7466f9f1a8662fec88b39ea0eb62df2a04a26f3fe7e4dd78"
+              },
+              "nonceHex": "873d9a8136d325d6345eab27cd48b81d6f578ab7b065c3c005593b36911d449d",
+              "auxRandHex": "6a35c32add8edb75bca4cd7ed48bf2f38ec8fcf0c20e715ec91aa23b1b373a65"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      }
+    ],
+    "chatMention": [
+      {
+        "name": "mentions-on-the-wire",
+        "kind": "positive",
+        "note": "The sender names who this addresses: Rowan by key, and everyone. What lights up as a mention is exactly what an agent answers to, because both read this field. `everyone` addresses a person and not an agent: Tally as a person is addressed, Tally as an agent is not.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999700,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Aqq9t7+MafrRJyPMx4G0ozvlTj2X1rx94nhzrFgvVFoGvGBJO9q6+D9FXZZSNTnLUDnW63ZvmrqiULygVggKPk2BBn3th7cAl2GQezSLKDjL9kZJrgGQiicPoyM2drrGfgRD0a1kXra5XVfwcZMhey49cyPYMcekNNcUs8JmQo5L5IhXpz914XriAzCZdSlhZQS5B1og/SvcHXIJHDEV6lzfUJkFFlCO/CW6V2sDJYofJLkeSMfsRkwPhePnbjzXyw39/SDcPxo5Xg9n6X3yosFp9Xrps+nly7OZbs+qvFx3D4hiqXFjenR9nVTH0KdFNcnWixSm7KpYekXR+Ui+6azxkGvcl0fWPP0pLDZVvmglhPwWCkVaXJUbLjy7x77ijAcD5blqYX6s+arLZLhmv2vD+UdEVcE7Omdh1+aypQQJ148nzIrcKqOIYucI2ai8conXZ6CGf0c7lF8lLFbFO/weMGrsG0cek1EMrzmqqGXjCAIzKH6hXO4rwgkMtOHEzvd6IjuVT7KgZiHFFjTNrq61HBFcieoj13kRcifiC/CJvYNs9wNtInxjx4u0elmGS8rTK12DHxRmJ8mSEfxVlyCKRnUA3P+A3sP3+h4rtg8DKafCNXvfOmr50+m7PVemmBBLUDDCO8UaRPyR1ubBBPIJIGzKL3OfxVCcNWcSwKy0tRPyyG7EytKs/Eg6uiAbsfQvbaoCHASZMJLftduG0vpoHW2+Gwdrke1MiuWj1gRUOS0xzapOdXGYpbPpDrAwuG3plqp56tdKdASonK5z9nzhhptENxJPH9M3vyghsztDsePyC7/ECPIAsrzKMGpIc9DktgY30X3wqfAJq56Hj18/of8S8/JFM9fMAjeW/dUgBCXRt4QQITSnGYn2M8sdTGcuqxFQnYVldW4FurYE4PUtAdahdHrkz9MocpObEnF/rSyuURHgUqUz8fd/FHfkUfw2Py/Leo35t27zSR3nvhjYrONLlgjxCuWbVEHYGG7mQX3GVCmNiK2bZVXGH5U8ilxMLL1o0drMLXc1gfJ/92xTwvoDOctiZTjRDpRIskm+cIuSISqv1oTgrMFrtM6JI+nSAZ3G854Jt59OTc18e5UGPRfOiP0lw/4F9GKrTsylEzNZSY0TbAIsXEy83rKlyqsQVlQQ9IZaJS1bKErtgSVM3h/y+VvIWR3XaNcGb5RyfYSt1V7UramC4Sgt23YYiXyOYFo4yn5cc5i3ljT7GZgj5RFgFr8qbcp29tA+EgsvMZGAfj2PkrHZdDatZwfZ6LsR",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "226ae42c4d7ed8240bf2c4a366a54de1a843200540cc548558d7215c2401af9a",
+            "sig": "f5b745dd00723147e84341c253363ad7b06ba6fe5b0550b78f8475466dc271d91b0acd89dec3f96be3ed2288d9aafa727d384d0ce0436227f53a243a6ea903f4"
+          },
+          "nonceHex": "aabdb7bf8c69fad12723ccc781b4a33be54e3d97d6bc7de27873ac582f545a06",
+          "auxRandHex": "96a3a9663dea5982b8aa00ccc5e4e60e2b6debc5d6d15ba9915dcfa8832e1507",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "roster": [
+            {
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "name": "Ada"
+            },
+            {
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "name": "Rowan"
+            },
+            {
+              "participant": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8",
+              "name": "Tally"
+            }
+          ]
+        },
+        "output": {
+          "result": {
+            "id": "mention-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+            },
+            "text": "@Rowan and everyone: the vectors are green",
+            "sentAt": 1799999700,
+            "mentions": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "everyone"
+            ]
+          },
+          "addressed": {
+            "mentionsOf": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "everyone"
+            ],
+            "rowanAsPerson": true,
+            "tallyAsPerson": true,
+            "tallyAsAgent": false
+          }
+        }
+      },
+      {
+        "name": "mentions-by-name-when-the-field-is-absent",
+        "kind": "positive",
+        "note": "A message from before the field existed is read by name: a whole word in the text that matches a roster name, with or without an @. Legacy, and it goes when the wire freezes. \"Rowan\" is named; \"Tally\" is not, because \"totally\" is not Tally.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999710,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "At5br05IhM//L2x4WdlORRgO3BFU9piKbkfTFnMd2tIaxjiLovQ6TKMjm1PGEopyZ+SGRMjIFjwdOrOVnl/RxGVNGxu+mw7bg5X0ozIdGjaqZ4RiIxxKA2l2uG3I7d9RSbKHWIqTg+LC6915k4MqrcesP6ZfW1mqKegImrR1tb8JZTy6FOZmky1/Zot9eas9ff5ZVWhFP4LrDTdDciihlwRV0q6zOysX/yP/b8+VRUlqKGrdG2oD/DYOVYcFQPQh7ulUG5r0G1Nx7JqYuc3nAlWJ8azd38auPilYQvsQi2l2idQ4xBlqTWBF4M6QiyKz5EZHXsadEkax4FhPc5pqezNz+iBHhkD4zd3voePyUJZs35KLyl9G0j10udg7X1apeqIU6Dp2O6SGSWchej5gK0oj75aEYFpfdf4asTYadwbrH2i4KhzM1wVOWTrhpQ5Zv8n46bc4FmWq/Jr4S1LEcKhk3iEsmbKQKJ5OL0XtSB8va1Ev96Q5Ya8jQxW5WWOC84+ag5icMPRlHJlwkBcQHKMxyXCVi6MSZhhahsL/2L1Lpn7v57F2QqpOWSE8Ua7V00hyrrarCOFIoQBl60BqimfiIAS7hf13Dk6GyqSegETNv/s87yz4fr2dQkwqa3mZ1H0k6DkdhD8k54EErS/CnL1pi/24P96JFqmOcUVUWnFb9vtZR+QXLddOs76Ep4zQT26gABijUvq+zx5hi5vx9RfY79DkoUmudOqkRl/rzVMhUSVqdrJh2Fdf1xUkcoNqVsPRnFMtPgYYJOVbnXjmFA/8kfu19eBxYE2JNqUS3KZq0Wv7a78MJQR8nBlDDvdvqGyfrPy6JjwYkkljyrRI3sIdQmHGr2HmBr2oSNw/WUNloyM0yNyzRus93IaDaXqQ5G7CI4abkQyUVuyzX9+F4Z2G91YXaYj6xnq1CVo6AUYmmRDiY1qmnYrFKuEzq/egFycHqaBdJeAfLLS50QN7QIQJ7tL0pOr83r7+wBCriSp1aha6Q2SMrBP8fr+l6zth1kG/yLnmnAsrFbXcBUbnT0mjUHXZUzrG182yGeI9n/yMzSdpzxqON0yirCw6AZoyHczYvcbtILrvJwAdjmO/Oh8VjVcTdLcqVzP2f3P+bQRcU+TyhuEiRPdaYj1vAex1YUBB5lcDmAm+SPS6ez2iXsFYfWKsKVvUooOXAwGS+onrB2fe+EjXAZNk0UCC+qAwMdebGHJa06UKj07M3cOeZ7co7yQemqRliiQZ8e7wUWJpfv9HHwegX+eFmg8d7YVOYlEf",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "ff405dac0aa9c9d4cc78c89b82e066961cb42a6597b310a2d59fd55bd52b0828",
+            "sig": "176643d1c5899461c7af637fc7068ddeb38a1d12f3def4830380ecf7ffe82092a9c39689bb2171a25c0d5e6f4554643cf953b11e43ca97ec29ec96d3e8be2ffe"
+          },
+          "nonceHex": "de5baf4e4884cfff2f6c7859d94e45180edc1154f6988a6e47d316731ddad21a",
+          "auxRandHex": "109780235310787452340ff285f99df66ee3bf1911d288661187b7f772119bb8",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "roster": [
+            {
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "name": "Ada"
+            },
+            {
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "name": "Rowan"
+            },
+            {
+              "participant": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8",
+              "name": "Tally"
+            }
+          ]
+        },
+        "output": {
+          "result": {
+            "id": "mention-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+            },
+            "text": "Rowan, this is totally fine",
+            "sentAt": 1799999710
+          },
+          "addressed": {
+            "mentionsOf": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "rowanAsPerson": true,
+            "tallyAsPerson": false,
+            "tallyAsAgent": false
+          }
+        }
+      },
+      {
+        "name": "mentions-normalised",
+        "kind": "positive",
+        "note": "Keys lower-cased, repeats dropped, anything that is neither a key nor `everyone` dropped. The field goes altogether when nothing valid is left; here two entries survive.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999720,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AkK3RAF7UodVcO66BnxmBfpBorvNX+RhPV6LMLf7B8CjBtm4B6rD2uUHXLHTZ/KJUziOxBHkEukgKLQBzgRCmkmjwMwM5EHZigTrDSseh0Eik4LMf5wO2HHfvS9ZJpEMq/zHesNjd0xhGcnT6YcuyBfJ7SAvOErsDKUNT0H7xeawE4p61apESRdjWg2PJkXTdl3LTIcwhmU7mufH88Db0coAsumGTBwGEQf2WYeiUAl8bwlk2va6NCiv3sXhrPFo3xlkRw/qNkoUQgpg4irX3aUXPeMiLcoFS9S/KKk5rbyaul8hKsa07WZbM5ilVmywPOfZbnZAcfxQXDY2jIB7u2CKN66nWVWgYSrw+T57e8F8Rnxg2dhTT/A0cGOXeAoWob+lbD3XGzHTXUzY7SlyiFrO7xFI6Jzfh3DmDgsm+2btXKYsXzWERTS1+d6MPduQJ0yI5Sesn1MGMlhDsokM6PXGuTn48ff5jCxpZndouIEyjuqCyVOfPev+pikv3TmJ8Ahcr3EkFv3QJKNDktF1ywy8RBQOAPMHsDj7M81IOYONUN4+lRY+8fQtNeIzbfFYiK++DceCg2QNmQKSBDw6OyCefFogtZbVWn5G2Gk8pRXgOhvDxlpqNOvZKK+a6KgBWOfWthXIdeMcKoP55afvgBLdLPODELolBaSiJFwJXBov1o3xCCLg+jzthlg0OeEHoyG/GromAJQZh1AcAMvbKCfBR0ZBpj8zuZfPfwnGxr0ASveli7Prl8B60OR5KMTbD0ooZPxMPdeodqUiemdLujyglhJ9pL3jUWLLLU49uho/pP11NNVGIKD+RkBF6uktQBrorIu24lsPcqEXnj19wHyQp+03wh0tyrsSquRaQDpRBZwJ0y4FckD30IE45xkzr+dPh/JdKDJRBDh4w9DfjcrzIE174Kz4u4LRx3t0qRoaZ157Ps7M9wCsUW9U8WUPqV689ebgq2L/oI9gN6+ljTfVXqenVKun+BJcBU4FN+F6fAY5siCeW0+9OYrrJK0c9zYPTkTCrq3l56LhjW8A89MehU2VjTe2YWKlSHP4Dz1/6XychwzT1QQ8nYZh86TmxZfGbKtpLKGOfMxqtO1/EjtOHbGH52gxX1c7mqFW/7vSnU6RAkyuJ55WaC8VQMNIh9DfC4vHBPA/xv/wWE5l858F9uE9oiA4nhNnEZSDrOMdozIQjLsugqnCTsOcUSBq1u9UWZvyKkCE49eU1FAngdE3aIbIZYtv5vUcrGuU3i6FleTF6oxNOTFm1Iq/wjERX7kpwLS2oO3TZ3FqVL6YK5QLAFbfjirGo0W4suv7jwXouffUuAmw3Um3B2vRRlxtfBDXE8fCA4yU/+nXLG8RHx1oYrQdzvdLk49mTvihB/jRzOGDmAyOueFhwu+4+EqLuY6YXeo4p6oYI0sVNYAt/s9/ku2QL5Cr+vg165n8Nhjcs0o=",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b19bc596b7bd884e73120a9df5e95d10ac51ba9860bbc53483856a2833b04140",
+            "sig": "5cef7f7ac82f4f88cbdde694a7e9571fa4976a4a1ec4ea3022ff8030089396d3d38504ebec8bbaa1ddac76f0c77956d2fecb3633e383eac3abdf921b44085bf6"
+          },
+          "nonceHex": "42b744017b52875570eeba067c6605fa41a2bbcd5fe4613d5e8b30b7fb07c0a3",
+          "auxRandHex": "4faecb9319bfc1cf658fcbd84ea65e28d1d417f0820ee76b10f2e10abbeb36b2",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "roster": [
+            {
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "name": "Ada"
+            },
+            {
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "name": "Rowan"
+            },
+            {
+              "participant": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8",
+              "name": "Tally"
+            }
+          ]
+        },
+        "output": {
+          "result": {
+            "id": "mention-3",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+            },
+            "text": "names, tidied",
+            "sentAt": 1799999720,
+            "mentions": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "everyone"
+            ]
+          },
+          "addressed": {
+            "mentionsOf": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "everyone"
+            ],
+            "rowanAsPerson": true,
+            "tallyAsPerson": true,
+            "tallyAsAgent": false
+          }
+        }
+      },
+      {
+        "name": "mentions-over-the-cap-refused",
+        "kind": "negative",
+        "note": "More than 32 names is not something a conformant client sends, and the message is refused whole rather than trimmed.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999730,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "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",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "791645994ee1edb985380dc2379059ca5a20bda8d038ddbe420dbd13be17db15",
+            "sig": "ba97a3f619c8783d11bc40821b6dd46af2ab869a02efa5a307470446d7a846070e4b11bc88a02b5f8ca20b9f31e01ef4eb36df43bcc16d80901953176241d310"
+          },
+          "nonceHex": "9ad22909872a4a1cdc3dc9344f153f76437322e312068b105897018448eca153",
+          "auxRandHex": "5b8870a2ca5178d6ceb70822b74141f8ceee45e4859caa1490aaa4fc03a0ffd5",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "roster": [
+            {
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "name": "Ada"
+            },
+            {
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "name": "Rowan"
+            },
+            {
+              "participant": "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8",
+              "name": "Tally"
+            }
+          ]
+        },
+        "output": {
+          "result": null,
+          "addressed": null
+        }
+      }
+    ],
+    "chatInvite": [
+      {
+        "name": "invite",
+        "kind": "positive",
+        "note": "A invites B to a direct message: a room whose link admits the two of them and nobody else. The link is NIP-44 v2 between A's participant key and B's, so B opens it, and so does any other device holding A's identity - the conversation key is the same from either end - and C, holding the shared room's key and reading the message, gets null without a decrypt being tried. The text names nobody. `linkNonceHex` is the NIP-44 nonce the link was sealed with.",
+        "input": {
+          "event": {
+            "kind": 1460,
+            "created_at": 1799999700,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "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",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "00ccb35480be15dab16ec81cf7f7623f238e7ce10445c442a2445f89f84964e6",
+            "sig": "a7cc8cd0bbd538f5dceec2279674796fddc3fc9405f50abcb59a228ca7e3f4ec6bd0155dc8b50e15e1a5d3bc83bb417b8df96374a2f979964162a0e3a8444c38"
+          },
+          "nonceHex": "a46c8cbcaea263651833c33604ad7d8b90c2846303680aad57d4d73505b08dae",
+          "auxRandHex": "7744096d8f973c18ddf95cfe80b7bf9e690381113c6575eaee174502ae678dca",
+          "linkNonceHex": "0ab97366f774efe869bbdb10dde7d1fa52025b91daa34b3521b6d5b09d99f012",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "link": "https://kithmoot.com/j#eyJzIjoiMWw2ampXVmljTm51dkxsSmRaM3NSWm5LM2pJTDFUenl2T01CNHNJXzF5MCIsInIiOlsid3NzOi8vcmVsYXkuZGFtdXMuaW8iLCJ3c3M6Ly9ub3MubG9sIl0sImEiOnsidGllciI6Im9wZW4iLCJtZW1iZXJzIjpbImIwN2ZmNjZmZmNhMmQ1NDQ1Y2ZiNGEzODRlOTRmYmE4ZWNjNTAwMDI4M2I0M2YyZDU0MjVjODVkZjUwMzJlNzQiLCJlMDYyYmQzYmIzNjUwOGNjOTRlZGFmYzEzMmE5ZjJlZGZiNjkwZmIzNjliN2VhOGRkN2Y2MmUzOGI4ZjRkOGVhIl19fQ",
+          "dmRoomId": "fcdc853ddc1be7f7d978367e1a5156b55f11e4c22a49db949f5bb939a303762a",
+          "senderSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180",
+          "recipientSkHex": "da87e41f0507d613d2c2c7885821e4eda3d64ecc24f941c12ffcb97760273645",
+          "strangerSkHex": "3cb15dbae993462842c97a1e326521d58b104e73606c3451e93ddeb92b6b4901"
+        },
+        "output": {
+          "result": {
+            "id": "invite-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+            },
+            "text": "Started a private conversation",
+            "sentAt": 1799999700,
+            "invite": {
+              "to": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "room": "fcdc853ddc1be7f7d978367e1a5156b55f11e4c22a49db949f5bb939a303762a",
+              "link": "Agq5c2b3dO/oabvbEN3n0fpSAluR2qNLNSG21bCdmfASvLdsC+dBK88FKPs1nb6N7Bta02mrqhRKI/Fm2GHyMgJEBMp8Mx8S8PdkiC+EWAPh56rwmzkmyCTjbzdAJomhYWW72k/aZiqGz/9Wy60zCvVJRqO4H6ZWWRnRM99MbVBN4TjLr3Gdgp0zOb9C7V+2mx7s419g+6qomRdJwOPymTRcOx1jC/22S0RJ+XdQ+HxU9NFQRX+lNG+5yT2BO/CoRKqdJLt3fz8VuC+ezV0dzhm9EzZDxAr/fpZMy0BZhyD2acf5mp79T6O+zo24JhCAqN3dEtqoJPynr9yHvnRs17Y52A3pJpjbBpsrLl8DotD6znUrwLOENl5wPTw9NyYSK5wdohB6qfxqiC7G/E7gR6h2LMqoQjruIHBjYKb5yxfEaU5H8WXacDrMCcIP7YTbvX4YgEBW+SnnChLJKXsF9pXzC1XCxnqU2w2gYbAL7CZ9lUYezHh050jKzB4a0RbuIU0Uugl3XhQfgw4c+CUzxsCJD5PqI9V3FR4swekKs9PahhRuomILNtcJm3Dg+sSQ85MGcUbqJ7Teng9RYyt5RzBAHw=="
+            }
+          },
+          "opened": {
+            "byRowan": "https://kithmoot.com/j#eyJzIjoiMWw2ampXVmljTm51dkxsSmRaM3NSWm5LM2pJTDFUenl2T01CNHNJXzF5MCIsInIiOlsid3NzOi8vcmVsYXkuZGFtdXMuaW8iLCJ3c3M6Ly9ub3MubG9sIl0sImEiOnsidGllciI6Im9wZW4iLCJtZW1iZXJzIjpbImIwN2ZmNjZmZmNhMmQ1NDQ1Y2ZiNGEzODRlOTRmYmE4ZWNjNTAwMDI4M2I0M2YyZDU0MjVjODVkZjUwMzJlNzQiLCJlMDYyYmQzYmIzNjUwOGNjOTRlZGFmYzEzMmE5ZjJlZGZiNjkwZmIzNjliN2VhOGRkN2Y2MmUzOGI4ZjRkOGVhIl19fQ",
+            "byAdaOtherDevice": "https://kithmoot.com/j#eyJzIjoiMWw2ampXVmljTm51dkxsSmRaM3NSWm5LM2pJTDFUenl2T01CNHNJXzF5MCIsInIiOlsid3NzOi8vcmVsYXkuZGFtdXMuaW8iLCJ3c3M6Ly9ub3MubG9sIl0sImEiOnsidGllciI6Im9wZW4iLCJtZW1iZXJzIjpbImIwN2ZmNjZmZmNhMmQ1NDQ1Y2ZiNGEzODRlOTRmYmE4ZWNjNTAwMDI4M2I0M2YyZDU0MjVjODVkZjUwMzJlNzQiLCJlMDYyYmQzYmIzNjUwOGNjOTRlZGFmYzEzMmE5ZjJlZGZiNjkwZmIzNjliN2VhOGRkN2Y2MmUzOGI4ZjRkOGVhIl19fQ",
+            "byTally": null
+          }
+        }
+      },
+      {
+        "name": "invite-beside-a-reaction-refused",
+        "kind": "negative",
+        "note": "An invitation is a statement about a room, a reaction a statement about a message; a payload carrying both is refused whole.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999710,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "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",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "6bbcd619d595057941c6ba3f980729d3c3404626c34dc22de92826095fde2738",
+                "sig": "9087fc0cbb11a056ba41baad8030988f9217b690cf54d3bae6c5d2269bf9df9f3a0357b10bf86acd015392a9bbff7e57808a57be162c40489194b540d475100e"
+              },
+              "nonceHex": "8bbadfae71131b542e5a00e94306bf5328157bb86ce3a7b6ff88955c779bb64a",
+              "auxRandHex": "ca3281db9807f6c22b52a8955d9f74b8a9b524d08b9378fbead0a3eba53952d7"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      },
+      {
+        "name": "invite-malformed-refused",
+        "kind": "negative",
+        "note": "An invitation whose addressee is not a key is refused whole: there is nobody to show it to and nothing honest to show instead.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999720,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "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",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "beedf86b6e302a829e822e628b917cfa334a0209797e429c43de0a8567b9e856",
+                "sig": "24e358bcf5e1282ba17be47041c4f714e00f4266f67b4d878f6b1407180a58a9d32999a50ddcd16f94f8a115cc6c6d824ad90ebb2a18e9f4c94df0686745707e"
+              },
+              "nonceHex": "d50a6e5c99056f500a06d16ce3492cb2c5586dd39b58b24c9124d4a9d42f66e7",
+              "auxRandHex": "3728fd342b61215a425ab390f09df7f26568016b770b390192615c12cd6b3605"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": []
+        }
+      }
+    ],
+    "readPosition": [
+      {
+        "name": "read-position-id-derivation",
+        "kind": "positive",
+        "note": "The `d` tag for a room: HKDF-SHA256 of the room's epoch-0 key with the info string `kithmoot/v1/read-position-id`, 32 bytes, hex. Every member can compute it and no relay can, so a relay cannot tie the record to a room id it carries.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+        },
+        "output": {
+          "idHex": "2ecae940e8b46651918fc78826e748407487bf74f9c7703ea2fb1556bb947fb5"
+        }
+      },
+      {
+        "name": "read-position",
+        "kind": "positive",
+        "note": "A's read positions for one room: a kind-30078 record signed by the participant key, replaceable per room by the derived `d` tag, labelled `l: kithmoot.read.v1`, and NIP-44 v2 to A's own key. The main chat is the channel named `\"\"`. `plaintext` is the canonical body both implementations write: channels sorted, `id` only when there is one.",
+        "input": {
+          "event": {
+            "kind": 30078,
+            "created_at": 1799999900,
+            "tags": [
+              [
+                "d",
+                "2ecae940e8b46651918fc78826e748407487bf74f9c7703ea2fb1556bb947fb5"
+              ],
+              [
+                "l",
+                "kithmoot.read.v1"
+              ]
+            ],
+            "content": "Ap8wByuogux/Zf5f+0yNTazFO9dLaDHBcOmnuR188ea+K7CuupmcJJ6eoqrIX7DwXOB0+3z3Jc4V3DjKZUoISLVWLhhbEBs2nJ1QxhAqswzQmcv1MXiyA2RIL8su1eRo+A6QVvJ7Y1Hta7ImADDrqvUhRPmbG2mzkOOdGk6gkrdO9OpgNeXZEIF3hyiMcSI4HjhLeP4V5MQl6Xtp0CCW2y6DkYgDHYF5iIypHI8z4vGc2Fnd6KuwULdVBUc12xxiqidfJflsa6dwtlrQcdHrnykZycvVN6LxQ16fYYxo+Qz2Ztc=",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "6be282908001474458193132630348a8b3a580040c9dca334eb90068544c49a4",
+            "sig": "a6e5ecbb277a307a37850c649b8814c0c54e3992f05225bed6f991bc399d7b686acf7ddd1102c8fd0676890fe84ccd09f8359b9cfa55905c393c850c17b01467"
+          },
+          "nonceHex": "9f30072ba882ec7f65fe5ffb4c8d4dacc53bd74b6831c170e9a7b91d7cf1e6be",
+          "auxRandHex": "7bef50bd8a6448eb063bc2d17987efbf2f4e9e399ba6c955e073b68ccfff3b1f",
+          "decode": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+          },
+          "plaintext": "{\"v\":1,\"room\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"read\":{\"\":{\"at\":1799999720,\"id\":\"reply-2\"},\"minutes\":{\"at\":1799999700}}}",
+          "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180"
+        },
+        "output": {
+          "result": {
+            "room": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "read": {
+              "": {
+                "at": 1799999720,
+                "id": "reply-2"
+              },
+              "minutes": {
+                "at": 1799999700
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "read-position-wrong-room-refused",
+        "kind": "negative",
+        "note": "The same record read against another room: the `d` tag does not match that room's derived id, so it is refused before anything is decrypted.",
+        "input": {
+          "event": {
+            "kind": 30078,
+            "created_at": 1799999900,
+            "tags": [
+              [
+                "d",
+                "2ecae940e8b46651918fc78826e748407487bf74f9c7703ea2fb1556bb947fb5"
+              ],
+              [
+                "l",
+                "kithmoot.read.v1"
+              ]
+            ],
+            "content": "Ap8wByuogux/Zf5f+0yNTazFO9dLaDHBcOmnuR188ea+K7CuupmcJJ6eoqrIX7DwXOB0+3z3Jc4V3DjKZUoISLVWLhhbEBs2nJ1QxhAqswzQmcv1MXiyA2RIL8su1eRo+A6QVvJ7Y1Hta7ImADDrqvUhRPmbG2mzkOOdGk6gkrdO9OpgNeXZEIF3hyiMcSI4HjhLeP4V5MQl6Xtp0CCW2y6DkYgDHYF5iIypHI8z4vGc2Fnd6KuwULdVBUc12xxiqidfJflsa6dwtlrQcdHrnykZycvVN6LxQ16fYYxo+Qz2Ztc=",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "6be282908001474458193132630348a8b3a580040c9dca334eb90068544c49a4",
+            "sig": "a6e5ecbb277a307a37850c649b8814c0c54e3992f05225bed6f991bc399d7b686acf7ddd1102c8fd0676890fe84ccd09f8359b9cfa55905c393c850c17b01467"
+          },
+          "decode": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "roomId": "fcdc853ddc1be7f7d978367e1a5156b55f11e4c22a49db949f5bb939a303762a",
+            "roomKeyHex": "deb56b230478ea80360cf944c2f67e3ff54bbeed6bc177419cc81ac66d0c3cfa"
+          },
+          "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "read-position-somebody-elses-refused",
+        "kind": "negative",
+        "note": "A record expected from B and signed by A: refused on the envelope. The author is the participant key, in the clear, and a reader only ever asks for its own.",
+        "input": {
+          "event": {
+            "kind": 30078,
+            "created_at": 1799999900,
+            "tags": [
+              [
+                "d",
+                "2ecae940e8b46651918fc78826e748407487bf74f9c7703ea2fb1556bb947fb5"
+              ],
+              [
+                "l",
+                "kithmoot.read.v1"
+              ]
+            ],
+            "content": "Ap8wByuogux/Zf5f+0yNTazFO9dLaDHBcOmnuR188ea+K7CuupmcJJ6eoqrIX7DwXOB0+3z3Jc4V3DjKZUoISLVWLhhbEBs2nJ1QxhAqswzQmcv1MXiyA2RIL8su1eRo+A6QVvJ7Y1Hta7ImADDrqvUhRPmbG2mzkOOdGk6gkrdO9OpgNeXZEIF3hyiMcSI4HjhLeP4V5MQl6Xtp0CCW2y6DkYgDHYF5iIypHI8z4vGc2Fnd6KuwULdVBUc12xxiqidfJflsa6dwtlrQcdHrnykZycvVN6LxQ16fYYxo+Qz2Ztc=",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "6be282908001474458193132630348a8b3a580040c9dca334eb90068544c49a4",
+            "sig": "a6e5ecbb277a307a37850c649b8814c0c54e3992f05225bed6f991bc399d7b686acf7ddd1102c8fd0676890fe84ccd09f8359b9cfa55905c393c850c17b01467"
+          },
+          "decode": {
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+          },
+          "participantSkHex": "da87e41f0507d613d2c2c7885821e4eda3d64ecc24f941c12ffcb97760273645"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "read-position-without-label-refused",
+        "kind": "negative",
+        "note": "The `l` tag is what a reader subscribes on and what says this kind-30078 record is a KithMoot read position rather than some other application's data under a colliding `d`. Without it the record is refused.",
+        "input": {
+          "event": {
+            "kind": 30078,
+            "created_at": 1799999900,
+            "tags": [
+              [
+                "d",
+                "2ecae940e8b46651918fc78826e748407487bf74f9c7703ea2fb1556bb947fb5"
+              ]
+            ],
+            "content": "AsO+vnPkBA+zbqpY94glxAVla8AjVQ+aUyWreJTh23wksgSe9AO14McnzNjm/w7EOIeHzJ5NoSrsRxM4sqOfJOpbYlXtmky15jrIqaNa/uvo5ZRzEnlzMQdgdMeHrk5HzNATUk8JLYfMQZgA/KpkmbDp4sxqCgkuhXgj31P2u8e0XusgiI8yMdBp+v3VUh85NxrzLzqGULuZkipK5/wJ58vZv/sfzVpdnD145UXEBstqYg1b9/4qh5Cy+Eiiuh5brcxXNt3XfQBTAhcCwJFIEERnPTXerI9V3j58FtE0aE5xO18=",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "bacdd6d61c4e23620a3c2f1893c11daca069832f1acd2c997fd0afe425e852d6",
+            "sig": "ae73c9595120c4e88f78c96b12b62e7a0374f9fe646da5d874222842a0cc51d6b05d88da027a0b350c91efae409e73162bb105315c593313ca92e6465dc8ba70"
+          },
+          "nonceHex": "c3bebe73e4040fb36eaa58f78825c405656bc023550f9a5325ab7894e1db7c24",
+          "auxRandHex": "f4f324bc651bc678ffa2432834a81368f6918171e63702ba65916c3d224058fa",
+          "decode": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c"
+          },
+          "participantSkHex": "826f7335cca1f25633dbc6efc43131a651feb9b7d419c9b1fdc35b2e115d2180"
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "read-position-merge",
+        "kind": "positive",
+        "note": "Two devices, merged: the greater position per channel wins, `at` first and then `id`. `localAhead` says this device knew something the record did not, so it republishes; `remoteAhead` says the record moved this device on.",
+        "input": {
+          "local": {
+            "": {
+              "at": 10,
+              "id": "b"
+            },
+            "minutes": {
+              "at": 3
+            }
+          },
+          "remote": {
+            "": {
+              "at": 10,
+              "id": "a"
+            },
+            "transcript": {
+              "at": 7
+            }
+          }
+        },
+        "output": {
+          "merged": {
+            "": {
+              "at": 10,
+              "id": "b"
+            },
+            "minutes": {
+              "at": 3
+            },
+            "transcript": {
+              "at": 7
+            }
+          },
+          "localAhead": true,
+          "remoteAhead": true
         }
       }
     ]
