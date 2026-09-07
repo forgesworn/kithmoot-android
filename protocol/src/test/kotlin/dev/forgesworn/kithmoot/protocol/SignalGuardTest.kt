@@ -11,6 +11,14 @@ class SignalGuardTest {
     private val sender = "a".repeat(64)
     private val other = "b".repeat(64)
 
+    @Test fun `fresh ephemeral identities share the predecrypt budget and recover at the boundary`() {
+        val guard = SignalGuard()
+        repeat(MAX_UNWRAPS_PER_WINDOW) { assertTrue(guard.admitUnwrap(1000)) }
+        repeat(1000) { assertFalse(guard.admitUnwrap(1019)) }
+        assertTrue(guard.admitUnwrap(1020))
+        assertTrue(guard.admitUnwrap(999))
+    }
+
     @Test
     fun `an event id is admitted once and refused every time after`() {
         val guard = SignalGuard()

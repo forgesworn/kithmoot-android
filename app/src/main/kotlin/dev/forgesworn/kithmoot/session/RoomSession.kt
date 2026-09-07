@@ -403,7 +403,7 @@ class RoomSession(
         // Deduplication first, because it is the cheapest check and the most
         // common case it catches - the same wrap arriving from every relay we
         // published to - costs a NIP-44 decryption otherwise.
-        if (!signalGuard.admitEvent(event.id)) return
+        if (!signalGuard.admitEvent(event.id) || !signalGuard.admitUnwrap(at)) return
 
         // Unwrapping applies the staleness rule, judged by the session's own
         // clock rather than the wall clock.
@@ -412,7 +412,7 @@ class RoomSession(
         // Rate limiting against the *sending device* rather than the wrap's
         // pubkey: every wrap is signed by a fresh ephemeral key, so the only
         // stable identity a budget can be held against is the one inside.
-        if (!signalGuard.admitSender(signal.from, at)) return
+        if (!signalGuard.admitEvent("inner:${signal.id}") || !signalGuard.admitSender(signal.from, at)) return
 
         val sender = synchronized(lock) { roster[signal.from] }
         // Signals from devices we cannot see in the roster are refused, and so

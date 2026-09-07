@@ -339,7 +339,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val name = _start.value.roomName
-        val persistent = _start.value.persistentGroup
+        val persistent = true
         enter {
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation(persistent)
