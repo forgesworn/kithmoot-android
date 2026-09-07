@@ -31,7 +31,9 @@ class M2KeeperInteropTest {
         }
         ui.room()
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].sendChat("M2 Android to previous keeper") }
+        ui.click("Chat")
         ui.await("encrypted reply from the previous-release keeper") { ui.hasText("Previous keeper to M2 Android") }
+        ui.click("Close sheet")
         ui.click("Leave")
     }
 }
