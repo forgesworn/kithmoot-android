@@ -141,7 +141,7 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **136 vectors across 21
+published vectors, never an edited one. There are **190 vectors across 26
 groups**. The suite runs each vector in the groups this implementation covers
 as its own named test case, so a failure names the vector, and adds three
 guards that fail the build if a vector goes missing or a group loses its
@@ -291,3 +291,19 @@ link, admission with no member online, a forced process restart, and rejected
 publication. Snapshot queries wait for EOSE from every relay connected when the
 query begins; a missing EOSE or dropped connection fails the query. Relays that
 were unavailable at that point are not proof of a complete global history.
+
+
+## M2 protocol compatibility (0.4.1)
+
+New rooms use v3 durable invitations. Existing v1/v2 links and saved rooms retain
+their readers and recovery paths. Signalling writers retain seal-less 20462/21059
+with additive inner profile tags and outer expiry; receivers also verify sealed
+rumours and bound decrypt attempts before sender attribution. Reserved scoped
+pass/policy decoders do not enable service enforcement. The independent Kotlin
+reader consumes the same 190 vectors as the reference implementation.
+
+See the [protocol draft](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md)
+and [compatibility ledger](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol/m2-compatibility.md).
+The API-35 emulator passed installed recovery/restart, v3 creation/rotation,
+retired/refused invitation, chat and screen-sharing journeys. This does not
+replace physical-device acceptance or add the unsupported features listed above.

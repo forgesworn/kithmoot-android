@@ -48,7 +48,24 @@ const val MAX_REMEMBERED_SIGNALS: Int = 4096
  * later - so the room, not the socket, is what has to act on each signal exactly
  * once.
  */
+const val MAX_UNWRAPS_PER_WINDOW: Int = 4096
+
 class SignalGuard {
+    private var unwrapWindow: Window? = null
+
+    /** Bound anonymous crypto work before the sender can be authenticated. */
+    @Synchronized
+    fun admitUnwrap(now: Long): Boolean {
+        val window = unwrapWindow
+        if (window == null || now < window.start || now - window.start >= RATE_WINDOW_SECONDS) {
+            unwrapWindow = Window(now, 1)
+            return true
+        }
+        if (window.count >= MAX_UNWRAPS_PER_WINDOW) return false
+        window.count++
+        return true
+    }
+
 
     /** Access-ordered only in insertion terms: the oldest id is the first out. */
     private val seen = object : LinkedHashMap<String, Boolean>(64, 0.75f, false) {
@@ -98,5 +115,6 @@ class SignalGuard {
     fun clear() {
         seen.clear()
         senders.clear()
+        unwrapWindow = null
     }
 }

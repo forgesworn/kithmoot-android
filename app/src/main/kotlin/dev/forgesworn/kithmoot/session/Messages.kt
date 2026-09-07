@@ -94,12 +94,12 @@ fun mentionsOf(message: ChatMessage, roster: List<Named> = emptyList()): List<St
     return out
 }
 
-/** Whether the message addresses [self]. `everyone` counts for a person,
- *  never for an agent. */
-fun mentionedBy(message: ChatMessage, self: String, roster: List<Named> = emptyList(), agent: Boolean = false): Boolean {
+/** Whether the message addresses [self]. `everyone` includes people and agents,
+ * matching the frozen message-layer vectors. Sender consent is separate. */
+fun mentionedBy(message: ChatMessage, self: String, roster: List<Named> = emptyList(), @Suppress("UNUSED_PARAMETER") agent: Boolean = false): Boolean {
     val named = mentionsOf(message, roster)
     if (named.any { it != EVERYONE && it.hexEquals(self) }) return true
-    return !agent && EVERYONE in named
+    return EVERYONE in named
 }
 
 /** Something somebody said, rather than a statement about another message. */

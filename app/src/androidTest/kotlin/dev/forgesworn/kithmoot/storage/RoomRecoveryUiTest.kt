@@ -25,11 +25,9 @@ class RoomRecoveryUiTest {
         app.savedRooms.reset()
         scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
         ui.home()
-        ui.click("Relay settings")
-        ui.replace("Relays, one per line", "ws://10.0.2.2:59999")
-        ui.click("Group: come back any time")
-        ui.replace("Room name (optional)", "Weekend workshop")
-        ui.click("Start a room")
+        seedLegacyRoom(app, "Weekend workshop")
+        scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
+        ui.click("Weekend workshop")
         ui.room()
         val before = app.savedRooms.list().single()
         val identity = app.savedRooms.get(before.id)!!.identity(System.currentTimeMillis() / 1000)
