@@ -87,7 +87,10 @@ internal class RecoveryUi {
     }
 
     fun assertEnabled(text: String, enabled: Boolean) {
-        assertTrue("$text enabled must be $enabled", reveal { button(text) }.isEnabled == enabled)
+        reveal { button(text) }
+        // Error text can render before entry's Main-thread finally block
+        // releases the busy guard. Observe the resulting control state.
+        await("$text enabled must be $enabled") { button(text)?.isEnabled == enabled }
     }
 
     fun home() {
