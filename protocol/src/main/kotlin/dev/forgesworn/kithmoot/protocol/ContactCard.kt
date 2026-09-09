@@ -46,7 +46,7 @@ sealed class CardResult {
 
 object ContactCards {
     /** The reserved addressable kind a card rides in. Never published to a relay. */
-    const val KIND: Int = 30641
+    const val KIND: Int = 21641
     const val MAX_CARD_BYTES: Int = 16384
     const val MAX_AGE_SECONDS: Long = 30L * 24 * 3600
     const val MAX_RELAYS: Int = 8
@@ -217,15 +217,14 @@ object ContactCards {
         val sig = (ev["sig"]?.let(::text) ?: return CardResult.Refused(2, "sig")).lowercase()
         if (!HEX128.matches(sig)) return CardResult.Refused(2, "sig")
         val tagsJson = ev["tags"] as? JsonArray ?: return CardResult.Refused(2, "tags")
-        if (tagsJson.size != 2) return CardResult.Refused(2, "tags")
+        if (tagsJson.size != 1) return CardResult.Refused(2, "tags")
         val tags = tagsJson.map { t ->
             val arr = t as? JsonArray ?: return CardResult.Refused(2, "tags")
             if (arr.size != 2) return CardResult.Refused(2, "tags")
             arr.map { x -> text(x) ?: return CardResult.Refused(2, "tags") }
         }
-        val dTag = tags.firstOrNull { it[0] == "d" }
-        val expTag = tags.firstOrNull { it[0] == "expiration" }
-        if (dTag == null || expTag == null || dTag[1] != "card") return CardResult.Refused(2, "tags")
+        val expTag = tags[0]
+        if (expTag[0] != "expiration") return CardResult.Refused(2, "tags")
         val hex = HashMap<String, String>()
         for (f in listOf("rz", "eph")) {
             val s = c[f]?.let(::text) ?: return CardResult.Refused(2, f)
