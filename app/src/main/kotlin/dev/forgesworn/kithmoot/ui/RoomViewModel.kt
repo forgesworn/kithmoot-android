@@ -172,6 +172,10 @@ data class StartState(
     val signers: List<InstalledSigner> = emptyList(),
     /** A contact card opened as a link: offered, and kept only on a press. */
     val cardOffer: CardOffer? = null,
+    /** Relays marked by hand as boxes of the person's circle, one per line:
+     *  a box's drop tier fronted as wss:// and named to them by its keeper.
+     *  Saved on the phone; a contact card's boxes join them without being saved. */
+    val circleBoxes: String = "",
 )
 
 /** A contact card met at the door, before anything is kept. */
@@ -289,7 +293,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val _stage = MutableStateFlow(Stage.START)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
 
-    private val _start = MutableStateFlow(StartState())
+    private val _start = MutableStateFlow(
+        StartState(circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: ""),
+    )
     val start: StateFlow<StartState> = _start.asStateFlow()
 
     private val _room = MutableStateFlow(RoomState())
@@ -340,6 +346,19 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
+    private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+
+    /** The circle's relays as the lane check needs them: the contact book's
+     *  boxes and the relays marked by hand, both normalised as the lane check
+     *  normalises. Asked each time, so a mark or a card moves the lane at once. */
+    private fun circleRelaySet(): Set<String> =
+        contacts.circleRelays() + circleMarks(_start.value.circleBoxes)
+
+    fun onCircleBoxesChanged(value: String) {
+        _start.update { it.copy(circleBoxes = value) }
+        display.edit().putString("circleBoxes", value).apply()
+        refreshContacts()
+    }
     private var accountSession: AccountSession? = null
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
@@ -1080,7 +1099,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         closeSession()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-        val transport = RelayPool(relays, OkHttpRelaySockets(), scope, circle = contacts::circleRelays)
+        val transport = RelayPool(relays, OkHttpRelaySockets(), scope, circle = ::circleRelaySet)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
         // wrapper owes the device between visits. The device holding the
         // identity is slot 0, the device it paired slot 1; each draws from its
@@ -1118,7 +1137,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             name = record.name,
             joinUrl = record.joinUrl,
             relaysTotal = relays.size,
-            lane = laneOfRelays(relays, contacts.circleRelays()),
+            lane = laneOfRelays(relays, circleRelaySet()),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
@@ -1587,7 +1606,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 expires = c.expires,
             )
         }
-        val circle = contacts.circleRelays()
+        val circle = circleRelaySet()
         val live = session
         _room.update { state ->
             state.copy(
@@ -1686,6 +1705,11 @@ internal fun key(device: String, trackId: String): String = "$device|$trackId"
 internal fun epochSeconds(): Long = System.currentTimeMillis() / 1000
 
 /** Accepts a list separated by newlines, commas or spaces, and keeps only websocket URLs. */
+/** The hand-marked circle boxes, normalised as `ContactBook.normalise` does, so a
+ *  typed URL and a room's relay compare equal. Lines that are not relay URLs are ignored. */
+internal fun circleMarks(text: String): Set<String> =
+    parseRelays(text).mapNotNull(ContactBook::normalise).toSet()
+
 internal fun parseRelays(text: String): List<String> = text
     .split('\n', ',', ' ', '\t')
     .map { it.trim() }

@@ -14,6 +14,13 @@ class RelayInputTest {
     }
 
     @Test
+    fun `circle boxes marked by hand compare as the lane check compares them`() {
+        val marks = circleMarks("wss://Box.Example/drops/\nhttps://not-a-relay.example\nwss://box.example:8443/r/")
+        assertEquals(setOf("wss://box.example/drops", "wss://box.example:8443/r"), marks)
+        assertEquals(emptySet<String>(), circleMarks(""))
+    }
+
+    @Test
     fun `anything that is not a websocket URL is dropped`() {
         // A pasted https URL is a mistake worth ignoring rather than a relay
         // worth trying: the pool would sit retrying it forever.
