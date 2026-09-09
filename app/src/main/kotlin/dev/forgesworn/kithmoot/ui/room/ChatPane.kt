@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.session.QuietTransport
 import dev.forgesworn.kithmoot.session.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,6 +41,9 @@ fun ChatPane(
     onProfilesEnabled: (Boolean) -> Unit = {},
     /** The lane the next message will take; null when the room cannot say. */
     lane: Lane? = null,
+    /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
+    quiet: Boolean = false,
+    quietCanSend: Boolean = true,
 ) {
     var draft by remember { mutableStateOf(TextFieldValue("")) }
     var query by remember { mutableStateOf("") }
@@ -77,6 +81,10 @@ fun ChatPane(
         // Which lane the next message will take and what that lane delivers,
         // before anyone sends. Worked out from the room's relays, never claimed.
         if (lane != null) Text("${lane.chip} · ${lane.meaning}", Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "${lane.label} lane. ${lane.meaning}" },
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The lane says where the bytes went; this says what they give away.
+        if (quiet) Text("◌ quiet · " + QuietTransport.MEANING + if (quietCanSend) "" else " " + QuietTransport.CANNOT_SEND,
+            Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "Quiet room. " + QuietTransport.MEANING },
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Encrypted to the room. Search covers loaded messages on this device.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
