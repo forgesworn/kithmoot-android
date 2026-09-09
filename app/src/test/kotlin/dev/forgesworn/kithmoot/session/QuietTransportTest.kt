@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomDrops
@@ -141,6 +142,28 @@ class QuietTransportTest {
         a.tick(); runCurrent()
         assertEquals(0, a.pending)
         a.stop()
+    }
+
+    @Test
+    fun `a wrap the web library made is read here as its chat`() = runTest {
+        // room-drop-web.json: a wrap nostr-deaddrop produced for the vector
+        // test keys, its inner a kind 1460 signed by member A. A copy, never
+        // an edit. The room key and members here are the fixture's.
+        val fixture = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(javaClass.getResourceAsStream("/room-drop-web.json")).bufferedReader().use { it.readText() }).let { it as kotlinx.serialization.json.JsonObject }
+        val roomKey = (fixture.getValue("roomKeyHex") as kotlinx.serialization.json.JsonPrimitive).content.hexToBytes()
+        val member = (fixture.getValue("member") as kotlinx.serialization.json.JsonPrimitive).content
+        val wrap = NostrEvent.fromJson(fixture.getValue("wrap"))
+        val inner = NostrEvent.fromJson(fixture.getValue("inner"))
+        clock = (fixture.getValue("now") as kotlinx.serialization.json.JsonPrimitive).content.toLong()
+        val relay = FakeRelay()
+        val reader = QuietTransport(relay.transport(), roomKey, rowan.participant, listOf(member, rowan.participant), 0, backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 })
+        val seen = mutableListOf<NostrEvent>()
+        val collector = launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        relay.publish(wrap); runCurrent()
+        assertEquals(listOf(inner.id), seen.map { it.id })
+        assertEquals(inner.content, seen.single().content)
+        collector.cancel(); reader.stop()
     }
 
     @Test
