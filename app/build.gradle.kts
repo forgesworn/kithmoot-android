@@ -4,6 +4,19 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val releaseSigningNames = listOf(
+    "KITHMOOT_KEYSTORE", "KITHMOOT_STORE_PASSWORD", "KITHMOOT_KEY_ALIAS", "KITHMOOT_KEY_PASSWORD",
+)
+val releaseSigning = releaseSigningNames.associateWith { providers.environmentVariable(it).orNull }
+val hasReleaseSigning = releaseSigning.values.any { it != null }
+if (hasReleaseSigning) {
+    val missing = releaseSigning.filterValues { it.isNullOrEmpty() }.keys
+    require(missing.isEmpty()) { "Incomplete release signing configuration; missing: ${missing.joinToString()}" }
+    require(rootProject.file(releaseSigning.getValue("KITHMOOT_KEYSTORE")!!).isFile) {
+        "KITHMOOT_KEYSTORE must name an existing keystore file"
+    }
+}
+
 android {
     namespace = "dev.forgesworn.kithmoot"
     compileSdk = 35
@@ -26,8 +39,20 @@ android {
         }
     }
 
+    if (hasReleaseSigning) {
+        signingConfigs {
+            create("production") {
+                storeFile = rootProject.file(releaseSigning.getValue("KITHMOOT_KEYSTORE")!!)
+                storePassword = releaseSigning.getValue("KITHMOOT_STORE_PASSWORD")
+                keyAlias = releaseSigning.getValue("KITHMOOT_KEY_ALIAS")
+                keyPassword = releaseSigning.getValue("KITHMOOT_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("production")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
