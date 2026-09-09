@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
@@ -139,7 +140,13 @@ fun StartScreen(
                                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                         Text(room.name, style = MaterialTheme.typography.titleMedium)
                                     }
-                                    Text(listOfNotNull(room.project, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
+                                    // Whose room this is: the signed-in account's name when it is
+                                    // that account, otherwise both ends of the npub it was joined as.
+                                    val who = room.account?.let { pubkey ->
+                                        val me = state.account
+                                        if (me != null && me.pubkey == pubkey) me.shownName else shortNpub(pubkey)
+                                    }
+                                    Text(listOfNotNull(who?.let { "As $it" }, room.project, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton({ renaming = room; renamed = room.name }, enabled = enabled,

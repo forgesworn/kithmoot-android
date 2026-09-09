@@ -99,22 +99,25 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
         Text("Choose where your key lives. It never leaves your signer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         if (state.signers.isEmpty()) {
-            Text("No signer app found on this phone. Amber or Cambium would appear here.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No signer app found on this phone. My Signet, Amber or Cambium would appear here once installed.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         for (signer in state.signers) {
             Button({ done(); actions.onSignInWithApp(signer.packageName) }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text("Use ${signer.label}")
             }
         }
-        OutlinedButton({ done(); actions.onSignInWithSignet() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text("Sign in with Signet")
-        }
-        Text("Signet opens in your browser or the My Signet app, you approve there, and it pairs with this app over a relay. Signet has to be open to sign.",
+        Text("A signer app keeps your key on this phone and answers with one tap, even offline.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         TextButton({ advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
         if (advanced) {
+            OutlinedButton({ done(); actions.onSignInWithSignet() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("Signet in a browser")
+            }
+            Text("For a Signet that lives in a browser rather than the My Signet app. It opens mysignet.app, you approve there, and it pairs with this app over a relay. That browser tab has to stay open to sign.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
             OutlinedTextField(bunker, { bunker = it }, Modifier.fillMaxWidth(), label = { Text("Bunker link") },
                 placeholder = { Text("bunker://…?relay=wss://…&secret=…") }, maxLines = 3)
             OutlinedButton({ done(); actions.onSignInWithBunker(bunker) }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = bunker.isNotBlank()) {
