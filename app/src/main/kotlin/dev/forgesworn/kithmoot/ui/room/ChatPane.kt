@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,12 +45,14 @@ fun ChatPane(
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
+    showTitle: Boolean = true,
 ) {
-    var draft by remember { mutableStateOf(TextFieldValue("")) }
-    var query by remember { mutableStateOf("") }
+    var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
     var profileSettings by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    var lastMessageId by rememberSaveable { mutableStateOf<String?>(null) }
     // The log as a person reads it: the latest edit's words on each message,
     // a retracted one shown as such, replies under the message they answer.
     // See Messages.kt and docs/messages.md in the reference implementation.
@@ -70,14 +73,22 @@ fun ChatPane(
                 .any { it.contains(query.trim(), ignoreCase = true) }
         }
     }
-    LaunchedEffect(conversation.size, query) {
-        if (query.isBlank() && visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
+    LaunchedEffect(conversation.lastOrNull()?.id, query) {
+        val latest = conversation.lastOrNull()
+        if (query.isBlank() && latest != null && latest.id != lastMessageId) {
+            val wasAtEnd = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+                ?.let { it >= visible.lastIndex - 1 } == true
+            if (lastMessageId == null || wasAtEnd || latest.participant == selfParticipant) {
+                listState.animateScrollToItem(visible.lastIndex)
+            }
+            lastMessageId = latest.id
+        }
     }
     fun send() {
         if (draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
     }
     Column(modifier.fillMaxWidth().imePadding()) {
-        Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
+        if (showTitle) Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
         // Which lane the next message will take and what that lane delivers,
         // before anyone sends. Worked out from the room's relays, never claimed.
         if (lane != null) Text("${lane.chip} · ${lane.meaning}", Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "${lane.label} lane. ${lane.meaning}" },
