@@ -144,7 +144,7 @@ fun StartScreen(
                                     // that account, otherwise both ends of the npub it was joined as.
                                     val who = room.account?.let { pubkey ->
                                         val me = state.account
-                                        if (me != null && me.pubkey == pubkey) me.shownName else shortNpub(pubkey)
+                                        if (me != null && me.pubkey == pubkey) (me.profile?.name ?: me.name ?: "you") else shortNpub(pubkey)
                                     }
                                     Text(listOfNotNull(who?.let { "As $it" }, room.project, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
