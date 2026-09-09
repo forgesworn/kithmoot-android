@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -133,6 +134,16 @@ fun ParticipantTileView(
                         icon = Icons.AutoMirrored.Filled.ScreenShare,
                         label = "Sharing",
                         tone = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                // A card held for this person: their box is one of the
+                // circle's relays, and the name is the one they wrote on it.
+                val cardName = tile.cardName
+                if (cardName != null && !tile.isSelf) {
+                    Chip(
+                        icon = Icons.Filled.Badge,
+                        label = if (cardName.isEmpty()) "card" else "card: $cardName",
+                        tone = MaterialTheme.colorScheme.primary,
                     )
                 }
             }

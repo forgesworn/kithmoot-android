@@ -71,6 +71,9 @@ class RelayPool(
     private val policy: RelayPolicy = RelayPolicy(),
     private val now: () -> Long = { System.currentTimeMillis() },
     private val random: Random = Random.Default,
+    /** The relays the client knows to be boxes of the person's own circle, asked
+     *  each time so a card added mid-room counts. See storage/ContactBook.kt. */
+    private val circle: () -> Set<String> = { emptySet() },
 ) : RoomTransport {
 
     private val lock = Any()
@@ -118,6 +121,8 @@ class RelayPool(
     }
 
     override fun describe(): List<String> = urls.toList()
+
+    override fun circleRelays(): Set<String> = circle()
 
     override fun publish(event: NostrEvent) {
         val frame = RelayCodec.publishFrame(event)

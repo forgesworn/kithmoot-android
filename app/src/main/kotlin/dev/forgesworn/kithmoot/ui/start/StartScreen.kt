@@ -39,6 +39,8 @@ fun StartScreen(
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
     account: AccountActions = AccountActions.None,
+    onAddOfferedCard: () -> Unit = {},
+    onDismissCardOffer: () -> Unit = {},
 ) {
     var relaysShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -79,6 +81,26 @@ fun StartScreen(
             } else if (state.error != null) {
                 Text(state.error, color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            }
+
+            // A contact card opened as a link: said for what it is, and kept
+            // only on a press. Nothing is kept by merely opening the link.
+            val offer = state.cardOffer
+            if (offer != null) {
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("This is a contact card", style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
+                        val who = offer.name?.let { "From $it" } ?: "From a person with no name on their card"
+                        val boxes = when (offer.boxes) { 0 -> "no box"; 1 -> "one box"; else -> "${offer.boxes} boxes" }
+                        Text(if (offer.added) "${offer.name ?: "They"} ${if (offer.name != null) "is" else "are"} in your contacts on this phone. Their box will show as sheltered."
+                            else "$who, naming $boxes. Add it and a message to their box shows as sheltered.")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!offer.added) Button(onAddOfferedCard, Modifier.heightIn(min = 48.dp)) { Text("Add to contacts") }
+                            OutlinedButton(onDismissCardOffer, Modifier.heightIn(min = 48.dp)) { Text(if (offer.added) "Done" else "Not now") }
+                        }
+                    }
+                }
             }
 
             if (state.savedRooms.isNotEmpty()) {
