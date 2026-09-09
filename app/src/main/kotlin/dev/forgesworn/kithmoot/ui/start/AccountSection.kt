@@ -48,9 +48,12 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProfileAvatar(account.pubkey, account.name, account.profile, Modifier.size(44.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(account.shownName, style = MaterialTheme.typography.titleMedium)
-                    Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                    Text(account.shownName, style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.semantics { contentDescription = "Public key ${account.npub}" })
+                    // With no name, the line above already is the npub; printing it twice reads as two keys.
+                    if (account.shownName != account.short) {
+                        Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
             Text(when (account.method) {

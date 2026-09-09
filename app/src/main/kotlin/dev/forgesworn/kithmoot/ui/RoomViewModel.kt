@@ -413,7 +413,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         accountSession = session
         val view = AccountView(
             pubkey = account.pubkey, npub = account.npub, short = shortNpub(account.pubkey), method = account.method,
-            signerLabel = account.signerPackage?.let { pkg -> _start.value.signers.firstOrNull { it.packageName == pkg }?.label ?: pkg },
+            // The signer's name as the phone shows it; on a restore the sheet's list is not loaded yet, so ask the phone.
+            signerLabel = account.signerPackage?.let { pkg ->
+                (_start.value.signers.ifEmpty { installedSigners(getApplication()) }).firstOrNull { it.packageName == pkg }?.label ?: pkg
+            },
             name = account.displayName,
         )
         _start.update { it.copy(account = view, signingIn = false, signInError = null) }
