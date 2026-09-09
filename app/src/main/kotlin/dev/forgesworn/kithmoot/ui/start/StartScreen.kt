@@ -17,6 +17,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
+import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
+import dev.forgesworn.kithmoot.ui.theme.TextSize
 
 @Composable
 fun StartScreen(
@@ -125,6 +127,21 @@ fun StartScreen(
                     OutlinedButton(onJoin, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Join room") }
                     Text("Only share invitations with people you want in the room. Your camera and microphone start off.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            // Text size: one tap, remembered, applied everywhere. Above the
+            // relay settings because it is the one everybody may want.
+            val textSetting = LocalTextSizeSetting.current
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Text size", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    for (size in TextSize.entries) {
+                        val chosen = size == textSetting.size
+                        val label: @Composable RowScope.() -> Unit = { Text(size.label) }
+                        val modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "${size.label} text" + if (chosen) ", selected" else "" }
+                        if (chosen) Button({ }, modifier, content = label)
+                        else OutlinedButton({ textSetting.set(size) }, modifier, content = label)
+                    }
                 }
             }
             Column {

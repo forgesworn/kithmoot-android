@@ -6,6 +6,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -94,6 +97,7 @@ private val LightScheme = lightColorScheme(
 @Composable
 fun KithMootTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    textScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val scheme = if (darkTheme) DarkScheme else LightScheme
@@ -110,9 +114,13 @@ fun KithMootTheme(
             }
         }
     }
+    // The text size choice rides on the font scale, so every sp in the app
+    // grows with it and nothing laid out in dp moves.
+    val density = LocalDensity.current
     MaterialTheme(
         colorScheme = scheme,
         typography = KithMootTypography,
-        content = content,
-    )
+    ) {
+        CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * textScale), content = content)
+    }
 }

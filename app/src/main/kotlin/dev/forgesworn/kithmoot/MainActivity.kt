@@ -4,10 +4,17 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
+import dev.forgesworn.kithmoot.ui.theme.TextSize
+import dev.forgesworn.kithmoot.ui.theme.TextSizeSetting
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
@@ -33,7 +40,10 @@ class MainActivity : ComponentActivity() {
         incoming.value = linkFrom(intent)
 
         setContent {
-            KithMootTheme {
+            var textSize by remember { mutableStateOf(TextSize.load(this)) }
+            val textSetting = remember(textSize) { TextSizeSetting(textSize) { chosen -> TextSize.save(this, chosen); textSize = chosen } }
+            KithMootTheme(textScale = textSize.scale) {
+              CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model: RoomViewModel = viewModel()
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
@@ -47,6 +57,7 @@ class MainActivity : ComponentActivity() {
                     val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
                     if (!opened) model.showNotice("Picture-in-picture could not open. You can still zoom in fullscreen.")
                 }) else null)
+              }
             }
         }
     }
