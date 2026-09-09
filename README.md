@@ -121,6 +121,8 @@ not shared room descriptors.
 | The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); a two-member `members` policy enforced at the gate |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
+| Dead-drop keys | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`). The module derives; the app does not ride quiet rooms yet |
+| Contact cards | The contact card reader, written from the draft: steps 1 to 5 in order, the Link address card inside verified by a strict, cofactorless Ed25519 written out over BigInteger, refresh under the pinned node id (`protocol/ContactCard.kt`, `LinkCard.kt`, `crypto/Ed25519Strict.kt`). The module reads; the app has no card screen yet |
 
 Two behaviours in there are load-bearing and easy to get quietly wrong:
 
@@ -154,6 +156,15 @@ The groups this client does not implement - `channelDerivation`,
 `approvalControl`, `roomDescriptor` and `verificationWords` - are counted by
 `VectorCoverageTest` without being run, so the day one of them lands the
 guard already knows how many cases it owes.
+
+`deaddrop-vectors.json` and `contact-card-vectors.json` are verbatim copies
+of `nostr-deaddrop`'s and `nostr-contact-card`'s known-answer files: nine
+derivations, twenty-seven cards with the step each fails at, six refresh
+cases including a small-order node id and a nonce point carrying torsion.
+`DeadDropVectorsTest` and `ContactCardVectorsTest` run every one;
+`CardFuzzTest` mutates the passing card and address card fifteen hundred
+ways each and expects a verdict, never an exception. Where this module and
+those files disagree, the disagreement is the finding.
 
 `persistent-group-web.json` is a separate synthetic fixture produced by the
 TypeScript implementation at `171de0a`. Native tests decode its welcome and
