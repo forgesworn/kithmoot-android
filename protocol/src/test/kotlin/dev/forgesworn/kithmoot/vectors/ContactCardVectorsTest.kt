@@ -17,7 +17,7 @@ import java.util.Base64
 
 /**
  * The contact card reader against `nostr-contact-card`'s known answers,
- * loaded verbatim from its `vectors/contact-card.json`: twenty-seven cards
+ * loaded verbatim from its `vectors/contact-card.json`: thirty-two cards
  * and the refresh cases, each with the expected verdict and the step that
  * fails. A verifier that disagrees on either is wrong.
  */
@@ -32,7 +32,7 @@ class ContactCardVectorsTest {
     fun everyCardReadsAsTheDraftSays() {
         val now = root.number("now")
         val cases = root.getValue("cases").jsonArray.map { it.jsonObject }
-        assertEquals(27, cases.size)
+        assertEquals(32, cases.size)
         val failures = ArrayList<String>()
         for (c in cases) {
             val name = c.text("name")
@@ -57,15 +57,19 @@ class ContactCardVectorsTest {
         val r = ContactCards.read(passes.text("encoded"), now)
         assertTrue(describe(r), r is CardResult.Ok)
         val card = (r as CardResult.Ok).card
-        val expected = passes.child("card")
-        assertEquals(expected.text("p"), card.p)
-        assertEquals(expected.text("rz"), card.rz)
-        assertEquals(expected.text("eph"), card.eph)
-        assertEquals(expected.textOrNull("name"), card.name)
-        assertEquals(expected.number("issued"), card.issued)
-        assertEquals(expected.number("expires"), card.expires)
-        assertEquals(expected.strings("relays"), card.relays)
-        assertEquals(expected.list("boxes").size, card.boxes.size)
+        // The vector carries the event; its content is the card.
+        val event = passes.child("card")
+        val content = Json.parseToJsonElement(event.text("content")).jsonObject
+        assertEquals(event.text("pubkey"), card.p)
+        assertEquals(event.text("id"), card.id)
+        assertEquals(event.number("created_at"), card.issued)
+        assertEquals(event.list("tags")[1].jsonArray[1].jsonPrimitive.content.toLong(), card.expires)
+        assertEquals(content.text("rz"), card.rz)
+        assertEquals(content.text("eph"), card.eph)
+        assertEquals(content.textOrNull("name"), card.name)
+        assertEquals(content.strings("relays"), card.relays)
+        assertEquals(content.list("boxes").size, card.boxes.size)
+        assertEquals(30641, card.event.kind)
         assertEquals(card.boxes.size, r.boxes.size)
         for ((box, link) in r.boxes) {
             assertEquals(64, link.nodeId.length)

@@ -1,9 +1,5 @@
 package dev.forgesworn.kithmoot.protocol
 
-import dev.forgesworn.kithmoot.crypto.Digests
-import dev.forgesworn.kithmoot.crypto.Schnorr
-import dev.forgesworn.kithmoot.crypto.hexToBytes
-import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -37,7 +33,10 @@ class ContactCard(
     val eph: String,
     val attest: String?,
     val bond: BondHandshake?,
+    val id: String,
     val sig: String,
+    /** The signed event the card travels as, for carrying on. */
+    val event: NostrEvent,
 )
 
 sealed class CardResult {
@@ -46,7 +45,8 @@ sealed class CardResult {
 }
 
 object ContactCards {
-    const val DOMAIN: String = "nostr-contact-card:v1"
+    /** The reserved addressable kind a card rides in. Never published to a relay. */
+    const val KIND: Int = 30641
     const val MAX_CARD_BYTES: Int = 16384
     const val MAX_AGE_SECONDS: Long = 30L * 24 * 3600
     const val MAX_RELAYS: Int = 8
@@ -177,18 +177,6 @@ object ContactCards {
         return Json.encodeToString(JsonObject.serializer(), o).toByteArray(Charsets.UTF_8)
     }
 
-    /** §2 of the draft: the digest the card's signature covers. */
-    fun digest(c: ContactCard): ByteArray {
-        val boxes = c.boxes.joinToString(",") { b -> "${b.p}/${b.claim}/${b.card}/${(b.carriers ?: emptyList()).joinToString("+")}" }
-        val s = listOf(
-            DOMAIN, c.p, c.rz, c.issued.toString(), c.expires.toString(), c.eph,
-            c.relays.joinToString(","), boxes, c.attest ?: "",
-            if (c.bond != null) Digests.sha256(handshakeBytes(c.bond)).toHex() else "",
-            Digests.sha256((c.name ?: "").toByteArray(Charsets.UTF_8)).toHex(),
-        ).joinToString(":")
-        return Digests.sha256(s.toByteArray(Charsets.UTF_8))
-    }
-
     private fun text(e: JsonElement): String? = (e as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     /** A JSON number that is an integer a reader can hold, else null. */
@@ -203,6 +191,8 @@ object ContactCards {
         return if (l > MAX_SAFE || l < -MAX_SAFE) null else l
     }
 
+    private val EXPIRATION = Regex("^(0|[1-9][0-9]{0,15})$")
+
     /** §3 steps 1 to 5, in order; the result names the step that failed. */
     fun read(encoded: String, now: Long): CardResult {
         val body = encoded.substring(encoded.lastIndexOf('#') + 1)
@@ -211,19 +201,38 @@ object ContactCards {
         if (bytes.size >= 3 && bytes[0] == 0xef.toByte() && bytes[1] == 0xbb.toByte() && bytes[2] == 0xbf.toByte()) return CardResult.Refused(1, "decode")
         val textBody = Text.strictUtf8(bytes) ?: return CardResult.Refused(1, "decode")
         val root = try { json.parseToJsonElement(textBody) } catch (_: Exception) { return CardResult.Refused(1, "decode") }
-        val c = root as? JsonObject ?: return CardResult.Refused(1, "version")
+        val ev = root as? JsonObject ?: return CardResult.Refused(1, "version")
+        val kind = ev["kind"] as? JsonPrimitive
+        if (kind == null || kind.isString || kind.content != KIND.toString()) return CardResult.Refused(1, "version")
+        val contentText = ev["content"]?.let(::text) ?: return CardResult.Refused(1, "version")
+        val c = try { json.parseToJsonElement(contentText) as? JsonObject } catch (_: Exception) { null } ?: return CardResult.Refused(1, if (runCatching { json.parseToJsonElement(contentText) }.isSuccess) "version" else "decode")
         val v = c["v"] as? JsonPrimitive
         if (v == null || v.isString || v.content != "1") return CardResult.Refused(1, "version")
 
+        // Step 2: the event's own shape, then the card's fields.
+        val p = (ev["pubkey"]?.let(::text) ?: return CardResult.Refused(2, "p")).lowercase()
+        if (!HEX64.matches(p)) return CardResult.Refused(2, "p")
+        val id = (ev["id"]?.let(::text) ?: return CardResult.Refused(2, "id")).lowercase()
+        if (!HEX64.matches(id)) return CardResult.Refused(2, "id")
+        val sig = (ev["sig"]?.let(::text) ?: return CardResult.Refused(2, "sig")).lowercase()
+        if (!HEX128.matches(sig)) return CardResult.Refused(2, "sig")
+        val tagsJson = ev["tags"] as? JsonArray ?: return CardResult.Refused(2, "tags")
+        if (tagsJson.size != 2) return CardResult.Refused(2, "tags")
+        val tags = tagsJson.map { t ->
+            val arr = t as? JsonArray ?: return CardResult.Refused(2, "tags")
+            if (arr.size != 2) return CardResult.Refused(2, "tags")
+            arr.map { x -> text(x) ?: return CardResult.Refused(2, "tags") }
+        }
+        val dTag = tags.firstOrNull { it[0] == "d" }
+        val expTag = tags.firstOrNull { it[0] == "expiration" }
+        if (dTag == null || expTag == null || dTag[1] != "card") return CardResult.Refused(2, "tags")
         val hex = HashMap<String, String>()
-        for (f in listOf("p", "rz", "eph")) {
+        for (f in listOf("rz", "eph")) {
             val s = c[f]?.let(::text) ?: return CardResult.Refused(2, f)
             val lower = s.lowercase()
             if (!HEX64.matches(lower)) return CardResult.Refused(2, f)
             hex[f] = lower
         }
-        val sig = (c["sig"]?.let(::text) ?: return CardResult.Refused(2, "sig")).lowercase()
-        if (!HEX128.matches(sig)) return CardResult.Refused(2, "sig")
         val name = c["name"]?.let { text(it)?.takeIf(::isGoodName) ?: return CardResult.Refused(2, "name") }
         val relaysJson = c["relays"] as? JsonArray ?: return CardResult.Refused(2, "relays")
         if (relaysJson.size > MAX_RELAYS) return CardResult.Refused(2, "relays")
@@ -233,9 +242,9 @@ object ContactCards {
         val boxes = ArrayList<CardBox>()
         for (bj in boxesJson) {
             val b = bj as? JsonObject ?: return CardResult.Refused(2, "box")
-            val p = b["p"]?.let(::text)?.lowercase() ?: ""
+            val bp = b["p"]?.let(::text)?.lowercase() ?: ""
             val claim = b["claim"]?.let(::text)?.lowercase() ?: ""
-            if (!HEX64.matches(p)) return CardResult.Refused(2, "box p")
+            if (!HEX64.matches(bp)) return CardResult.Refused(2, "box p")
             if (!HEX64.matches(claim)) return CardResult.Refused(2, "box claim")
             val card = b["card"]?.let(::text)?.takeIf { B64URL.matches(it) } ?: return CardResult.Refused(2, "box card")
             val carriers = b["carriers"]?.let { arr ->
@@ -243,7 +252,7 @@ object ContactCards {
                 if (list.isEmpty() || list.size > 8) return CardResult.Refused(2, "box carriers")
                 list.map { x -> text(x)?.takeIf { CARRIER.matches(it) } ?: return CardResult.Refused(2, "box carriers") }
             }
-            boxes.add(CardBox(p, claim, card, carriers))
+            boxes.add(CardBox(bp, claim, card, carriers))
         }
         val attest = c["attest"]?.let { a ->
             val s = text(a) ?: return CardResult.Refused(2, "attest")
@@ -251,13 +260,19 @@ object ContactCards {
             s
         }
         val bond = c["bond"]?.let { try { cleanBond(it) } catch (_: HandshakeException) { return CardResult.Refused(2, "bond") } }
-        val issued = safeInteger(c["issued"]) ?: return CardResult.Refused(3, "times")
-        val expires = safeInteger(c["expires"]) ?: return CardResult.Refused(3, "times")
+
+        // Step 3: issued is the event's created_at, expires the expiration tag's value.
+        val issued = safeInteger(ev["created_at"]) ?: return CardResult.Refused(3, "times")
+        if (!EXPIRATION.matches(expTag[1])) return CardResult.Refused(3, "times")
+        val expires = expTag[1].toLongOrNull()?.takeIf { it <= MAX_SAFE } ?: return CardResult.Refused(3, "times")
         if (expires <= now) return CardResult.Refused(3, "expired")
         if (expires <= issued || expires - issued > MAX_AGE_SECONDS) return CardResult.Refused(3, "expiry window")
         if (issued > now + 300) return CardResult.Refused(3, "issued in the future")
-        val card = ContactCard(hex.getValue("p"), hex.getValue("rz"), name, issued, expires, relays, boxes, hex.getValue("eph"), attest, bond, sig)
-        if (!Schnorr.verify(sig.hexToBytes(), digest(card), card.p.hexToBytes())) return CardResult.Refused(4, "signature")
+
+        // Step 4: the NIP-01 id over the six fields as carried, and the signature under p.
+        val event = NostrEvent(KIND, issued, tags, contentText, text(ev.getValue("pubkey")) ?: return CardResult.Refused(2, "p"), id, sig)
+        if (!Events.verify(event)) return CardResult.Refused(4, "signature")
+        val card = ContactCard(p, hex.getValue("rz"), name, issued, expires, relays, boxes, hex.getValue("eph"), attest, bond, id, sig, event)
         val verified = ArrayList<Pair<CardBox, LinkCard>>()
         for (b in card.boxes) {
             val linkBytes = try { Base64.getUrlDecoder().decode(b.card) } catch (_: Exception) { return CardResult.Refused(5, "link: decode") }
