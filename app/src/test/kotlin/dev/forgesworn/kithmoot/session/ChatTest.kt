@@ -15,6 +15,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.protocol.laneOfRelays
 
 class ChatTest {
 
@@ -88,6 +90,30 @@ class ChatTest {
         assertEquals("hello from TypeScript", decoded.body)
         assertEquals(owner.participant, decoded.participant)
         assertEquals(owner.devicePubkey, decoded.device)
+    }
+
+    @Test
+    fun `a lane the wire claims is ignored and the reader's finding stands`() {
+        val plaintext = buildJsonObject {
+            put("id", "claimed-lane")
+            put("participant", owner.participant)
+            put("device", owner.devicePubkey)
+            put("credential", owner.credential.toJson())
+            put("text", "I went by the lane, honest")
+            put("sentAt", 100)
+            put("lane", "sheltered")
+        }
+        val claimed = Events.sign(
+            secretKey = owner.deviceSecretKey,
+            kind = KIND_CHAT,
+            createdAt = 100,
+            tags = listOf(listOf("d", room.roomId)),
+            content = Nip44.encrypt(plaintext.toString(), room.roomKey),
+        )
+        val decoded = assertNotNull(decodeChatEvent(claimed, room.roomId, room.roomKey, now = 200))
+        assertNull(decoded.lane)
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://relay.example", "wss://${"a".repeat(56)}.onion")))
+        assertEquals(Lane.SHELTERED, decoded.copy(lane = laneOfRelays(listOf("wss://${"a".repeat(56)}.onion"))).lane)
     }
 
     @Test

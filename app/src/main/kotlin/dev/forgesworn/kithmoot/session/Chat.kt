@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
@@ -59,6 +60,14 @@ data class ChatMessage(
     val mentions: List<String>? = null,
     /** A direct-message invitation sealed to one member. */
     val invite: ChatInvite? = null,
+    /**
+     * The lane this message actually travelled, worked out by the reader from
+     * the relays it came over. Never on the wire: the decoder reads named
+     * fields only, so a `lane` a payload carries is ignored, because the
+     * sender does not get to say how private the delivery was. Null when the
+     * transport could not say. See `Lane.kt`.
+     */
+    val lane: Lane? = null,
 )
 
 fun encodeChatEvent(

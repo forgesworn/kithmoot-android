@@ -21,6 +21,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.session.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,6 +38,8 @@ fun ChatPane(
     profilesEnabled: Boolean = false,
     profiles: Map<String, PublicProfile> = emptyMap(),
     onProfilesEnabled: (Boolean) -> Unit = {},
+    /** The lane the next message will take; null when the room cannot say. */
+    lane: Lane? = null,
 ) {
     var draft by remember { mutableStateOf(TextFieldValue("")) }
     var query by remember { mutableStateOf("") }
@@ -71,6 +74,10 @@ fun ChatPane(
     }
     Column(modifier.fillMaxWidth().imePadding()) {
         Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
+        // Which lane the next message will take and what that lane delivers,
+        // before anyone sends. Worked out from the room's relays, never claimed.
+        if (lane != null) Text("${lane.chip} · ${lane.meaning}", Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "${lane.label} lane. ${lane.meaning}" },
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Encrypted to the room. Search covers loaded messages on this device.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             label = { Text("Search messages or people") }, singleLine = true,
@@ -102,6 +109,8 @@ fun ChatPane(
                             Text(message.body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
                         }
                         val chips = listOfNotNull(
+                            // The lane it travelled: glyph and word, so it reads without colour.
+                            r.original.lane?.chip,
                             if (r.edited && !r.retracted) "edited" else null,
                             if (r.orphan) "in a thread" else null,
                             if (nested && r.reply != null && r.thread != null && r.reply != r.thread) "replying to ${shortId(r.reply.participant)}" else null,
