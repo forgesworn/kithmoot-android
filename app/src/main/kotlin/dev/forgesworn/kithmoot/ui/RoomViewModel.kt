@@ -161,6 +161,17 @@ data class RoomState(
 /** Relays used when a room is opened here, or when a join URL names none. */
 val DEFAULT_RELAYS: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")
 
+/**
+ * Where a kind-0 profile is looked for, beyond the room's own relays.
+ *
+ * A room on somebody's own box holds the room's events and nothing else; a
+ * member's profile lives wherever they published it, which for almost
+ * everybody is the public relays. Asked only on the room's relays, a person
+ * who signed in with a real Nostr account still showed as a short code.
+ * Read from only, and only while the profiles switch is on.
+ */
+val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
+
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
@@ -200,6 +211,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private var sessionScope: CoroutineScope? = null
     private var pool: RelayPool? = null
+    /** The pool profiles are read from: the room's relays and the public
+     *  profile relays. Separate from the room's own, which must never be
+     *  widened to public relays by a lookup. */
+    private var profilePool: RelayPool? = null
     private var session: RoomSession? = null
     private var engine: WebRtcEngine? = null
     private var identity: RoomIdentity? = null
@@ -763,13 +778,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         )
         _start.update { it.copy(error = null) }
 
+        val profileTransport = RelayPool((relays + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), scope)
+        profilePool = profileTransport
         scope.launch {
             _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
                 .distinctUntilChanged().collectLatest { authors ->
                     if (authors.isEmpty()) return@collectLatest
                     val requested = authors.toSet()
                     kotlinx.coroutines.withTimeoutOrNull(10_000) {
-                        transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                        profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
                             val profile = decodePublicProfile(event, requested, epochSeconds()) ?: return@collect
                             _room.update { state ->
                                 if (!state.profilesEnabled || state.roomId != derived.roomId) state else {
@@ -783,6 +800,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
         transport.start()
+        profileTransport.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
@@ -950,6 +968,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         engine?.dispose()
         engine = null
         pool?.stop()
+        profilePool?.stop()
+        profilePool = null
         pool = null
         session = null
         identity = null
