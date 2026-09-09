@@ -45,6 +45,11 @@ interface RoomTransport {
      * nothing on the wire; see `Lane.kt` in the protocol module.
      */
     fun describe(): List<String> = emptyList()
+
+    /** The relays among [describe] the client knows to be boxes of the person's
+     *  own circle. Only those are ever shown as sheltered. Empty until a contact
+     *  card or the keeper's claim names one. */
+    fun circleRelays(): Set<String> = emptySet()
 }
 
 /**

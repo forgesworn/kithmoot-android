@@ -112,8 +112,10 @@ class ChatTest {
         )
         val decoded = assertNotNull(decodeChatEvent(claimed, room.roomId, room.roomKey, now = 200))
         assertNull(decoded.lane)
-        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://relay.example", "wss://${"a".repeat(56)}.onion")))
-        assertEquals(Lane.SHELTERED, decoded.copy(lane = laneOfRelays(listOf("wss://${"a".repeat(56)}.onion"))).lane)
+        val onion = "wss://${"a".repeat(56)}.onion"
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://relay.example", onion), setOf(onion)))
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf(onion)))
+        assertEquals(Lane.SHELTERED, decoded.copy(lane = laneOfRelays(listOf(onion), setOf(onion))).lane)
     }
 
     @Test

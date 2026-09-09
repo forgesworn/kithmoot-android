@@ -8,18 +8,24 @@ import org.junit.Test
 
 class LaneTest {
     @Test
-    fun onionIsShelteredEverythingElsePublic() {
-        assertEquals(Lane.SHELTERED, laneOfRelayUrl("wss://${"a".repeat(56)}.onion"))
-        assertEquals(Lane.SHELTERED, laneOfRelayUrl("ws://xyz.onion:8080"))
-        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://relay.damus.io"))
-        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://onion.example.com"))
-        assertEquals(Lane.PUBLIC, laneOfRelayUrl("not a url"))
+    fun shelteredMeansTheCirclesOwnBoxAnOnionAloneIsPublic() {
+        val onion = "wss://${"a".repeat(56)}.onion"
+        val circle = setOf("wss://box.example", onion)
+        assertEquals(Lane.SHELTERED, laneOfRelayUrl(onion, circle))
+        assertEquals(Lane.SHELTERED, laneOfRelayUrl("wss://box.example/", circle))
+        assertEquals(Lane.SHELTERED, laneOfRelayUrl("wss://BOX.example", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("ws://xyz.onion:8080"))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("ws://xyz.onion:8080", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://relay.damus.io", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("not a url", circle))
     }
 
     @Test
     fun aSetOfRelaysIsAsWeakAsItsWeakest() {
-        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://a.onion", "wss://relay.example")))
-        assertEquals(Lane.SHELTERED, laneOfRelays(listOf("wss://a.onion", "wss://b.onion")))
+        val circle = setOf("wss://a.onion", "wss://b.onion")
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://a.onion", "wss://relay.example"), circle))
+        assertEquals(Lane.SHELTERED, laneOfRelays(listOf("wss://a.onion", "wss://b.onion"), circle))
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://a.onion", "wss://b.onion")))
         assertNull(laneOfRelays(emptyList()))
         assertEquals(Lane.SHELTERED, weakestLane(listOf(Lane.DIRECT, Lane.SHELTERED)))
     }

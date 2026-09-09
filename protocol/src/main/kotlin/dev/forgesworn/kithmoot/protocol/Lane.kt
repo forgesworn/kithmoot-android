@@ -22,17 +22,32 @@ enum class Lane(val label: String, val glyph: String, val meaning: String, inter
     val chip: String get() = "$glyph $label"
 }
 
-/** The lane one relay URL puts a message on: an onion is sheltered, anything else is public. */
-fun laneOfRelayUrl(url: String): Lane {
-    val host = try { URI(url).host?.lowercase() } catch (_: Exception) { null }
-    return if (host != null && host.endsWith(".onion")) Lane.SHELTERED else Lane.PUBLIC
+/**
+ * The lane one relay URL puts a message on. [circle] is the set of relay URLs
+ * the client knows to be boxes of the person's own circle, from a contact card
+ * or the keeper's claim; a relay in it is sheltered and every other relay,
+ * onion or not, is public, because an onion hides the client's address and
+ * says nothing about who runs the relay.
+ */
+fun laneOfRelayUrl(url: String, circle: Set<String> = emptySet()): Lane {
+    if (url in circle) return Lane.SHELTERED
+    val norm = try { normaliseRelay(url) } catch (_: Exception) { null }
+    return if (norm != null && circle.any { runCatching { normaliseRelay(it) }.getOrNull() == norm }) Lane.SHELTERED else Lane.PUBLIC
+}
+
+private fun normaliseRelay(url: String): String {
+    val u = URI(url)
+    val host = u.host?.lowercase() ?: throw IllegalArgumentException("no host")
+    val port = if (u.port == -1) "" else ":${u.port}"
+    val path = u.path?.trimEnd('/') ?: ""
+    return "${u.scheme?.lowercase()}://$host$port$path"
 }
 
 /** The weakest of several lanes, or null when there are none. */
 fun weakestLane(lanes: Collection<Lane>): Lane? = lanes.minByOrNull { it.rank }
 
 /** The lane a message takes when it is published to all of these relays. */
-fun laneOfRelays(urls: Collection<String>): Lane? = weakestLane(urls.map(::laneOfRelayUrl))
+fun laneOfRelays(urls: Collection<String>, circle: Set<String> = emptySet()): Lane? = weakestLane(urls.map { laneOfRelayUrl(it, circle) })
 
 /** A message went by a weaker lane than the one asked for. */
 fun isDowngrade(requested: Lane, actual: Lane): Boolean = actual.rank < requested.rank
