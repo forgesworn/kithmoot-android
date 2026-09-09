@@ -1658,7 +1658,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * This person's own card: a kind 30641 event signed by whatever holds
+     * This person's own card: a kind 21641 event signed by whatever holds
      * the identity, with the room's relays as their public relays and no
      * box, because this phone runs none. Seven days.
      */

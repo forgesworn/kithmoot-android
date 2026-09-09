@@ -11,7 +11,7 @@ import java.util.Base64
 /**
  * The other half of `ContactCard.kt`: making a card of one's own.
  *
- * A card is a signed event of kind 30641 (CONTACT-CARD §1). The person's
+ * A card is a signed event of kind 21641, in the ephemeral range (CONTACT-CARD §1). The person's
  * key, the issue time and the expiry live on the event; everything else is
  * the content, a JSON string in the key order the reference writes it,
  * `v, rz, name, relays, boxes, eph, attest, bond`, absent keys omitted. The
@@ -61,8 +61,8 @@ object ContactCardBuilder {
         return o.toString()
     }
 
-    /** The two tags a card carries, and no other (§1). */
-    fun tags(expires: Long): List<List<String>> = listOf(listOf("d", "card"), listOf("expiration", expires.toString()))
+    /** The one tag a card carries, and no other (§1). */
+    fun tags(expires: Long): List<List<String>> = listOf(listOf("expiration", expires.toString()))
 
     /** The link body: unpadded base64url of the event's JSON. */
     fun encode(event: NostrEvent): String {

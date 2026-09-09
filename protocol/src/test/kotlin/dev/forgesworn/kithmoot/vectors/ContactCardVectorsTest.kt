@@ -32,7 +32,7 @@ class ContactCardVectorsTest {
     fun everyCardReadsAsTheDraftSays() {
         val now = root.number("now")
         val cases = root.getValue("cases").jsonArray.map { it.jsonObject }
-        assertEquals(32, cases.size)
+        assertEquals(33, cases.size)
         val failures = ArrayList<String>()
         for (c in cases) {
             val name = c.text("name")
@@ -63,13 +63,13 @@ class ContactCardVectorsTest {
         assertEquals(event.text("pubkey"), card.p)
         assertEquals(event.text("id"), card.id)
         assertEquals(event.number("created_at"), card.issued)
-        assertEquals(event.list("tags")[1].jsonArray[1].jsonPrimitive.content.toLong(), card.expires)
+        assertEquals(event.list("tags")[0].jsonArray[1].jsonPrimitive.content.toLong(), card.expires)
         assertEquals(content.text("rz"), card.rz)
         assertEquals(content.text("eph"), card.eph)
         assertEquals(content.textOrNull("name"), card.name)
         assertEquals(content.strings("relays"), card.relays)
         assertEquals(content.list("boxes").size, card.boxes.size)
-        assertEquals(30641, card.event.kind)
+        assertEquals(21641, card.event.kind)
         assertEquals(card.boxes.size, r.boxes.size)
         for ((box, link) in r.boxes) {
             assertEquals(64, link.nodeId.length)
