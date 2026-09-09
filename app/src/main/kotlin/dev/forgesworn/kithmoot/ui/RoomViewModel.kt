@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -112,6 +114,8 @@ data class RoomState(
     val joinUrl: String = "",
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
+    /** The lane the next message will take, from the room's relays. */
+    val lane: Lane? = null,
     val tiles: List<ParticipantTile> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
     val profilesEnabled: Boolean = false,
@@ -749,6 +753,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             name = record.name,
             joinUrl = record.joinUrl,
             relaysTotal = relays.size,
+            lane = laneOfRelays(relays),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,

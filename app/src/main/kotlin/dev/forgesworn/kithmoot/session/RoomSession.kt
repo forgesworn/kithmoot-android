@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.KIND_ROOM_REKEY
+import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
@@ -464,7 +466,17 @@ class RoomSession(
         if (changed) recompute()
     }
 
-    private fun ingestChat(message: ChatMessage) {
+    /**
+     * The lane a message sent now would take: the weakest of the relays this
+     * session writes to. Null when the transport cannot say. Shown beside the
+     * box people type into, so the answer is there before they send.
+     */
+    fun sendLane(): Lane? = laneOfRelays(transport.describe(), transport.circleRelays())
+
+    private fun ingestChat(incoming: ChatMessage) {
+        // The lane is the reader's finding: the relays this session reads
+        // over, never anything the message says about itself.
+        val message = incoming.copy(lane = laneOfRelays(transport.describe(), transport.circleRelays()))
         synchronized(lock) {
             val at = now()
             if (message.sentAt < at - CHAT_RETENTION_SECONDS) return

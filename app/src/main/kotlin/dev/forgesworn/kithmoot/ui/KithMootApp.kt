@@ -219,6 +219,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 profilesEnabled = roomState.profilesEnabled,
                 profiles = roomState.profiles,
                 onProfilesEnabled = model::setProfilesEnabled,
+                lane = roomState.lane,
                 modifier = Modifier.fillMaxHeight(0.9f),
             )
         }

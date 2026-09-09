@@ -38,6 +38,18 @@ interface RoomTransport {
      * the collector closes the subscription on every relay.
      */
     fun subscribe(filters: List<Filter>): Flow<NostrEvent>
+
+    /**
+     * The relay URLs this transport reads from and writes to, when it has
+     * any. A consumer works out the lane a message took from these, and from
+     * nothing on the wire; see `Lane.kt` in the protocol module.
+     */
+    fun describe(): List<String> = emptyList()
+
+    /** The relays among [describe] the client knows to be boxes of the person's
+     *  own circle. Only those are ever shown as sheltered. Empty until a contact
+     *  card or the keeper's claim names one. */
+    fun circleRelays(): Set<String> = emptySet()
 }
 
 /**
@@ -104,6 +116,8 @@ class RelayPool(
         }
         _connected.value = emptySet()
     }
+
+    override fun describe(): List<String> = urls.toList()
 
     override fun publish(event: NostrEvent) {
         val frame = RelayCodec.publishFrame(event)
