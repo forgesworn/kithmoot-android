@@ -21,24 +21,28 @@ class SignInContractsTest {
         assertNull(BunkerPointer.parse("bunker://notakey?relay=wss://x"))
     }
 
-    @Test fun `the Signet callback carries the key and the bunker`() {
-        val bunker = "bunker://$remotePubkey?relay=wss://relay.example&secret=abc"
-        val link = "kithmoot://signet?pubkey=$remotePubkey&signature=00&eventId=11&bunker=" + java.net.URLEncoder.encode(bunker, "UTF-8") + "&display_name=Robin"
-        val result = SignetSignIn.parse(link)
-        assertIs<SignetSignIn.Callback.SignedIn>(result)
-        assertEquals(remotePubkey, result.pubkey)
-        assertEquals(bunker, result.bunkerUri)
-        assertEquals("Robin", result.displayName)
-        assertEquals(SignetSignIn.Callback.Denied, SignetSignIn.parse("kithmoot://signet?error=denied"))
-        assertIs<SignetSignIn.Callback.Failed>(SignetSignIn.parse("kithmoot://signet?signature=00"))
-        assertNull(SignetSignIn.parse("kithmoot://join#abc"), "a room link is not a sign-in")
-        assertNull(SignetSignIn.parse("https://evil.example/?pubkey=$remotePubkey"))
+    @Test fun `the Signet link carries a nostrconnect invitation and an https callback on the site`() {
+        val client = "cd".repeat(32)
+        val uri = SignetSignIn.nostrConnectUri(client, listOf("wss://relay.damus.io", "wss://nos.lol"), "s3cret")
+        assertEquals("nostrconnect://$client?relay=wss%3A%2F%2Frelay.damus.io&relay=wss%3A%2F%2Fnos.lol&secret=s3cret&perms=sign_event%3A20460%2Cnip44_encrypt%2Cnip44_decrypt&name=KithMoot&url=https%3A%2F%2Fkithmoot.forgesworn.dev", uri)
+        val url = SignetSignIn.url(uri)
+        assertTrue(url.startsWith("https://mysignet.app/?nostrconnect=nostrconnect%3A%2F%2F$client"), url)
+        assertTrue(url.endsWith("&callback=https%3A%2F%2Fkithmoot.forgesworn.dev%2Fsignet%2F"), url)
+        // Signet checks the callback's origin against the invitation's url: both are the site.
+        assertEquals(java.net.URI(SignetSignIn.CALLBACK).host, java.net.URI(SignetSignIn.APP_URL).host)
     }
 
-    @Test fun `the Signet sign-in url is what signet-login builds`() {
-        val challenge = "ab".repeat(32)
-        val url = SignetSignIn.url(challenge, at = 1_800_000_000)
-        assertTrue(url.startsWith("https://mysignet.app/?auth=1&challenge=$challenge&origin=https%3A%2F%2Fkithmoot.forgesworn.dev&name=KithMoot&callback=kithmoot%3A%2F%2Fsignet&t=1800000000"), url)
+    @Test fun `the bridge page sends the app an outcome and nothing else`() {
+        assertEquals(SignetSignIn.Outcome.APPROVED, SignetSignIn.parse("kithmoot://signet?status=approved"))
+        assertEquals(SignetSignIn.Outcome.DENIED, SignetSignIn.parse("kithmoot://signet?status=denied"))
+        assertNull(SignetSignIn.parse("kithmoot://signet?status=maybe"))
+        assertNull(SignetSignIn.parse("kithmoot://join#abc"), "a room link is not a sign-in")
+        assertNull(SignetSignIn.parse("https://evil.example/?status=approved"))
+    }
+
+    @Test fun `a bunker pointer writes itself back as a link`() {
+        val pointer = BunkerPointer(remotePubkey, listOf("wss://relay.damus.io"), "s3cret")
+        assertEquals(pointer, BunkerPointer.parse(pointer.toUri()))
     }
 
     @Test fun `a signer app answers with an npub or hex, and with a whole event or just a signature`() {

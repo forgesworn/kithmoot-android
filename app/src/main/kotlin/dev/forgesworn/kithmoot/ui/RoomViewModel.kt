@@ -27,6 +27,7 @@ import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.openAccount
 import dev.forgesworn.kithmoot.account.secretKeyFrom
 import dev.forgesworn.kithmoot.account.shortNpub
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -286,8 +287,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private var accountSession: AccountSession? = null
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
-    /** The challenge sent to Signet, so the callback that comes back is the one we asked for. */
-    private var signetChallenge: String? = null
+    /** The Signet pairing under way: waiting on a relay for Signet to take up the invitation. */
+    private var signetPairing: Job? = null
 
     /** Set by the activity: the only way a signer intent can be started and answered. */
     var signerBridge: Nip55Bridge? = null
@@ -399,38 +400,58 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         AccountSession(account, signer) to account
     }
 
-    /** Signet: the browser goes to mysignet.app, the person approves there, and the app is called back with a bunker link. */
+    /**
+     * Signet: this app mints a NIP-46 invitation, the browser takes it to
+     * mysignet.app, the person approves there, and Signet pairs with us over
+     * a relay. The sign-in completes on the relay; the browser coming back is
+     * only the person returning.
+     */
     fun signInWithSignet() {
         if (_start.value.signingIn) return
-        val challenge = Entropy.bytes(32).toHex()
-        signetChallenge = challenge
+        val scope = newAccountScope()
+        val clientKey = Entropy.bytes(32)
+        val secret = Entropy.bytes(16).toHex()
+        val relays = SignetSignIn.RELAYS
+        val pool = RelayPool(relays, OkHttpRelaySockets(), scope)
+        pool.start()
         _start.update { it.copy(signingIn = true, signInError = null) }
-        _browser.tryEmit(SignetSignIn.url(challenge))
+        signetPairing = scope.launch {
+            try {
+                val waiting = async { Nip46Client.awaitNostrConnect(clientKey, relays, secret, pool) }
+                _browser.emit(SignetSignIn.url(SignetSignIn.nostrConnectUri(Schnorr.publicKeyHex(clientKey), relays, secret)))
+                val pointer = waiting.await()
+                val client = Nip46Client(pointer, clientKey, pool, scope)
+                val pubkey = client.getPublicKey()
+                val account = NostrAccount(pubkey, "bunker", bunkerUri = pointer.toUri(), clientSecretKey = clientKey, signedInAt = epochSeconds())
+                accounts.save(account)
+                adopt(AccountSession(account, BunkerSigner(pubkey, client, onClose = pool::stop)), account)
+            } catch (e: CancellationException) { pool.stop(); throw e }
+            catch (e: Exception) {
+                pool.stop()
+                _start.update { it.copy(signingIn = false, signInError = when (e) {
+                    is SignerException -> e.message
+                    is RoomStorageException -> "The account could not be saved on this device."
+                    else -> "Sign-in with Signet failed. Try again."
+                }) }
+            } finally { signetPairing = null }
+        }
     }
 
-    /** The browser came back from Signet. Only a callback we are waiting for counts. */
+    /** The browser came back from Signet. Approval is finished on the relay; a refusal ends the wait. */
     fun completeSignetSignIn(link: String) {
-        val result = SignetSignIn.parse(link) ?: return
-        if (signetChallenge == null) return
-        signetChallenge = null
-        _start.update { it.copy(signingIn = false) }
-        when (result) {
-            SignetSignIn.Callback.Denied -> _start.update { it.copy(signInError = "Signet declined the sign-in.") }
-            is SignetSignIn.Callback.Failed -> _start.update { it.copy(signInError = "Signet could not sign you in: ${result.reason}") }
-            is SignetSignIn.Callback.SignedIn -> {
-                val bunker = result.bunkerUri
-                if (bunker == null) {
-                    _start.update { it.copy(signInError = "Signet recognised you but handed over no signer, so this phone cannot sign for you. Turn on remote signing in My Signet and try again.") }
-                    return
-                }
-                connectBunker(bunker, expected = result.pubkey, displayName = result.displayName)
+        when (SignetSignIn.parse(link) ?: return) {
+            SignetSignIn.Outcome.APPROVED -> if (signetPairing != null) note("Signet approved. Finishing the pairing…")
+            SignetSignIn.Outcome.DENIED -> {
+                signetPairing?.cancel()
+                _start.update { it.copy(signingIn = false, signInError = "Signet declined the sign-in.") }
             }
         }
     }
 
-    /** Someone came here from Signet, or wants to abandon a sign-in the browser never finished. */
+    /** Somebody gave up on a sign-in the browser or the signer never finished. */
     fun cancelSignIn() {
-        signetChallenge = null
+        signetPairing?.cancel()
+        signetPairing = null
         _start.update { it.copy(signingIn = false) }
     }
 

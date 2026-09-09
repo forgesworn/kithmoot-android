@@ -13,6 +13,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -30,6 +32,10 @@ const val KIND_NOSTR_CONNECT: Int = 24133
 
 /** A `bunker://` link: the signer's key, the relays it listens on, and the secret that lets us in. */
 data class BunkerPointer(val remotePubkey: String, val relays: List<String>, val secret: String?) {
+    /** The link form, for the account store: enough to come back to this signer as the same client. */
+    fun toUri(): String = "bunker://$remotePubkey?" +
+        (relays.map { "relay=" + java.net.URLEncoder.encode(it, "UTF-8") } + listOfNotNull(secret?.let { "secret=" + java.net.URLEncoder.encode(it, "UTF-8") })).joinToString("&")
+
     companion object {
         fun parse(text: String): BunkerPointer? {
             val raw = text.trim()
@@ -159,6 +165,38 @@ class Nip46Client(
         val waiting = synchronized(lock) { pending.values.toList().also { pending.clear() } }
         for (w in waiting) w.completeExceptionally(SignerException("The signer connection was closed."))
     }
+
+    companion object {
+        /**
+         * The other way round: the signer comes to us. A `nostrconnect://`
+         * link names our client key, relays and a secret; whichever signer
+         * takes it up sends a `connect` answer carrying that secret to our
+         * key, and that answer is how we learn the signer's own key. Waits as
+         * long as a person takes to approve in Signet, then gives up.
+         */
+        suspend fun awaitNostrConnect(
+            clientSecretKey: ByteArray,
+            relays: List<String>,
+            secret: String,
+            transport: RoomTransport,
+            now: () -> Long = { System.currentTimeMillis() / 1000 },
+            timeoutMs: Long = 5 * 60_000,
+        ): BunkerPointer {
+            val clientPubkey = Schnorr.publicKeyHex(clientSecretKey)
+            val paired = withTimeoutOrNull(timeoutMs) {
+                transport.subscribe(listOf(Filter(kinds = listOf(KIND_NOSTR_CONNECT), tags = mapOf("#p" to listOf(clientPubkey)), since = now() - 60)))
+                    .mapNotNull { event ->
+                        if (!Events.verify(event)) return@mapNotNull null
+                        val key = runCatching { Nip44.conversationKey(clientSecretKey, event.pubkey.hexToBytes()) }.getOrNull() ?: return@mapNotNull null
+                        val body = runCatching { Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject }.getOrNull() ?: return@mapNotNull null
+                        val result = body["result"]?.takeIf { it is JsonPrimitive }?.jsonPrimitive?.content
+                        if (result == secret) BunkerPointer(event.pubkey, relays, secret) else null
+                    }
+                    .first()
+            }
+            return paired ?: throw SignerException("No signer took up the invitation in time. Approve it in Signet and try again.")
+        }
+    }
 }
 
 /** A person whose key sits behind a NIP-46 signer. */
@@ -180,45 +218,46 @@ class BunkerSigner(
     override fun close() { client.close(); onClose() }
 }
 
-/** The `https://mysignet.app/?…` sign-in, the way signet-login builds it, and what comes back. */
+/**
+ * Sign in with Signet, from a native app.
+ *
+ * My Signet's same-tab redirect hands a consumer an auth proof and no signer:
+ * the page that would sign is the one the redirect unloads. What a native
+ * app wants is the other entry: `https://mysignet.app/?nostrconnect=…`, the
+ * NIP-46 invitation Signet takes up in its own app or tab, pairing with this
+ * client over a relay and staying alive to sign. The `callback` is only what
+ * brings the person back here; it has to be https, and Signet checks it
+ * against the `url` the invitation names, so it is a page on the site that
+ * opens the app.
+ */
 object SignetSignIn {
     const val ORIGIN = "https://mysignet.app"
-    const val CALLBACK = "kithmoot://signet"
-    const val APP_ORIGIN = "https://kithmoot.forgesworn.dev"
+    const val APP_URL = "https://kithmoot.forgesworn.dev"
+    /** A page on the site that sends the browser on to `kithmoot://signet`. */
+    const val CALLBACK = "$APP_URL/signet/"
+    /** What comes back into the app. */
+    const val RETURN = "kithmoot://signet"
+    /** Relays the invitation names. Signet's bunker listens on these, so they must be ones it can reach. */
+    val RELAYS: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")
 
-    fun url(challengeHex: String, appName: String = "KithMoot", at: Long = System.currentTimeMillis() / 1000): String {
-        require(challengeHex.matches(Regex("[0-9a-f]{64}")))
-        val params = listOf("auth" to "1", "challenge" to challengeHex, "origin" to APP_ORIGIN, "name" to appName,
-            "callback" to CALLBACK, "t" to at.toString())
-        return "$ORIGIN/?" + params.joinToString("&") { (k, v) -> k + "=" + java.net.URLEncoder.encode(v, "UTF-8") }
+    fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String, appName: String = "KithMoot"): String {
+        require(clientPubkey.matches(Regex("[0-9a-f]{64}")))
+        val params = relays.map { "relay" to it } + listOf("secret" to secret,
+            "perms" to "sign_event:20460,nip44_encrypt,nip44_decrypt", "name" to appName, "url" to APP_URL)
+        return "nostrconnect://$clientPubkey?" + params.joinToString("&") { (k, v) -> k + "=" + java.net.URLEncoder.encode(v, "UTF-8") }
     }
 
-    sealed interface Callback {
-        data object Denied : Callback
-        data class Failed(val reason: String) : Callback
-        /** Signet vouched for this key. With a bunker link the person can sign; without one they can only be recognised. */
-        data class SignedIn(val pubkey: String, val bunkerUri: String?, val displayName: String?) : Callback {
-            val bunker: BunkerPointer? get() = bunkerUri?.let(BunkerPointer::parse)
-        }
-    }
+    fun url(nostrConnectUri: String): String =
+        "$ORIGIN/?nostrconnect=" + java.net.URLEncoder.encode(nostrConnectUri, "UTF-8") + "&callback=" + java.net.URLEncoder.encode(CALLBACK, "UTF-8")
 
-    /** Reads the callback Signet sends the browser back to. Never throws: a bad link is a failed sign-in. */
-    fun parse(link: String): Callback? {
+    enum class Outcome { APPROVED, DENIED }
+
+    /** The link the site's bridge page sends the browser on to. Null for anything else. */
+    fun parse(link: String): Outcome? {
         val uri = runCatching { URI(link) }.getOrNull() ?: return null
         if (uri.scheme != "kithmoot" || uri.host != "signet") return null
-        val params = LinkedHashMap<String, String>()
-        for (pair in (uri.rawQuery ?: "").split('&')) {
-            if (pair.isEmpty()) continue
-            val eq = pair.indexOf('=')
-            val key = URLDecoder.decode(if (eq < 0) pair else pair.substring(0, eq), "UTF-8")
-            val value = URLDecoder.decode(if (eq < 0) "" else pair.substring(eq + 1), "UTF-8")
-            params[key] = value
-        }
-        if (params["error"] == "denied") return Callback.Denied
-        params["error"]?.let { return Callback.Failed(it.take(200)) }
-        val pubkey = params["pubkey"]?.let(::publicKeyFrom) ?: return Callback.Failed("Signet did not say which key signed in.")
-        val bunker = params["bunker"]?.takeIf { BunkerPointer.parse(it) != null }
-        val name = params["display_name"]?.trim()?.take(128)?.takeIf { it.isNotEmpty() }
-        return Callback.SignedIn(pubkey, bunker, name)
+        val status = (uri.rawQuery ?: "").split('&').map { it.split('=', limit = 2) }
+            .firstOrNull { it[0] == "status" }?.getOrNull(1)?.let { URLDecoder.decode(it, "UTF-8") }
+        return when (status) { "approved" -> Outcome.APPROVED; "denied" -> Outcome.DENIED; else -> null }
     }
 }

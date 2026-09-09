@@ -11,9 +11,11 @@ import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -71,6 +73,14 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
     }
 
     fun pointer() = BunkerPointer(signerPubkey, listOf("wss://fake"), secret)
+
+    /** Signet taking up a nostrconnect invitation: it answers `connect` to the client with the secret. */
+    fun takeUp(clientPubkey: String, withSecret: String) {
+        connectedClient = clientPubkey
+        val key = Nip44.conversationKey(signerKey, clientPubkey.hexToBytes())
+        val body = buildJsonObject { put("id", "pair"); put("result", withSecret) }.toString()
+        events.tryEmit(Events.sign(signerKey, KIND_NOSTR_CONNECT, 1_800_000_000, listOf(listOf("p", clientPubkey)), Nip44.encrypt(body, key)))
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -90,6 +100,33 @@ class Nip46ClientTest {
         assertNull(identity.participantKeyForStorage(), "the key is with the signer, not here")
         assertEquals(listOf("connect", "get_public_key", "sign_event"), bunker.methods)
         client.close()
+    }
+
+    @Test fun `a nostrconnect invitation is taken up by whichever signer answers with the secret`() = runTest {
+        val bunker = FakeBunker("invite-secret")
+        val clientKey = Entropy.bytes(32)
+        val clientPubkey = Schnorr.publicKeyHex(clientKey)
+        val waiting = async { Nip46Client.awaitNostrConnect(clientKey, listOf("wss://fake"), "invite-secret", bunker, now = { 1_800_000_000 }) }
+        // runCurrent, not advanceUntilIdle: idling would run the virtual clock through the wait before anybody answered.
+        runCurrent()
+        val stranger = FakeBunker("other")
+        stranger.takeUp(clientPubkey, "wrong-secret")
+        bunker.events.tryEmit(Events.sign(stranger.signerKey, KIND_NOSTR_CONNECT, 1_800_000_000, listOf(listOf("p", clientPubkey)), "not even encrypted"))
+        bunker.takeUp(clientPubkey, "invite-secret")
+        val pointer = waiting.await()
+        assertEquals(bunker.signerPubkey, pointer.remotePubkey)
+        assertEquals("invite-secret", pointer.secret)
+        // From here on it is an ordinary bunker: the pointer reconnects with the same secret.
+        val client = Nip46Client(pointer, clientKey, bunker, this, now = { 1_800_000_000 })
+        advanceUntilIdle()
+        assertEquals(bunker.userPubkey, client.getPublicKey())
+        client.close()
+    }
+
+    @Test fun `nobody taking up the invitation is a message, not a hang`() = runTest {
+        val bunker = FakeBunker("s")
+        val error = assertFailsWith<SignerException> { Nip46Client.awaitNostrConnect(Entropy.bytes(32), listOf("wss://fake"), "s", bunker, now = { 1 }, timeoutMs = 1_000) }
+        assertTrue("took up" in error.message!!)
     }
 
     @Test fun `a refusal is an error the person can read, not a hang`() = runTest {

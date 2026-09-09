@@ -110,7 +110,7 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
         OutlinedButton({ done(); actions.onSignInWithSignet() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("Sign in with Signet")
         }
-        Text("Signet opens in your browser, you approve there, and it hands this app a remote signer.",
+        Text("Signet opens in your browser or the My Signet app, you approve there, and it pairs with this app over a relay. Signet has to be open to sign.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         TextButton({ advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
