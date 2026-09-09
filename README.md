@@ -124,20 +124,20 @@ the phone.
 
 Where the key can live:
 
-- **A signer app on this phone** (NIP-55): Amber, Cambium, or anything that
-  answers `nostrsigner:` intents. The sheet lists them by name. Signing goes
-  through the app's content provider once it has approved KithMoot, and falls
-  back to the intent, which brings the signer up to ask.
-- **Signet**: the app mints a `nostrconnect://` invitation and opens
-  `https://mysignet.app/?nostrconnect=…` in the browser or the My Signet app;
-  the person approves there, Signet's bunker pairs with this client over a
-  relay, and the sign-in finishes on the relay. Signet then sends the browser
-  to `kithmoot.forgesworn.dev/signet/`, a page that only opens the app again.
-  From then on signatures travel over NIP-46 to My Signet, which has to be
-  open to answer. (My Signet's same-tab redirect hands over no signer for an
-  in-app persona, by design, which is why the invitation goes the other way.)
-  A person whose key lives in a Heartwood signs in through Cambium instead,
-  under the first route.
+- **A signer app on this phone** (NIP-55): My Signet, Amber, Cambium, or
+  anything that answers `nostrsigner:` intents. The sheet lists them by name.
+  Signing goes through the app's content provider once it has approved
+  KithMoot, and falls back to the intent, which brings the signer up to ask.
+  A person whose key lives in a Heartwood signs in through Cambium this way.
+- **Signet in a browser** (under Advanced, for a Signet with no app on this
+  phone): the app mints a `nostrconnect://` invitation and opens
+  `https://mysignet.app/?nostrconnect=…`; the person approves there, Signet's
+  bunker pairs with this client over a relay, and the sign-in finishes on the
+  relay. Signet then sends the browser to `kithmoot.forgesworn.dev/signet/`,
+  a page that only opens the app again. From then on signatures travel over
+  NIP-46 to that Signet, which has to stay open to answer. (My Signet's
+  same-tab redirect hands over no signer for an in-app persona, by design,
+  which is why the invitation goes the other way.)
 - **A bunker link** (NIP-46), pasted: any remote signer, a Heartwood included.
 - **A private key**, pasted, as a last resort; it is kept in the encrypted
   vault with the rooms.
