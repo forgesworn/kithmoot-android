@@ -95,7 +95,13 @@ fun RoomScreen(
                         AlonePanel(state, onRotateInvitation)
                     }
                 }
-                items(state.tiles, key = { it.participant }) { tile ->
+                // A shared screen takes the whole row: it is what the room came
+                // to look at, and half a column is too small to read a slide.
+                items(
+                    state.tiles,
+                    key = { it.participant },
+                    span = { tile -> androidx.compose.foundation.lazy.grid.GridItemSpan(if (tile.isSharingScreen) maxLineSpan else 1) },
+                ) { tile ->
                     ParticipantTileView(
                         tile = tile,
                         videoFor = { track -> videos["${track.device}|${track.trackId}"] },
