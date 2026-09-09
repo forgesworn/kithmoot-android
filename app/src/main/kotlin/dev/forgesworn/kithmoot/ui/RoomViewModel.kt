@@ -89,6 +89,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.webrtc.AudioTrack
 import org.webrtc.EglBase
 import org.webrtc.PeerConnection
 import org.webrtc.VideoTrack
@@ -868,6 +869,25 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }.collect { _videos.value = it }
+            }
+            // Never your own voice, and nothing on a device that is not the
+            // one you listen on. A second device of yours sends its
+            // microphone here like anybody else's, and the native stack
+            // plays every received audio track by default: that is how a
+            // person on a phone and a laptop heard themselves back, a beat
+            // late, on both. The roster's monitor election was computed and
+            // never applied; this applies it, and the own-device rule with it.
+            scope.launch {
+                combine(media.remoteTracks, live.participants, live.localRoles) { remote, people, roles ->
+                    val mine = people.firstOrNull { it.participant == who.participant }
+                        ?.devices?.map { it.device }?.toSet() ?: emptySet()
+                    val listeningHere = roles.monitorDevice == null || roles.holdsMonitor
+                    remote.mapNotNull { track ->
+                        (track.track as? AudioTrack)?.let { it to (listeningHere && track.device !in mine) }
+                    }
+                }.collect { decisions ->
+                    for ((track, play) in decisions) runCatching { track.setEnabled(play) }
+                }
             }
             scope.launch {
                 media.localMedia.tracks.collect { tracks -> onLocalTracks(tracks) }
