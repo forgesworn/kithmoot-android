@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import dev.forgesworn.kithmoot.ui.room.AddDeviceSheet
 import dev.forgesworn.kithmoot.ui.room.ChatPane
+import dev.forgesworn.kithmoot.ui.room.ContactCardsSheet
 import dev.forgesworn.kithmoot.ui.room.RoomScreen
 import dev.forgesworn.kithmoot.ui.start.StartScreen
 
@@ -54,6 +55,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
     var chatOpen by remember { mutableStateOf(false) }
+    var cardsOpen by remember { mutableStateOf(false) }
     var expandedScreen by remember { mutableStateOf<dev.forgesworn.kithmoot.ui.room.SharedScreen?>(null) }
 
     LaunchedEffect(roomState.notice) {
@@ -148,6 +150,8 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onRename = model::renameRoom,
                 onProject = model::setRoomProject,
                 onRetryStorage = model::refreshSavedRooms,
+                onAddOfferedCard = model::addOfferedCard,
+                onDismissCardOffer = model::dismissCardOffer,
                 onResetStorage = model::resetSavedRooms,
                 modifier = Modifier.padding(padding),
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
@@ -206,6 +210,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onOpenChat = { chatOpen = true },
                 onExpandScreen = { expandedScreen = it; chatOpen = false },
                 onAddDevice = model::mintPairingLink,
+                onOpenCards = { cardsOpen = true },
                 onRotateInvitation = model::rotateInvitation,
                 onLeave = model::leave,
                 modifier = Modifier.padding(padding),
@@ -213,7 +218,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
         }
     }
 
-    LaunchedEffect(stage) { if (stage == Stage.START) chatOpen = false }
+    LaunchedEffect(stage) { if (stage == Stage.START) { chatOpen = false; cardsOpen = false } }
 
     if (chatOpen) {
         ModalBottomSheet(
@@ -234,6 +239,26 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 quiet = roomState.quiet,
                 quietCanSend = roomState.quietCanSend,
                 modifier = Modifier.fillMaxHeight(0.9f),
+            )
+        }
+    }
+
+    if (cardsOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { cardsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            ContactCardsSheet(
+                contacts = roomState.contacts,
+                status = roomState.cardStatus,
+                myCard = roomState.myCard,
+                canShowCard = roomState.canShowCard,
+                onAdd = model::addContactCard,
+                onForget = model::forgetContact,
+                onShowMyCard = model::showMyCard,
+                onDone = { cardsOpen = false },
             )
         }
     }

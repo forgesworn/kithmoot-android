@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VoiceOverOff
 import androidx.compose.material.icons.filled.SmartToy
@@ -74,6 +75,7 @@ fun RoomScreen(
     onLeave: () -> Unit,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
+    onOpenCards: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -131,6 +133,7 @@ fun RoomScreen(
             onToggleScreenShare = onToggleScreenShare,
             onOpenChat = onOpenChat,
             onAddDevice = onAddDevice,
+            onOpenCards = onOpenCards,
         )
     }
 }
@@ -326,6 +329,7 @@ private fun Controls(
     onToggleScreenShare: () -> Unit,
     onOpenChat: () -> Unit,
     onAddDevice: () -> Unit,
+    onOpenCards: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -393,6 +397,13 @@ private fun Controls(
                     onClick = onAddDevice,
                 )
             }
+            ControlButton(
+                icon = Icons.Filled.Contacts,
+                label = "Cards",
+                active = false,
+                badge = state.contacts.size.takeIf { it > 0 },
+                onClick = onOpenCards,
+            )
         }
     }
 }

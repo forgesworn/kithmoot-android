@@ -1,7 +1,11 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.protocol.CardResult
+import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
+import dev.forgesworn.kithmoot.protocol.ContactCards
 import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
+import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -21,6 +25,7 @@ import dev.forgesworn.kithmoot.account.Nip55Signer
 import dev.forgesworn.kithmoot.account.NostrAccount
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.SignetSignIn
 import dev.forgesworn.kithmoot.account.installedSigners
 import dev.forgesworn.kithmoot.account.npubOf
@@ -165,6 +170,27 @@ data class StartState(
     val signInError: String? = null,
     /** Signer apps found on this phone, by name. */
     val signers: List<InstalledSigner> = emptyList(),
+    /** A contact card opened as a link: offered, and kept only on a press. */
+    val cardOffer: CardOffer? = null,
+)
+
+/** A contact card met at the door, before anything is kept. */
+data class CardOffer(
+    val link: String,
+    val name: String?,
+    val boxes: Int,
+    /** Set once the card has been added; the offer then reads as done. */
+    val added: Boolean = false,
+)
+
+/** One contact, as the cards sheet lists it. */
+data class ContactRow(
+    val p: String,
+    val npub: String,
+    val name: String?,
+    /** One line per box: its relays and whether it is dialled on the card's endorsement or a refreshed address. */
+    val boxes: List<String>,
+    val expires: Long,
 )
 
 data class RoomState(
@@ -215,6 +241,13 @@ data class RoomState(
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
     val notice: String? = null,
+    /** The contact book, as the cards sheet shows it. See storage/ContactBook.kt. */
+    val contacts: List<ContactRow> = emptyList(),
+    /** The last word on a card pasted in: added, or the step it failed. */
+    val cardStatus: String? = null,
+    /** This person's own card as a link, once made. Only the device holding the identity can make one. */
+    val myCard: String? = null,
+    val canShowCard: Boolean = false,
 ) {
     val self: ParticipantTile? get() = tiles.firstOrNull { it.isSelf }
     val deviceCount: Int get() = self?.deviceCount ?: 1
@@ -236,6 +269,8 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
+/** How long a contact card this phone hands out is good for. */
+private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
 private class RetiredInvitationException : Exception()
@@ -304,6 +339,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     // --- the Nostr account ---------------------------------------------------
 
     private val accounts = (application as KithMootApplication).accounts
+    private val contacts = (application as KithMootApplication).contacts
     private var accountSession: AccountSession? = null
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
@@ -690,6 +726,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun join(url: String) {
+        // A contact card opened as a link is not a room. It is offered, and
+        // nothing is kept until the person presses the button.
+        val read = ContactCards.read(url, epochSeconds())
+        if (read is CardResult.Ok) {
+            val held = runCatching { contacts.get(read.card.p) }.getOrNull()
+            _start.value = _start.value.copy(busy = false, error = null,
+                cardOffer = CardOffer(url, read.card.name, read.boxes.size, added = held != null && held.readAt >= read.card.issued))
+            return
+        }
         val invitation = try {
             decodeInvitationUrl(url)
         } catch (e: JoinUrlException) {
@@ -1035,7 +1080,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         closeSession()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-        val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
+        val transport = RelayPool(relays, OkHttpRelaySockets(), scope, circle = contacts::circleRelays)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
         // wrapper owes the device between visits. The device holding the
         // identity is slot 0, the device it paired slot 1; each draws from its
@@ -1073,7 +1118,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             name = record.name,
             joinUrl = record.joinUrl,
             relaysTotal = relays.size,
-            lane = laneOfRelays(relays),
+            lane = laneOfRelays(relays, contacts.circleRelays()),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
@@ -1081,8 +1126,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             quietCanSend = quiet?.canSend ?: true,
             canAddDevice = who is PrimaryIdentity,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canShowCard = who is PrimaryIdentity,
         )
         _start.update { it.copy(error = null) }
+        refreshContacts()
 
         val profileTransport = RelayPool((relays + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), scope)
         profilePool = profileTransport
@@ -1119,7 +1166,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             combine(live.participants, live.chat) { people, chat -> people to chat }
                 .collect { (people, chat) ->
                     _room.value = _room.value.copy(
-                        tiles = buildTiles(people, who.participant, who.devicePubkey),
+                        tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames),
                         chat = chat,
                     )
                 }
@@ -1515,6 +1562,118 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun note(message: String) {
         _room.value = _room.value.copy(notice = message)
+    }
+
+    // --- contact cards -------------------------------------------------------
+
+    /** Who holds a card, to the name on it, for the tiles. */
+    @Volatile private var cardNames: Map<String, String> = emptyMap()
+
+    /**
+     * Re-read the book into the room: the rows, the tiles' badges and the
+     * lane, which a new box can move from public to sheltered.
+     */
+    private fun refreshContacts() {
+        val list = try { contacts.list() } catch (e: RoomStorageException) { return note(e.message ?: "Contacts are unavailable.") }
+        cardNames = list.associate { it.p to (it.name ?: "") }
+        val rows = list.map { c ->
+            ContactRow(
+                p = c.p, npub = npubOf(c.p), name = c.name,
+                boxes = c.boxes.map { b ->
+                    val where = (b.relays + b.onions).joinToString(", ")
+                    val how = if (b.source == "refreshed") "dialled on a refreshed address" else "dialled on their card's endorsement"
+                    "$where ($how)"
+                },
+                expires = c.expires,
+            )
+        }
+        val circle = contacts.circleRelays()
+        val live = session
+        _room.update { state ->
+            state.copy(
+                contacts = rows,
+                lane = if (relayUrls.isEmpty()) state.lane else laneOfRelays(relayUrls, circle),
+                tiles = if (live == null) state.tiles else buildTiles(live.participants.value, state.selfParticipant, state.selfDevice, cardNames),
+            )
+        }
+    }
+
+    /** A card pasted into the sheet: read, kept, and said back in one line. */
+    fun addContactCard(text: String) = act {
+        val added = try { contacts.add(text, epochSeconds()) } catch (e: RoomStorageException) {
+            return@act _room.update { it.copy(cardStatus = e.message ?: "Contacts are unavailable.") }
+        }
+        val words = when (added) {
+            is ContactBook.Added.Refused -> added.words
+            is ContactBook.Added.Ok -> {
+                val who = added.contact.name ?: npubOf(added.contact.p).take(16) + "…"
+                val boxes = when (added.contact.boxes.size) { 0 -> "no box"; 1 -> "one box"; else -> "${added.contact.boxes.size} boxes" }
+                (if (added.replaced) "Updated $who: $boxes" else "Added $who: $boxes") +
+                    (if (added.contact.boxes.isNotEmpty()) ". A message to their box now shows as sheltered." else ".")
+            }
+        }
+        _room.update { it.copy(cardStatus = words) }
+        refreshContacts()
+    }
+
+    fun forgetContact(p: String) = act {
+        try { contacts.forget(p) } catch (e: RoomStorageException) { return@act note(e.message ?: "Contacts are unavailable.") }
+        _room.update { it.copy(cardStatus = null) }
+        refreshContacts()
+    }
+
+    /** The card a person met at the door, kept now that they pressed the button. */
+    fun addOfferedCard() = act {
+        val offer = _start.value.cardOffer ?: return@act
+        val added = try { contacts.add(offer.link, epochSeconds()) } catch (e: RoomStorageException) {
+            return@act _start.update { it.copy(error = e.message ?: "Contacts are unavailable.") }
+        }
+        when (added) {
+            is ContactBook.Added.Refused -> _start.update { it.copy(error = added.words) }
+            is ContactBook.Added.Ok -> _start.update { it.copy(error = null, cardOffer = offer.copy(added = true)) }
+        }
+    }
+
+    fun dismissCardOffer() {
+        _start.update { it.copy(cardOffer = null, joinUrl = if (it.joinUrl == it.cardOffer?.link) "" else it.joinUrl) }
+    }
+
+    /**
+     * This person's own card: a kind 30641 event signed by whatever holds
+     * the identity, with the room's relays as their public relays and no
+     * box, because this phone runs none. Seven days.
+     */
+    fun showMyCard() = viewModelScope.launch(Dispatchers.Default) {
+        val primary = identity as? PrimaryIdentity
+            ?: return@launch note("Only the device that holds your identity can make your card.")
+        val at = epochSeconds()
+        val event = try {
+            val rz = Schnorr.publicKeyHex(contacts.rendezvousSecret())
+            val eph = Schnorr.publicKeyHex(Entropy.bytes(32))
+            val relays = relayUrls.filter { it.startsWith("wss://") }.take(ContactCards.MAX_RELAYS)
+            // The name on the card is the one the account carries, if any:
+            // a room's name is the room's, not the person's.
+            val name = _start.value.account?.profile?.name ?: accountSession?.account?.displayName
+            val content = ContactCardBuilder.content(rz = rz, eph = eph, relays = relays, name = name?.takeIf { it.isNotBlank() })
+            primary.signer.sign(ContactCards.KIND, at, ContactCardBuilder.tags(at + CARD_TTL_SECONDS), content)
+        } catch (e: SignerException) {
+            return@launch note(e.message ?: "Your signer did not sign the card.")
+        } catch (e: RoomStorageException) {
+            return@launch note(e.message ?: "Contacts are unavailable.")
+        } catch (e: IllegalArgumentException) {
+            return@launch note(e.message ?: "This room's relays cannot go on a card.")
+        }
+        // The signer returned an event; the reader says whether it is still the card.
+        val link = ContactCardBuilder.link(KITHMOOT_JOIN_BASE, event)
+        val read = ContactCards.read(link, at)
+        if (read !is CardResult.Ok || read.card.p != primary.participant) {
+            return@launch note("Your signer returned something that is not your card.")
+        }
+        _room.update { it.copy(myCard = link) }
+    }
+
+    fun dismissMyCard() {
+        _room.update { it.copy(myCard = null) }
     }
 
     private fun iceServers(): List<PeerConnection.IceServer> = listOf(

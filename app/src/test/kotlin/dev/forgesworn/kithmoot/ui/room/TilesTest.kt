@@ -39,6 +39,15 @@ class TilesTest {
     ) = buildTiles(groupByParticipant(roster), self, selfDevice)
 
     @Test
+    fun `a tile says when this phone holds a card for the person, and never for yourself`() {
+        val roster = listOf(entry("p1", "d1"), entry("p2", "d2"))
+        val named = buildTiles(groupByParticipant(roster), "p1", "d1", mapOf("p2" to "Rowan", "p1" to "Me"))
+        assertEquals("Rowan", named.first { it.participant == "p2" }.cardName)
+        assertEquals(true, named.first { it.participant == "p2" }.holdsCard)
+        assertEquals(false, buildTiles(groupByParticipant(roster), "p1", "d1").first { it.participant == "p2" }.holdsCard)
+    }
+
+    @Test
     fun `one person on two devices is one tile group`() {
         val result = tiles(
             listOf(

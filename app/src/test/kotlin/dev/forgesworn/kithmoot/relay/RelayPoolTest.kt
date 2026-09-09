@@ -29,6 +29,17 @@ class RelayPoolTest {
     )
 
     @Test
+    fun `the circle is asked each time, so a card added mid-room moves the lane`() = runTest {
+        var circle = emptySet<String>()
+        val pool = RelayPool(relays, FakeSocketFactory(), backgroundScope, now = { currentTime }, random = Random(1), circle = { circle })
+        assertEquals(emptySet(), pool.circleRelays())
+        assertEquals(dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, dev.forgesworn.kithmoot.protocol.laneOfRelays(pool.describe(), pool.circleRelays()))
+        circle = relays.toSet()
+        assertEquals(relays.toSet(), pool.circleRelays())
+        assertEquals(dev.forgesworn.kithmoot.protocol.Lane.SHELTERED, dev.forgesworn.kithmoot.protocol.laneOfRelays(pool.describe(), pool.circleRelays()))
+    }
+
+    @Test
     fun `the same event from every relay is delivered once`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))

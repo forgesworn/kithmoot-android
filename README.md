@@ -164,7 +164,7 @@ public profile relays, and both ends of the npub.
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
 | Dead-drop keys and quiet rooms | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`); room drops and the key table (`protocol/RoomDrop.kt`, `QuietKeys.kt`); and the transport that rides a room's chat in them (`session/QuietTransport.kt`). A room whose policy says `quiet` beside its members list reads and posts in drops from this client, with the counters spent and any message waiting for a slot kept on the device. Two devices per person post; a third reads. This client cannot start a quiet room yet, only join one from its link |
-| Contact cards | The contact card reader, written from the draft: steps 1 to 5 in order, the Link address card inside verified by a strict, cofactorless Ed25519 written out over BigInteger, refresh under the pinned node id (`protocol/ContactCard.kt`, `LinkCard.kt`, `crypto/Ed25519Strict.kt`). The module reads; the app has no card screen yet |
+| Contact cards | The contact card reader, written from the draft: steps 1 to 5 in order, the Link address card inside verified by a strict, cofactorless Ed25519 written out over BigInteger, refresh under the pinned node id (`protocol/ContactCard.kt`, `LinkCard.kt`, `crypto/Ed25519Strict.kt`); and the builder for one's own, a kind 30641 event signed by whatever holds the identity (`protocol/ContactCardBuilder.kt`). In the app, **Cards** in the room: paste a card and the person's tile says one is held for them, their box becomes one of the circle's relays and a message to it shows as sheltered; forget it and both go back. A card opened as a link is offered at the door and kept only on a press. The book lives in its own vault on the phone (`storage/ContactBook.kt`), never published |
 
 Two behaviours in there are load-bearing and easy to get quietly wrong:
 
@@ -201,12 +201,16 @@ guard already knows how many cases it owes.
 
 `deaddrop-vectors.json` and `contact-card-vectors.json` are verbatim copies
 of `nostr-deaddrop`'s and `nostr-contact-card`'s known-answer files: nine
-derivations, twenty-seven cards with the step each fails at, six refresh
+derivations, thirty-two cards with the step each fails at, six refresh
 cases including a small-order node id and a nonce point carrying torsion.
 `DeadDropVectorsTest` and `ContactCardVectorsTest` run every one;
-`CardFuzzTest` mutates the passing card and address card fifteen hundred
-ways each and expects a verdict, never an exception. Where this module and
-those files disagree, the disagreement is the finding.
+`ContactCardBuilderTest` rebuilds each passing card's content from its
+fields and expects the reference's bytes; `CardFuzzTest` mutates the
+passing card and address card fifteen hundred ways each and expects a
+verdict, never an exception. Where this module and those files disagree,
+the disagreement is the finding. `contact-book-web.json` in the app's test
+resources holds cards and fresh Link cards the web library made, for the
+contact book's serial pin and refresh rules.
 
 `persistent-group-web.json` is a separate synthetic fixture produced by the
 TypeScript implementation at `171de0a`. Native tests decode its welcome and

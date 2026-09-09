@@ -26,7 +26,11 @@ data class ParticipantTile(
     val micDevice: String?,
     /** True when the live microphone is the device you are holding. */
     val micIsThisDevice: Boolean,
+    /** Set when this phone holds a contact card for the person: the name on
+     *  it, or an empty string for a card without one. See storage/ContactBook.kt. */
+    val cardName: String? = null,
 ) {
+    val holdsCard: Boolean get() = cardName != null
     val hasVideo: Boolean get() = videos.isNotEmpty()
     val hasMic: Boolean get() = micDevice != null
     val isSharingScreen: Boolean get() = videos.any { it.role == Roles.SCREEN }
@@ -44,6 +48,8 @@ fun buildTiles(
     participants: List<Participant>,
     selfParticipant: String,
     selfDevice: String,
+    /** Participants this phone holds a card for, to the name on the card. */
+    cards: Map<String, String> = emptyMap(),
 ): List<ParticipantTile> = participants
     .map { person ->
         val isSelf = person.participant == selfParticipant
@@ -59,6 +65,7 @@ fun buildTiles(
                 .sortedWith(compareBy({ if (it.role == Roles.SCREEN) 0 else 1 }, { it.device }, { it.trackId })),
             micDevice = person.micDevice,
             micIsThisDevice = isSelf && person.micDevice == selfDevice,
+            cardName = cards[person.participant],
         )
     }
     .sortedWith(compareByDescending<ParticipantTile> { it.isSelf }.thenBy { it.participant })
