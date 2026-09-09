@@ -213,7 +213,9 @@ and pushes to `main`, and retains reports for seven days. A separate API 35
 emulator job installs the debug app and tests actual Android Keystore storage,
 corruption and missing-key handling, saved-room controls and identity continuity
 across a forced process restart. Release signing and physical-device acceptance
-remain separate requirements.
+remain separate requirements. The [release guide](docs/android-release.md)
+covers signing with a selected key, APK verification and the physical acceptance
+record.
 
 To run the recovery checks on a **disposable emulator** (they replace KithMoot's
 saved room data on that emulator):

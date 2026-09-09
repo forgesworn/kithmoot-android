@@ -22,4 +22,6 @@ node_modules/
 # Build outputs that must never be committed
 *.apk
 *.aab
+*.jks
+*.keystore
 captures/
