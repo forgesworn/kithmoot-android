@@ -70,7 +70,7 @@ class SecondaryDeviceTest {
     fun `a credential for another device is refused`() {
         val room = Fixtures.room()
         val owner = Fixtures.primary(room, 1, 2)
-        val credentialForSomeoneElse = owner.enrol(
+        val credentialForSomeoneElse = owner.enrolNow(
             devicePubkey = Schnorr.publicKeyHex(Fixtures.key(50)),
             roomId = room.roomId,
             expiresAt = Fixtures.CREDENTIAL_EXPIRY,
@@ -88,7 +88,7 @@ class SecondaryDeviceTest {
         val room = Fixtures.room()
         val elsewhere = deriveRoom(ByteArray(32) { 99 })
         val owner = Fixtures.primary(room, 1, 2)
-        val credential = owner.enrol(
+        val credential = owner.enrolNow(
             devicePubkey = Schnorr.publicKeyHex(Fixtures.key(30)),
             roomId = room.roomId,
             expiresAt = Fixtures.CREDENTIAL_EXPIRY,
@@ -102,7 +102,7 @@ class SecondaryDeviceTest {
     fun `an expired credential is refused`() {
         val room = Fixtures.room()
         val owner = Fixtures.primary(room, 1, 2)
-        val credential = owner.enrol(
+        val credential = owner.enrolNow(
             devicePubkey = Schnorr.publicKeyHex(Fixtures.key(30)),
             roomId = room.roomId,
             expiresAt = 100,

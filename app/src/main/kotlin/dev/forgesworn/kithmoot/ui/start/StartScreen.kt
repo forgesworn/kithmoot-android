@@ -38,6 +38,7 @@ fun StartScreen(
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
+    account: AccountActions = AccountActions.None,
 ) {
     var relaysShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -158,6 +159,7 @@ fun StartScreen(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            AccountSection(state, account, enabled)
             // Text size: one tap, remembered, applied everywhere. Above the
             // relay settings because it is the one everybody may want.
             val textSetting = LocalTextSizeSetting.current

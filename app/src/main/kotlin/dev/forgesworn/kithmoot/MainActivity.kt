@@ -20,6 +20,12 @@ import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.activity.result.contract.ActivityResultContracts
+import dev.forgesworn.kithmoot.account.Nip55Bridge
+import dev.forgesworn.kithmoot.account.SignetSignIn
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The only activity.
@@ -32,12 +38,37 @@ class MainActivity : ComponentActivity() {
 
     /** A link that has arrived and not yet been acted on. */
     private val incoming = MutableStateFlow<String?>(null)
+    /** The browser coming back from Signet with a sign-in. */
+    private val signetReturn = MutableStateFlow<String?>(null)
     private val pictureInPicture = MutableStateFlow(false)
+
+    /**
+     * Signer intents, one at a time. A NIP-55 signer app is another activity
+     * started for a result, and only the activity can do that; the view model
+     * asks through this and waits.
+     */
+    private var signerAnswer: CompletableDeferred<Intent?>? = null
+    private val signerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        signerAnswer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
+        signerAnswer = null
+    }
+    private val signerTurn = Mutex()
+    private val signerBridge = Nip55Bridge { intent ->
+        signerTurn.withLock {
+            val answer = CompletableDeferred<Intent?>()
+            signerAnswer = answer
+            try { signerLauncher.launch(intent) } catch (e: Exception) {
+                signerAnswer = null
+                throw dev.forgesworn.kithmoot.account.SignerException("The signer app could not be opened: ${e.message}")
+            }
+            answer.await()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        incoming.value = linkFrom(intent)
+        signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
         setContent {
             var textSize by remember { mutableStateOf(TextSize.load(this)) }
@@ -45,12 +76,25 @@ class MainActivity : ComponentActivity() {
             KithMootTheme(textScale = textSize.scale) {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model: RoomViewModel = viewModel()
+                model.signerBridge = signerBridge
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
                     incoming.value = null
                     model.onJoinUrlChanged(url)
                     model.joinFromUrl(url)
+                }
+                val signet by signetReturn.collectAsState()
+                LaunchedEffect(signet) {
+                    val callback = signet ?: return@LaunchedEffect
+                    signetReturn.value = null
+                    model.completeSignetSignIn(callback)
+                }
+                LaunchedEffect(model) {
+                    model.browser.collect { url ->
+                        try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                        catch (e: Exception) { model.cancelSignIn(); model.showNotice("No browser could open the Signet sign-in.") }
+                    }
                 }
                 val inPip by pictureInPicture.collectAsState()
                 KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
@@ -70,7 +114,15 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        signetFrom(intent)?.let { signetReturn.value = it; return }
         linkFrom(intent)?.let { incoming.value = it }
+    }
+
+    /** `kithmoot://signet?…`: Signet sending the browser back here with a sign-in. */
+    private fun signetFrom(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+        val raw = intent.dataString ?: return null
+        return raw.takeIf { SignetSignIn.parse(it) != null }
     }
 
     /**

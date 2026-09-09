@@ -24,6 +24,16 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Signer apps on this phone (Amber, Cambium, any NIP-55 signer): from
+         Android 11 an app sees only the packages it declares an interest in,
+         and this is how the sign-in sheet lists them by name. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="nostrsigner" />
+        </intent>
+    </queries>
+
     <application
         android:name=".KithMootApplication"
         android:allowBackup="false"

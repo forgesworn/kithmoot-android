@@ -107,6 +107,37 @@ explicit deletion. Forget removes local access and identity for that room; it
 does not delete other members or relay messages. Room names are local labels,
 not shared room descriptors.
 
+### Signing in as yourself
+
+Without an account every room gets its own participant key, made on this
+phone, the way the web client's "just a name" works. **Sign in with Nostr** on
+the start screen makes the person's real key the participant key for every
+room started or joined afterwards, exactly as the web client does it: one
+signature per room, on the device credential, and the key never has to be on
+the phone.
+
+Where the key can live:
+
+- **A signer app on this phone** (NIP-55): Amber, Cambium, or anything that
+  answers `nostrsigner:` intents. The sheet lists them by name. Signing goes
+  through the app's content provider once it has approved KithMoot, and falls
+  back to the intent, which brings the signer up to ask.
+- **Signet**: the browser opens `mysignet.app`, the person approves there, and
+  Signet sends the browser back to `kithmoot://signet` with a `bunker://`
+  link. From then on signatures travel over NIP-46 to My Signet. A Signet
+  account with remote signing off can be recognised but cannot sign, and the
+  app says so instead of joining as a stranger.
+- **A bunker link** (NIP-46), pasted: any remote signer, a Heartwood included.
+- **A private key**, pasted, as a last resort; it is kept in the encrypted
+  vault with the rooms.
+
+What is saved is the least that gets the signer back: a package name, or the
+bunker link and this phone's NIP-46 client key, or the pasted key. A room
+joined as the account records only the public key; it opens only while that
+account is signed in, and any other account is told whose room it is. The
+account line shows the person's kind 0 name and picture, looked up on the
+public profile relays, and both ends of the npub.
+
 ## What it implements
 
 | Piece | What it does |
@@ -185,6 +216,7 @@ protocol/src/main/kotlin/dev/forgesworn/kithmoot/
 └── protocol/   Events, rooms, credentials, roster, signalling, access, TURN
 
 app/src/main/kotlin/dev/forgesworn/kithmoot/
+├── account/    The Nostr account: signer apps (NIP-55), bunkers (NIP-46), Signet, npub
 ├── relay/      Relay pool, sockets, filters, de-duplication
 ├── session/    Room session, presence, roles, chat, identity, pairing links
 ├── media/      WebRTC engine, negotiation, local capture

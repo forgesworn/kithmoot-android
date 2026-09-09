@@ -10,6 +10,26 @@ import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
 
 import android.app.Application
 import android.content.Intent
+import dev.forgesworn.kithmoot.account.AccountSession
+import dev.forgesworn.kithmoot.account.BunkerPointer
+import dev.forgesworn.kithmoot.account.BunkerSigner
+import dev.forgesworn.kithmoot.account.InstalledSigner
+import dev.forgesworn.kithmoot.account.LocalSigner
+import dev.forgesworn.kithmoot.account.Nip46Client
+import dev.forgesworn.kithmoot.account.Nip55Bridge
+import dev.forgesworn.kithmoot.account.Nip55Signer
+import dev.forgesworn.kithmoot.account.NostrAccount
+import dev.forgesworn.kithmoot.account.ParticipantSigner
+import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.SignetSignIn
+import dev.forgesworn.kithmoot.account.installedSigners
+import dev.forgesworn.kithmoot.account.npubOf
+import dev.forgesworn.kithmoot.account.openAccount
+import dev.forgesworn.kithmoot.account.secretKeyFrom
+import dev.forgesworn.kithmoot.account.shortNpub
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -21,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.WebRtcEngine
@@ -97,6 +118,21 @@ import org.webrtc.VideoTrack
 /** Which screen the app is on. Two screens; a navigation library would be scaffolding. */
 enum class Stage { START, ROOM }
 
+/** The signed-in Nostr account as the start screen shows it. */
+data class AccountView(
+    val pubkey: String,
+    val npub: String,
+    val short: String,
+    /** `nip55`, `bunker` or `local`. */
+    val method: String,
+    /** The signer app's name, for a NIP-55 account. */
+    val signerLabel: String? = null,
+    val profile: PublicProfile? = null,
+    val name: String? = null,
+) {
+    val shownName: String get() = profile?.name ?: name ?: short
+}
+
 data class StartState(
     val joinUrl: String = "",
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
@@ -107,6 +143,13 @@ data class StartState(
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
+    /** Signed in as this person; every room from here is joined as them. */
+    val account: AccountView? = null,
+    /** A sign-in is under way: the signer app is up, the bunker is being reached, or Signet has the browser. */
+    val signingIn: Boolean = false,
+    val signInError: String? = null,
+    /** Signer apps found on this phone, by name. */
+    val signers: List<InstalledSigner> = emptyList(),
 )
 
 data class RoomState(
@@ -237,7 +280,212 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
 
-    init { refreshSavedRooms() }
+    // --- the Nostr account ---------------------------------------------------
+
+    private val accounts = (application as KithMootApplication).accounts
+    private var accountSession: AccountSession? = null
+    private var accountScope: CoroutineScope? = null
+    private val accountGate = Mutex()
+    /** The challenge sent to Signet, so the callback that comes back is the one we asked for. */
+    private var signetChallenge: String? = null
+
+    /** Set by the activity: the only way a signer intent can be started and answered. */
+    var signerBridge: Nip55Bridge? = null
+
+    private val _browser = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    /** URLs the activity should open in the browser: the Signet sign-in. */
+    val browser: SharedFlow<String> = _browser.asSharedFlow()
+
+    /** The person's signer, when signed in. What every new room is joined as. */
+    private val accountSigner: ParticipantSigner? get() = accountSession?.signer
+
+    init {
+        refreshSavedRooms()
+        restoreAccount()
+    }
+
+    private fun restoreAccount() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val saved = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@launch
+            val bridge = signerBridge ?: LateBridge { signerBridge }
+            try {
+                adopt(openAccount(saved, getApplication(), bridge, newAccountScope()), saved)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _start.update { it.copy(signInError = e.message ?: "The saved account could not be opened.") }
+            }
+        }
+    }
+
+    /** A bridge that waits for the activity to hand one over, so a restore started before the screen is up still works. */
+    private class LateBridge(private val current: () -> Nip55Bridge?) : Nip55Bridge {
+        override suspend fun request(intent: Intent): Intent? {
+            var bridge = current()
+            var waited = 0
+            while (bridge == null && waited < 5_000) { kotlinx.coroutines.delay(100); waited += 100; bridge = current() }
+            return (bridge ?: throw SignerException("The screen is not ready to open the signer.")).request(intent)
+        }
+    }
+
+    private fun newAccountScope(): CoroutineScope {
+        accountScope?.cancel()
+        return CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job])).also { accountScope = it }
+    }
+
+    private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
+        accountSession?.close()
+        accountSession = session
+        val view = AccountView(
+            pubkey = account.pubkey, npub = account.npub, short = shortNpub(account.pubkey), method = account.method,
+            signerLabel = account.signerPackage?.let { pkg -> _start.value.signers.firstOrNull { it.packageName == pkg }?.label ?: pkg },
+            name = account.displayName,
+        )
+        _start.update { it.copy(account = view, signingIn = false, signInError = null) }
+        lookUpAccountProfile(account.pubkey)
+    }
+
+    /** The person's own kind 0, from the public profile relays, so the account line carries their name and picture. */
+    private fun lookUpAccountProfile(pubkey: String) {
+        val scope = accountScope ?: return
+        scope.launch {
+            val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope)
+            pool.start()
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                    pool.subscribe(listOf(Filter(kinds = listOf(0), authors = listOf(pubkey), limit = 1))).collect { event ->
+                        val profile = decodePublicProfile(event, setOf(pubkey), epochSeconds()) ?: return@collect
+                        _start.update { state ->
+                            val account = state.account?.takeIf { it.pubkey == pubkey } ?: return@update state
+                            val old = account.profile
+                            if (old != null && old.createdAt >= profile.createdAt) state else state.copy(account = account.copy(profile = profile))
+                        }
+                    }
+                }
+            } finally { pool.stop() }
+        }
+    }
+
+    fun refreshSigners() {
+        val found = runCatching { installedSigners(getApplication()) }.getOrDefault(emptyList())
+        _start.update { state -> state.copy(signers = found, account = state.account?.let { account ->
+            account.copy(signerLabel = account.signerLabel?.let { label -> found.firstOrNull { it.packageName == label }?.label ?: label }) }) }
+    }
+
+    private fun signIn(block: suspend () -> Pair<AccountSession, NostrAccount>) {
+        if (_start.value.signingIn) return
+        _start.update { it.copy(signingIn = true, signInError = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (session, account) = block()
+                accounts.save(account)
+                adopt(session, account)
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                val message = when (e) {
+                    is SignerException -> e.message
+                    is RoomStorageException -> "The account could not be saved on this device."
+                    else -> "Sign-in failed. Try again."
+                }
+                _start.update { it.copy(signingIn = false, signInError = message) }
+            }
+        }
+    }
+
+    /** A signer app on this phone: Amber, Cambium, or whatever answers `nostrsigner:`. */
+    fun signInWithSignerApp(packageName: String) = signIn {
+        val bridge = signerBridge ?: throw SignerException("The screen is not ready to open the signer.")
+        val signer = Nip55Signer.connect(getApplication(), bridge, packageName)
+        val account = NostrAccount(signer.pubkey, "nip55", signerPackage = signer.packageName, signedInAt = epochSeconds())
+        AccountSession(account, signer) to account
+    }
+
+    /** Signet: the browser goes to mysignet.app, the person approves there, and the app is called back with a bunker link. */
+    fun signInWithSignet() {
+        if (_start.value.signingIn) return
+        val challenge = Entropy.bytes(32).toHex()
+        signetChallenge = challenge
+        _start.update { it.copy(signingIn = true, signInError = null) }
+        _browser.tryEmit(SignetSignIn.url(challenge))
+    }
+
+    /** The browser came back from Signet. Only a callback we are waiting for counts. */
+    fun completeSignetSignIn(link: String) {
+        val result = SignetSignIn.parse(link) ?: return
+        if (signetChallenge == null) return
+        signetChallenge = null
+        _start.update { it.copy(signingIn = false) }
+        when (result) {
+            SignetSignIn.Callback.Denied -> _start.update { it.copy(signInError = "Signet declined the sign-in.") }
+            is SignetSignIn.Callback.Failed -> _start.update { it.copy(signInError = "Signet could not sign you in: ${result.reason}") }
+            is SignetSignIn.Callback.SignedIn -> {
+                val bunker = result.bunkerUri
+                if (bunker == null) {
+                    _start.update { it.copy(signInError = "Signet recognised you but handed over no signer, so this phone cannot sign for you. Turn on remote signing in My Signet and try again.") }
+                    return
+                }
+                connectBunker(bunker, expected = result.pubkey, displayName = result.displayName)
+            }
+        }
+    }
+
+    /** Someone came here from Signet, or wants to abandon a sign-in the browser never finished. */
+    fun cancelSignIn() {
+        signetChallenge = null
+        _start.update { it.copy(signingIn = false) }
+    }
+
+    /** A pasted `bunker://` link: any NIP-46 signer, a Heartwood included. */
+    fun signInWithBunker(text: String) {
+        val uri = text.trim()
+        if (BunkerPointer.parse(uri) == null) {
+            _start.update { it.copy(signInError = "That is not a bunker link. It starts with bunker:// and names at least one relay.") }
+            return
+        }
+        connectBunker(uri, expected = null, displayName = null)
+    }
+
+    private fun connectBunker(uri: String, expected: String?, displayName: String?) = signIn {
+        val pointer = BunkerPointer.parse(uri) ?: throw SignerException("That is not a bunker link.")
+        val scope = newAccountScope()
+        val clientKey = Entropy.bytes(32)
+        val pool = RelayPool(pointer.relays, OkHttpRelaySockets(), scope)
+        pool.start()
+        val client = Nip46Client(pointer, clientKey, pool, scope)
+        try {
+            client.connect()
+            val pubkey = client.getPublicKey()
+            if (expected != null && pubkey != expected) throw SignerException("The signer holds ${shortNpub(pubkey)}, not the account Signet named.")
+            val account = NostrAccount(pubkey, "bunker", bunkerUri = uri, clientSecretKey = clientKey, displayName = displayName, signedInAt = epochSeconds())
+            AccountSession(account, BunkerSigner(pubkey, client, onClose = pool::stop)) to account
+        } catch (e: Exception) {
+            client.close(); pool.stop()
+            throw e
+        }
+    }
+
+    /** The last resort: a pasted nsec, kept in the encrypted vault on this phone. */
+    fun signInWithSecretKey(text: String) = signIn {
+        val key = secretKeyFrom(text) ?: throw SignerException("That is not a private key. It starts with nsec1 or is 64 hex characters.")
+        val signer = LocalSigner(key)
+        val account = NostrAccount(signer.pubkey, "local", secretKey = key, signedInAt = epochSeconds())
+        AccountSession(account, signer) to account
+    }
+
+    fun signOut() {
+        if (_stage.value != Stage.START) { note("Leave the room before signing out."); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            accountGate.withLock {
+                accountSession?.close()
+                accountSession = null
+                accountScope?.cancel()
+                accountScope = null
+            }
+            try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
+            _start.update { it.copy(account = null, signInError = null, signingIn = false) }
+        }
+    }
+
+    fun dismissSignInError() { _start.update { it.copy(signInError = null) } }
 
     /** The GL context the renderers share. Null until the media stack is up. */
     val eglBase: EglBase? get() = engine?.eglBase
@@ -286,12 +534,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun openSaved(saved: SavedRoom) {
-        val who = saved.identity(epochSeconds())
+        val who = saved.identity(epochSeconds(), accountSigner)
         open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary,
             saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
     }
 
-    private fun primaryFor(roomId: String, now: Long): RoomIdentity = savedRooms.get(roomId)?.identity(now)
+    /** The saved identity for this room if there is one, else the signed-in account, else a key made here for this room. */
+    private suspend fun primaryFor(roomId: String, now: Long): RoomIdentity = savedRooms.get(roomId)?.identity(now, accountSigner)
+        ?: accountSigner?.let { PrimaryIdentity.createWith(it, roomId, now + CREDENTIAL_TTL_SECONDS, now) }
         ?: PrimaryIdentity.create(roomId, now + CREDENTIAL_TTL_SECONDS, now)
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
@@ -367,11 +617,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
             val derived = deriveRoom(secret)
             val at = epochSeconds()
-            val primary = PrimaryIdentity.create(
-                roomId = derived.roomId,
-                expiresAt = at + CREDENTIAL_TTL_SECONDS,
-                createdAt = at,
-            )
+            val primary = accountSigner?.let { PrimaryIdentity.createWith(it, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at) }
+                ?: PrimaryIdentity.create(
+                    roomId = derived.roomId,
+                    expiresAt = at + CREDENTIAL_TTL_SECONDS,
+                    createdAt = at,
+                )
             if (persistent) publishGroup(invitationHost, secret, relays)
             open(
                 derived = derived,
@@ -1102,19 +1353,23 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * means signing a credential. A device that joined from a pairing link
      * cannot pass the identity on, which is the point of not giving it the key.
      */
-    fun mintPairingLink() = act {
+    fun mintPairingLink() = viewModelScope.launch(Dispatchers.Default) {
         val primary = identity as? PrimaryIdentity
-            ?: return@act note("Only the device that opened the room can add another device.")
-        val secret = roomSecret ?: return@act
-        val live = session ?: return@act
+            ?: return@launch note("Only the device that opened the room can add another device.")
+        val secret = roomSecret ?: return@launch
+        val live = session ?: return@launch
         val at = epochSeconds()
         val deviceKey = Entropy.bytes(32)
-        val credential = primary.enrol(
-            devicePubkey = Schnorr.publicKeyHex(deviceKey),
-            roomId = live.room.roomId,
-            expiresAt = at + CREDENTIAL_TTL_SECONDS,
-            createdAt = at,
-        )
+        val credential = try {
+            primary.enrol(
+                devicePubkey = Schnorr.publicKeyHex(deviceKey),
+                roomId = live.room.roomId,
+                expiresAt = at + CREDENTIAL_TTL_SECONDS,
+                createdAt = at,
+            )
+        } catch (e: SignerException) {
+            return@launch note(e.message ?: "Your signer did not sign the pairing.")
+        }
         _room.value = _room.value.copy(
             pairingLink = roomInvitation?.let { invitation ->
                 encodeInvitationPairingLink(

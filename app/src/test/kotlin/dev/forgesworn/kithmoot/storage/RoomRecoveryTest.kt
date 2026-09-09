@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
+import dev.forgesworn.kithmoot.session.enrolNow
 import kotlinx.serialization.json.*
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -77,7 +78,7 @@ class RoomRecoveryTest {
         val original = room()
         val owner = original.identity(now) as PrimaryIdentity
         val deviceKey = Entropy.bytes(32)
-        val credential = owner.enrol(Schnorr.publicKeyHex(deviceKey), original.id, now + 60, now)
+        val credential = owner.enrolNow(Schnorr.publicKeyHex(deviceKey), original.id, now + 60, now)
         val secondary = SecondaryIdentity.adopt(credential, deviceKey, original.id, now)!!
         val saved = SavedRoom.create(original.secret, secondary, original.joinUrl, relays, "Paired", now, null, original.authority)
         val disk = MemoryStorage()
@@ -227,7 +228,7 @@ class RoomRecoveryTest {
     }
 }
 
-private class MemoryStorage : RoomStorage {
+internal class MemoryStorage : RoomStorage {
     var value: ByteArray? = null
     var failWrites = false
     override fun read(): ByteArray? = value?.copyOf()

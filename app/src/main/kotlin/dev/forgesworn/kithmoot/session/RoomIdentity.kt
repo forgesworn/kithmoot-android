@@ -1,8 +1,11 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.account.LocalSigner
+import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
+import dev.forgesworn.kithmoot.protocol.KIND_DEVICE_CREDENTIAL
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.createDeviceCredential
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
@@ -28,40 +31,42 @@ sealed interface RoomIdentity {
 }
 
 /**
- * The device the participant key lives on. It is the only one that can enrol
+ * The device that can speak for the participant key: it holds the key, or it
+ * holds the way to the signer that does. It is the only one that can enrol
  * another device, because enrolling means signing a credential.
  */
 class PrimaryIdentity(
-    private val participantSecretKey: ByteArray,
+    /** Whoever signs as the person: a key held here, a signer app, a bunker. */
+    val signer: ParticipantSigner,
     override val deviceSecretKey: ByteArray,
     override val credential: NostrEvent,
 ) : RoomIdentity {
 
     override val devicePubkey: String = Schnorr.publicKeyHex(deviceSecretKey)
-    override val participant: String = Schnorr.publicKeyHex(participantSecretKey)
+    override val participant: String = signer.pubkey
 
-    /** Only the encrypted local room store needs a copy of this key. */
-    internal fun participantKeyForStorage(): ByteArray = participantSecretKey.copyOf()
+    /** The participant key, when this device holds one; a signed-in account keeps its key elsewhere. */
+    internal fun participantKeyForStorage(): ByteArray? = (signer as? LocalSigner)?.secretKeyForStorage()
 
     /**
      * Mints a credential for another of this person's devices, so it can join
-     * the room as them without ever being handed the participant key.
+     * the room as them without ever being handed the participant key. With a
+     * remote signer this is a round trip the person may have to approve.
      */
-    fun enrol(
+    suspend fun enrol(
         devicePubkey: String,
         roomId: String,
         expiresAt: Long,
         createdAt: Long,
-    ): NostrEvent = createDeviceCredential(
-        participantSecretKey = participantSecretKey,
-        devicePubkey = devicePubkey,
-        roomId = roomId,
-        expiresAt = expiresAt,
+    ): NostrEvent = signer.sign(
+        kind = KIND_DEVICE_CREDENTIAL,
         createdAt = createdAt,
+        tags = listOf(listOf("d", roomId), listOf("device", devicePubkey), listOf("expiration", expiresAt.toString())),
+        content = "",
     )
 
     companion object {
-        /** Creates a participant and their first device in one go. */
+        /** Creates a participant key here and their first device in one go. */
         fun create(
             roomId: String,
             expiresAt: Long,
@@ -69,7 +74,7 @@ class PrimaryIdentity(
             participantSecretKey: ByteArray = Entropy.bytes(32),
             deviceSecretKey: ByteArray = Entropy.bytes(32),
         ): PrimaryIdentity = PrimaryIdentity(
-            participantSecretKey = participantSecretKey,
+            signer = LocalSigner(participantSecretKey),
             deviceSecretKey = deviceSecretKey,
             credential = createDeviceCredential(
                 participantSecretKey = participantSecretKey,
@@ -79,6 +84,28 @@ class PrimaryIdentity(
                 createdAt = createdAt,
             ),
         )
+
+        /** A first device for a person whose key is with a signer: one signature, on the device credential. */
+        suspend fun createWith(
+            signer: ParticipantSigner,
+            roomId: String,
+            expiresAt: Long,
+            createdAt: Long,
+            deviceSecretKey: ByteArray = Entropy.bytes(32),
+        ): PrimaryIdentity {
+            val devicePubkey = Schnorr.publicKeyHex(deviceSecretKey)
+            val credential = signer.sign(
+                kind = KIND_DEVICE_CREDENTIAL,
+                createdAt = createdAt,
+                tags = listOf(listOf("d", roomId), listOf("device", devicePubkey), listOf("expiration", expiresAt.toString())),
+                content = "",
+            )
+            val check = verifyDeviceCredential(credential, roomId, createdAt)
+            require(check is CredentialCheck.Valid && check.device == devicePubkey && check.participant == signer.pubkey) {
+                "The signer did not produce a usable credential"
+            }
+            return PrimaryIdentity(signer, deviceSecretKey, credential)
+        }
     }
 }
 

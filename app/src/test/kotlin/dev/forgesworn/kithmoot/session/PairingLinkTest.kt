@@ -19,7 +19,7 @@ class PairingLinkTest {
     @Test fun `group pairing keeps v3 membership and the original bounded device credential`() {
         val invitation = createRoomInvitation(true).invitation
         val deviceKey = Fixtures.key(41)
-        val credential = owner.enrol(Schnorr.publicKeyHex(deviceKey), room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
+        val credential = owner.enrolNow(Schnorr.publicKeyHex(deviceKey), room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
         val url = encodeInvitationPairingLink(invitation = invitation, relays = relays,
             deviceSecretKey = deviceKey, credential = credential)
         val decoded = assertNotNull(decodeInvitationPairingLink(url))
@@ -40,7 +40,7 @@ class PairingLinkTest {
             relays = relays,
             policy = policy,
             deviceSecretKey = deviceKey,
-            credential = owner.enrol(
+            credential = owner.enrolNow(
                 devicePubkey = Schnorr.publicKeyHex(deviceKey),
                 roomId = room.roomId,
                 expiresAt = Fixtures.CREDENTIAL_EXPIRY,
@@ -139,7 +139,7 @@ class PairingLinkTest {
             invitation = invitation,
             relays = relays,
             deviceSecretKey = deviceKey,
-            credential = owner.enrol(
+            credential = owner.enrolNow(
                 devicePubkey = Schnorr.publicKeyHex(deviceKey),
                 roomId = room.roomId,
                 expiresAt = Fixtures.CREDENTIAL_EXPIRY,

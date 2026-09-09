@@ -150,6 +150,16 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onRetryStorage = model::refreshSavedRooms,
                 onResetStorage = model::resetSavedRooms,
                 modifier = Modifier.padding(padding),
+                account = dev.forgesworn.kithmoot.ui.start.AccountActions(
+                    onRefreshSigners = model::refreshSigners,
+                    onSignInWithApp = model::signInWithSignerApp,
+                    onSignInWithSignet = model::signInWithSignet,
+                    onSignInWithBunker = model::signInWithBunker,
+                    onSignInWithKey = model::signInWithSecretKey,
+                    onCancelSignIn = model::cancelSignIn,
+                    onSignOut = model::signOut,
+                    onDismissError = model::dismissSignInError,
+                ),
             )
 
             Stage.ROOM -> RoomScreen(

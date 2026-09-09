@@ -38,7 +38,7 @@ object Fixtures {
      */
     fun secondary(room: Room, owner: PrimaryIdentity, deviceSeed: Int): SecondaryIdentity {
         val deviceSecretKey = key(deviceSeed)
-        val credential = owner.enrol(
+        val credential = owner.enrolNow(
             devicePubkey = Schnorr.publicKeyHex(deviceSecretKey),
             roomId = room.roomId,
             expiresAt = CREDENTIAL_EXPIRY,
