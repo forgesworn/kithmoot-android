@@ -41,6 +41,7 @@ fun StartScreen(
     account: AccountActions = AccountActions.None,
     onAddOfferedCard: () -> Unit = {},
     onDismissCardOffer: () -> Unit = {},
+    onCircleBoxesChanged: (String) -> Unit = {},
 ) {
     var relaysShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -203,6 +204,9 @@ fun StartScreen(
                     OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
                         label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
                     Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
+                        label = { Text("Boxes of my circle") }, minLines = 2)
+                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered; a contact card's box counts without being listed.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
