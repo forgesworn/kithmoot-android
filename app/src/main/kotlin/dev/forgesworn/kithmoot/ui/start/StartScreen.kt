@@ -1,6 +1,11 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import dev.forgesworn.kithmoot.R
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.platform.LocalContext
@@ -63,7 +68,12 @@ fun StartScreen(
             .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("KithMoot", style = MaterialTheme.typography.displaySmall)
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Image(painterResource(R.drawable.brand_artwork), contentDescription = null,
+                        modifier = Modifier.size(80.dp).clip(RoundedCornerShape(18.dp)))
+                    Text("KithMoot", style = MaterialTheme.typography.displaySmall)
+                }
                 Text(if (state.savedRooms.isEmpty()) "Make room for a conversation." else "Pick up the conversation.",
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
