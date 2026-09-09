@@ -265,6 +265,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun forgetRoom(id: String) = changeSavedRooms { savedRooms.forget(id) }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
+    fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
     fun resetSavedRooms() = changeSavedRooms { savedRooms.reset() }
 
     private fun changeSavedRooms(change: () -> Unit) {

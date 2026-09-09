@@ -1,7 +1,9 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -32,6 +34,7 @@ fun StartScreen(
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
     onRename: (String, String) -> Unit,
+    onProject: (String, String) -> Unit,
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -40,6 +43,12 @@ fun StartScreen(
     var query by remember { mutableStateOf("") }
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var filedAs by remember { mutableStateOf("") }
+    // The project tab in view, remembered on the device so the phone opens
+    // on the project the person was last working in.
+    val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    var projectTab by remember { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
     var renamed by remember { mutableStateOf("") }
     var resetting by remember { mutableStateOf(false) }
     val enabled = !state.busy && !state.loadingRooms && !state.storageError
@@ -78,8 +87,26 @@ fun StartScreen(
                     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
                         label = { Text("Find a saved room") },
                         trailingIcon = { if (query.isNotEmpty()) TextButton({ query = "" }) { Text("Clear") } })
-                    val found = state.savedRooms.filter { it.name.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
-                    if (found.isEmpty()) Text("No rooms match your search.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    // Projects, as a row of tabs, once any room has been filed under
+                    // one. "All" is first and is the tab a phone with no projects
+                    // never needs to see.
+                    val projects = state.savedRooms.mapNotNull { it.project }.distinct().sorted()
+                    val tab = if (projectTab.isNotEmpty() && projectTab != "\u0000none" && projectTab !in projects) "" else projectTab
+                    if (projects.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val tabs = listOf("" to "All") + projects.map { it to it } + listOf("\u0000none" to "No project")
+                            for ((value, label) in tabs) {
+                                val chosen = value == tab
+                                val modifier = Modifier.heightIn(min = 44.dp).semantics { contentDescription = "$label rooms" + if (chosen) ", selected" else "" }
+                                val pick = { projectTab = value; prefs.edit().putString("projectTab", value).apply() }
+                                if (chosen) Button(pick, modifier) { Text(label) } else OutlinedButton(pick, modifier) { Text(label) }
+                            }
+                        }
+                    }
+                    val found = state.savedRooms
+                        .filter { tab.isEmpty() || (if (tab == "\u0000none") it.project == null else it.project == tab) }
+                        .filter { it.name.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
+                    if (found.isEmpty()) Text(if (tab.isEmpty()) "No rooms match your search." else "No rooms in this project match.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     for (room in found) {
                         key(room.id) {
                             OutlinedCard(Modifier.fillMaxWidth()) {
@@ -88,11 +115,13 @@ fun StartScreen(
                                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                         Text(room.name, style = MaterialTheme.typography.titleMedium)
                                     }
-                                    Text(if (room.secondary) "Paired device" else "Main device",
+                                    Text(listOfNotNull(room.project, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton({ renaming = room; renamed = room.name }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
+                                        TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
+                                            modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
                                     }
@@ -165,6 +194,22 @@ fun StartScreen(
             confirmButton = { TextButton({ forgetting = null; onForget(room.id) }) { Text("Forget room") } },
             dismissButton = { TextButton({ forgetting = null }) { Text("Keep room") } })
     }
+    filing?.let { room ->
+        val existing = state.savedRooms.mapNotNull { it.project }.distinct().sorted()
+        AlertDialog(onDismissRequest = { filing = null }, title = { Text("Project for ${room.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("A label on this device, so rooms for one piece of work sit together. Leave it empty to take the room out of its project.")
+                    OutlinedTextField(filedAs, { filedAs = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Project") })
+                    if (existing.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (name in existing) OutlinedButton({ filedAs = name }) { Text(name) }
+                    }
+                }
+            },
+            confirmButton = { TextButton({ filing = null; onProject(room.id, filedAs) }) { Text("Save") } },
+            dismissButton = { TextButton({ filing = null }) { Text("Cancel") } })
+    }
+
     renaming?.let { room ->
         AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Name on this device") },
             text = { OutlinedTextField(renamed, { renamed = it.take(80) }, label = { Text("Room name") }, singleLine = true) },

@@ -14,7 +14,7 @@ internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
 class RoomRecoveryException(message: String) : Exception(message)
 
 /** The UI receives labels and identifiers, never the saved capabilities. */
-data class SavedRoomSummary(val id: String, val name: String, val secondary: Boolean, val openedAt: Long)
+data class SavedRoomSummary(val id: String, val name: String, val secondary: Boolean, val openedAt: Long, val project: String? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -30,12 +30,15 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val participant: String get() = if (secondary) NostrEvent.fromJson(identityJson.getValue("credential")).pubkey
         else Schnorr.publicKeyHex(identityJson.text("participantKey").keyBytes())
     val openedAt: Long get() = json.getValue("openedAt").jsonPrimitive.long
+    /** The project this room is filed under on this device, if any. A label
+     *  and nothing more: it changes nothing about the room or who is in it. */
+    val project: String? get() = json["project"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
     val retired: Boolean get() = json["retired"]?.jsonPrimitive?.boolean ?: false
     val movedOn: Boolean get() = json["movedOn"]?.jsonPrimitive?.boolean ?: false
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
-    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt)
+    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project)
 
     fun identity(now: Long): RoomIdentity {
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
@@ -67,6 +70,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     fun opened(now: Long): SavedRoom = changed { put("openedAt", now) }
     fun renamed(name: String): SavedRoom = changed { put("name", cleanName(name, id)) }
+    fun inProject(project: String?): SavedRoom = changed {
+        val clean = project?.trim()?.take(48).orEmpty()
+        if (clean.isEmpty()) remove("project") else put("project", clean)
+    }
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {

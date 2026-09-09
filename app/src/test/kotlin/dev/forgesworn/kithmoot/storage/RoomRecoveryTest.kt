@@ -237,3 +237,24 @@ private class MemoryStorage : RoomStorage {
     }
     override fun reset() { value = null }
 }
+
+class SavedRoomProjectTest {
+    private val now = 1_700_000_000L
+    private val relays = listOf("wss://relay.example")
+
+    @Test fun `a project is a label on the device that survives a rename and clears when emptied`() {
+        val secret = Entropy.bytes(32)
+        val derived = deriveRoom(secret)
+        val who = PrimaryIdentity.create(derived.roomId, now + 3600, now)
+        val host = createRoomInvitation(false)
+        val room = SavedRoom.create(secret, who, encodeInvitationUrl("https://example.test/j/", host.invitation, relays), relays, "Bothy build", now, host, host.invitation.canonicalInviter)
+        assertNull(room.project)
+        val filed = room.inProject("  Bothy  ")
+        assertEquals("Bothy", filed.project)
+        assertEquals("Bothy", filed.summary().project)
+        assertEquals("Bothy", filed.renamed("Bothy build 2").project)
+        assertNull(filed.inProject("   ").project)
+        assertNull(filed.inProject(null).project)
+        assertEquals(48, filed.inProject("x".repeat(80)).project?.length)
+    }
+}

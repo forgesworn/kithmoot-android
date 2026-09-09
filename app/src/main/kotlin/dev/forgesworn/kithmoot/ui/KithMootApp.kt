@@ -146,6 +146,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onReopen = model::reopenRoom,
                 onForget = model::forgetRoom,
                 onRename = model::renameRoom,
+                onProject = model::setRoomProject,
                 onRetryStorage = model::refreshSavedRooms,
                 onResetStorage = model::resetSavedRooms,
                 modifier = Modifier.padding(padding),
