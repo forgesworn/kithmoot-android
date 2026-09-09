@@ -44,7 +44,16 @@ enum class KindredTier(val wire: String, val closeness: Int) {
  * A direct message is a room whose policy lists two; see docs/messages.md
  * in the reference implementation.
  */
-data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null, val members: List<String>? = null) {
+data class RoomPolicy(
+    val tier: KindredTier,
+    val admitted: List<String>? = null,
+    val members: List<String>? = null,
+    /** A quiet room: its chat rides the kind 1059 stream as dead drops to
+     *  keys derived from the room key and each listed member, so a relay
+     *  cannot tell whether anything was said, by whom, or when. Only with
+     *  [members], because everybody derives every member's keys. */
+    val quiet: Boolean = false,
+) {
 
     fun toJson(): JsonObject = buildJsonObject {
         put("tier", tier.wire)
@@ -54,6 +63,7 @@ data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null,
         if (members != null) {
             put("members", buildJsonArray { for (member in members) add(JsonPrimitive(member)) })
         }
+        if (quiet) put("quiet", true)
     }
 
     companion object {
@@ -78,7 +88,16 @@ data class RoomPolicy(val tier: KindredTier, val admitted: List<String>? = null,
                 }
                 else -> return null
             }
-            return RoomPolicy(tier, admitted, members)
+            // A quiet room without a members list has nobody to derive keys
+            // for, and a quiet flag in any shape but `true` is a reader that
+            // would talk in the open while the room talks in drops. Both
+            // refused, never dropped.
+            val quiet = when (val raw = json["quiet"]) {
+                null -> false
+                is JsonPrimitive -> if (!raw.isString && raw.content == "true" && members != null) true else return null
+                else -> return null
+            }
+            return RoomPolicy(tier, admitted, members, quiet)
         }
     }
 }

@@ -95,6 +95,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
 
     fun opened(now: Long): SavedRoom = changed { put("openedAt", now) }
+    /** What a quiet room keeps on this device between visits: the drop-key
+     *  counters spent this epoch, and the messages still waiting for a slot.
+     *  See `session/QuietTransport.kt`. Null when nothing is kept. */
+    val quietState: JsonObject? get() = json["quiet"] as? JsonObject
+    fun withQuietState(state: JsonObject?): SavedRoom = changed { if (state == null) remove("quiet") else put("quiet", state) }
     fun renamed(name: String): SavedRoom = changed { put("name", cleanName(name, id)) }
     fun inProject(project: String?): SavedRoom = changed {
         val clean = project?.trim()?.take(48).orEmpty()

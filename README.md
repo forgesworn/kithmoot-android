@@ -43,6 +43,12 @@ What is *not* here:
   shows edits, retractions and threads. The composer still sends plain
   messages: no reply, edit or retract control, no DM started from here, and
   read positions are not published. `members` on a room policy is enforced.
+- **A quiet room is read and written at epoch zero only.** The client
+  derives drop keys from the room key it was handed; a quiet room that
+  has moved epoch is, to this client, a room that has moved on, exactly
+  as a plain one is. Starting a quiet conversation is the web client's
+  for now. Relays hand back two days of a quiet room's history; a
+  message waits up to five minutes for its slot.
 - **Cannot follow a room epoch, but says so.** When somebody is removed the
   room moves to a key this client was not given, and everything would
   otherwise simply stop - no roster, no chat, no error, which reads as an
@@ -157,6 +163,8 @@ public profile relays, and both ends of the npub.
 | The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); a two-member `members` policy enforced at the gate |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
+| Dead-drop keys and quiet rooms | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`); room drops and the key table (`protocol/RoomDrop.kt`, `QuietKeys.kt`); and the transport that rides a room's chat in them (`session/QuietTransport.kt`). A room whose policy says `quiet` beside its members list reads and posts in drops from this client, with the counters spent and any message waiting for a slot kept on the device. Two devices per person post; a third reads. This client cannot start a quiet room yet, only join one from its link |
+| Contact cards | The contact card reader, written from the draft: steps 1 to 5 in order, the Link address card inside verified by a strict, cofactorless Ed25519 written out over BigInteger, refresh under the pinned node id (`protocol/ContactCard.kt`, `LinkCard.kt`, `crypto/Ed25519Strict.kt`). The module reads; the app has no card screen yet |
 
 Two behaviours in there are load-bearing and easy to get quietly wrong:
 
@@ -190,6 +198,15 @@ The groups this client does not implement - `channelDerivation`,
 `approvalControl`, `roomDescriptor` and `verificationWords` - are counted by
 `VectorCoverageTest` without being run, so the day one of them lands the
 guard already knows how many cases it owes.
+
+`deaddrop-vectors.json` and `contact-card-vectors.json` are verbatim copies
+of `nostr-deaddrop`'s and `nostr-contact-card`'s known-answer files: nine
+derivations, twenty-seven cards with the step each fails at, six refresh
+cases including a small-order node id and a nonce point carrying torsion.
+`DeadDropVectorsTest` and `ContactCardVectorsTest` run every one;
+`CardFuzzTest` mutates the passing card and address card fifteen hundred
+ways each and expects a verdict, never an exception. Where this module and
+those files disagree, the disagreement is the finding.
 
 `persistent-group-web.json` is a separate synthetic fixture produced by the
 TypeScript implementation at `171de0a`. Native tests decode its welcome and

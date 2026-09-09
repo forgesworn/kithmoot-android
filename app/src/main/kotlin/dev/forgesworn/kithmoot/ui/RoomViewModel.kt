@@ -80,6 +80,20 @@ import dev.forgesworn.kithmoot.session.KITHMOOT_JOIN_BASE
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.QuietTransport
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.QuietKeys
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
@@ -161,6 +175,10 @@ data class RoomState(
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
     val lane: Lane? = null,
+    /** A quiet room: chat rides the gift-wrap stream as dead drops. See session/QuietTransport.kt. */
+    val quiet: Boolean = false,
+    /** Whether this device may post in the quiet room: two devices per person can, others read. */
+    val quietCanSend: Boolean = true,
     val tiles: List<ParticipantTile> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
     val profilesEnabled: Boolean = false,
@@ -259,6 +277,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      *  profile relays. Separate from the room's own, which must never be
      *  widened to public relays by a lookup. */
     private var profilePool: RelayPool? = null
+    /** The quiet wrapper over the pool when the room is a quiet one; chat rides through it in drops. */
+    private var quietTransport: QuietTransport? = null
     private var session: RoomSession? = null
     private var engine: WebRtcEngine? = null
     private var identity: RoomIdentity? = null
@@ -1016,10 +1036,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
+        // A quiet room's chat rides in drops: wrap the pool, and keep what the
+        // wrapper owes the device between visits. The device holding the
+        // identity is slot 0, the device it paired slot 1; each draws from its
+        // own half of the member's drop keys. See session/QuietTransport.kt.
+        val quietMembers = policy?.members?.takeIf { policy.quiet }
+        val quiet = if (quietMembers != null) QuietTransport(
+            transport, derived.roomKey, who.participant, quietMembers, if (secondary) 1 else 0, scope,
+            restore = record.quietState?.let(::quietStateFromJson),
+            onState = { state -> runCatching { savedRooms.update(derived.roomId) { it.withQuietState(quietStateToJson(state)) } } },
+        ) else null
+        quietTransport = quiet
         val live = RoomSession(
             derived,
             who,
-            transport,
+            quiet ?: transport,
             scope,
             policy = policy,
             // The root inviter, and the only key whose rekey this client
@@ -1046,6 +1077,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
+            quiet = quiet != null,
+            quietCanSend = quiet?.canSend ?: true,
             canAddDevice = who is PrimaryIdentity,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
         )
@@ -1240,6 +1273,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         engine?.stop()
         engine?.dispose()
         engine = null
+        quietTransport?.stop()
+        quietTransport = null
         pool?.stop()
         profilePool?.stop()
         profilePool = null
@@ -1355,7 +1390,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
     }
 
-    fun sendChat(body: String) = act { session?.sendChat(body) }
+    fun sendChat(body: String) = act {
+        try { session?.sendChat(body) } catch (e: IllegalStateException) { note(e.message ?: "Could not send.") } catch (e: IllegalArgumentException) { note(e.message ?: "Could not send.") }
+    }
 
     fun react(message: ChatMessage, emoji: String) = act {
         val live = session ?: return@act
@@ -1495,3 +1532,20 @@ internal fun parseRelays(text: String): List<String> = text
     .map { it.trim() }
     .filter { it.startsWith("ws://") || it.startsWith("wss://") }
     .distinct()
+
+/** The quiet state as the saved room keeps it. */
+internal fun quietStateToJson(state: QuietTransport.QuietState): JsonObject = buildJsonObject {
+    put("used", buildJsonObject {
+        for ((member, u) in state.used) put(member, buildJsonObject { put("epoch", u.epoch); put("counters", buildJsonArray { for (c in u.counters) add(JsonPrimitive(c)) }) })
+    })
+    put("queued", buildJsonArray { for (e in state.queued) add(e.toJson()) })
+}
+
+internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = runCatching {
+    val used = (json["used"] as? JsonObject)?.mapValues { (_, v) ->
+        val o = v.jsonObject
+        QuietKeys.UsedCounters(o.getValue("epoch").jsonPrimitive.long, o.getValue("counters").jsonArray.map { it.jsonPrimitive.int }.toSet())
+    } ?: emptyMap()
+    val queued = (json["queued"] as? JsonArray)?.map { NostrEvent.fromJson(it.jsonObject) } ?: emptyList()
+    QuietTransport.QuietState(used, queued)
+}.getOrNull()
