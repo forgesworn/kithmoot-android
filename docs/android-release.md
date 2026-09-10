@@ -1,7 +1,19 @@
 # Android release signing and device acceptance
 
-The published 0.4.1 APK is a debug-signed preview. Release signing support alone
+The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
+
+## 0.5.7 preview candidate
+
+Version code 15 contains the conversation workspace and the fixes merged in
+PR #18: quiet sends wake at their slot deadline, and a contact card's Link
+transport hints no longer imply ownership of a Nostr message relay. Saved
+contacts and explicit keeper-confirmed relay marks remain available.
+
+The source changes pass native verification and the recovery emulator. A
+preview build keeps the existing preview certificate so it can update without
+discarding saved rooms. No physical device was connected during preparation;
+the physical acceptance checklist below remains open for this candidate.
 
 ## Build with the selected release key
 
