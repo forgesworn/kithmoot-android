@@ -109,7 +109,11 @@ class SharedProjectsUiTest {
         ui.click("Open Build room in Kithmoot")
         ui.await("wrong saved identity refused") { model.start.value.error?.startsWith("This room is saved under another identity") == true }
         assertEquals(owner.pubkey, app.savedRooms.get(saved.id)!!.participant)
-        ui.click("Chats tab"); ui.click("Forget Build room"); ui.click("Forget room")
+        ui.home()
+        ui.click("Chats tab")
+        ui.await("Chats selected after the refused admission") { model.start.value.homeTab == "chats" && !model.start.value.busy }
+        ui.click("Forget Build room")
+        ui.click("Forget room")
         ui.await("explicit local identity removal") { model.start.value.savedRooms.isEmpty() }
         ui.click("Projects tab"); ui.click("Open Build room in Kithmoot"); ui.room()
         assertEquals(saved.id, model.room.value.roomId)

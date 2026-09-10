@@ -74,7 +74,12 @@ internal class RecoveryUi {
     }
 
     fun click(text: String) {
-        val target = reveal { button(text)?.takeIf { it.isEnabled } }
+        // Locate the control even while an asynchronous operation keeps it
+        // disabled. Scrolling past it then waiting at the bottom misses the
+        // later enabled state, particularly with animations disabled in CI.
+        reveal { button(text) }
+        await("$text to become enabled") { button(text)?.isEnabled == true }
+        val target = requireNotNull(button(text)) { "$text disappeared before the click" }
         assertTrue("$text must be enabled", target.isEnabled)
         assertTrue("$text must accept a click", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
