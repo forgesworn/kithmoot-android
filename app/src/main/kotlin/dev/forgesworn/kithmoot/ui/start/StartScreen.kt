@@ -215,21 +215,25 @@ fun StartScreen(
                     }
                 }
             }
-            Column {
-                TextButton({ relaysShown = !relaysShown }) { Text(if (relaysShown) "Hide relays" else "Relay settings") }
-                if (relaysShown) {
-                    OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
-                        label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
-                    Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
-                        label = { Text("Boxes of my circle") }, minLines = 2)
-                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered. A contact card alone does not confirm a message relay.", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            TextButton({ relaysShown = true }, enabled = enabled) { Text("Relay settings") }
             Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
                 "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+
+    if (relaysShown) {
+        AlertDialog(onDismissRequest = { relaysShown = false }, title = { Text("Relay settings") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
+                        label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
+                    Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
+                        label = { Text("Boxes of my circle") }, minLines = 2, maxLines = 5)
+                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered. A contact card alone does not confirm a message relay.", style = MaterialTheme.typography.bodySmall)
+                }
+            }, confirmButton = { TextButton({ relaysShown = false }) { Text("Done") } })
     }
 
     forgetting?.let { room ->

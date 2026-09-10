@@ -339,6 +339,12 @@ wants the bare x coordinate.
 
 MIT. See `LICENSE`.
 
+Chat is the first room view. A Call tab opens the existing media controls without
+starting the microphone, camera or screen share. Drafts, search and the reading
+position survive switching between Chat and Call. Invite and contact actions are
+available from Chat. This changes the conversation layout; native assignment and
+agent-approval controls are still separate work.
+
 Chat shows timestamps above messages, searches loaded messages and people, and offers an emoji picker and encrypted quick reactions. Public kind-0 names and pictures are off by default and can be enabled for the current visit from Chat. Names remain paired with shortened keys; profiles are self-reported. Image requests use HTTPS, bounded downloads and a memory cache cleared when profile lookup is disabled or the room is closed.
 
 Tap **Expand screen share** on a shared-screen pane for a full-window viewer. Pinch or use +/− to zoom, drag to pan, and use **Fit to screen** to reset. **Pop out** opens Android picture-in-picture on supported devices; Android supplies its movement and resizing controls. Closing the viewer keeps the call track alive. These controls have emulator coverage using generated video; physical-device acceptance remains a separate release check.
