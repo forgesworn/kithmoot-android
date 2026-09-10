@@ -21,6 +21,10 @@ source.
 
 ## Status
 
+The [shared project protocol](docs/shared-projects.md) is implemented and tested
+against web fixtures. Its account persistence and project screens are not yet
+connected; room project labels in the app remain local to this device.
+
 **It joins rooms.** The protocol layer is checked against the published interop
 vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
 and an Android interface. Two emulators have been in the same room as one

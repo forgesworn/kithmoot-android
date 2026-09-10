@@ -1,0 +1,738 @@
+{
+  "v": 1,
+  "source": "1f81809af8ac5d8711f7dc58266051794429dba9",
+  "now": 1789000000,
+  "notice": "Synthetic protocol fixtures only. Repeated-byte private key is public test data, never an account credential.",
+  "identities": {
+    "owner": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "member": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+    "other": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+    "agent": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+  },
+  "entries": [
+    {
+      "id": "kithmoot-initial",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":1,\"parents\":[],\"request\":\"fixture-kithmoot-01\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d",
+        "sig": "035f0450403905cd42dfc211ead453eaae0a4ba2f70fce68d4c9a6916dea1d57c6bddfe550d17b28648dee9d0e19caba08caf808dfe3c8ea86fef58a39fa23f9"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 1,
+        "parents": [],
+        "request": "fixture-kithmoot-01",
+        "definition": {
+          "name": "Kithmoot",
+          "archived": false,
+          "authorityRevision": 1,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "7ae0cec97a0a258cf04dd47c87b08ad4d058b1c5976fe72a000ea4f2676197e7",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "bothy-initial",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "7e978e6b1fa6bb4f95f5a4a37cd02e1485711fb419ca36b411254bc8e2951c7d"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"7e978e6b1fa6bb4f95f5a4a37cd02e1485711fb419ca36b411254bc8e2951c7d\",\"revision\":1,\"parents\":[],\"request\":\"fixture-bothy-00001\",\"definition\":{\"name\":\"Bothy\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0808080808080808080808080808080808080808080808080808080808080808\",\"name\":\"Bothy room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7951aa82b5150160f9ee3fddb4d310c9173b899f6e63227398dfdad9f6f3fb70",
+        "sig": "20a5ad8bcb81c6fe0864818c300e03e4d0b0759499725cb970f476fb92ef339fb3f504f575f44fb6f9877681550a5d28caa1c9639e298185c6e7547250fe2ca6"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "7e978e6b1fa6bb4f95f5a4a37cd02e1485711fb419ca36b411254bc8e2951c7d",
+        "revision": 1,
+        "parents": [],
+        "request": "fixture-bothy-00001",
+        "definition": {
+          "name": "Bothy",
+          "archived": false,
+          "authorityRevision": 1,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0808080808080808080808080808080808080808080808080808080808080808",
+              "name": "Bothy room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZ1lHQmdZR0JnWUdCZyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "ec1c6c1c5e4d95d878bdcadcd218b62b0b774472d049cbf0801c17c8b5a84b52",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "research-initial",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "b69541457924e41c56b69b661c73b7ed8e71940b1d2f3b223dc7c95bb73db90d"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"b69541457924e41c56b69b661c73b7ed8e71940b1d2f3b223dc7c95bb73db90d\",\"revision\":1,\"parents\":[],\"request\":\"fixture-research-01\",\"definition\":{\"name\":\"Research\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337\",\"kind\":\"person\",\"epoch\":1}],\"rooms\":[{\"room\":\"0909090909090909090909090909090909090909090909090909090909090909\",\"name\":\"Research room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiR1JrWkdSa1pHUmtaR1JrWkdSa1pHUmtaR1JrWkdSa1pHUmtaR1JrWkdSayIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+        "id": "ea40350790be405ac0f0b1c2546e577c96e9188a7bbb28a230cf7acaa1dec071",
+        "sig": "92eef4ba94e5bfc2a2461dd0b60c5f2287cdf8ac60b15df54b996beae412be8ee74ebd4e94adf68ae156375ac75d0424e294dfe64777832c69dd8d2df46c04aa"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "b69541457924e41c56b69b661c73b7ed8e71940b1d2f3b223dc7c95bb73db90d",
+        "revision": 1,
+        "parents": [],
+        "request": "fixture-research-01",
+        "definition": {
+          "name": "Research",
+          "archived": false,
+          "authorityRevision": 1,
+          "members": [
+            {
+              "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+              "kind": "person",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0909090909090909090909090909090909090909090909090909090909090909",
+              "name": "Research room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiR1JrWkdSa1pHUmtaR1JrWkdSa1pHUmtaR1JrWkdSa1pHUmtaR1JrWkdSayIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "62936dc1d3dd6a857c5a9caac21d8fc4103bbe1f4b6bb9427d71582ca54b1374",
+      "recipients": [
+        "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337"
+      ]
+    },
+    {
+      "id": "kithmoot-renamed",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":2,\"parents\":[\"1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d\"],\"request\":\"kithmoot-renamed\",\"definition\":{\"name\":\"Kithmoot renamed\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "5095e3b3e63e971d116ded4549a214d7ecdd25821d06ecd6a6052d52bc6cca90",
+        "sig": "330bcfbde5259ac3598f8fc9aeff960d5ca6381cc0e8a6ede1cf21a7c34dd45434ad1490b803a52ce74db3e3ffe3f3caf38ce4984ec3559b4416c1de099b93ea"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 2,
+        "parents": [
+          "1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d"
+        ],
+        "request": "kithmoot-renamed",
+        "definition": {
+          "name": "Kithmoot renamed",
+          "archived": false,
+          "authorityRevision": 1,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "7ae0cec97a0a258cf04dd47c87b08ad4d058b1c5976fe72a000ea4f2676197e7",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "kithmoot-removed",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":3,\"parents\":[\"5095e3b3e63e971d116ded4549a214d7ecdd25821d06ecd6a6052d52bc6cca90\"],\"request\":\"kithmoot-removed\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":3,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "594be81dc70bf8abd76a9aea7fe207b4817fc72a10d179455a456690a9b38541",
+        "sig": "618ffc2379017fbca828075e9bdd96ddd7d973f69d4f4601cf2f44adbe76f343049533757f8152d258259e61f20c6b7b77f8a8049fcb2327018743809a541236"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 3,
+        "parents": [
+          "5095e3b3e63e971d116ded4549a214d7ecdd25821d06ecd6a6052d52bc6cca90"
+        ],
+        "request": "kithmoot-removed",
+        "definition": {
+          "name": "Kithmoot",
+          "archived": false,
+          "authorityRevision": 3,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "72c15ccc43377bb532eb21d6595836f107e733db3aa0b83915e5adaaa5ef7027",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "member-withdrawal",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"withdraw\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":3,\"parents\":[\"5095e3b3e63e971d116ded4549a214d7ecdd25821d06ecd6a6052d52bc6cca90\"],\"request\":\"fixture-withdraw-01\",\"recipient\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\"}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "41bb1d7bd9ae24d2bfabc0945aed8b75571bb9ff61670ab4fa09f0d5c8379b9f",
+        "sig": "ba616b980e69bc06bcb66f91c9b5158cff6b31b627e1285c6059f1e2419a35ea64a182db4f469a1ae73c715ef7d3f5ed665b00ee4197505cb1ea3625150dac8c"
+      },
+      "expected": {
+        "v": 1,
+        "op": "withdraw",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 3,
+        "parents": [
+          "5095e3b3e63e971d116ded4549a214d7ecdd25821d06ecd6a6052d52bc6cca90"
+        ],
+        "request": "fixture-withdraw-01",
+        "recipient": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+      },
+      "recipients": [
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+      ]
+    },
+    {
+      "id": "kithmoot-readded",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":4,\"parents\":[\"594be81dc70bf8abd76a9aea7fe207b4817fc72a10d179455a456690a9b38541\"],\"request\":\"kithmoot-readded\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":4,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":4},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "8cf09538e8102fffab184cca719f41168b128ad4e2cda78ddc0f94f2b5ff5b9a",
+        "sig": "523d881abb393f43ade3d95606b14d7b2455ba1715daa0b3aeefc1e65eb299b366129e0c8634622f13db557d82e54ec5fed5462c554041a3e956cc2b1a18dcc6"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 4,
+        "parents": [
+          "594be81dc70bf8abd76a9aea7fe207b4817fc72a10d179455a456690a9b38541"
+        ],
+        "request": "kithmoot-readded",
+        "definition": {
+          "name": "Kithmoot",
+          "archived": false,
+          "authorityRevision": 4,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+              "kind": "person",
+              "epoch": 4
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "98bd010d3637e038e51a5690cd08dff0d601c88d0506875928c22931f7db4cde",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "kithmoot-archived",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":5,\"parents\":[\"8cf09538e8102fffab184cca719f41168b128ad4e2cda78ddc0f94f2b5ff5b9a\"],\"request\":\"kithmoot-archived\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":true,\"authorityRevision\":5,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":4},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "f2b5c27dd476418bd503caed8f7265e112f71f9326f1c973bb204d0fcb77ab77",
+        "sig": "d2ab3988ac3ecf7c148908fb74fcc4c004d138e322ec4987406c0fc728fbdba956917260e465656f7044e97a6608257f5d82d00d71b06fe5594b149c2175f558"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 5,
+        "parents": [
+          "8cf09538e8102fffab184cca719f41168b128ad4e2cda78ddc0f94f2b5ff5b9a"
+        ],
+        "request": "kithmoot-archived",
+        "definition": {
+          "name": "Kithmoot",
+          "archived": true,
+          "authorityRevision": 5,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+              "kind": "person",
+              "epoch": 4
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "08e497411789db6a9d3a38a6784de9732386170e2e0f4fce5a0a6c28d279f46e",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "kithmoot-restored",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":6,\"parents\":[\"f2b5c27dd476418bd503caed8f7265e112f71f9326f1c973bb204d0fcb77ab77\"],\"request\":\"kithmoot-restored\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":6,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":4},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d5bebf3de59b3d8dab38eb8ea7727a8eeeddf80f081c8bf7c41663724159f40d",
+        "sig": "1da02b6bf866ae6b76c2b339cb309804606e69a36eae53599cf13b059af59b0544669272927ac31a5efbb9324ee7927feb6535a28c8615d520442fbeadb1182c"
+      },
+      "expected": {
+        "v": 1,
+        "op": "snapshot",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 6,
+        "parents": [
+          "f2b5c27dd476418bd503caed8f7265e112f71f9326f1c973bb204d0fcb77ab77"
+        ],
+        "request": "kithmoot-restored",
+        "definition": {
+          "name": "Kithmoot",
+          "archived": false,
+          "authorityRevision": 6,
+          "members": [
+            {
+              "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+              "kind": "person",
+              "epoch": 1
+            },
+            {
+              "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+              "kind": "person",
+              "epoch": 4
+            },
+            {
+              "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+              "kind": "agent",
+              "epoch": 1
+            }
+          ],
+          "rooms": [
+            {
+              "room": "0707070707070707070707070707070707070707070707070707070707070707",
+              "name": "Kithmoot room",
+              "link": "https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119"
+            }
+          ]
+        }
+      },
+      "authority": "45a7a2db216b75ad7c6fbfcaf25986e2ea4630063d2422c05b510377157660c1",
+      "recipients": [
+        "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b"
+      ]
+    },
+    {
+      "id": "member-initial-join",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"follow\",\"owner\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":1,\"parents\":[],\"request\":\"member-initial-join\",\"joined\":true,\"membership\":1,\"invitation\":\"1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d\"}",
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "d6aeddd13aeab21a96bed543e244c3874a03d46071405c78f96243063e0cba69",
+        "sig": "c2fce7d7ef9a0a65269bd5fea7d2d595caaa12f0134e89388751516fa8c0275225b699092318724d0fcffb26fe293c680787bdfe36d3f15f32426b9581282e4a"
+      },
+      "expected": {
+        "v": 1,
+        "op": "follow",
+        "owner": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 1,
+        "parents": [],
+        "request": "member-initial-join",
+        "joined": true,
+        "membership": 1,
+        "invitation": "1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d"
+      },
+      "recipients": [
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+      ]
+    },
+    {
+      "id": "member-renewed-join",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"follow\",\"owner\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":2,\"parents\":[\"d6aeddd13aeab21a96bed543e244c3874a03d46071405c78f96243063e0cba69\"],\"request\":\"member-renewed-join\",\"joined\":true,\"membership\":4,\"invitation\":\"8cf09538e8102fffab184cca719f41168b128ad4e2cda78ddc0f94f2b5ff5b9a\"}",
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "2cc7fe5ae5cc98a28da29c81b3426fdf27d5cd8d286382de1b03d6a3313d1ac6",
+        "sig": "bb16a5c30392a9cec5c90b64acd8c117abae2978aa6643eab9732c56eb6df07c10bb502ce155db091c0ee1238667fe0766c31776664d5573bb152b297a7a4fca"
+      },
+      "expected": {
+        "v": 1,
+        "op": "follow",
+        "owner": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "project": "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980",
+        "revision": 2,
+        "parents": [
+          "d6aeddd13aeab21a96bed543e244c3874a03d46071405c78f96243063e0cba69"
+        ],
+        "request": "member-renewed-join",
+        "joined": true,
+        "membership": 4,
+        "invitation": "8cf09538e8102fffab184cca719f41168b128ad4e2cda78ddc0f94f2b5ff5b9a"
+      },
+      "recipients": [
+        "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+      ]
+    },
+    {
+      "id": "signed-unknown-field",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":1,\"parents\":[],\"request\":\"fixture-kithmoot-01\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]},\"unknown\":\"must reject\"}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0fbfb7d39c907b287fb1d56163d542e7bdc7f2ae37e4519e28da5f0497ab6940",
+        "sig": "a9ba21578deb05ec3dbdec1b14716a82fd4bf04f083b5098df6377d019b52d63038c7d2a4849f27e9a474b55261e249fbc48831e4f4ae5b7013641ed13a294cd"
+      },
+      "expected": null
+    },
+    {
+      "id": "tampered-content",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "kithmoot.projects.v1"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":1,\"parents\":[],\"request\":\"fixture-kithmoot-01\",\"definition\":{\"name\":\"Injected\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d",
+        "sig": "035f0450403905cd42dfc211ead453eaae0a4ba2f70fce68d4c9a6916dea1d57c6bddfe550d17b28648dee9d0e19caba08caf808dfe3c8ea86fef58a39fa23f9"
+      },
+      "expected": null
+    },
+    {
+      "id": "wrong-topic",
+      "event": {
+        "kind": 30078,
+        "created_at": 1789000000,
+        "tags": [
+          [
+            "d",
+            "80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980"
+          ],
+          [
+            "l",
+            "another.application"
+          ]
+        ],
+        "content": "{\"v\":1,\"op\":\"snapshot\",\"project\":\"80c67202df9604023e2da947c2e0da96fde34a00d91dc517eacb0b5d86a41980\",\"revision\":1,\"parents\":[],\"request\":\"fixture-kithmoot-01\",\"definition\":{\"name\":\"Kithmoot\",\"archived\":false,\"authorityRevision\":1,\"members\":[{\"pubkey\":\"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\"kind\":\"person\",\"epoch\":1},{\"pubkey\":\"462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\",\"kind\":\"agent\",\"epoch\":1}],\"rooms\":[{\"room\":\"0707070707070707070707070707070707070707070707070707070707070707\",\"name\":\"Kithmoot room\",\"link\":\"https://fixture.invalid/j/#eyJ2IjozLCJqIjoiRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4Y1hGeGNYRnhjWEZ4YyIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9maXh0dXJlLmludmFsaWQiXSwiaSI6W119\"}]}}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "2b001696502e9730d31e271f8157ebd8877fde81136603c4ebf9add6c364eb78",
+        "sig": "cdb0c4ab44db3bf1a47419a3ecdf292f11ab6429b1774ed3a1d78eb07e27684e6635e18b18f3063edbe1ebc24a8351b04bbe304b67772c9ca6126eb01eb0f726"
+      },
+      "expected": null
+    }
+  ],
+  "encryptedExample": {
+    "recipientTestSecretHex": "0202020202020202020202020202020202020202020202020202020202020202",
+    "event": {
+      "kind": 1059,
+      "created_at": 1788996400,
+      "tags": [
+        [
+          "p",
+          "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+        ],
+        [
+          "l",
+          "kithmoot.projects.v1"
+        ]
+      ],
+      "content": "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",
+      "pubkey": "62c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7",
+      "id": "be3e7c3f7a7119a67851716aa9473b1090af56e253a7a46ddf2f4749d11d0e57",
+      "sig": "a775ef18ccc9f044f4ff6db47fbe17d2a0685abcf461b792ecaa27e48030a22bef192038c5d4510267229f52ecd70846c778320c17d15ce8e58ace47e959f5c4"
+    },
+    "expectedInnerId": "1a31798a14a60798d43ecab9d5301e006ce150269c5f5f9232e0a12bbdd10c4d"
+  },
+  "joinChecks": [
+    {
+      "project": "kithmoot-initial",
+      "follow": "member-initial-join",
+      "joined": true
+    },
+    {
+      "project": "kithmoot-renamed",
+      "follow": "member-initial-join",
+      "joined": true
+    },
+    {
+      "project": "kithmoot-readded",
+      "follow": "member-initial-join",
+      "joined": false
+    },
+    {
+      "project": "kithmoot-readded",
+      "follow": "member-renewed-join",
+      "joined": true
+    }
+  ],
+  "runtimeAuthorityGranted": false
+}
