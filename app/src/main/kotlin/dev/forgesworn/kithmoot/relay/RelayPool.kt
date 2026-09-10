@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.Events
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -82,6 +83,8 @@ class RelayPool(
     /** The relays the client knows to be boxes of the person's own circle, asked
      *  each time so a card added mid-room counts. See storage/ContactBook.kt. */
     private val circle: () -> Set<String> = { emptySet() },
+    /** Opt-in NIP-42 authority. A missing entry keeps the relay public. */
+    private val authenticators: RelayAuthenticatorProvider = RelayAuthenticatorProvider { null },
 ) : RoomTransport {
 
     private val lock = Any()
@@ -122,6 +125,7 @@ class RelayPool(
             publications.clear()
         }
         for (link in closing) {
+            link.authJob?.cancel()
             link.job?.cancel()
             runCatching { link.socket?.close() }
         }
@@ -131,6 +135,16 @@ class RelayPool(
     override fun describe(): List<String> = urls.toList()
 
     override fun circleRelays(): Set<String> = circle()
+
+    /** A refused sheltered route remains inert until a person deliberately retries it. */
+    fun retryAuthentication(url: String): Boolean = synchronized(lock) {
+        val link = links[url] ?: return@synchronized false
+        if (link.authState != AuthState.BLOCKED) return@synchronized false
+        link.authState = AuthState.CLOSED
+        link.authJob?.cancel()
+        link.job = launchLink(link)
+        true
+    }
 
     override fun publish(event: NostrEvent) {
         val frame = RelayCodec.publishFrame(event)
@@ -246,20 +260,88 @@ class RelayPool(
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
+    private fun beginAuthentication(link: RelayLink, challenge: String) {
+        val authenticator: RelayAuthenticator
+        val generation: Long
+        synchronized(lock) {
+            if (!started || link.authState !in setOf(AuthState.AWAITING_CHALLENGE, AuthState.SIGNING, AuthState.AWAITING_OK)) return
+            authenticator = authenticators.forUrl(link.url) ?: return
+            generation = link.socketGeneration
+            link.authJob?.cancel()
+            link.authState = AuthState.SIGNING
+        }
+        link.authJob = scope.launch {
+            val event = runCatching { authenticator.sign(link.url, challenge) }.getOrNull()
+            synchronized(lock) {
+                val socketCurrent = started && links[link.url] === link &&
+                    link.socketGeneration == generation && link.authState == AuthState.SIGNING
+                if (!socketCurrent) return@synchronized
+                val currentAuthenticator = authenticators.forUrl(link.url)
+                if (currentAuthenticator?.pubkey != authenticator.pubkey || event == null ||
+                    !validAuth(event, authenticator, link.url, challenge)
+                ) {
+                    // A route that lost consent while the signer was showing
+                    // must be closed, not merely have its late result ignored.
+                    block(link)
+                    return@synchronized
+                }
+                val socket = link.socket ?: return@synchronized block(link)
+                runCatching { socket.send(RelayCodec.authFrame(event)) }.onFailure { block(link) }
+                if (link.authState == AuthState.SIGNING) {
+                    link.authEventId = event.id
+                    link.authState = AuthState.AWAITING_OK
+                }
+            }
+        }
+    }
+
+    private fun validAuth(event: NostrEvent, authenticator: RelayAuthenticator, url: String, challenge: String): Boolean =
+        event.pubkey == authenticator.pubkey && event.kind == 22242 && event.content.isEmpty() &&
+            event.tags == listOf(listOf("relay", url), listOf("challenge", challenge)) && Events.verify(event)
+
+    /** Must be called under [lock]. Closing also wakes the reconnect loop; BLOCKED then stops it. */
+    private fun block(link: RelayLink) {
+        link.authState = AuthState.BLOCKED
+        link.isOpen = false
+        link.authJob?.cancel()
+        runCatching { link.socket?.close() }
+        link.closed?.complete("authentication blocked")
+    }
+
+    private fun authenticationOk(link: RelayLink, message: RelayMessage.Ok): Boolean = synchronized(lock) {
+        if (link.authState != AuthState.AWAITING_OK || message.eventId != link.authEventId) return@synchronized false
+        if (!message.accepted) {
+            block(link)
+            return@synchronized false
+        }
+        link.authState = AuthState.READY
+        link.authEventId = null
+        link.isOpen = true
+        true
+    }
+
     private fun launchLink(link: RelayLink): Job = scope.launch {
         var attempt = 0
         while (isActive) {
             val closed = CompletableDeferred<String>()
+            link.closed = closed
             var connectedAt: Long? = null
             val listener = object : RelaySocketListener {
                 override fun onOpen() {
                     connectedAt = now()
-                    link.isOpen = true
-                    onLinkOpen(link)
+                    val requiresAuth = authenticators.forUrl(link.url) != null
+                    synchronized(lock) {
+                        link.socketGeneration += 1
+                        link.authState = if (requiresAuth) AuthState.AWAITING_CHALLENGE else AuthState.READY
+                        link.isOpen = !requiresAuth
+                    }
+                    if (!requiresAuth) onLinkOpen(link)
                 }
 
                 override fun onMessage(text: String) {
                     val message = RelayCodec.parse(text)
+                    if (message is RelayMessage.Auth) beginAuthentication(link, message.challenge)
+                    if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link)
                     storedMessage(link.url, message)
                     when (message) {
                         is RelayMessage.Event -> deliver(message.subscriptionId, message.event)
@@ -271,8 +353,11 @@ class RelayPool(
                 }
 
                 override fun onClosed(reason: String) {
+                    link.authJob?.cancel()
+                    link.socketGeneration += 1
                     link.isOpen = false
                     link.socket = null
+                    if (link.authState != AuthState.BLOCKED) link.authState = AuthState.CLOSED
                     onLinkClosed(link)
                     closed.complete(reason)
                 }
@@ -287,6 +372,7 @@ class RelayPool(
             }
 
             if (!isActive) break
+            if (link.authState == AuthState.BLOCKED) break
             // Measured from the socket actually opening, not from the attempt
             // starting: a relay that takes twenty seconds to refuse a connection
             // has not been healthy for twenty seconds.
@@ -307,6 +393,11 @@ class RelayPool(
         @Volatile
         var isOpen: Boolean = false
         var job: Job? = null
+        @Volatile var authState: AuthState = AuthState.CLOSED
+        @Volatile var socketGeneration: Long = 0
+        @Volatile var authEventId: String? = null
+        @Volatile var authJob: Job? = null
+        @Volatile var closed: CompletableDeferred<String>? = null
 
         private val outboxLock = Any()
         private val outbox = ArrayDeque<Pending>()
@@ -346,6 +437,8 @@ class RelayPool(
             for (pending in ready) sendIfOpen(pending.frame)
         }
     }
+
+    private enum class AuthState { CLOSED, AWAITING_CHALLENGE, SIGNING, AWAITING_OK, READY, BLOCKED }
 
     private class Pending(val frame: String, val queuedAt: Long)
 

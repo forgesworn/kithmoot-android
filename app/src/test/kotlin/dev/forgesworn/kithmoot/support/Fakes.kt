@@ -100,6 +100,11 @@ class FakeSocket(val url: String, private val listener: RelaySocketListener) : R
     fun deliverEvent(subscriptionId: String, event: NostrEvent) =
         listener.onMessage("""["EVENT","$subscriptionId",${event.toCompactJson()}]""")
 
+    fun deliverAuth(challenge: String) = listener.onMessage("""["AUTH","$challenge"]""")
+
+    fun deliverOk(eventId: String, accepted: Boolean) =
+        listener.onMessage("""["OK","$eventId",$accepted,""]""")
+
     fun deliverRaw(text: String) = listener.onMessage(text)
 
     /** The subscription ids this socket has been asked to open, in order. */
@@ -108,6 +113,8 @@ class FakeSocket(val url: String, private val listener: RelaySocketListener) : R
         .map { it.substringAfter("[\"REQ\",\"").substringBefore("\"") }
 
     fun publishedFrames(): List<String> = sent.filter { it.startsWith("[\"EVENT\"") }
+
+    fun authFrames(): List<String> = sent.filter { it.startsWith("[\"AUTH\"") }
 }
 
 class FakeSocketFactory : RelaySocketFactory {
