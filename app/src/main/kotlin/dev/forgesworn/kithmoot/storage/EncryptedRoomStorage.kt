@@ -37,7 +37,10 @@ internal class RoomCipher(private val key: (create: Boolean) -> SecretKey) {
 }
 
 /** Used off the main thread through the application's single RoomRepository. */
-class EncryptedRoomStorage(context: Context, private val alias: String = "kithmoot.rooms.v1") : RoomStorage {
+class EncryptedRoomStorage(context: Context, private val alias: String = "kithmoot.rooms.v1",
+    private val maxPlaintextBytes: Int = 4 * 1024 * 1024,
+) : RoomStorage {
+    init { require(maxPlaintextBytes in 1..32 * 1024 * 1024) }
     private val directory = context.applicationContext.noBackupFilesDir
     private val base = File(directory, "$alias.vault")
     private val file = AtomicFile(base)
@@ -66,15 +69,16 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
             return null
         }
         val sealed = input.use {
-            require(it.channel.size() <= 4 * 1024 * 1024 + 64)
+            require(it.channel.size() <= maxPlaintextBytes + 64)
             val bytes = it.readBytes()
-            require(bytes.size <= 4 * 1024 * 1024 + 64)
+            require(bytes.size <= maxPlaintextBytes + 64)
             bytes
         }
         return cipher.decrypt(sealed)
     }
 
     override fun write(value: ByteArray) {
+        require(value.size <= maxPlaintextBytes)
         val sealed = cipher.encrypt(value)
         val output = file.startWrite()
         try {

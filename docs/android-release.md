@@ -3,7 +3,21 @@
 The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
 
-## 0.5.8 shared-work preview candidate
+## 0.5.11 shared-project preview candidate
+
+Version code 19 connects the signed-in account's shared project directory to the
+native Projects tab. Create or edit a project, choose people and agents, share
+room invitations and deliberately join invitations from others. Projects and
+uncertain updates survive process restart in an encrypted device vault; Retry
+sends the same retained ciphertext. Opening a project room still checks normal
+admission and refuses a room saved under a different identity.
+
+This preview retains the existing signing certificate. The
+[shared-project guide](shared-projects.md) describes the protocol, installed-app
+checks and remaining limits. Native conflict resolution, a cross-project
+decision inbox, live Oathrun pairing and physical-phone acceptance remain open.
+
+## 0.5.8 shared-work preview
 
 Version code 16 adds a native Work tab beside Chat and Call. It uses the same
 signed assignments as the web client: create work from an advertised agent

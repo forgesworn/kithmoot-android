@@ -21,9 +21,11 @@ source.
 
 ## Status
 
-The [shared project protocol](docs/shared-projects.md) is implemented and tested
-against web fixtures. Its account persistence and project screens are not yet
-connected; room project labels in the app remain local to this device.
+The [shared project directory](docs/shared-projects.md) follows your signed-in
+account. Open **Projects** to create a project, choose people, agents and room
+invitations, or explicitly join an invitation. Signed updates use the web
+protocol and an encrypted device cache with exact pending-send recovery.
+The existing room labels under Chats remain local organisation.
 
 **It joins rooms.** The protocol layer is checked against the published interop
 vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
