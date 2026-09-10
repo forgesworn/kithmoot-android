@@ -52,6 +52,7 @@ class PersistentGroupUiTest {
         reset()
         ui.click("Relay settings")
         ui.replace("Relays, one per line", server.url)
+        ui.click("Done")
         ui.replace("Room name (optional)", "Native persistent group")
         ui.click("Start a room")
         ui.room()
@@ -120,6 +121,7 @@ class PersistentGroupUiTest {
         reset()
         ui.click("Relay settings")
         ui.replace("Relays, one per line", server.url)
+        ui.click("Done")
         ui.click("Start a room")
         ui.await("publication rejection") { ui.hasText("The relays refused this group invitation. Try again or choose another relay.") }
         assertTrue(app.savedRooms.list().isEmpty())

@@ -40,7 +40,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,11 +62,8 @@ import org.webrtc.EglBase
 import org.webrtc.VideoTrack
 
 /**
- * The room.
- *
- * One grid of tile groups, one bar of controls, and a header that says only what
- * is actually useful mid-call: whether the room is reachable, and how to get
- * somebody else into it.
+ * Conversation is the default room surface. Opening the call view reveals
+ * media controls without changing capture or agent-listening permissions.
  */
 @Composable
 fun RoomScreen(
@@ -69,72 +75,101 @@ fun RoomScreen(
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
     onToggleScreenShare: () -> Unit,
-    onOpenChat: () -> Unit,
     onAddDevice: () -> Unit,
     onRotateInvitation: () -> Unit,
     onLeave: () -> Unit,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     onOpenCards: () -> Unit = {},
+    chat: @Composable () -> Unit,
 ) {
+    var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    val chatState = rememberSaveableStateHolder()
+    if (inviteOpen) {
+        AlertDialog(
+            onDismissRequest = { inviteOpen = false },
+            title = { Text("Invite people") },
+            text = { ShareRoomRow(state.joinUrl) },
+            confirmButton = { TextButton(onClick = { inviteOpen = false }) { Text("Done") } },
+        )
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header(state, onLeave)
+        TabRow(selectedTabIndex = if (callOpen) 1 else 0) {
+            Tab(selected = !callOpen, onClick = { callOpen = false }, text = { Text("Chat") })
+            Tab(selected = callOpen, onClick = { callOpen = true }, text = {
+                Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
+            })
+        }
 
-        Box(Modifier.weight(1f)) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 300.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                if (state.tiles.size == 1) {
-                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                        AlonePanel(state, onRotateInvitation)
+        if (!callOpen) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank()) { Text("Invite") }
+                TextButton(onClick = onOpenCards) { Text("People") }
+                TextButton(onClick = onAddDevice, enabled = state.canAddDevice) { Text("Add your device") }
+            }
+            Box(Modifier.weight(1f).navigationBarsPadding()) {
+                chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
+            }
+        } else {
+
+            Box(Modifier.weight(1f)) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 300.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    if (state.tiles.size == 1) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            AlonePanel(state, onRotateInvitation)
+                        }
                     }
-                }
-                // A shared screen takes the whole row: it is what the room came
-                // to look at, and half a column is too small to read a slide.
-                items(
-                    state.tiles,
-                    key = { it.participant },
-                    span = { tile -> androidx.compose.foundation.lazy.grid.GridItemSpan(if (tile.isSharingScreen) maxLineSpan else 1) },
-                ) { tile ->
-                    ParticipantTileView(
-                        tile = tile,
-                        videoFor = { track -> videos["${track.device}|${track.trackId}"] },
-                        eglBase = eglBase,
-                        onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
-                    )
-                }
-                if (state.movedOn != null) {
-                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                        MovedOnPanel()
+                    // A shared screen takes the whole row: it is what the room came
+                    // to look at, and half a column is too small to read a slide.
+                    items(
+                        state.tiles,
+                        key = { it.participant },
+                        span = { tile -> androidx.compose.foundation.lazy.grid.GridItemSpan(if (tile.isSharingScreen) maxLineSpan else 1) },
+                    ) { tile ->
+                        ParticipantTileView(
+                            tile = tile,
+                            videoFor = { track -> videos["${track.device}|${track.trackId}"] },
+                            eglBase = eglBase,
+                            onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
+                        )
                     }
-                }
-                if (state.mediaFault != null) {
-                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                        FaultPanel(state.mediaFault)
+                    if (state.movedOn != null) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            MovedOnPanel()
+                        }
+                    }
+                    if (state.mediaFault != null) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            FaultPanel(state.mediaFault)
+                        }
                     }
                 }
             }
-        }
 
-        Controls(
-            state = state,
-            onToggleMic = onToggleMic,
-            onToggleAgentsMayHear = onToggleAgentsMayHear,
-            onToggleCamera = onToggleCamera,
-            onSwitchCamera = onSwitchCamera,
-            onToggleScreenShare = onToggleScreenShare,
-            onOpenChat = onOpenChat,
-            onAddDevice = onAddDevice,
-            onOpenCards = onOpenCards,
-        )
+            Controls(
+                state = state,
+                onToggleMic = onToggleMic,
+                onToggleAgentsMayHear = onToggleAgentsMayHear,
+                onToggleCamera = onToggleCamera,
+                onSwitchCamera = onSwitchCamera,
+                onToggleScreenShare = onToggleScreenShare,
+                onOpenChat = { callOpen = false },
+                onAddDevice = onAddDevice,
+                onOpenCards = onOpenCards,
+            )
+        }
     }
 }
 

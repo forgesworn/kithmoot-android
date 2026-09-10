@@ -7,7 +7,6 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -27,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import dev.forgesworn.kithmoot.ui.room.AddDeviceSheet
@@ -54,7 +54,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
 
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
-    var chatOpen by remember { mutableStateOf(false) }
+    val roomUiState = rememberSaveableStateHolder()
     var cardsOpen by remember { mutableStateOf(false) }
     var expandedScreen by remember { mutableStateOf<dev.forgesworn.kithmoot.ui.room.SharedScreen?>(null) }
 
@@ -167,82 +167,76 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 ),
             )
 
-            Stage.ROOM -> RoomScreen(
-                state = roomState,
-                videos = videos,
-                eglBase = model.eglBase,
-                onToggleMic = {
-                    if (roomState.micOn) {
-                        model.toggleMicrophone()
-                    } else {
-                        asker.ask(
-                            PermissionAsk(
-                                permission = Manifest.permission.RECORD_AUDIO,
-                                title = "Microphone",
-                                why = "So the room can hear you. Only one of your devices " +
-                                    "has a live microphone at a time.",
-                                refused = "No microphone, so nobody can hear you.",
-                                onGranted = model::toggleMicrophone,
-                            ),
+            Stage.ROOM -> roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
+                RoomScreen(
+                    state = roomState,
+                    videos = videos,
+                    eglBase = model.eglBase,
+                    onToggleMic = {
+                        if (roomState.micOn) {
+                            model.toggleMicrophone()
+                        } else {
+                            asker.ask(
+                                PermissionAsk(
+                                    permission = Manifest.permission.RECORD_AUDIO,
+                                    title = "Microphone",
+                                    why = "So the room can hear you. Only one of your devices " +
+                                        "has a live microphone at a time.",
+                                    refused = "No microphone, so nobody can hear you.",
+                                    onGranted = model::toggleMicrophone,
+                                ),
+                            )
+                        }
+                    },
+                    onToggleAgentsMayHear = { model.setAgentsMayHear(!roomState.agentsMayHear) },
+                    onToggleCamera = {
+                        if (roomState.cameraOn) {
+                            model.toggleCamera()
+                        } else {
+                            asker.ask(
+                                PermissionAsk(
+                                    permission = Manifest.permission.CAMERA,
+                                    title = "Camera",
+                                    why = "So the room can see you. Nothing is recorded and " +
+                                        "the video does not pass through a server.",
+                                    refused = "No camera, so your tile stays a placeholder.",
+                                    onGranted = model::toggleCamera,
+                                ),
+                            )
+                        }
+                    },
+                    onSwitchCamera = model::switchCamera,
+                    onToggleScreenShare = {
+                        if (roomState.screenOn) model.stopScreenShare() else requestScreenShare()
+                    },
+                    onExpandScreen = { expandedScreen = it },
+                    onAddDevice = model::mintPairingLink,
+                    onOpenCards = { cardsOpen = true },
+                    onRotateInvitation = model::rotateInvitation,
+                    onLeave = model::leave,
+                    modifier = Modifier.padding(padding),
+                    chat = {
+                        ChatPane(
+                            messages = roomState.chat,
+                            selfParticipant = roomState.selfParticipant,
+                            onSend = model::sendChat,
+                            onReact = model::react,
+                            profilesEnabled = roomState.profilesEnabled,
+                            profiles = roomState.profiles,
+                            onProfilesEnabled = model::setProfilesEnabled,
+                            lane = roomState.lane,
+                            quiet = roomState.quiet,
+                            quietCanSend = roomState.quietCanSend,
+                            modifier = Modifier.fillMaxSize(),
+                            showTitle = false,
                         )
-                    }
-                },
-                onToggleAgentsMayHear = { model.setAgentsMayHear(!roomState.agentsMayHear) },
-                onToggleCamera = {
-                    if (roomState.cameraOn) {
-                        model.toggleCamera()
-                    } else {
-                        asker.ask(
-                            PermissionAsk(
-                                permission = Manifest.permission.CAMERA,
-                                title = "Camera",
-                                why = "So the room can see you. Nothing is recorded and " +
-                                    "the video does not pass through a server.",
-                                refused = "No camera, so your tile stays a placeholder.",
-                                onGranted = model::toggleCamera,
-                            ),
-                        )
-                    }
-                },
-                onSwitchCamera = model::switchCamera,
-                onToggleScreenShare = {
-                    if (roomState.screenOn) model.stopScreenShare() else requestScreenShare()
-                },
-                onOpenChat = { chatOpen = true },
-                onExpandScreen = { expandedScreen = it; chatOpen = false },
-                onAddDevice = model::mintPairingLink,
-                onOpenCards = { cardsOpen = true },
-                onRotateInvitation = model::rotateInvitation,
-                onLeave = model::leave,
-                modifier = Modifier.padding(padding),
-            )
+                    },
+                )
+            }
         }
     }
 
-    LaunchedEffect(stage) { if (stage == Stage.START) { chatOpen = false; cardsOpen = false } }
-
-    if (chatOpen) {
-        ModalBottomSheet(
-            onDismissRequest = { chatOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ) {
-            ChatPane(
-                messages = roomState.chat,
-                selfParticipant = roomState.selfParticipant,
-                onSend = model::sendChat,
-                onReact = model::react,
-                profilesEnabled = roomState.profilesEnabled,
-                profiles = roomState.profiles,
-                onProfilesEnabled = model::setProfilesEnabled,
-                lane = roomState.lane,
-                quiet = roomState.quiet,
-                quietCanSend = roomState.quietCanSend,
-                modifier = Modifier.fillMaxHeight(0.9f),
-            )
-        }
-    }
+    LaunchedEffect(stage) { if (stage == Stage.START) cardsOpen = false }
 
     if (cardsOpen) {
         ModalBottomSheet(

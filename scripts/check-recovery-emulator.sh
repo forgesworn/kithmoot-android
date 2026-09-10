@@ -62,6 +62,8 @@ adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests group-reopen 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#b_reopen_without_relay_or_creator -e requireRestart true
 run_tests group-refusals 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#c_refused_publication_and_retired_web_link_stay_outside_room
 
+run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTest
+adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png" "$reports/"
 run_tests chat-and-screen-share 1 -e class dev.forgesworn.kithmoot.ui.ChatAndShareUiTest
 for picture in chat viewer pip; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
