@@ -103,6 +103,7 @@ class QuietTransport(
     private val ikm = DeadDrop.roomIkm(roomKey)
 
     init {
+        require(intervalSeconds > 0) { "intervalSeconds must be positive" }
         keys.set(ikm, members)
         keys.refresh(now())
         if (restore != null) {
@@ -110,8 +111,24 @@ class QuietTransport(
             for (e in restore.queued) if (e.kind in quietKinds && queue.size < MAX_PENDING) queue.addLast(e)
         }
         if (ticking) timer = scope.launch {
-            val everyMs = maxOf(1000L, minOf(intervalSeconds * 1000, 30_000L))
-            while (isActive) { delay(everyMs); runCatching { tick() } }
+            var first = true
+            while (isActive) {
+                // A fixed polling phase can miss an offset after the last
+                // poll of every slot. Wake at its deadline, checking the
+                // clock at least every thirty seconds. A refused publish
+                // retries after one second, using tick's retained wrap.
+                val waitMs = lock.withLock {
+                    val t = now()
+                    val slot = slotIndex(t)
+                    val at = if (slot <= lastSlot) (slot + 1) * intervalSeconds
+                        else slot * intervalSeconds + offsetFor(slot)
+                    if (at > t) minOf(30L, at - t) * 1000
+                    else if (first) 1L else 1000L
+                }
+                delay(waitMs)
+                first = false
+                runCatching { tick() }
+            }
         }
     }
 

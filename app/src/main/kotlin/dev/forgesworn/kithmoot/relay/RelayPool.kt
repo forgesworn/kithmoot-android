@@ -47,8 +47,8 @@ interface RoomTransport {
     fun describe(): List<String> = emptyList()
 
     /** The relays among [describe] the client knows to be boxes of the person's
-     *  own circle. Only those are ever shown as sheltered. Empty until a contact
-     *  card or the keeper's claim names one. */
+     *  own circle. Only those are ever shown as sheltered. Link transport hints
+     *  in a contact card alone cannot establish that ownership. */
     fun circleRelays(): Set<String> = emptySet()
 }
 
