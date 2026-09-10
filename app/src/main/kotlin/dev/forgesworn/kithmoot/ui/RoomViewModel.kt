@@ -88,7 +88,7 @@ import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
-import dev.forgesworn.kithmoot.session.KITHMOOT_JOIN_BASE
+import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
@@ -161,6 +161,7 @@ data class AccountView(
 }
 
 data class StartState(
+    val webAppAddress: String = WebAppAddress.DEFAULT_ORIGIN,
     val joinUrl: String = "",
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
     val busy: Boolean = false,
@@ -309,7 +310,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     val stage: StateFlow<Stage> = _stage.asStateFlow()
 
     private val _start = MutableStateFlow(
-        StartState(circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: ""),
+        StartState(
+            circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: "",
+            webAppAddress = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
+        ),
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
 
@@ -363,6 +367,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
+
+    /** Save only a valid explicit site choice; signing in holds its own snapshot. */
+    fun onWebAppAddressChanged(value: String): Boolean {
+        if (_start.value.signingIn || _start.value.busy) return false
+        val address = runCatching { WebAppAddress.parse(value) }.getOrNull() ?: return false
+        if (!runCatching { display.edit().putString("webAppAddress", address.origin).commit() }.getOrDefault(false)) return false
+        _start.update { it.copy(webAppAddress = address.origin) }
+        return true
+    }
+
     private val boxPreferencesGate = Any()
     private val boxRelayRevision = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var discoveryRelays = display.getString("boxReadRelays", null) ?: DEFAULT_RELAYS.joinToString("\n")
@@ -520,6 +535,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun signInWithSignet() {
         if (_start.value.signingIn) return
+        val webApp = runCatching { selectedWebApp }.getOrElse {
+            _start.update { it.copy(signInError = "Choose a valid HTTPS site in Site settings.") }
+            return
+        }
         val scope = newAccountScope()
         val clientKey = Entropy.bytes(32)
         val secret = Entropy.bytes(16).toHex()
@@ -530,7 +549,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         signetPairing = scope.launch {
             try {
                 val waiting = async { Nip46Client.awaitNostrConnect(clientKey, relays, secret, pool) }
-                _browser.emit(SignetSignIn.url(SignetSignIn.nostrConnectUri(Schnorr.publicKeyHex(clientKey), relays, secret)))
+                _browser.emit(SignetSignIn.url(SignetSignIn.nostrConnectUri(Schnorr.publicKeyHex(clientKey), relays, secret, webApp = webApp), webApp))
                 val pointer = waiting.await()
                 val client = Nip46Client(pointer, clientKey, pool, scope)
                 val pubkey = client.getPublicKey()
@@ -768,7 +787,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 relays = relays,
                 who = primary,
                 secondary = false,
-                joinUrl = encodeInvitationUrl(KITHMOOT_JOIN_BASE, invitation.invitation, relays),
+                joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays),
                 invitation = invitation,
                 invitationHost = invitationHost,
                 localName = name,
@@ -851,7 +870,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 relays,
                 secondary,
                 secondary = true,
-                joinUrl = encodeJoinUrl(KITHMOOT_JOIN_BASE, payload.secret, relays, payload.policy),
+                joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
                 policy = payload.policy,
             )
             return
@@ -865,7 +884,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             relays,
             primary,
             secondary = primary is SecondaryIdentity,
-            joinUrl = encodeJoinUrl(KITHMOOT_JOIN_BASE, payload.secret, relays, payload.policy),
+            joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
             policy = payload.policy,
         )
     }
@@ -921,7 +940,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 relays,
                 secondary,
                 secondary = true,
-                joinUrl = encodeInvitationUrl(KITHMOOT_JOIN_BASE, payload.invitation, relays, payload.policy),
+                joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
                 invitation = payload,
                 invitationHost = admission.delegate,
                 policy = payload.policy,
@@ -936,7 +955,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             relays,
             primary,
             secondary = primary is SecondaryIdentity,
-            joinUrl = encodeInvitationUrl(KITHMOOT_JOIN_BASE, payload.invitation, relays, payload.policy),
+            joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
             invitation = payload,
             invitationHost = admission.delegate,
             policy = payload.policy,
@@ -1177,7 +1196,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.value = RoomState(
             roomId = derived.roomId,
             name = record.name,
-            joinUrl = record.joinUrl,
+            joinUrl = selectedWebApp.roomLink(record.joinUrl),
             relaysTotal = relays.size,
             lane = laneOfRelays(relays, circleRelaySet()),
             selfParticipant = who.participant,
@@ -1586,6 +1605,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.value = _room.value.copy(
             pairingLink = roomInvitation?.let { invitation ->
                 encodeInvitationPairingLink(
+                    base = selectedWebApp.joinBase,
                     invitation = invitation.invitation,
                     relays = relayUrls,
                     policy = invitation.policy,
@@ -1593,6 +1613,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     credential = credential,
                 )
             } ?: encodePairingLink(
+                    base = selectedWebApp.joinBase,
                     secret = secret,
                     relays = relayUrls,
                     deviceSecretKey = deviceKey,
@@ -1624,7 +1645,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)
-                val url = encodeInvitationUrl(KITHMOOT_JOIN_BASE, nextHost.invitation, relayUrls, saved.policy)
+                val url = encodeInvitationUrl(selectedWebApp.joinBase, nextHost.invitation, relayUrls, saved.policy)
                 val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds())
                 val next = try {
                     saved.rotated(nextHost, url, retirement).also(savedRooms::save)
@@ -1792,7 +1813,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return@launch note(e.message ?: "This room's relays cannot go on a card.")
         }
         // The signer returned an event; the reader says whether it is still the card.
-        val link = ContactCardBuilder.link(KITHMOOT_JOIN_BASE, event)
+        val link = ContactCardBuilder.link(selectedWebApp.joinBase, event)
         val read = ContactCards.read(link, at)
         if (read !is CardResult.Ok || read.card.p != primary.participant) {
             return@launch note("Your signer returned something that is not your card.")

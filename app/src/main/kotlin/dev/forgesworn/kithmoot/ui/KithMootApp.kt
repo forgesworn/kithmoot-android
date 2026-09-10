@@ -153,6 +153,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onAddOfferedCard = model::addOfferedCard,
                 onDismissCardOffer = model::dismissCardOffer,
                 onCircleBoxesChanged = model::onCircleBoxesChanged,
+                onWebAppAddressChanged = model::onWebAppAddressChanged,
                 onResetStorage = model::resetSavedRooms,
                 modifier = Modifier.padding(padding),
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
