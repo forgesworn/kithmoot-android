@@ -49,6 +49,8 @@ fun StartScreen(
     onDismissCardOffer: () -> Unit = {},
     onCircleBoxesChanged: (String) -> Unit = {},
     onWebAppAddressChanged: (String) -> Boolean = { false },
+    onHomeTabChanged: (String) -> Unit = {},
+    projects: ProjectActions = ProjectActions(),
 ) {
     var relaysShown by remember { mutableStateOf(false) }
     var siteShown by remember { mutableStateOf(false) }
@@ -117,6 +119,14 @@ fun StartScreen(
                 }
             }
 
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                for ((key, label) in listOf("chats" to "Chats", "projects" to "Projects")) {
+                    FilterChip(state.homeTab == key, { onHomeTabChanged(key) }, label = { Text(label) },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "$label tab" })
+                }
+            }
+            if (state.homeTab == "projects") ProjectsPanel(state, projects)
+            else {
             if (state.savedRooms.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Your rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
@@ -201,6 +211,7 @@ fun StartScreen(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            }
             AccountSection(state, account, enabled)
             // Text size: one tap, remembered, applied everywhere. Above the
             // relay settings because it is the one everybody may want.
@@ -235,7 +246,7 @@ fun StartScreen(
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
                         label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
-                    Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
+                    Text("Used for new rooms and the next project sync. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
                         label = { Text("Boxes of my circle") }, minLines = 2, maxLines = 5)
                     Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered. A contact card alone does not confirm a message relay.", style = MaterialTheme.typography.bodySmall)

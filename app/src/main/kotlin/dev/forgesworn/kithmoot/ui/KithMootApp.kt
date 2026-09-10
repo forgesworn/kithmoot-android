@@ -155,6 +155,15 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onCircleBoxesChanged = model::onCircleBoxesChanged,
                 onWebAppAddressChanged = model::onWebAppAddressChanged,
                 onResetStorage = model::resetSavedRooms,
+                onHomeTabChanged = model::showHomeTab,
+                projects = dev.forgesworn.kithmoot.ui.start.ProjectActions(
+                    refresh = model::refreshSharedProjects,
+                    retry = model::retryProjectSends,
+                    follow = model::followSharedProject,
+                    open = model::openSharedProjectRoom,
+                    save = model::saveSharedProject,
+                    rooms = model::availableProjectRooms,
+                ),
                 modifier = Modifier.padding(padding),
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,

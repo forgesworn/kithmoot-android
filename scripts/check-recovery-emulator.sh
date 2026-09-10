@@ -82,3 +82,11 @@ adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAddressUiTest#b_reopen_and_share_without_the_workshop_site -e requireRestart true
 
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png" "$reports/"
+
+run_tests shared-projects-ui 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
+for picture in three-shared-projects project-room-admission restored-project-membership; do
+  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png" "$reports/"
+done
+run_tests project-restart-prepare 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#a_prepare_pending
+adb_device shell am force-stop dev.forgesworn.kithmoot
+run_tests project-restart-recover 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#b_recover_exact_pending -e requireRestart true

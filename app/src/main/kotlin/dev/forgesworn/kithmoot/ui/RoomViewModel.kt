@@ -22,6 +22,13 @@ import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
 import android.app.Application
 import android.content.Intent
 import dev.forgesworn.kithmoot.account.AccountSession
+import dev.forgesworn.kithmoot.account.SharedProjects
+import dev.forgesworn.kithmoot.account.ProjectAccountSnapshot
+import dev.forgesworn.kithmoot.account.ProjectRoomChoice
+import dev.forgesworn.kithmoot.account.selectedProjectRoom
+import dev.forgesworn.kithmoot.account.checkProjectRoomAdmission
+import dev.forgesworn.kithmoot.protocol.SharedProject
+import dev.forgesworn.kithmoot.storage.ProjectVault
 import dev.forgesworn.kithmoot.account.BunkerPointer
 import dev.forgesworn.kithmoot.account.BunkerSigner
 import dev.forgesworn.kithmoot.account.InstalledSigner
@@ -161,6 +168,10 @@ data class AccountView(
 }
 
 data class StartState(
+    val homeTab: String = "chats",
+    val projects: ProjectAccountSnapshot = ProjectAccountSnapshot(),
+    val projectsBusy: Boolean = false,
+    val projectError: String? = null,
     val webAppAddress: String = WebAppAddress.DEFAULT_ORIGIN,
     val joinUrl: String = "",
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
@@ -311,6 +322,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _start = MutableStateFlow(
         StartState(
+            relays = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("relaySettings", null) ?: DEFAULT_RELAYS.joinToString("\n"),
             circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: "",
             webAppAddress = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
         ),
@@ -400,6 +412,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         refreshContacts()
     }
     private var accountSession: AccountSession? = null
+    private var sharedProjects: SharedProjects? = null
+    private var projectsScope: CoroutineScope? = null
+    private var projectsLifecycle: Job? = null
+    private val projectEditing = AtomicBoolean(false)
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
     /** The Signet pairing under way: waiting on a relay for Signet to take up the invitation. */
@@ -458,6 +474,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
+        stopSharedProjects()
         accountSession?.close()
         accountSession = session
         val view = AccountView(
@@ -470,6 +487,110 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         )
         _start.update { it.copy(account = view, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
+        startSharedProjects(session)
+    }
+
+    private suspend fun stopSharedProjects() {
+        projectsScope?.cancel()
+        projectsLifecycle?.join()
+        sharedProjects?.close()
+        sharedProjects = null; projectsScope = null; projectsLifecycle = null
+    }
+
+    private fun startSharedProjects(account: AccountSession) {
+        if (!account.signer.canEncrypt) {
+            _start.update { it.copy(projects = ProjectAccountSnapshot(error = "Your signer needs private-data support to sync projects.")) }; return
+        }
+        val relays = try { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        catch (_: Exception) { _start.update { it.copy(projects = ProjectAccountSnapshot(error = "Check your relay settings, then sync projects again.")) }; return }
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
+        projectsScope = scope
+        val pool = RelayPool(relays, OkHttpRelaySockets(), scope)
+        val directory = SharedProjects(account.signer, pool, ProjectVault(getApplication(), account.signer.pubkey), scope)
+        sharedProjects = directory
+        _start.update { it.copy(projects = ProjectAccountSnapshot(syncing = true), projectError = null) }
+        projectsLifecycle = scope.launch {
+            pool.start()
+            val observer = launch { directory.state.collect { value ->
+                if (sharedProjects === directory) _start.update { it.copy(projects = value) }
+            } }
+            try { directory.open(); kotlinx.coroutines.awaitCancellation() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (sharedProjects === directory) _start.update { it.copy(projects = directory.state.value) } }
+            finally { directory.close(); pool.stop(); observer.cancel() }
+        }
+    }
+
+    fun showHomeTab(tab: String) { if (tab in listOf("chats", "projects")) _start.update { it.copy(homeTab = tab) } }
+
+    fun refreshSharedProjects() {
+        viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            val account = accountSession ?: return@withLock
+            stopSharedProjects(); startSharedProjects(account)
+        } }
+    }
+
+    private suspend fun projectChange(action: suspend (SharedProjects) -> Unit): Boolean {
+        val directory = sharedProjects ?: return false
+        val scope = projectsScope ?: return false
+        if (!projectEditing.compareAndSet(false, true)) return false
+        _start.update { it.copy(projectsBusy = true, projectError = null) }
+        return try {
+            withContext(scope.coroutineContext) { action(directory) }; true
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (sharedProjects === directory) _start.update { it.copy(projectError = e.message ?: "The project change could not be saved.") }
+            false
+        } finally { projectEditing.set(false); _start.update { it.copy(projectsBusy = false) } }
+    }
+
+    fun retryProjectSends() { viewModelScope.launch { projectChange { it.retry() } } }
+    fun followSharedProject(project: SharedProject, joined: Boolean) { viewModelScope.launch {
+        projectChange { it.follow(project.reference, joined, project.heads, java.util.UUID.randomUUID().toString()) }
+    } }
+    suspend fun saveSharedProject(project: SharedProject?, definition: JsonObject): Boolean = projectChange {
+        val request = java.util.UUID.randomUUID().toString()
+        if (project == null) it.create(definition, request) else it.update(project.reference, project.heads, definition, request)
+    }
+
+    suspend fun availableProjectRooms(): List<ProjectRoomChoice> = withContext(Dispatchers.IO) {
+        val actor = accountSigner?.pubkey ?: return@withContext emptyList()
+        savedRooms.list().mapNotNull { summary -> savedRooms.get(summary.id)?.takeIf {
+            it.participant == actor && it.invitation?.invitation?.persistent == true && !it.retired && !it.movedOn
+        }?.let { ProjectRoomChoice(it.id, dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(it.name) ?: "Room", it.joinUrl) } }
+    }
+
+    fun openSharedProjectRoom(project: SharedProject, room: ProjectRoomChoice) = enter {
+        val directory = sharedProjects ?: throw RoomRecoveryException("Sign in to open this project.")
+        val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this project.")
+        fun checkSelection() {
+            if (sharedProjects !== directory || accountSigner !== actor) throw RoomRecoveryException("The signed-in account changed.")
+            selectedProjectRoom(directory.state.value, project.reference, room.room, project.authority)
+        }
+        checkSelection()
+        val selected = selectedProjectRoom(directory.state.value, project.reference, room.room, project.authority)
+        val saved = savedRooms.get(room.room)
+        if (saved != null) {
+            if (saved.participant != actor.pubkey) throw RoomRecoveryException("This room is saved under another identity. Open it there, or forget it before joining with this account.")
+            val who = saved.identity(epochSeconds(), actor)
+            val derived = deriveRoom(saved.secret)
+            checkProjectRoomAdmission(room.room, derived.roomId); checkSelection()
+            open(derived, saved.secret, saved.relays, who, saved.secondary, saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+        } else {
+            val invitation = decodeInvitationUrl(selected.link) ?: throw RoomRecoveryException("This project needs a persistent room invitation.")
+            if (!invitation.invitation.persistent || decodeInvitationPairingLink(selected.link) != null) throw RoomRecoveryException("This is not a project room invitation.")
+            val relays = invitation.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+            val admission = requestAdmission(invitation, relays) ?: throw RoomRecoveryException("The group invitation could not be loaded. Try again.")
+            val derived = deriveRoom(admission.secret)
+            try { checkProjectRoomAdmission(room.room, derived.roomId); checkSelection() }
+            catch (e: Exception) { admission.secret.fill(0); throw e }
+            val at = epochSeconds()
+            val who = try {
+                PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
+            } catch (e: Exception) { admission.secret.fill(0); throw e }
+            open(derived, admission.secret, relays, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
+                invitation, admission.delegate, invitation.policy, localName = selected.name)
+        }
     }
 
     /** The person's own kind 0, from the public profile relays, so the account line carries their name and picture. */
@@ -627,13 +748,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         if (_stage.value != Stage.START) { note("Leave the room before signing out."); return }
         viewModelScope.launch(Dispatchers.IO) {
             accountGate.withLock {
+                stopSharedProjects()
                 accountSession?.close()
                 accountSession = null
                 accountScope?.cancel()
                 accountScope = null
             }
             try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
-            _start.update { it.copy(account = null, signInError = null, signingIn = false) }
+            _start.update { it.copy(account = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
         }
     }
 
@@ -744,6 +866,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun onRelaysChanged(value: String) {
         boxRelayRevision.incrementAndGet()
         _start.value = _start.value.copy(relays = value, error = null)
+        // Keep the last valid network choice across process restarts. Partial
+        // text being edited is not a replacement for working relay settings.
+        if (runCatching { parseRelays(value) }.isSuccess) display.edit().putString("relaySettings", value).apply()
         act { runCatching { synchronized(boxPreferencesGate) { boxDiscovery.disableAll() } }.onFailure { note("Box checks could not be stopped in the saved preferences.") } }
     }
 
