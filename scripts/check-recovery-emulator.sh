@@ -68,3 +68,6 @@ run_tests chat-and-screen-share 1 -e class dev.forgesworn.kithmoot.ui.ChatAndSha
 for picture in chat viewer pip; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
 done
+
+run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
+adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/box-discovery.png" "$reports/"

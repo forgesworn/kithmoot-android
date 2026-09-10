@@ -140,3 +140,8 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 }
+
+// Read the exact shared interoperability fixture, without a second copy.
+tasks.withType<Test>().configureEach {
+    systemProperty("kithmoot.boxVectors", rootProject.file("protocol/src/test/resources/box-discovery.json").absolutePath)
+}

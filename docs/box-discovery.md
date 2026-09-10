@@ -29,14 +29,35 @@ Relay comparisons preserve query strings and escaped paths. A verified
 The add-card and arrival screens no longer promise sheltered delivery merely
 because a contact was added.
 
-This branch is not yet a complete Android discovery feature. The next work
-is an explicit consent action, strict current relay history and live updates,
-encrypted replay-state persistence, invalidation on disconnect/expiry/retire,
-and device UI acceptance. `RelayPool.queryStored` already fails incomplete
-history reads; subscriptions alone do not establish completion. Neither the
-verifier nor cached state is wired to grant automatic attribution yet.
+The contact sheet now has per-box Check and Stop actions. Check explains
+which configured read relays will see the box key and keeper claim. Consent
+is bound to the displayed card revision; replacing or forgetting the card
+invalidates pending results and an old confirmation. Changing the start
+screen's read relays stops checks and requires fresh consent. Room routing
+does not change. A matching existing relay can receive automatic attribution
+only while the signed chain and current history remain valid; manual marks
+remain independent.
 
-Local validation before publishing the draft: 152 protocol and 189 app tests
-passed, with lint and debug assembly. Hosted native/recovery checks and actual
-Bothy/physical-device interoperability remain separate gates. No APK from
-this branch has been published.
+Consent and signed replay watermarks live in the encrypted contact vault.
+They do not grant offline trust. Each launch and reconnect requires actual
+EOSE frames from every selected read relay for the claim/status history.
+The reader owns read-only sockets, with at most eight relays, three requests
+per box, 32 watched boxes, a 64-frame queue plus one in-flight frame,
+33,000-byte frames, 16 JSON nesting levels and 256 frames per ten seconds.
+Timeouts, disconnects, CLOSED, overflow and malformed depth invalidate the
+history immediately. Late frames from an old connection cannot restore it.
+Retirement is terminal; newer signed denials and same-time conflicts persist
+across restarts. Expiry is checked when the lane is used, even if timers slept.
+
+Twelve lifecycle/transport unit tests exercise consent, replay, replacement,
+retirement, restart, storage failure (including Stop), expiry, incomplete history, disconnects,
+oversize input, deep JSON and queue overflow. The emulator suite also includes
+the production consent controls: Cancel, Check, Stop and confirmed Forget,
+with a screenshot. That UI fixture supplies its own endpoint state; it is
+not evidence from a live Bothy box. The 42 shared verifier cases remain
+identical to web.
+
+Local native tests, lint and APK assembly are required alongside hosted
+native/recovery checks. Actual daemon-issued events, physical-device
+interoperability and the shared public drop-tier agreement remain separate
+gates. No APK from this branch has been published.

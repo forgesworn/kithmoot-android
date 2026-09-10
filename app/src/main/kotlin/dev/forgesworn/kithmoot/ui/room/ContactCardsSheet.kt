@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.ContactRow
+import dev.forgesworn.kithmoot.ui.ContactBoxRow
 
 /**
  * Contact cards, as a person meets them: pasted in, listed, forgotten, and
@@ -63,6 +64,8 @@ fun ContactCardsSheet(
     canShowCard: Boolean,
     onAdd: (String) -> Unit,
     onForget: (String) -> Unit,
+    readRelays: String,
+    onCheckBox: (String, String, String, Boolean) -> Unit,
     onShowMyCard: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
@@ -70,6 +73,16 @@ fun ContactCardsSheet(
     val context = LocalContext.current
     var pasted by remember { mutableStateOf("") }
     var forgetting by remember { mutableStateOf<ContactRow?>(null) }
+    var checking by remember { mutableStateOf<Pair<ContactRow, ContactBoxRow>?>(null) }
+    checking?.let { (contact, box) ->
+        AlertDialog(
+            onDismissRequest = { checking = null },
+            title = { Text("Check this box?") },
+            text = { Text("These read relays will see the box’s key and keeper claim:\n$readRelays\n\nChecking continues on this phone until you stop, change read relays or replace the card. A verified endpoint can label an existing relay connection. Checking does not change where this room sends messages.") },
+            confirmButton = { TextButton(onClick = { checking = null; onCheckBox(contact.p, box.p, box.revision, true) }) { Text("Check box") } },
+            dismissButton = { TextButton(onClick = { checking = null }) { Text("Cancel") } },
+        )
+    }
 
     Column(
         modifier = modifier
@@ -164,10 +177,14 @@ fun ContactCardsSheet(
                 }
                 for (b in c.boxes) {
                     Text(
-                        text = "Box: $b",
+                        text = b.description,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                    TextButton(
+                        onClick = { if (b.checking) onCheckBox(c.p, b.p, b.revision, false) else checking = c to b },
+                        enabled = b.checking || c.expires > System.currentTimeMillis() / 1000,
+                    ) { Text(if (b.checking) "Stop checking box" else "Check box status") }
                 }
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
