@@ -76,3 +76,9 @@ run_tests shared-work-relay 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkRelayT
 run_tests shared-work-entry 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#d_shared_work_survives_initial_epoch_and_real_room_entry
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-review.png" "$reports/"
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-entry.png" "$reports/"
+
+run_tests site-address-choose 1 -e class dev.forgesworn.kithmoot.storage.SiteAddressUiTest#a_choose_site
+adb_device shell am force-stop dev.forgesworn.kithmoot
+run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAddressUiTest#b_reopen_and_share_without_the_workshop_site -e requireRestart true
+
+adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png" "$reports/"

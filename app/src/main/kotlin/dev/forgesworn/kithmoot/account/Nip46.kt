@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.session.WebAppAddress
+
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
@@ -232,7 +234,7 @@ class BunkerSigner(
  */
 object SignetSignIn {
     const val ORIGIN = "https://mysignet.app"
-    const val APP_URL = "https://kithmoot.forgesworn.dev"
+    const val APP_URL = WebAppAddress.DEFAULT_ORIGIN
     /** A page on the site that sends the browser on to `kithmoot://signet`. */
     const val CALLBACK = "$APP_URL/signet/"
     /** What comes back into the app. */
@@ -240,15 +242,15 @@ object SignetSignIn {
     /** Relays the invitation names. Signet's bunker listens on these, so they must be ones it can reach. */
     val RELAYS: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")
 
-    fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String, appName: String = "KithMoot"): String {
+    fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String, appName: String = "KithMoot", webApp: WebAppAddress = WebAppAddress.Default): String {
         require(clientPubkey.matches(Regex("[0-9a-f]{64}")))
         val params = relays.map { "relay" to it } + listOf("secret" to secret,
-            "perms" to "sign_event:20460,nip44_encrypt,nip44_decrypt", "name" to appName, "url" to APP_URL)
+            "perms" to "sign_event:20460,nip44_encrypt,nip44_decrypt", "name" to appName, "url" to webApp.origin)
         return "nostrconnect://$clientPubkey?" + params.joinToString("&") { (k, v) -> k + "=" + java.net.URLEncoder.encode(v, "UTF-8") }
     }
 
-    fun url(nostrConnectUri: String): String =
-        "$ORIGIN/?nostrconnect=" + java.net.URLEncoder.encode(nostrConnectUri, "UTF-8") + "&callback=" + java.net.URLEncoder.encode(CALLBACK, "UTF-8")
+    fun url(nostrConnectUri: String, webApp: WebAppAddress = WebAppAddress.Default): String =
+        "$ORIGIN/?nostrconnect=" + java.net.URLEncoder.encode(nostrConnectUri, "UTF-8") + "&callback=" + java.net.URLEncoder.encode(webApp.signInCallback, "UTF-8")
 
     enum class Outcome { APPROVED, DENIED }
 

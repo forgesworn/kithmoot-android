@@ -48,8 +48,10 @@ fun StartScreen(
     onAddOfferedCard: () -> Unit = {},
     onDismissCardOffer: () -> Unit = {},
     onCircleBoxesChanged: (String) -> Unit = {},
+    onWebAppAddressChanged: (String) -> Boolean = { false },
 ) {
     var relaysShown by remember { mutableStateOf(false) }
+    var siteShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
@@ -216,10 +218,15 @@ fun StartScreen(
                 }
             }
             TextButton({ relaysShown = true }, enabled = enabled) { Text("Relay settings") }
+            TextButton({ siteShown = true }, enabled = enabled && !state.signingIn) { Text("Site settings") }
             Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
                 "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+
+    if (siteShown) {
+        SiteAddressDialog(state.webAppAddress, onWebAppAddressChanged, onDismiss = { siteShown = false })
     }
 
     if (relaysShown) {
