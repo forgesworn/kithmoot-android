@@ -215,6 +215,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onRotateInvitation = model::rotateInvitation,
                     onLeave = model::leave,
                     modifier = Modifier.padding(padding),
+                    work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions) },
                     chat = {
                         ChatPane(
                             messages = roomState.chat,

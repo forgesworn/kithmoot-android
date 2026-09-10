@@ -81,9 +81,11 @@ fun RoomScreen(
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     onOpenCards: () -> Unit = {},
+    work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
     if (inviteOpen) {
@@ -100,14 +102,22 @@ fun RoomScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header(state, onLeave)
-        TabRow(selectedTabIndex = if (callOpen) 1 else 0) {
-            Tab(selected = !callOpen, onClick = { callOpen = false }, text = { Text("Chat") })
-            Tab(selected = callOpen, onClick = { callOpen = true }, text = {
+        TabRow(selectedTabIndex = if (callOpen) 2 else if (workOpen) 1 else 0) {
+            Tab(selected = !callOpen && !workOpen, onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
+            Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
+                val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
+                Text(if(decisions>0)"Work · $decisions" else "Work")
+            })
+            Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
             })
         }
 
-        if (!callOpen) {
+        if (workOpen) {
+            Box(Modifier.weight(1f).navigationBarsPadding()) {
+                chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
+            }
+        } else if (!callOpen) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank()) { Text("Invite") }
                 TextButton(onClick = onOpenCards) { Text("People") }

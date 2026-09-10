@@ -3,17 +3,20 @@
 The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
 
-## 0.5.7 preview candidate
+## 0.5.8 shared-work preview candidate
 
-Version code 15 contains the conversation workspace and the fixes merged in
-PR #18: quiet sends wake at their slot deadline, and a contact card's Link
-transport hints no longer imply ownership of a Nostr message relay. Saved
-contacts and explicit keeper-confirmed relay marks remain available.
+Version code 16 adds a native Work tab beside Chat and Call. It uses the same
+signed assignments as the web client: create work from an advertised agent
+action, answer a question, review the exact result, request changes and manage a
+stopped handoff. Decisions appear before routine progress. An encrypted device
+journal retains verified history and uncertain sends for explicit exact retry.
 
-The source changes pass native verification and the recovery emulator. A
-preview build keeps the existing preview certificate so it can update without
-discarding saved rooms. No physical device was connected during preparation;
-the physical acceptance checklist below remains open for this candidate.
+The preview retains the existing preview certificate. Native unit, lint, emulator
+screen, socket/vault and actual room-entry tests cover the implementation;
+[shared-work evidence](shared-agent-work.md) describes their boundaries.
+Quiet-room work, paired-device signing, the first live Oathrun connection and
+physical-phone acceptance remain open. Those limits do not change the existing
+chat and call support. This is a debug-signed preview, not a production release.
 
 ## Build with the selected release key
 

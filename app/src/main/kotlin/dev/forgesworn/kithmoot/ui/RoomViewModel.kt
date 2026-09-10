@@ -2,6 +2,11 @@ package dev.forgesworn.kithmoot.ui
 
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
 import dev.forgesworn.kithmoot.discovery.BoxRelayReader
+import dev.forgesworn.kithmoot.session.RoomWork
+import dev.forgesworn.kithmoot.session.AssignmentSnapshot
+import dev.forgesworn.kithmoot.session.AvailableAssignmentAction
+import dev.forgesworn.kithmoot.storage.AssignmentVault
+
 import dev.forgesworn.kithmoot.protocol.CardResult
 import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
 import dev.forgesworn.kithmoot.protocol.ContactCards
@@ -246,6 +251,12 @@ data class RoomState(
      * hear nothing further. Said out loud rather than left as silence.
      */
     val movedOn: Int? = null,
+    val work: AssignmentSnapshot = AssignmentSnapshot(),
+    val workActions: List<AvailableAssignmentAction> = emptyList(),
+    val workBusy: Boolean = false,
+    val workError: String? = null,
+    val workCompleted: Long = 0,
+
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
     val notice: String? = null,
@@ -325,6 +336,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     /** The quiet wrapper over the pool when the room is a quiet one; chat rides through it in drops. */
     private var quietTransport: QuietTransport? = null
     private var session: RoomSession? = null
+    private var roomWork: RoomWork? = null
     private var engine: WebRtcEngine? = null
     private var identity: RoomIdentity? = null
     private var roomSecret: ByteArray? = null
@@ -632,7 +644,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             error = "Saved rooms could not be unlocked or saved. Try again. Your saved data has been kept.") }
     }
 
-    fun forgetRoom(id: String) = changeSavedRooms { savedRooms.forget(id) }
+    fun forgetRoom(id: String) = changeSavedRooms {
+        savedRooms.get(id)?.let { AssignmentVault(getApplication(),id,it.participant).reset() }
+        savedRooms.forget(id)
+    }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
     fun resetSavedRooms() = changeSavedRooms { savedRooms.reset() }
@@ -1204,6 +1219,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
+        // Verification, replay and encrypted persistence must not run on the UI thread.
+        val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
+        val work = RoomWork(derived.roomId,derived.roomKey,who,quiet?:transport,
+            AssignmentVault(getApplication(),derived.roomId,who.participant),workScope,policy)
+        roomWork=work
+        scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
+        scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
+        scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
+        scope.launch(Dispatchers.IO) {
+            try {work.open()} catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
+        }
         // This device plays the room's audio unless one of your others takes it
         // over. Claiming rather than assuming is what lets that handover happen.
         live.claim(Roles.MONITOR)
@@ -1235,6 +1262,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     if (session !== live) return@withLock
                     _room.value = _room.value.copy(movedOn = epoch)
                     if (epoch != null) {
+                        roomWork?.close()
                         invitationHostJob?.cancel()
                         roomInvitationHost = null
                         _room.value = _room.value.copy(canRotateInvitation = false)
@@ -1359,6 +1387,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun closeSession() {
+        roomWork?.close()
+        roomWork = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
@@ -1393,6 +1423,37 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     /** Runs a control off the main thread. Every one of them ends in a signature. */
     private fun act(block: () -> Unit) {
         viewModelScope.launch(Dispatchers.Default) { block() }
+    }
+
+    fun submitWork(assignment:String?,operation:kotlinx.serialization.json.JsonObject,head:String?) {
+        val work=roomWork?:return
+        if(_room.value.workBusy)return
+        _room.update{it.copy(workBusy=true,workError=null)}
+        val request=dev.forgesworn.kithmoot.crypto.Entropy.bytes(16).toHex()
+        sessionScope?.launch(Dispatchers.IO) {
+            try {work.journal.submit(assignment,operation,request,head)
+                _room.update{if(roomWork===work)it.copy(workCompleted=it.workCompleted+1)else it}
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(error:Exception){_room.update{if(roomWork===work)it.copy(workError=error.message?:"The update could not be confirmed")else it}}
+            finally{_room.update{if(roomWork===work)it.copy(workBusy=false)else it}}
+        }
+    }
+    fun retryWork() {
+        val work=roomWork?:return
+        if(_room.value.workBusy)return
+        _room.update{it.copy(workBusy=true,workError=null)}
+        sessionScope?.launch(Dispatchers.IO) {
+            try{work.journal.retry();_room.update{if(roomWork===work)it.copy(workCompleted=it.workCompleted+1)else it}}
+            catch(cancelled:CancellationException){throw cancelled}
+            catch(error:Exception){_room.update{if(roomWork===work)it.copy(workError=error.message?:"The saved update could not be confirmed")else it}}
+            finally{_room.update{if(roomWork===work)it.copy(workBusy=false)else it}}
+        }
+    }
+    fun refreshWorkActions() {
+        val work=roomWork?:return
+        sessionScope?.launch(Dispatchers.IO){try{if(!work.journal.state.value.ready)work.journal.refreshHistory();work.refreshActions();_room.update{if(roomWork===work)it.copy(workError=null)else it}}
+            catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){_room.update{if(roomWork===work)it.copy(workError="Agent discovery could not be refreshed")else it}}}
     }
 
     // --- controls ------------------------------------------------------------
