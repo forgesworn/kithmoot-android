@@ -21,6 +21,16 @@ class LaneTest {
     }
 
     @Test
+    fun distinctEndpointQueriesAndEscapedPathsCannotInheritTrust() {
+        val circle = setOf("wss://box.example/drops?tenant=family", "wss://box.example/a%2Fb")
+        assertEquals(Lane.SHELTERED, laneOfRelayUrl("wss://BOX.example:443/drops?tenant=family", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://box.example/drops?tenant=public", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://box.example/drops", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://box.example/a/b", circle))
+        assertEquals(Lane.PUBLIC, laneOfRelayUrl("wss://user@box.example/drops?tenant=family", circle))
+    }
+
+    @Test
     fun aSetOfRelaysIsAsWeakAsItsWeakest() {
         val circle = setOf("wss://a.onion", "wss://b.onion")
         assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://a.onion", "wss://relay.example"), circle))

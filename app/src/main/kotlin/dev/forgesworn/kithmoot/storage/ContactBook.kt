@@ -63,6 +63,8 @@ class ContactBook(private val storage: RoomStorage) {
         /** `card`: dialled on the person's endorsement; `refreshed`: on a fresh Link card from the box. */
         val source: String,
         val refreshedAt: Long? = null,
+        /** Verified bytes belonging to highestSerial, used for identical reannouncements. */
+        val card: String? = null,
     )
 
     data class Contact(
@@ -148,6 +150,7 @@ class ContactBook(private val storage: RoomStorage) {
             highestSerial = maxOf(held.highestSerial, link.serial),
             relays = link.relays, onions = link.onions, linkExpiresAt = link.expiresAt,
             source = "refreshed", refreshedAt = now,
+            card = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(freshLinkCard),
         )
         val updated = contact.copy(boxes = contact.boxes.toMutableList().also { it[i] = box })
         write(doc.copy(contacts = doc.contacts.map { if (it.p == contact.p) updated else it }))
@@ -220,6 +223,7 @@ class ContactBook(private val storage: RoomStorage) {
                 if (b.carriers != null) put("carriers", strings(b.carriers))
                 put("linkExpiresAt", b.linkExpiresAt); put("source", b.source)
                 if (b.refreshedAt != null) put("refreshedAt", b.refreshedAt)
+                if (b.card != null) put("card", b.card)
             })
         })
         if (c.attest != null) put("attest", c.attest)
@@ -248,7 +252,7 @@ class ContactBook(private val storage: RoomStorage) {
         val onions = stringList(o["onions"]) ?: return null
         val expires = num(o["linkExpiresAt"]) ?: return null
         val source = str(o["source"])?.takeIf { it == "card" || it == "refreshed" } ?: return null
-        return Box(p, claim, nodeId, serial, relays, onions, stringList(o["carriers"]), expires, source, num(o["refreshedAt"]))
+        return Box(p, claim, nodeId, serial, relays, onions, stringList(o["carriers"]), expires, source, num(o["refreshedAt"]), str(o["card"]))
     }
 
     private fun boxFrom(box: CardBox, link: LinkCard, previous: Box?): Box {
@@ -260,6 +264,7 @@ class ContactBook(private val storage: RoomStorage) {
             highestSerial = if (samePin) maxOf(previous!!.highestSerial, link.serial) else link.serial,
             relays = link.relays, onions = link.onions, carriers = box.carriers,
             linkExpiresAt = link.expiresAt, source = "card",
+            card = if (samePin && previous!!.highestSerial >= link.serial) previous.card else box.card,
         )
     }
 
@@ -292,12 +297,9 @@ class ContactBook(private val storage: RoomStorage) {
         )
 
         /** The same normalisation the lane check applies, so a card's URL and a room relay compare equal. */
-        fun normalise(url: String): String? = try {
-            val u = URI(url.trim())
-            val host = u.host?.lowercase() ?: return null
-            val port = if (u.port == -1) "" else ":${u.port}"
-            val path = u.path?.trimEnd('/') ?: ""
-            "${u.scheme?.lowercase()}://$host$port$path"
-        } catch (_: Exception) { null }
+        fun normalise(url: String): String? = runCatching {
+            dev.forgesworn.kithmoot.protocol.canonicalRelayUrl(url.trim())
+        }.getOrNull()
+
     }
 }

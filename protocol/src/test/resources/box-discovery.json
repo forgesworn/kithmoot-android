@@ -1,0 +1,4946 @@
+{
+  "version": 1,
+  "source": "KithMoot signed Bothy V1/V2 client interoperability fixtures; not daemon-issued proof",
+  "cases": [
+    {
+      "name": "signed-endpoint",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "b75fdedf846d2a84156c863b8cc8bc7846e5fe662240ffb0f851b312e7e8969b12139403c3b63ca687cda4c954e02efca7696422c17a0b5773a4caf648cb80ca"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "drops-off",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "9104776bd603ce2d18a3739cd0d2bd6f3af6b6ce03bd7a5bafb9d444d55fb93a",
+        "sig": "d44034798201eec869ac03f19395233f4031785340404674d5dea63f81060e9ee4466fe9153041516916c0fe81738c41d3d2bdac83130d74ff1aeda461c93ea7"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": false,
+        "dropsUrl": null,
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "legacy-no-endpoint",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d3e99e6ed4af3eea0182ab20a10a76f90b70640a35a0a11b0daf0f3cea441074",
+        "sig": "0b6e0fdca188b7807277733d6ee5e2c1f66f75c11a9ae14379c99c5f379c4c8e86c6ea9669d277e52c80b4cd97515023198291375658ea74b45ecb53670ff438"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": false,
+        "dropsUrl": null,
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "same-card-reannouncement",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "e688bcecd7678c777c2cb067b9326e9836a55ff65b5f0d5fa463c068582dc32b873b3049262ab17a936210041dc3840d3bb077f4979283f5f1d1c99ffa6f06f0"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 8,
+        "card": "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "same-serial-without-bytes",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "de43bed280ea35ea74b2ae8a880f4a76ba1429cf961c9a953c306383144d4938601008b47b8f2c31c513ac42b3ddbaf9764d4139aa5a48d801af6ebeeadb4926"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 8
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "stale-serial",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "f107bb3783d2ef2ee4761b1304810d214ed0a5a25b08c38526af900506bcf98745278036a39c3f2d1461749c6f4bf6541b108b774f081d8b1febcafc513d5a22"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 9
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "node-substitution",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "70649139db136ebc075c9a83bf9030c005bd612de0d1ec9b95fc11bbe317de87743e7f58a7eb6c8b86d33ae41b128c086ef4a076dcb4f566fcf66d3f93e75d8f"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "0000000000000000000000000000000000000000000000000000000000000000",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "older-status-replay",
+      "status": {
+        "kind": 10640,
+        "created_at": 1799999999,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "207ed240ba221f20051a2d03843cd5cf176b920f304e930bc0c8b2d8bab446e3",
+        "sig": "ea747814ce11aa865857762366b7ae200e0a6b56c8e104833ec42dd50a3decd20f02e1b8205e4722b638f9f473da4518ee243a9a7033f1f09c597332f08d4687"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7,
+        "statusCreatedAt": 1800000000,
+        "statusId": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "same-time-status-conflict",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "9104776bd603ce2d18a3739cd0d2bd6f3af6b6ce03bd7a5bafb9d444d55fb93a",
+        "sig": "ffbd5e5b8648b32968a02f7d83296397d946a886db6cf8521b71a2aa3408c2b62f66557c6a9a947b61c99e749b5c33284fc80f417b67ee258ac31ff827eaa55e"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7,
+        "statusCreatedAt": 1800000000,
+        "statusId": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "stale-status",
+      "status": {
+        "kind": 10640,
+        "created_at": 1799989200,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "f6aba30c0390ad4de994505897e6ec1fded4dffb05718ac21a9d815c1f1f7808",
+        "sig": "5a24a1b6aa36c4c2b2ba9bb3bc5e2c044b02dce4cb40fcce758ba1c472f18b6a44a55cf03523f7beb32000cbe7a0a2131096a7ec71eff6d483c7cbc7350cd8d4"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "future-status",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000301,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "81caa67df7a1005c9a0cfc3d40718be8b098f09e7a3bbb1731f1c1326d14c268",
+        "sig": "e59ad1baec3c3fa2afca1596c7a6f34d146a1546f32d09e56dc9e53c7148afeb2d7c53627913fc22631e2d6fe09200a88ddeb92d7cceac3848cea74a97b0994d"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "signature-substitution",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://attacker.example"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "0aef9735119b2ef40368e9f2f929a320aa57a50c6a540c9328d092d17e1115c3",
+        "sig": "9153389065b1d7e44795025724a7abb2e57713c5c6155e5884f76bc58832ae45eb324b796c43ca23b7a8fceda343f2688609663edcb25536ca44b40c340ffb27"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "cleartext",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "ws://wrong.example"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "6d0851ad9ed3eb0f9028da6fd22bb7b0c8e4fc51de9ebae8231a68d2b4e9d520",
+        "sig": "79d808deb8a2f45f732d211b81c35ba236bcc96a596f77e43eda70b2610f8a24aba8c531ca1046454495b5f97bf031fe1f5da107a0c2775edab8227150f6d447"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "userinfo",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://user:pass@wrong.example"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "6cf4f6d817e67fcbb9d3937b72b6aba0ff5d9c51a5b57865504dec134d0e3ca0",
+        "sig": "acd6a16035ee209e0292838162a8c2deb470204638aa2d9298fa84cfef53e756f5d0b2eb52b88404d5c55c0f919eb9236d35b828fab167fb95f30c0bf36a901c"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "fragment",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://wrong.example/#x"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "2d88b4de0893fa055a0cf912d2e48bf95a3929eeab0130fdf5d7e74745513668",
+        "sig": "9546866d0778575ae2e539e0ef158b50bf01983a69bccb4710e0c6dd3ec05fcd3d6cc946b439f299ed00cf0f448291b77936496815408afc4aff6f82b5c24a12"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "empty-host",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://:"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "bf648ee8f8643a1ab9222870f95f2fd015232fec17d2be0e1c5c3321507cc0e4",
+        "sig": "7c10c5fc1ab892c82bf0033ede5044623b0d1a570324a66d3489da32dc96cd675f391f7baa04a790b4368799a688ae6fc6faa4521687ea4ae99864d84e03a449"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "off-endpoint",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "off",
+            "wss://wrong.example"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "4fa61cce65b708bc03586eeeddbb9b73f7ed453b71330029541b651c3d95c750",
+        "sig": "aa2ca59e3cf3e3b10a6363d6c1df2126a92506986cc72069f38307971772036559091f8c842dbe1347df97808d1d8c1fc40457e7c01e14c3aab9c457722063a2"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "card-exp",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800000200"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "03755edef1125d8b329176d4c5572132340aa9b5c4f5eb39512a186bbf13f985",
+        "sig": "5faf0f0c34d8c6ad3b13539d387f2cef489e71b4619dbe4367500f7f4a6c4348b1074cca0e3cb80cd4e1ee7a8932fe25ff4551f2869418ccd0fef04f5d5cdd1c"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "capacity-rounding",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "3806dd6dcd97e0be46f7bbeb629e4ccfc9726f3a43e35ae6e9e769fee3c4b1c8",
+        "sig": "d9deff26203d97aebec517a87b85dfd3072d71d79dbd05daf51f1283cdc866fac5783966f0c90495e34c8fdeeb5a6c3f38eea2c69763a1b94cc3ef2d7013114e"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "capacity-over-pool",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d3aadfea9c67669da2e644295595248ca4a3ec6756b734f8073f3baa620c3da3",
+        "sig": "82c97501d8a70710960c67471f5c59ec34716ff55f6c0f32d6a955c552714c9925b9cb165a3ba508cc85615f24fd7c1ac702eead057e2735421009a789395b8f"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "u64-overflow",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "18446744073709551616"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "33351ffc988bf2caa9d4c4679d4ab971410a99ec6a9416f1fecff4db263a557e",
+        "sig": "ab5b244f2dd42782b7cb2e5ed93e3f1f0d495edc7a940f42ac65e6c130cb69ded0fdab7e6b9bde08765994af82361159d07ee2b6284fbd0954db3f08db279149"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "u64-leading-zero",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "01"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "06a4f35170bd92815ce1322e52418bc5f13931679ea33e1b3b61be73738cf4df",
+        "sig": "99a18281a78d51face716c97ac00a01f66c1f3413996e21dae33ae0e1022b29db28dc19f43c72fab342035392b41e8a8c3b640bf6c193b4eb3ec6b7fe99f35b3"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "u64-maximum",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "18446744073709551615"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "22443b401c3a608bcf44633d56564d706d2a2cc0f3c39d6d5d191895dcd52a5d",
+        "sig": "a322a2d0f5635d47bb4530f2563b32f3722bd93e7fbbe8110329d3399924edcdda4a556689307e639335051107037ea09781b8e455fcf033cb0e091769b6fe2f"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "duplicate-classes",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "working"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "3a34e2b04debaacbec128aaaf826eb3c606ae2ad798594a106eda28e657e5c2a",
+        "sig": "cbc88e4fb94589f8a0382415f1a9bd719fe75637b64b3bc4a8179a7e51349c74489db7657d2052aad09e8b61a8cedd454207c67ea3f7128e844fb350e7e8f206"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "duplicate-carriers",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "tor",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "9adbc11776bb6e4509306e9fca118622202609996a8b5e4046bd4ecf67ce677b",
+        "sig": "e1de8efc0247e2ed30503dda4e5d689b0c9296e44f4403479480d602ed662ceed59458db14584617b0d0bb8f236616ad8eb89d2d1328c6521ddb24a29359d1f1"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "software-commit",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1",
+            "bad"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "ce87bde9d986297889d13beca8a10f029c1dd6be9fce58cae845e6a24f5d0739",
+        "sig": "6d9893bc81bca66ae964699f100b118cd689656d297a31f285861a9b181b8a340f1e4cc4390e6ff6c202a3ac063701ddda40af428dcd8ca9ada5ae5a4f3d18d2"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "base32-padding",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7ib"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "93093e960c8670b5a77df0138d4cbe172b765b450f908ac2d63367011392d9fe",
+        "sig": "643ab1cdac71707449cf52ec48d8a07d859cff58ea4927be2c4b622f62e8724d60007c55041881708be02522c26790a2b686b2e43b8b30b8e74eb01af2c26544"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "oversized-card",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d82f42185822f275b7d380de11c6fb5ac211c25681bc6f08e7b0b76559d2ffde",
+        "sig": "f6e29e3d5a0c98a25454434ef3212f2704b53bc2932772a5af9785a5525177ea51e91c5d543bc6a8cbabb45097a50d6545054ee314872147ca31800291dafebc"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "default-port",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://OWNED.example:443/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "2c3ec069278d75bcde245db9120f80f64afd7ed19d0a012f8bc7a2ec2d4457d7",
+        "sig": "e643072e022ebc9605d347e32d55632a4c9fbbd8def4c0822981d57a99b85d2a31dda34c17a7bcb6c5f86605879d4ee929cfb7a0acf45455cee6cb65e4c85585"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "unicode-host",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://böx.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "ba582ee367d37159f4d7d39ea9c77eea5cc21d6d542f9ef584e298b6326169c3",
+        "sig": "f8c7dea2873f206836c4ac043a6aa61ae4ad7bd57bee7759087c4d4fcbbbb156dbd6bd58f934e415f652f171e3558349d90456e76070d549bddb843d5a407d7f"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://xn--bx-fka.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "duplicate-status-tag",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ],
+          [
+            "drops",
+            "off"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "4ef6906d37a90e650445a9b646b4a7d6f079193a21ac637fe5b6a9c4b58eaa5e",
+        "sig": "40e0ed584814e9fa62970d1e3a8c33208d44e88f71db145c41c0a057409f35057c8d69e86e0dfdfbae4ed5eb8025aa8483e0b8f461ddfed1246ee174a190a716"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "expired-event",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ],
+          [
+            "expiration",
+            "1800000000"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "6a1106913db517cce847f248d98f4641c3dfd19dd11ac96dd5fe54c0d9dcf0e9",
+        "sig": "b903f3d2889212be3bad2846958da82f7ba7a5dfbb5c4b340fb47bab2a3cd47bcb6fa7620171c4bca3b04eee3505fd2efed287c00aefdfd636db1ce1ef49cead"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "unknown-status-hint",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ],
+          [
+            "future-hint",
+            "x"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "a10bce1bb72ebfd0de90f21bf338a97bb8f1fea2e68dcf4cda40ad89543d23b2",
+        "sig": "a976f1232545cf62b8106bbddb081ec93bd0a8ac9b40161ef2e1cf268510460b11f44a8e82174aba63433f9a03beb3b8c8abaf945681f4d042578de71ef51b65"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "f618cf909821e5d4d9efc27769cf26530842651a8f07585faf44bb5bce4106ec682ed7f06b32060184162967437be4ee3b755db745da5c585cd919dac28398b9"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true,
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops",
+        "validUntil": 1800010800
+      }
+    },
+    {
+      "name": "retired-claim",
+      "status": {
+        "kind": 10640,
+        "created_at": 1800000000,
+        "content": "",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHtSSjGKNHCxurpAziQWZVhKVknOlxj+TY2wUYUrIc30QAAAABrSdHEAAAAAGtLI4AAAAAAAAAACAEBABd3c3M6Ly90cmFuc3BvcnQuZXhhbXBsZX/8sE2fFZ8WNkk97cR4l6ly+bgivkSrCdv2TUxs/VSEuMzLJcJxykRLS9Ude2tREhywZ2Lc5BllF340WxXEVAQ="
+          ],
+          [
+            "card-exp",
+            "1800086400"
+          ],
+          [
+            "node",
+            "5vesrrri2hbmn2xjam4jawmvmeuvsjz2lrr7snrwyfdbjlehg7iq"
+          ],
+          [
+            "claim",
+            "58bbabcb086687024795d68b6fa7a8129bb848acce60ae6076653e7432a170da"
+          ],
+          [
+            "free",
+            "1073741824"
+          ],
+          [
+            "pool",
+            "2147483648"
+          ],
+          [
+            "max-blob",
+            "1048576"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "mains"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "100"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops"
+          ],
+          [
+            "carriers",
+            "link",
+            "tor"
+          ],
+          [
+            "software",
+            "bothy/0.1.1",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=86400",
+            "logs=none"
+          ]
+        ],
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d310572e4bb277b395b19d39f46521eb6dafdf3d7f61332452a9d3b89d8dae3c",
+        "sig": "7125e9df60590e4f3391d923ca159c02cbda5d14e26e7b8dd9d5381a7c3905495c2cb271cf0935d9a094bbf145756e9c5b2a82aebf4ded1d05546c53eb1474d5"
+      },
+      "claim": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "retired"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "58bbabcb086687024795d68b6fa7a8129bb848acce60ae6076653e7432a170da",
+        "sig": "f1d6d6eb1e19f723e074075a558202bbbf8703c4e61d9edb6318109886af81a188fcf1dc286187937fa3362d3b43cdd62f8f4069f622e18bbd7f4e1b59e65dbb"
+      },
+      "pin": {
+        "p": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "claim": "58bbabcb086687024795d68b6fa7a8129bb848acce60ae6076653e7432a170da",
+        "nodeId": "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+        "highestSerial": 7
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    }
+  ],
+  "claims": [
+    {
+      "name": "active",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "e917e6cefd9798443c6fc82d8ace48008a67f97e61085539606104d9ffcc12f8",
+        "sig": "1e3b9952a5fc5aeae947ca91108e07552a2f6b4b6abbcf5cefaaed8544be34d8b23082c21a1958a5845bc174e778fc740c98e7b9a44e9d2c943ba37dc29c4892"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "retired",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "retired"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "58bbabcb086687024795d68b6fa7a8129bb848acce60ae6076653e7432a170da",
+        "sig": "059b65ca95ecc7cae612cc868e677ac6df8767e6b6fe121f710f0b22fd4c013cfa59c9a480a63e924287e866a78723e5418db997a6ed93a2f6595437a904db6b"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "retired-with-stash",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "retired"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "2289e440246e83f23b01593be2dad93f7e16d9e6700dee6ea81b23ed51889960",
+        "sig": "e65982b1102ac7dc904a0a6af2ec8f454f76f5800b96554d027ec4582425345fad67f0907b8a9f1e71e72da7ed37f6b61ca7d0801ccac5b9618b41ea329fa87d"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "unknown-authority",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "authority",
+            "everyone"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "8e1100b82836c234812cde3edd7d78862c491673cef5f9c26289fb0e4d2729fe",
+        "sig": "9094beff32557cbd2b0943bbeb6820fe96ee8c1e3338c0a948e978f5ac9fe32e8d4b9dc37670030d24226e42c0406c8d31e12f2cd1df9baafa705e71cea42b96"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "duplicate-master",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "3c11e69ee2f11beb7db493ab71fa36870978956a6f57a236f34cc72e20f7540f",
+        "sig": "4527fc15976c2de47fc91831dd1523066d433cc997802b0c1b4bc5c3a959357f01b7838c848f2bbcafd414af6a72d07d83d96356190c8eeb89d029522b9b97a7"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "missing-stash",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "b8d1dcd854eb2d0efbfb6ec501de6e17592337a4f22c9f5b657a4b48c5feb8d5",
+        "sig": "568d89d2cd06517bcc535772fe205841675e605e0cdc29bf94830732ce93c70d1c32dac01cb7f75c2a0dd6d4eb27fe7a352035d08850ec521748b7232bbe70bc"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "future",
+      "event": {
+        "kind": 30640,
+        "created_at": 1800000301,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "62716291dae7be6c2bf582c2c245fb017a5da115694143a312c22675d0b97d92",
+        "sig": "0ce66372775724ed064e6570c01f921dfee38e3d0698f5004f8d2043c146f2a6eb77cb635034d4a299c67c683a007052a056bbdc016a624a1b1bd8333be01ba4"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "unbound-node",
+      "event": {
+        "kind": 30640,
+        "created_at": 1799999900,
+        "content": "",
+        "tags": [
+          [
+            "d",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "id": "fe17bef81e83922de198fac7f2899f782ba64fae6564a98c390ac8c4ff863b1b",
+        "sig": "3ce603142fd7b6e1528b70b0f5307d9c2062726a09e7c7765adbe566d92a49b5a635e33261f6fed07b14815be84ebe05e04074400a96aefd136d24a4a929e354"
+      },
+      "now": 1800000000,
+      "expect": {
+        "ok": false
+      }
+    }
+  ]
+}

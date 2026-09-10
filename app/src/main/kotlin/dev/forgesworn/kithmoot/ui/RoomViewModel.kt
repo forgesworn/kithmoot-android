@@ -1631,7 +1631,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val who = added.contact.name ?: npubOf(added.contact.p).take(16) + "…"
                 val boxes = when (added.contact.boxes.size) { 0 -> "no box"; 1 -> "one box"; else -> "${added.contact.boxes.size} boxes" }
                 (if (added.replaced) "Updated $who: $boxes" else "Added $who: $boxes") +
-                    (if (added.contact.boxes.isNotEmpty()) ". A message to their box now shows as sheltered." else ".")
+                    (if (added.contact.boxes.isNotEmpty()) ". Their box is endorsed by this card; its message endpoint still needs verification." else ".")
             }
         }
         _room.update { it.copy(cardStatus = words) }
