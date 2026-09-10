@@ -12,6 +12,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /** Frames a relay sends us. Anything we do not understand becomes [Unknown]. */
 sealed interface RelayMessage {
+    /** NIP-42 challenge. It is handled by [RelayPool], never surfaced to rooms. */
+    data class Auth(val challenge: String) : RelayMessage
     data class Event(val subscriptionId: String, val event: NostrEvent) : RelayMessage
     data class EndOfStoredEvents(val subscriptionId: String) : RelayMessage
     data class Ok(val eventId: String, val accepted: Boolean, val message: String) : RelayMessage
@@ -45,6 +47,12 @@ object RelayCodec {
         add(JsonPrimitive(subscriptionId))
     }.toString()
 
+    /** `["AUTH", <signed kind-22242 event>]` */
+    fun authFrame(event: NostrEvent): String = buildJsonArray {
+        add(JsonPrimitive("AUTH"))
+        add(event.toJson())
+    }.toString()
+
     /**
      * Parses one frame. **Never throws**: a relay is an untrusted stranger, and
      * one malformed frame must not be able to tear down the socket that carries
@@ -53,6 +61,9 @@ object RelayCodec {
     fun parse(raw: String): RelayMessage = try {
         val frame = json.parseToJsonElement(raw) as? JsonArray ?: return RelayMessage.Unknown(raw)
         when (frame.getOrNull(0)?.jsonPrimitive?.content) {
+            "AUTH" -> frame.getOrNull(1)?.jsonPrimitive?.content
+                ?.takeIf { it.toByteArray(Charsets.UTF_8).size in 1..512 && it.none(Char::isISOControl) }
+                ?.let(RelayMessage::Auth) ?: RelayMessage.Unknown(raw)
             "EVENT" -> RelayMessage.Event(
                 subscriptionId = frame[1].jsonPrimitive.content,
                 event = NostrEvent.fromJson(frame[2].jsonObject),

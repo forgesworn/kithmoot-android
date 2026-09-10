@@ -48,10 +48,18 @@ class RelayCodecTest {
 
     @Test
     fun `OK EOSE CLOSED and NOTICE all parse`() {
+        assertIs<RelayMessage.Auth>(RelayCodec.parse("""["AUTH","nonce"]"""))
         assertIs<RelayMessage.Ok>(RelayCodec.parse("""["OK","abc",true,""]"""))
         assertIs<RelayMessage.EndOfStoredEvents>(RelayCodec.parse("""["EOSE","sub-1"]"""))
         assertIs<RelayMessage.Closed>(RelayCodec.parse("""["CLOSED","sub-1","rate-limited"]"""))
         assertIs<RelayMessage.Notice>(RelayCodec.parse("""["NOTICE","slow down"]"""))
+    }
+
+    @Test
+    fun `malformed auth challenge remains unknown`() {
+        assertIs<RelayMessage.Unknown>(RelayCodec.parse("""["AUTH"]"""))
+        assertIs<RelayMessage.Unknown>(RelayCodec.parse("""["AUTH",""]"""))
+        assertIs<RelayMessage.Unknown>(RelayCodec.parse("""["AUTH","line\nbreak"]"""))
     }
 
     @Test

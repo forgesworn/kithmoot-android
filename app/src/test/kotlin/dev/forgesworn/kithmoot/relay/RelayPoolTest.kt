@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.support.FakeSocketFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -8,10 +9,21 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+
+private class TestAuthenticator(private val signer: LocalSigner, private val clock: () -> Long) : RelayAuthenticator {
+    override val pubkey: String get() = signer.pubkey
+    var calls = 0
+    override suspend fun sign(url: String, challenge: String): NostrEvent {
+        calls += 1
+        return signer.sign(22242, clock() / 1_000, listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+    }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RelayPoolTest {
@@ -37,6 +49,53 @@ class RelayPoolTest {
         circle = relays.toSet()
         assertEquals(relays.toSet(), pool.circleRelays())
         assertEquals(dev.forgesworn.kithmoot.protocol.Lane.SHELTERED, dev.forgesworn.kithmoot.protocol.laneOfRelays(pool.describe(), pool.circleRelays()))
+    }
+
+    @Test
+    fun `sheltered relay waits for successful auth before releasing work`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 9 }), { currentTime })
+        val url = "wss://one.example"
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1),
+            authenticators = RelayAuthenticatorProvider { requested -> auth.takeIf { requested == url } })
+        pool.start()
+        runCurrent()
+        pool.publish(event("a1".repeat(32)))
+        val socket = sockets.opened.single()
+        socket.open()
+        runCurrent()
+        assertTrue(pool.connected.value.isEmpty())
+        assertTrue(socket.sent.isEmpty())
+
+        socket.deliverAuth("challenge-1")
+        runCurrent()
+        assertEquals(1, auth.calls)
+        val authFrame = socket.authFrames().single()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(authFrame.substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true)
+        runCurrent()
+
+        assertEquals(setOf(url), pool.connected.value)
+        assertEquals(1, socket.publishedFrames().size)
+    }
+
+    @Test
+    fun `auth refusal blocks reconnect until explicit retry`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 8 }), { currentTime })
+        val url = "wss://one.example"
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1),
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val first = sockets.opened.single(); first.open(); first.deliverAuth("challenge-2"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(first.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        first.deliverOk(signed.id, false); runCurrent()
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals(1, sockets.opened.size)
+        assertTrue(first.closedByPool)
+        assertTrue(pool.retryAuthentication(url))
+        runCurrent()
+        assertEquals(2, sockets.opened.size)
     }
 
     @Test
