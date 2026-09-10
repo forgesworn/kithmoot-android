@@ -17,8 +17,8 @@ import kotlin.test.assertTrue
 
 /**
  * The contact book against cards the web library made (`contact-book-web.json`,
- * generated from nostr-contact-card 0.3.0): a card held makes its box a
- * sheltered relay, a later card keeps the serial pin, a fresh address from
+ * generated from nostr-contact-card): a card grants no message-relay
+ * ownership, a later card keeps the serial pin, a fresh address from
  * the box is accepted only above it and only under the endorsed node id.
  */
 class ContactBookTest {
@@ -31,7 +31,7 @@ class ContactBookTest {
     private fun s(key: String) = fixture.getValue(key).jsonPrimitive.content
     private fun bytes(key: String): ByteArray = Base64.getUrlDecoder().decode(s(key))
 
-    @Test fun `a card marks its holder and makes their box a sheltered relay, and forgetting it undoes both`() {
+    @Test fun `a card marks its holder without granting sheltered status to transport relays`() {
         val disk = MemoryStorage()
         val book = ContactBook(disk)
         assertEquals(emptyList(), book.list())
@@ -51,14 +51,18 @@ class ContactBookTest {
         assertEquals(1L, added.contact.boxes[0].highestSerial)
         assertEquals("card", added.contact.boxes[0].source)
 
-        assertEquals(setOf("wss://box.rowan.example"), book.circleRelays())
-        assertEquals(Lane.SHELTERED, laneOfRelays(listOf("wss://box.rowan.example"), book.circleRelays()))
+        assertEquals(emptySet(), book.circleRelays())
+        assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://box.rowan.example"), book.circleRelays()))
+        assertEquals(emptyMap(), book.boxOwners())
+        // Explicit keeper-confirmed marks are separate from transport hints.
+        assertEquals(Lane.SHELTERED, laneOfRelays(listOf("wss://box.rowan.example"), setOf("wss://box.rowan.example")))
         // A room on the box and a public relay: the weakest lane wins.
         assertEquals(Lane.PUBLIC, laneOfRelays(listOf("wss://box.rowan.example", "wss://nos.lol"), book.circleRelays()))
         assertEquals("Rowan", book.get(s("rowan").uppercase())?.name)
 
         // Survives a reopen: what was written is what is read.
         assertEquals("Rowan", ContactBook(disk).list().single().name)
+        assertEquals(emptySet(), ContactBook(disk).circleRelays())
 
         book.forget(s("rowan"))
         assertEquals(emptyList(), book.list())
@@ -77,7 +81,7 @@ class ContactBookTest {
         // A different node id is a new pin and starts afresh.
         val moved = book.add(s("cardOtherNode"), now + 2) as ContactBook.Added.Ok
         assertEquals(1L, moved.contact.boxes[0].highestSerial)
-        assertEquals(setOf("wss://other.rowan.example"), book.circleRelays())
+        assertEquals(emptySet(), book.circleRelays())
     }
 
     @Test fun `a fresh address from the box is accepted only above the pinned serial and under the endorsed node`() {
@@ -91,7 +95,7 @@ class ContactBookTest {
         assertEquals(5L, ok.highestSerial)
         assertEquals("refreshed", ok.source)
         assertEquals(listOf("wss://moved.rowan.example"), ok.relays)
-        assertEquals(setOf("wss://moved.rowan.example"), book.circleRelays())
+        assertEquals(emptySet(), book.circleRelays())
         assertEquals(now, book.list().single().boxes[0].refreshedAt)
     }
 

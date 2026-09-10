@@ -38,9 +38,8 @@ import java.net.URI
  * accepted per node is kept, because that is what stops an old card of the
  * same node replaying (Link SPEC §2.3 rule 8).
  *
- * What the book feeds: a box's relays are the circle's relays, which is what
- * makes a message to them show as sheltered (`protocol/Lane.kt`), and a
- * participant whose key matches a card is shown as carrying one. Mirrors
+ * A participant whose key matches a card is shown as carrying one. Link
+ * relay hints do not establish ownership of a Nostr message relay. Mirrors
  * `app/src/contact-store.ts` in the reference implementation.
  *
  * One vault, one JSON document, the same lock for every read and write, as
@@ -156,22 +155,16 @@ class ContactBook(private val storage: RoomStorage) {
     }
 
     /**
-     * Every relay URL that is a contact's box, normalised as the lane check
-     * normalises. These are the circle's relays: a message that goes only to
-     * them is sheltered, and nothing else ever is.
+     * Link relay hints locate a box's transport session; they do not prove
+     * ownership of a Nostr message relay. Keep automatic attribution closed
+     * until the signed box status, claim binding and endpoint are verified.
+     * Existing stored cards must not grant sheltered status either.
+     * Explicit circle-box marks in relay settings are independent.
      */
-    @Synchronized fun circleRelays(): Set<String> = guarded {
-        val out = LinkedHashSet<String>()
-        for (c in document().contacts) for (b in c.boxes) for (url in b.relays) normalise(url)?.let(out::add)
-        out
-    }
+    fun circleRelays(): Set<String> = emptySet()
 
-    /** Which contact a relay is the box of, by normalised URL. */
-    @Synchronized fun boxOwners(): Map<String, Contact> = guarded {
-        val out = LinkedHashMap<String, Contact>()
-        for (c in list()) for (b in c.boxes) for (url in b.relays) normalise(url)?.let { if (it !in out) out[it] = c }
-        out
-    }
+    /** No message-relay owner is established by a Link address card alone. */
+    fun boxOwners(): Map<String, Contact> = emptyMap()
 
     /**
      * This phone's rendezvous secret, for the cards it hands out: a fresh

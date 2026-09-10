@@ -51,10 +51,9 @@ import dev.forgesworn.kithmoot.ui.ContactRow
  * one's own handed out.
  *
  * What a card changes is said in the words the reference uses (`app/src/main.ts`):
- * the person's tile says a card is held for them, and a message to their box
- * shows as sheltered, because the box on a card is one of the circle's relays
- * and nothing else ever is. Forgetting the card puts both back, which is why
- * forgetting asks twice.
+ * the person's tile says a card is held for them. A box's Link hints do not
+ * establish ownership of a Nostr message relay. Forgetting the card removes
+ * its holder badge and saved box details after confirmation.
  */
 @Composable
 fun ContactCardsSheet(
@@ -258,7 +257,7 @@ fun ContactCardsSheet(
             title = { Text("Forget this card?") },
             text = {
                 Text(
-                    "Their box will show as a public relay again, and a message to it will say so. " +
+                    "Their card and saved box details will be removed from this phone. " +
                         "The card can be added back from the link.",
                 )
             },

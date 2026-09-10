@@ -231,7 +231,7 @@ fun StartScreen(
                     Text("Used for new rooms. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
                         label = { Text("Boxes of my circle") }, minLines = 2, maxLines = 5)
-                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered; a contact card's box counts without being listed.", style = MaterialTheme.typography.bodySmall)
+                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered. A contact card alone does not confirm a message relay.", style = MaterialTheme.typography.bodySmall)
                 }
             }, confirmButton = { TextButton({ relaysShown = false }) { Text("Done") } })
     }
