@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
@@ -40,6 +41,16 @@ const val CHAT_RETENTION_SECONDS: Long = 30L * 24 * 60 * 60
 const val MAX_CHAT_MESSAGES_PER_MINUTE: Int = 30
 private const val MAX_CHAT_CLOCK_SKEW_SECONDS: Long = 300
 
+data class ChatChannel(val id: String, val key: ByteArray)
+
+/** A relay knowing only the public room ID cannot derive a private channel. */
+fun deriveChatChannel(roomId: String, roomKey: ByteArray, channel: String? = null): ChatChannel {
+    if (channel == null) return ChatChannel(roomId, roomKey)
+    require(channel.isNotEmpty() && channel.length <= 64) { "channel name out of range" }
+    fun derive(info: String) = Digests.hkdfSha256(roomKey, null, info.toByteArray(Charsets.UTF_8), 32)
+    return ChatChannel(derive("kithmoot/v1/channel-id/$channel").toHex(), derive("kithmoot/v1/channel-key/$channel"))
+}
+
 /** A line of chat, attributed to the person rather than the device that typed it. */
 data class ChatMessage(
     val id: String,
@@ -68,6 +79,8 @@ data class ChatMessage(
      * transport could not say. See `Lane.kt`.
      */
     val lane: Lane? = null,
+    /** Verified participant signature, bound to this room and outer device. */
+    val assignment: NostrEvent? = null,
 )
 
 fun encodeChatEvent(
@@ -89,7 +102,16 @@ fun encodeChatEvent(
     retracts: String? = null,
     mentions: List<String>? = null,
     invite: ChatInvite? = null,
+    channel: String? = null,
+    assignment: NostrEvent? = null,
 ): NostrEvent {
+    if (assignment != null) {
+        val payload = assignmentPayload(assignment, roomId)
+        require(channel == ASSIGNMENT_CHANNEL && payload != null && assignment.pubkey == participant &&
+            (payload.device == null || payload.device == Schnorr.publicKeyHex(deviceSecretKey))) { "Invalid assignment envelope" }
+        require(listOfNotNull(reaction, reply, thread, replaces, retracts, mentions, invite).isEmpty()) { "An assignment is a single statement" }
+    }
+    val address = deriveChatChannel(roomId,roomKey,channel)
     require(reaction == null || parseReaction(reaction.toJson()) != null) { "Invalid reaction" }
     require(listOfNotNull(reaction, replaces, retracts, invite).size <= 1) { "a message says one thing about another message, not two" }
     require(replaces == null || validMessageId(replaces)) { "an edit must name the message it replaces" }
@@ -110,13 +132,14 @@ fun encodeChatEvent(
         retracts?.let { put("retracts", it) }
         mentions?.takeIf { it.isNotEmpty() }?.let { list -> put("mentions", buildJsonArray { for (m in list) add(JsonPrimitive(m)) }) }
         invite?.let { put("invite", it.toJson()) }
+        assignment?.let { put("assignment", it.toJson()) }
     }
     return Events.sign(
         secretKey = deviceSecretKey,
         kind = KIND_CHAT,
         createdAt = sentAt,
-        tags = listOf(listOf("d", roomId)),
-        content = Nip44.encrypt(plaintext.toString(), roomKey, nonce),
+        tags = listOf(listOf("d", address.id)),
+        content = Nip44.encrypt(plaintext.toString(), address.key, nonce),
         auxRand = auxRand,
     )
 }
@@ -131,13 +154,15 @@ fun decodeChatEvent(
     roomKey: ByteArray,
     now: Long,
     policy: RoomPolicy? = null,
+    channel: String? = null,
 ): ChatMessage? = try {
+    val address = deriveChatChannel(roomId,roomKey,channel)
     when {
         event.kind != KIND_CHAT -> null
-        event.tagValue("d")?.hexEquals(roomId) != true -> null
+        event.tagValue("d")?.hexEquals(address.id) != true -> null
         !Events.verify(event) -> null
         else -> {
-            val json = Json.parseToJsonElement(Nip44.decrypt(event.content, roomKey)).jsonObject
+            val json = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
             // This is a boundary: `participant` is a free-text JSON field
             // with nothing forcing lower case. Canonicalise it here, once,
             // same as `decodeRosterEvent` - see `normaliseHex`.
@@ -155,15 +180,18 @@ fun decodeChatEvent(
             // thing about one other message, and a payload carrying two of
             // them, or one beside conversation it has no business carrying,
             // is refused whole. Mirrors `decodeChatEvent` in src/chat.ts.
-            val statements = listOf("reaction", "replaces", "retracts", "invite").count { json.containsKey(it) }
+            val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment").count { json.containsKey(it) }
             val conversationKeys = listOf("kind", "attachments", "reply", "thread", "mentions")
-            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite")
+            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment")
+            val assignment = (json["assignment"] as? JsonObject)?.let(NostrEvent::fromJson)
+            val assignmentPayload = assignment?.let { assignmentPayload(it, roomId) }
             val invite = json["invite"]?.let(::parseInvite)
             val replaces = json["replaces"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
             val retracts = json["retracts"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
             val mentionsRaw = json["mentions"]
             val mentions = (mentionsRaw as? kotlinx.serialization.json.JsonArray)?.let(::normaliseMentions)?.takeIf { it.isNotEmpty() }
             when {
+                json.containsKey("assignment") && (channel != ASSIGNMENT_CHANNEL || assignment == null || assignmentPayload == null || assignment.pubkey != participant || (assignmentPayload.device != null && assignmentPayload.device != device)) -> null
                 statements > 1 -> null
                 hasStatementAlone && conversationKeys.any { json.containsKey(it) } -> null
                 json.containsKey("replaces") && listOf("kind", "reply", "thread").any { json.containsKey(it) } -> null
@@ -200,6 +228,7 @@ fun decodeChatEvent(
                     retracts = retracts,
                     mentions = mentions,
                     invite = invite,
+                    assignment = assignment,
                 )
             }
         }

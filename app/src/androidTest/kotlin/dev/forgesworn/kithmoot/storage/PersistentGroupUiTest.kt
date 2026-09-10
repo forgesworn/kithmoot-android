@@ -116,6 +116,55 @@ class PersistentGroupUiTest {
         }
     }
 
+    @Test fun d_shared_work_survives_initial_epoch_and_real_room_entry() {
+        val server = StoredGroupRelay().also { relay = it }
+        reset()
+        ui.click("Relay settings")
+        ui.replace("Relays, one per line", server.url)
+        ui.click("Done")
+        ui.replace("Room name (optional)", "Shared work entry")
+        ui.click("Start a room")
+        ui.room()
+        lateinit var model: RoomViewModel
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        ui.await("verified shared work after initial room state") { model.room.value.work.ready }
+        ui.click("Work")
+        ui.await("empty shared work") { ui.hasText("No shared work yet") }
+        ui.assertEnabled("New task", true)
+        // Exercise the production view model and journal, not a replacement UI callback.
+        activity.scenario.onActivity {
+            model.submitWork(null, buildJsonObject {
+                put("op", "create")
+                put("objective", "Verify native room entry")
+                put("criteria", "The task survives leaving and reopening this room")
+                put("owner", model.room.value.selfParticipant)
+            }, null)
+        }
+        ui.await("confirmed assignment") { model.room.value.work.assignments.size == 1 && !model.room.value.workBusy }
+        ui.await("rendered native assignment") { ui.hasText("Verify native room entry") }
+        val original = model.room.value.work.assignments.single()
+        assertEquals("offered", original.status)
+        assertEquals(0, model.room.value.work.pendingSends)
+        assertFalse(model.room.value.micOn)
+        assertFalse(model.room.value.cameraOn)
+        val saved = app.savedRooms.list().single()
+        ui.click("Leave")
+        ui.home()
+        ui.click(saved.name)
+        ui.room()
+        ui.await("reopened work") { model.room.value.work.ready && model.room.value.work.assignments.any { it.id == original.id } }
+        assertEquals(original, model.room.value.work.assignments.single())
+        if (!ui.hasText("Shared work")) ui.click("Work")
+        ui.await("restored task on screen") { ui.hasText("Verify native room entry") }
+        val picture = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        File(app.getExternalFilesDir("ui-proof"), "shared-work-entry.png").outputStream().use {
+            picture.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+        picture.recycle()
+        ui.click("Leave")
+        AssignmentVault(app, saved.id, original.creator).reset()
+    }
+
     @Test fun c_refused_publication_and_retired_web_link_stay_outside_room() {
         val server = StoredGroupRelay().also { relay = it; it.rejectPublications = true }
         reset()
