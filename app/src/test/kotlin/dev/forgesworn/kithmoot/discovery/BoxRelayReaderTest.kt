@@ -51,6 +51,36 @@ class BoxRelayReaderTest {
         } finally { reader.close(); runCurrent() }
         advanceTimeBy(60_000); runCurrent(); assertEquals(3, sockets.size)
     }
+    @Test fun completedExactLookupCanCloseWhileOtherHistoriesRemainLive() = runTest {
+        val sockets = mutableListOf<Socket>(); var ready = 0; var lost = 0
+        val reader = BoxRelayReader(listOf("wss://one.test", "wss://two.test"), RelaySocketFactory { _, l -> Socket(l).also { sockets += it; l.onOpen() } }, backgroundScope, { lost++ }, { testScheduler.currentTime })
+        try {
+            reader.subscribe(Filter(ids = listOf("a".repeat(64))), {}, { ready++ })
+            reader.subscribe(Filter(kinds = listOf(10640)), {}, { ready++ }); runCurrent()
+            sockets[0].frame("[\"EOSE\",\"box-1\"]")
+            sockets[0].frame("[\"CLOSED\",\"box-1\",\"stored: all requested events found\"]"); runCurrent()
+            assertEquals(0, lost); assertEquals(0, ready); assertFalse(reader.trustedHistory())
+            sockets[1].frame("[\"EOSE\",\"box-1\"]")
+            sockets[1].frame("[\"CLOSED\",\"box-1\",\"stored: all requested events found\"]"); runCurrent()
+            assertEquals(0, lost); assertEquals(1, ready)
+            sockets.forEach { it.frame("[\"EOSE\",\"box-2\"]") }; runCurrent()
+            assertEquals(2, ready); assertTrue(reader.trustedHistory())
+            sockets[0].frame("[\"CLOSED\",\"box-2\",\"live history lost\"]"); runCurrent()
+            assertEquals(1, lost); assertFalse(reader.trustedHistory())
+        } finally { reader.close(); runCurrent() }
+    }
+    @Test fun incompleteAndPrefixLookupClosuresStillFail() = runTest {
+        for (prefix in listOf(false, true)) {
+            val sockets = mutableListOf<Socket>(); var lost = 0
+            val reader = BoxRelayReader(listOf("wss://one.test"), RelaySocketFactory { _, l -> Socket(l).also { sockets += it; l.onOpen() } }, backgroundScope, { lost++ }, { testScheduler.currentTime })
+            try {
+                reader.subscribe(Filter(ids = listOf(if (prefix) "abcd" else "a".repeat(64))), {}, {}); runCurrent()
+                if (prefix) sockets[0].frame("[\"EOSE\",\"box-1\"]")
+                sockets[0].frame("[\"CLOSED\",\"box-1\",\"restricted\"]"); runCurrent()
+                assertEquals(1, lost); assertFalse(reader.trustedHistory())
+            } finally { reader.close(); runCurrent() }
+        }
+    }
     @Test fun fullSignedLifecycleUsesRealReaderCompletionAndInvalidation() = runTest {
         val f = BoxFixture(); val sockets = mutableListOf<Socket>()
         val d = BoxDiscovery(f.contacts, { unavailable -> BoxRelayReader(listOf("wss://one.test"), RelaySocketFactory { _, l -> Socket(l).also { sockets += it; l.onOpen() } }, backgroundScope, unavailable, { testScheduler.currentTime }) }, {}, { f.clock })
@@ -64,6 +94,7 @@ class BoxRelayReaderTest {
                     val event = if (kind == 30640) f.claim else f.status
                     socket.frame("[\"EVENT\",\"$id\",${event.toCompactJson()}]")
                     socket.frame("[\"EOSE\",\"$id\"]")
+                    if (filter.containsKey("ids")) socket.frame("[\"CLOSED\",\"$id\",\"stored: all requested events found\"]")
                 }
             }
             respond(); runCurrent(); respond(); runCurrent()

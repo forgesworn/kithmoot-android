@@ -127,7 +127,14 @@ class BoxRelayReader(
                 request.eosed += command.url
                 if (!already && request.eosed.containsAll(urls)) { request.deadline?.cancel(); request.deadline = null; history.set(requests.values.all { it.eosed.containsAll(urls) }); request.ready() }
             }
-            "CLOSED" -> fail()
+            "CLOSED" -> {
+                // Full ids name immutable data. A relay may finish that
+                // lookup after its real EOSE; live histories and incomplete
+                // lookups must still invalidate on closure.
+                val ids = request.filter.ids
+                val immutable = !ids.isNullOrEmpty() && ids.all { id -> id.length == 64 && id.all { it in '0'..'9' || it in 'a'..'f' } }
+                if (!immutable || command.url !in request.eosed) fail()
+            }
             "EVENT" -> if (raw.size == 3) {
                 val event = try { NostrEvent.fromJson(raw[2]) } catch (_: Exception) { return }
                 val f = request.filter

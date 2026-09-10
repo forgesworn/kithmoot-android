@@ -71,3 +71,10 @@ a current client label. Native and web consume identical bytes, including
 rotation, a freshly signed status carrying an expired card, corrupted Link
 signatures and an endorsed retired claim. This does not replace a running
 bothyd or real owned-box/device journeys.
+
+A relay may close a full exact-event-id lookup after sending its real EOSE.
+That immutable lookup is complete on that relay; other relays still owe
+their own EOSE, and live status/keeper-history reads must remain subscribed.
+Closures before EOSE, prefix-id lookups and lost live histories still
+invalidate trust. Reader and composed discovery tests cover the normal
+completion pattern exposed by the real Bothy relay.
