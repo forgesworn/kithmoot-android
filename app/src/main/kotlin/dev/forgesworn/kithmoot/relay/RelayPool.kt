@@ -33,6 +33,14 @@ interface RoomTransport {
     /** Fire and forget. Delivery is the pool's problem, not the caller's. */
     fun publish(event: NostrEvent)
 
+    /** Durable work must not treat an unconfirmed queue operation as delivery. */
+    suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean =
+        throw UnsupportedOperationException("This transport cannot confirm durable publication")
+
+    /** Fails if complete retained history cannot be established. */
+    suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
+        throw UnsupportedOperationException("This transport cannot verify retained history")
+
     /**
      * A cold flow of matching events, de-duplicated across relays. Cancelling
      * the collector closes the subscription on every relay.
@@ -132,7 +140,7 @@ class RelayPool(
     }
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
-    suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean = withTimeout(timeoutMs) {
+    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
         connected.first { it.isNotEmpty() }
         val publication: Publication
         val targets: List<RelayLink>
@@ -151,7 +159,7 @@ class RelayPool(
 
     /** A complete snapshot from the currently connected relays. Disconnection, CLOSED,
      * overflow or missing EOSE fails the query; partial events never become admission. */
-    suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> = withTimeout(timeoutMs) {
+    override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> = withTimeout(timeoutMs) {
         connected.first { it.isNotEmpty() }
         val id = "km-stored-${nextSubscriptionId.incrementAndGet()}"
         val query: StoredQuery

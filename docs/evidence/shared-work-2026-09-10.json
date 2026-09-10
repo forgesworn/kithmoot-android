@@ -1,0 +1,62 @@
+{
+  "recorded": "2026-09-10",
+  "version": "0.5.8",
+  "versionCode": 16,
+  "distribution": "debug-signed preview",
+  "sourceSha256": {
+    "app/build.gradle.kts": "fca86f67181f55bc3b45c476faacc36294aa71d468b9a09292160637c57c2e41",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/Assignments.kt": "9c935a7664bcc7767df416069a59af7ea091c337b53b8d8b8270490aa248af90",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/Chat.kt": "2994c593bb354bf2e909d75ac2a008cad3a0e4567968222fa86d5d1e7146b77c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/AssignmentJournal.kt": "c0cfc6dd4d0a5a2ff81bd1586d8ca86c4ab1802133385109af885fafa51c08b0",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "9e6bf5987899ccd89e7b0ec5de5a6197289b9b8893a857113059d52694feef31",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/storage/AssignmentVault.kt": "27cf79604aac2366c25eeab2c24e98872efea23d4cd356c05fe0d3d28708fa4f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/RelayPool.kt": "1424f33f0ec09e3ff0b0af4cb9ffb2e12320c07343f1071b0532fb39e324bbb6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "ef3db67d00a614dcd7677d2a42085859f06b277089a8a97316122332b8582870",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "8659c6261a6be28f0e3b5452547201f6ee48f67b10fca79faecdc1358c1289c4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "51173c679f780b8fda9258b73a126f35ecfeab87bc7eebc66f1afee49dd1b78f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/WorkPane.kt": "3818a6066bdd0d9f831efd90ac8f96dff33a23ba2bb8f1eb70a13aa5bd83e7a2",
+    "scripts/check-recovery-emulator.sh": "02664954bd70e5c0f4719deb9950614719b0a18170db8ccb1090df6e3860b81c",
+    "app/src/test/resources/assignment-vectors.json": "71427b53ae2393b7a09ca37a8959ab35cf175eac408f05ea7622626faa6f56e4"
+  },
+  "apkSha256": "38638bda17306207418ab688062e7875d2b44baf4097715e13a92ccac5696883",
+  "testApkSha256": "9063f3dcf535e7add04b3a4800e9864cefe609565b761615fb995498a6f954eb",
+  "certificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+  "verification": {
+    "appUnitTests": 200,
+    "protocolTests": 147,
+    "debugLint": "passed",
+    "releaseLint": "passed",
+    "debugBuild": "passed",
+    "unsignedReleaseBuild": "passed",
+    "emulator": "isolated API 35 arm64 Pixel 6 AVD",
+    "emulatorTests": 17,
+    "emulatorScript": "scripts/check-recovery-emulator.sh",
+    "emulatorReportCounts": [
+      6,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2,
+      1,
+      1
+    ]
+  },
+  "boundaries": [
+    "Local synthetic room peers; no live Oathrun agent or model",
+    "Quiet shared work and paired-device signing remain unsupported",
+    "No physical-phone, locked-phone notification or production-store acceptance",
+    "No cross-project ambient context access granted"
+  ],
+  "journeys": [
+    "Signed TypeScript vectors and native encrypted assignment channel",
+    "Exact pending send retry and authenticated device history",
+    "Decision and chat drafts retained across tabs; exact result acceptance",
+    "Native WebSocket peer question/answer/result/acceptance and recovery with no relay history",
+    "Installed app entry, real view-model publication, leave/reopen with the same assignment",
+    "Existing encrypted recovery, forced process restart, persistent group invitation/refusal, chat and screen-share/PiP checks"
+  ]
+}
