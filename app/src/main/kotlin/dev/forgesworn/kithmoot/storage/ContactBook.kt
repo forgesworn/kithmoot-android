@@ -63,6 +63,10 @@ class ContactBook(private val storage: RoomStorage) {
         /** `card`: dialled on the person's endorsement; `refreshed`: on a fresh Link card from the box. */
         val source: String,
         val refreshedAt: Long? = null,
+        /** Verified bytes belonging to highestSerial, used for identical reannouncements. */
+        val card: String? = null,
+        /** Replay protection and explicit consent; never an offline trust grant. */
+        val discovery: JsonObject? = null,
     )
 
     data class Contact(
@@ -130,6 +134,18 @@ class ContactBook(private val storage: RoomStorage) {
         write(doc.copy(contacts = doc.contacts.filter { it.p != key }))
     }
 
+    /** Apply replay state only to the same still-held card. Forgetting and
+     * replacement share this lock and vault, so late callbacks cannot recreate it. */
+    @Synchronized fun saveDiscovery(contactP: String, boxP: String, revision: String, state: JsonObject): Boolean = guarded {
+        val doc = document()
+        val contact = doc.contacts.firstOrNull { it.p == contactP } ?: return@guarded false
+        val box = contact.boxes.firstOrNull { it.p == boxP } ?: return@guarded false
+        if (discoveryRevision(contact, box) != revision) return@guarded false
+        val updated = contact.copy(boxes = contact.boxes.map { if (it.p == boxP) it.copy(discovery = state) else it })
+        write(doc.copy(contacts = doc.contacts.map { if (it.p == contactP) updated else it }))
+        true
+    }
+
     /**
      * A fresh Link card from one of a contact's boxes. Accepted only under
      * the node id the person endorsed and only above the highest serial this
@@ -148,6 +164,7 @@ class ContactBook(private val storage: RoomStorage) {
             highestSerial = maxOf(held.highestSerial, link.serial),
             relays = link.relays, onions = link.onions, linkExpiresAt = link.expiresAt,
             source = "refreshed", refreshedAt = now,
+            card = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(freshLinkCard),
         )
         val updated = contact.copy(boxes = contact.boxes.toMutableList().also { it[i] = box })
         write(doc.copy(contacts = doc.contacts.map { if (it.p == contact.p) updated else it }))
@@ -220,6 +237,8 @@ class ContactBook(private val storage: RoomStorage) {
                 if (b.carriers != null) put("carriers", strings(b.carriers))
                 put("linkExpiresAt", b.linkExpiresAt); put("source", b.source)
                 if (b.refreshedAt != null) put("refreshedAt", b.refreshedAt)
+                if (b.card != null) put("card", b.card)
+                if (b.discovery != null) put("discovery", b.discovery)
             })
         })
         if (c.attest != null) put("attest", c.attest)
@@ -248,7 +267,7 @@ class ContactBook(private val storage: RoomStorage) {
         val onions = stringList(o["onions"]) ?: return null
         val expires = num(o["linkExpiresAt"]) ?: return null
         val source = str(o["source"])?.takeIf { it == "card" || it == "refreshed" } ?: return null
-        return Box(p, claim, nodeId, serial, relays, onions, stringList(o["carriers"]), expires, source, num(o["refreshedAt"]))
+        return Box(p, claim, nodeId, serial, relays, onions, stringList(o["carriers"]), expires, source, num(o["refreshedAt"]), str(o["card"]), o["discovery"] as? JsonObject)
     }
 
     private fun boxFrom(box: CardBox, link: LinkCard, previous: Box?): Box {
@@ -260,6 +279,8 @@ class ContactBook(private val storage: RoomStorage) {
             highestSerial = if (samePin) maxOf(previous!!.highestSerial, link.serial) else link.serial,
             relays = link.relays, onions = link.onions, carriers = box.carriers,
             linkExpiresAt = link.expiresAt, source = "card",
+            card = if (samePin && previous!!.highestSerial >= link.serial) previous.card else box.card,
+            discovery = previous?.discovery?.let { JsonObject(it + ("enabled" to JsonPrimitive(false))) },
         )
     }
 
@@ -277,6 +298,9 @@ class ContactBook(private val storage: RoomStorage) {
     }
 
     companion object {
+        fun discoveryRevision(c: Contact, b: Box): String =
+            listOf(c.issued, c.expires, c.readAt, b.claim, b.nodeId, c.rz, c.eph).joinToString("|")
+
         /** How many contacts a phone keeps. Generous, because forgetting one
          *  silently turns a known box back into a public relay. */
         const val MAX_CONTACTS = 500
@@ -292,12 +316,9 @@ class ContactBook(private val storage: RoomStorage) {
         )
 
         /** The same normalisation the lane check applies, so a card's URL and a room relay compare equal. */
-        fun normalise(url: String): String? = try {
-            val u = URI(url.trim())
-            val host = u.host?.lowercase() ?: return null
-            val port = if (u.port == -1) "" else ":${u.port}"
-            val path = u.path?.trimEnd('/') ?: ""
-            "${u.scheme?.lowercase()}://$host$port$path"
-        } catch (_: Exception) { null }
+        fun normalise(url: String): String? = runCatching {
+            dev.forgesworn.kithmoot.protocol.canonicalRelayUrl(url.trim())
+        }.getOrNull()
+
     }
 }

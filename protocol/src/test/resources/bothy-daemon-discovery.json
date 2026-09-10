@@ -1,0 +1,617 @@
+{
+  "bothyCommit": "b89cf9b0262f324553c341c49a37ecba9709c7a3",
+  "cases": [
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789009299,
+        "id": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "kind": 30640,
+        "pubkey": "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+        "sig": "a2876c19449f051de9376618e684f75e46c06dd8c424ab18a774458ffa01ba7451e0bfd034bb917aa3904b2fb095d6a6dfcd1847c0d628e2b0bbd1174e0b3e4d",
+        "tags": [
+          [
+            "d",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+          ],
+          [
+            "p",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "3c94264a62604094a091cb2ab72d9d8572354172ef381b69af8aba5cf9a0acfd",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Vennel daemon probe"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": false,
+        "dropsUrl": null,
+        "ok": false,
+        "validUntil": 1789020100
+      },
+      "name": "actual-daemon-after-claim",
+      "now": 1789009301,
+      "pin": {
+        "card": "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2TAAAAAGqjbxMAAAAAaqIdlAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAs+zmsJRaLyike4zXXY/7FEFnk7IbTH9yQ57ZMNXf2Kxa3M90KlP86+yyWzUTEOXjyUS05WIK1LzKwcwjnShSSo9/PCV3oZTESpM9qd3QspKtvifhVgbBT8dLAVPz/wWBg==",
+        "claim": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "highestSerial": 1789009300,
+        "nodeId": "1aca622a463a1ec7ad85137b93a911d3c3a43c9f80c21657f6129b2e79526941",
+        "p": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789009300,
+        "id": "b3b65f7061fd6efc53400f0ef842308e1b4adaae36d77e0b7475f3256289c692",
+        "kind": 10640,
+        "pubkey": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+        "sig": "1ef5294db1bab9faac9f6fab7be0eafc4ff14a188de06cb5896c2fb459ed2adde4d4343c2161e963d373e977ae561a903cce9b02ad59f379768104350c652a28",
+        "tags": [
+          [
+            "card",
+            "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2TAAAAAGqjbxMAAAAAaqIdlAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAs+zmsJRaLyike4zXXY/7FEFnk7IbTH9yQ57ZMNXf2Kxa3M90KlP86+yyWzUTEOXjyUS05WIK1LzKwcwjnShSSo9/PCV3oZTESpM9qd3QspKtvifhVgbBT8dLAVPz/wWBg=="
+          ],
+          [
+            "card-exp",
+            "1789095699"
+          ],
+          [
+            "node",
+            "dlfgeksghipmplmfcn5zhkir2pb2ipe7qdbbmv7wckns46ksnfaq"
+          ],
+          [
+            "claim",
+            "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257"
+          ],
+          [
+            "free",
+            "4294967296"
+          ],
+          [
+            "pool",
+            "4294967296"
+          ],
+          [
+            "max-blob",
+            "8388608"
+          ],
+          [
+            "classes",
+            "working",
+            "circle",
+            "vital"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "0",
+            "0"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "carriers",
+            "link"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=off",
+            "logs=stderr"
+          ],
+          [
+            "expiration",
+            "1789099299"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789009299,
+        "id": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "kind": 30640,
+        "pubkey": "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+        "sig": "a2876c19449f051de9376618e684f75e46c06dd8c424ab18a774458ffa01ba7451e0bfd034bb917aa3904b2fb095d6a6dfcd1847c0d628e2b0bbd1174e0b3e4d",
+        "tags": [
+          [
+            "d",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+          ],
+          [
+            "p",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "3c94264a62604094a091cb2ab72d9d8572354172ef381b69af8aba5cf9a0acfd",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Vennel daemon probe"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": false,
+        "dropsUrl": null,
+        "ok": false,
+        "validUntil": 1789020103
+      },
+      "name": "actual-daemon-after-restart",
+      "now": 1789009303,
+      "pin": {
+        "card": "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2TAAAAAGqjbxMAAAAAaqIdlAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAs+zmsJRaLyike4zXXY/7FEFnk7IbTH9yQ57ZMNXf2Kxa3M90KlP86+yyWzUTEOXjyUS05WIK1LzKwcwjnShSSo9/PCV3oZTESpM9qd3QspKtvifhVgbBT8dLAVPz/wWBg==",
+        "claim": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "highestSerial": 1789009300,
+        "nodeId": "1aca622a463a1ec7ad85137b93a911d3c3a43c9f80c21657f6129b2e79526941",
+        "p": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789009303,
+        "id": "e144b314db64c45fced4006f672ddc795bf03c9d1d85997ecfac3e4251a77557",
+        "kind": 10640,
+        "pubkey": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+        "sig": "d3c2f59396f683b089a12dc6c03aaf6a9b4d923f93472229670c29d6909d19872cced6a89b8f3d7a9c263c8e81e09e2c430ac0e31a55acfa0dcab925c4a05ae1",
+        "tags": [
+          [
+            "card",
+            "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2XAAAAAGqjbxcAAAAAaqIdmAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAwOTdmQvPQ9t8cFA+kN6XyvLXX9WaPjMnNlndUtQVxEhDsFdPsGqHjyYNgw+/rNC2pd/3pdO+amVMYz+SLE4Nol6pE/5+5aDIEQRFahFRELhVmPKBQC/2HSd5ZmZ4CEMBA=="
+          ],
+          [
+            "card-exp",
+            "1789095703"
+          ],
+          [
+            "node",
+            "dlfgeksghipmplmfcn5zhkir2pb2ipe7qdbbmv7wckns46ksnfaq"
+          ],
+          [
+            "claim",
+            "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257"
+          ],
+          [
+            "free",
+            "4294967296"
+          ],
+          [
+            "pool",
+            "4294967296"
+          ],
+          [
+            "max-blob",
+            "8388608"
+          ],
+          [
+            "classes",
+            "working",
+            "circle",
+            "vital"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "0",
+            "0"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "carriers",
+            "link"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=off",
+            "logs=stderr"
+          ],
+          [
+            "expiration",
+            "1789099303"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789009299,
+        "id": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "kind": 30640,
+        "pubkey": "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+        "sig": "a2876c19449f051de9376618e684f75e46c06dd8c424ab18a774458ffa01ba7451e0bfd034bb917aa3904b2fb095d6a6dfcd1847c0d628e2b0bbd1174e0b3e4d",
+        "tags": [
+          [
+            "d",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+          ],
+          [
+            "p",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "3c94264a62604094a091cb2ab72d9d8572354172ef381b69af8aba5cf9a0acfd",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Vennel daemon probe"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": false,
+        "dropsUrl": null,
+        "ok": true,
+        "validUntil": 1789020105
+      },
+      "name": "saved-state-runtime-with-tls-link",
+      "now": 1789009305,
+      "pin": {
+        "card": "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2TAAAAAGqjbxMAAAAAaqIdlAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAs+zmsJRaLyike4zXXY/7FEFnk7IbTH9yQ57ZMNXf2Kxa3M90KlP86+yyWzUTEOXjyUS05WIK1LzKwcwjnShSSo9/PCV3oZTESpM9qd3QspKtvifhVgbBT8dLAVPz/wWBg==",
+        "claim": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "highestSerial": 1789009300,
+        "nodeId": "1aca622a463a1ec7ad85137b93a911d3c3a43c9f80c21657f6129b2e79526941",
+        "p": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789009305,
+        "id": "679f0c9a257963db2d1ed59204ff5dea0744e018ae585da33ea8ddd18645bcc6",
+        "kind": 10640,
+        "pubkey": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+        "sig": "f0835bf924645aa7bfcbb033e244b0ca65b9bbb8c99483a17cb7acb6d84a7366ecd4618633a13e2edfe0cf65e1aca46d671cb942d7957d1034d28ccbef510f45",
+        "tags": [
+          [
+            "card",
+            "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2ZAAAAAGqjbxkAAAAAaqIdmgIBABp3c3M6Ly8xMjcuMC4wLjE6NjAwNTMvbGluawQAIQPxqv3N+mao14W7xMhsRPvYaLQPKf2ADw1Gj3MpbVLmMGnAw7xUTujnvCElEC6wk3c63mWO8f/1s6Q32wHsCOCWFx5ijQ+bSWk/X+bGTTu4EutgoL4S9gbSDg8WuonskQ8="
+          ],
+          [
+            "card-exp",
+            "1789095705"
+          ],
+          [
+            "node",
+            "dlfgeksghipmplmfcn5zhkir2pb2ipe7qdbbmv7wckns46ksnfaq"
+          ],
+          [
+            "claim",
+            "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257"
+          ],
+          [
+            "free",
+            "4294967296"
+          ],
+          [
+            "pool",
+            "4294967296"
+          ],
+          [
+            "max-blob",
+            "8388608"
+          ],
+          [
+            "classes",
+            "working",
+            "circle",
+            "vital"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "0",
+            "0"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "carriers",
+            "link"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=off",
+            "logs=stderr"
+          ],
+          [
+            "expiration",
+            "1789099305"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789009299,
+        "id": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "kind": 30640,
+        "pubkey": "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+        "sig": "a2876c19449f051de9376618e684f75e46c06dd8c424ab18a774458ffa01ba7451e0bfd034bb917aa3904b2fb095d6a6dfcd1847c0d628e2b0bbd1174e0b3e4d",
+        "tags": [
+          [
+            "d",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+          ],
+          [
+            "p",
+            "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "d72a4819488f7e8bf1124e9bd8dd826cacc05cc15543371db0ae3015c297123b",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "3c94264a62604094a091cb2ab72d9d8572354172ef381b69af8aba5cf9a0acfd",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Vennel daemon probe"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": false,
+        "dropsUrl": null,
+        "ok": true,
+        "validUntil": 1789020107
+      },
+      "name": "tls-runtime-after-restart",
+      "now": 1789009307,
+      "pin": {
+        "card": "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2TAAAAAGqjbxMAAAAAaqIdlAIBABl3czovLzEyNy4wLjAuMTo2MDAzMy9saW5rBAAhAs+zmsJRaLyike4zXXY/7FEFnk7IbTH9yQ57ZMNXf2Kxa3M90KlP86+yyWzUTEOXjyUS05WIK1LzKwcwjnShSSo9/PCV3oZTESpM9qd3QspKtvifhVgbBT8dLAVPz/wWBg==",
+        "claim": "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257",
+        "highestSerial": 1789009300,
+        "nodeId": "1aca622a463a1ec7ad85137b93a911d3c3a43c9f80c21657f6129b2e79526941",
+        "p": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789009307,
+        "id": "ebb450ca348c11ca2b84a2603187fcd3a5f14bb9ecc63b383f262d0b7fc4133e",
+        "kind": 10640,
+        "pubkey": "78a7f5aa4caf02b9e1ce5f14b7bae448ad98bbe70e21e9fcd239e188a5752925",
+        "sig": "65276f88da38dc7d34833e593eeced84ffc0ac21de6cca479852856b5e1c6b6af95fa00e51e0ad81fd048725cf88035e5a526a667981cd69f3e14cb1f21f8e99",
+        "tags": [
+          [
+            "card",
+            "RlNMMQEaymIqRjoex62FE3uTqRHTw6Q8n4DCFlf2EpsueVJpQQAAAABqoh2bAAAAAGqjbxsAAAAAaqIdnAIBABp3c3M6Ly8xMjcuMC4wLjE6NjAwNTMvbGluawQAIQPKuWbToI8Tb9dhDOGMKGom9fHLNOE49dPfs9ZAF/Uc2u1ESZZXUaakI83QUtExzlABaoJtGmW5rRHn2KTQfu+Ipx4U3fcw5+sw3E8NogvH1sMdeQtLA7Bycx47T50SdwQ="
+          ],
+          [
+            "card-exp",
+            "1789095707"
+          ],
+          [
+            "node",
+            "dlfgeksghipmplmfcn5zhkir2pb2ipe7qdbbmv7wckns46ksnfaq"
+          ],
+          [
+            "claim",
+            "1bfac681a8c60e6192bc69a406dbf2d680b19e610449c5b396be3cfa97b06257"
+          ],
+          [
+            "free",
+            "4294967296"
+          ],
+          [
+            "pool",
+            "4294967296"
+          ],
+          [
+            "max-blob",
+            "8388608"
+          ],
+          [
+            "classes",
+            "working",
+            "circle",
+            "vital"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "0",
+            "0"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "carriers",
+            "link"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "relaying",
+            "off"
+          ],
+          [
+            "retention",
+            "blobs=until-unpinned",
+            "drops=off",
+            "logs=stderr"
+          ],
+          [
+            "expiration",
+            "1789099307"
+          ]
+        ]
+      }
+    }
+  ],
+  "claim": {
+    "deliveredOverLink": true,
+    "keeperClaimed": true,
+    "published": true,
+    "recordedLocally": true,
+    "signed": true
+  },
+  "restart": {
+    "freshStatus": true,
+    "gracefulShutdown": true,
+    "sameBothyIdentity": true
+  },
+  "schema": 1,
+  "scope": "actual bothyd claim and restart over local ws Link; saved state resumed by production NodeRuntime with pinned wss Link; real local Nostr relay; in-process fixture signer; drops disabled",
+  "bothyLockSha256": "cfece17d6308a14ccb3585427969be08fe463eb0b182acfca7c8a2669c405094",
+  "harnessLockSha256": "949bc2c799832b2e2df2cab63ed137540c68ce84bdc109e1b301a7b3ae1d9329"
+}

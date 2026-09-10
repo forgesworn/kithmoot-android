@@ -27,8 +27,8 @@ android {
         // java.util.Base64, which only lands in the platform at API 26.
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.5.8"
+        versionCode = 17
+        versionName = "0.5.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -139,4 +139,9 @@ dependencies {
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+
+// Read the exact shared interoperability fixture, without a second copy.
+tasks.withType<Test>().configureEach {
+    systemProperty("kithmoot.boxVectors", rootProject.file("protocol/src/test/resources/box-discovery.json").absolutePath)
 }

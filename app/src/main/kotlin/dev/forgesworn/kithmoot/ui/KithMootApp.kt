@@ -253,6 +253,8 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 canShowCard = roomState.canShowCard,
                 onAdd = model::addContactCard,
                 onForget = model::forgetContact,
+                readRelays = startState.relays,
+                onCheckBox = model::checkContactBox,
                 onShowMyCard = model::showMyCard,
                 onDone = { cardsOpen = false },
             )

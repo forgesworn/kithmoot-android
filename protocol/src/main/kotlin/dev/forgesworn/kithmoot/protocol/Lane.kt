@@ -24,23 +24,27 @@ enum class Lane(val label: String, val glyph: String, val meaning: String, inter
 
 /**
  * The lane one relay URL puts a message on. [circle] is the set of relay URLs
- * the client knows to be boxes of the person's own circle, from a contact card
- * or the keeper's claim; a relay in it is sheltered and every other relay,
+ * the client knows to be boxes of the person's own circle, from verified
+ * signed status or an explicit keeper-confirmed mark; a relay in it is sheltered and every other relay,
  * onion or not, is public, because an onion hides the client's address and
  * says nothing about who runs the relay.
  */
 fun laneOfRelayUrl(url: String, circle: Set<String> = emptySet()): Lane {
     if (url in circle) return Lane.SHELTERED
-    val norm = try { normaliseRelay(url) } catch (_: Exception) { null }
-    return if (norm != null && circle.any { runCatching { normaliseRelay(it) }.getOrNull() == norm }) Lane.SHELTERED else Lane.PUBLIC
+    val norm = try { canonicalRelayUrl(url) } catch (_: Exception) { null }
+    return if (norm != null && circle.any { runCatching { canonicalRelayUrl(it) }.getOrNull() == norm }) Lane.SHELTERED else Lane.PUBLIC
 }
 
-private fun normaliseRelay(url: String): String {
+/** Preserve query and escaped path identity when comparing trusted endpoints. */
+fun canonicalRelayUrl(url: String): String {
     val u = URI(url)
+    require(u.scheme in setOf("wss", "ws") && u.rawUserInfo == null && u.rawFragment == null) { "invalid relay URL" }
     val host = u.host?.lowercase() ?: throw IllegalArgumentException("no host")
-    val port = if (u.port == -1) "" else ":${u.port}"
-    val path = u.path?.trimEnd('/') ?: ""
-    return "${u.scheme?.lowercase()}://$host$port$path"
+    val defaultPort = if (u.scheme == "wss") 443 else 80
+    val port = if (u.port == -1 || u.port == defaultPort) "" else ":${u.port}"
+    val path = u.rawPath?.removeSuffix("/") ?: ""
+    val query = u.rawQuery?.let { "?$it" } ?: ""
+    return "${u.scheme.lowercase()}://$host$port$path$query"
 }
 
 /** The weakest of several lanes, or null when there are none. */

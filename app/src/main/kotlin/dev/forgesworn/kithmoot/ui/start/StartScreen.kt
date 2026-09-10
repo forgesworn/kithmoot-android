@@ -105,8 +105,8 @@ fun StartScreen(
                             modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
                         val who = offer.name?.let { "From $it" } ?: "From a person with no name on their card"
                         val boxes = when (offer.boxes) { 0 -> "no box"; 1 -> "one box"; else -> "${offer.boxes} boxes" }
-                        Text(if (offer.added) "${offer.name ?: "They"} ${if (offer.name != null) "is" else "are"} in your contacts on this phone. Their box will show as sheltered."
-                            else "$who, naming $boxes. Add it and a message to their box shows as sheltered.")
+                        Text(if (offer.added) "${offer.name ?: "They"} ${if (offer.name != null) "is" else "are"} in your contacts on this phone. Their card is kept on this phone."
+                            else "$who, naming $boxes. Add the card to keep their details on this phone.")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!offer.added) Button(onAddOfferedCard, Modifier.heightIn(min = 48.dp)) { Text("Add to contacts") }
                             OutlinedButton(onDismissCardOffer, Modifier.heightIn(min = 48.dp)) { Text(if (offer.added) "Done" else "Not now") }

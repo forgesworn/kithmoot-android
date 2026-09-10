@@ -69,6 +69,8 @@ for picture in chat viewer pip; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
 done
 
+run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
+adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/box-discovery.png" "$reports/"
 run_tests shared-work-ui 2 -e class dev.forgesworn.kithmoot.ui.SharedWorkUiTest
 run_tests shared-work-relay 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkRelayTest
 run_tests shared-work-entry 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#d_shared_work_survives_initial_epoch_and_real_room_entry

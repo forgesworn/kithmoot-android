@@ -93,6 +93,8 @@ class ContactBookTest {
         assertTrue(book.refreshBox(rowan, "ab".repeat(32), bytes("freshSerial5"), now).isFailure, "no such box")
         val ok = book.refreshBox(rowan, box, bytes("freshSerial5"), now).getOrThrow()
         assertEquals(5L, ok.highestSerial)
+        assertEquals(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes("freshSerial5")), ok.card)
+        assertEquals(ok.card, book.list().single().boxes.single().card)
         assertEquals("refreshed", ok.source)
         assertEquals(listOf("wss://moved.rowan.example"), ok.relays)
         assertEquals(emptySet(), book.circleRelays())

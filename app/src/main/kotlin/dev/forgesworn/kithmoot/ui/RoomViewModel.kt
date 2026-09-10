@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.discovery.BoxDiscovery
+import dev.forgesworn.kithmoot.discovery.BoxRelayReader
 import dev.forgesworn.kithmoot.session.RoomWork
 import dev.forgesworn.kithmoot.session.AssignmentSnapshot
 import dev.forgesworn.kithmoot.session.AvailableAssignmentAction
@@ -193,12 +195,14 @@ data class CardOffer(
 )
 
 /** One contact, as the cards sheet lists it. */
+data class ContactBoxRow(val p: String, val revision: String, val description: String, val checking: Boolean)
+
 data class ContactRow(
     val p: String,
     val npub: String,
     val name: String?,
     /** One line per box: its relays and whether it is dialled on the card's endorsement or a refreshed address. */
-    val boxes: List<String>,
+    val boxes: List<ContactBoxRow>,
     val expires: Long,
 )
 
@@ -359,12 +363,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    private val boxPreferencesGate = Any()
+    private val boxRelayRevision = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var discoveryRelays = display.getString("boxReadRelays", null) ?: DEFAULT_RELAYS.joinToString("\n")
+    private val boxDiscovery by lazy {
+        BoxDiscovery(contacts, { unavailable ->
+            BoxRelayReader(parseRelays(discoveryRelays), OkHttpRelaySockets(), CoroutineScope(viewModelScope.coroutineContext + Dispatchers.IO), unavailable)
+        }, ::refreshContacts)
+    }
+
 
     /** The circle's relays as the lane check needs them: the contact book's
      *  boxes and the relays marked by hand, both normalised as the lane check
      *  normalises. Asked each time, so a mark or a card moves the lane at once. */
     private fun circleRelaySet(): Set<String> =
-        contacts.circleRelays() + circleMarks(_start.value.circleBoxes)
+        boxDiscovery.circleRelays() + circleMarks(_start.value.circleBoxes)
 
     fun onCircleBoxesChanged(value: String) {
         _start.update { it.copy(circleBoxes = value) }
@@ -390,6 +403,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshSavedRooms()
         restoreAccount()
+        viewModelScope.launch {
+            kotlinx.coroutines.yield()
+            withContext(Dispatchers.IO) {
+                while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    runCatching { boxDiscovery.tick() }.onFailure { note("Box checks could not read the contact vault.") }
+                    delay(30_000)
+                }
+            }
+        }
     }
 
     private fun restoreAccount() {
@@ -701,7 +723,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onRelaysChanged(value: String) {
+        boxRelayRevision.incrementAndGet()
         _start.value = _start.value.copy(relays = value, error = null)
+        act { runCatching { synchronized(boxPreferencesGate) { boxDiscovery.disableAll() } }.onFailure { note("Box checks could not be stopped in the saved preferences.") } }
     }
 
     fun onPersistentGroupChanged(value: Boolean) {
@@ -1391,6 +1415,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        boxDiscovery.close()
         super.onCleared()
         closeSession()
     }
@@ -1663,9 +1688,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             ContactRow(
                 p = c.p, npub = npubOf(c.p), name = c.name,
                 boxes = c.boxes.map { b ->
-                    val where = (b.relays + b.onions).joinToString(", ")
-                    val how = if (b.source == "refreshed") "dialled on a refreshed address" else "dialled on their card's endorsement"
-                    "$where ($how)"
+                    ContactBoxRow(b.p, ContactBook.discoveryRevision(c, b), "Box ${npubOf(b.p).take(16)}…: ${boxDiscovery.message(c.p, b.p)}", boxDiscovery.enabled(c.p, b.p))
                 },
                 expires = c.expires,
             )
@@ -1681,6 +1704,26 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun checkContactBox(contact: String, box: String, revision: String, on: Boolean) {
+        val selectedText = _start.value.relays
+        val selectedRevision = boxRelayRevision.get()
+        act { synchronized(boxPreferencesGate) {
+        try {
+            if (on) {
+                require(selectedRevision == boxRelayRevision.get()) { "The read relays changed. Check this box again when ready." }
+                val selected = parseRelays(selectedText)
+                require(selected.isNotEmpty() && selected.size <= 8 && selected.all { dev.forgesworn.kithmoot.protocol.LinkCards.isRelayUrl(it) }) { "Choose one to eight secure read relays on the start screen first." }
+                val next = selected.joinToString("\n")
+                if (next != discoveryRelays) boxDiscovery.disableAll()
+                check(display.edit().putString("boxReadRelays", next).commit()) { "The selected read relays could not be saved." }
+                discoveryRelays = next
+            }
+            require(!on || selectedRevision == boxRelayRevision.get()) { "The read relays changed. Check this box again when ready." }
+            boxDiscovery.setEnabled(contact, box, on, revision)
+        } catch (e: Exception) { _room.update { it.copy(cardStatus = e.message ?: "The box preference could not be saved.") } }
+        } }
+    }
+
     /** A card pasted into the sheet: read, kept, and said back in one line. */
     fun addContactCard(text: String) = act {
         val added = try { contacts.add(text, epochSeconds()) } catch (e: RoomStorageException) {
@@ -1692,16 +1735,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val who = added.contact.name ?: npubOf(added.contact.p).take(16) + "…"
                 val boxes = when (added.contact.boxes.size) { 0 -> "no box"; 1 -> "one box"; else -> "${added.contact.boxes.size} boxes" }
                 (if (added.replaced) "Updated $who: $boxes" else "Added $who: $boxes") +
-                    (if (added.contact.boxes.isNotEmpty()) ". A message to their box now shows as sheltered." else ".")
+                    (if (added.contact.boxes.isNotEmpty()) ". Their box is endorsed by this card; its message endpoint still needs verification." else ".")
             }
         }
         _room.update { it.copy(cardStatus = words) }
+        boxDiscovery.reconcile()
         refreshContacts()
     }
 
     fun forgetContact(p: String) = act {
         try { contacts.forget(p) } catch (e: RoomStorageException) { return@act note(e.message ?: "Contacts are unavailable.") }
         _room.update { it.copy(cardStatus = null) }
+        boxDiscovery.reconcile()
         refreshContacts()
     }
 

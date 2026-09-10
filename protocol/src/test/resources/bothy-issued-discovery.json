@@ -1,0 +1,1070 @@
+{
+  "bothyCommit": "b89cf9b0262f324553c341c49a37ecba9709c7a3",
+  "cases": [
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": false,
+        "dropsUrl": null,
+        "ok": true,
+        "validUntil": 1789018524
+      },
+      "name": "bothy-issued-drops-off",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "8f0e636843d51cdd293de8c9265df74528ef8c863d50eb8d1265902c7fb65ebd",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "9ab3e8c84622d57206b1312212a29eda6cb367677f3cd45a5722f4c920bfa2ac6aac8ee6af29203d49419bc34a9fa0f6ec5f50892ca74f8ed10b66275598e8a7",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "off"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": true,
+        "dropsUrl": null,
+        "ok": true,
+        "validUntil": 1789018524
+      },
+      "name": "bothy-issued-on-without-endpoint",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "cc6e25cdc277526070d63421fa5891e372e8107430a06a7ba6ea5f246b5104de",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "e7c80bd1d5c554d1b6a881ce885937f5cda394fc92bddf61435e3a4fae076d6d9fce198d6ddbde057fac9426bde233736fdbaa5b290a8493327c1ea7acaf0c64",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops?tenant=family",
+        "ok": true,
+        "validUntil": 1789018524
+      },
+      "name": "bothy-issued-endpoint",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "c2036aeb0a99c8b02b683636c04f2e0c71f03f56dac0163a969597d4532e40c4",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "3db6bc74c99fbe9b9f4d7c187cf91c460deff863df500df7cd17e3a462a8533a758d87a04346d82ca4b333da660e56982e141359d10fd32b218c07ca93537605",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": true
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "ok": false
+      },
+      "name": "bothy-issued-status-stale",
+      "now": 1789018525,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "c2036aeb0a99c8b02b683636c04f2e0c71f03f56dac0163a969597d4532e40c4",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "3db6bc74c99fbe9b9f4d7c187cf91c460deff863df500df7cd17e3a462a8533a758d87a04346d82ca4b333da660e56982e141359d10fd32b218c07ca93537605",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": false,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "ok": false
+      },
+      "name": "bothy-issued-card-expired",
+      "now": 1789094124,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789094124,
+        "id": "167072c31b4a33e66dd2c46ec8457a87a579a840a630b0302d1dbedd36ab9eb8",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "417abfe2e42bada6740d3024e4df11947a455caf2ffd37a2242ad0b408721df0b3f2ba9df8700457c3c9dc423157ff47a79d10dde796ea538d836f6f771549e8",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": true,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "drops": true,
+        "dropsUrl": "wss://owned.example/drops?tenant=family",
+        "ok": true,
+        "validUntil": 1789018524
+      },
+      "name": "bothy-issued-link-rotation",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "81665c8446ef35065c52351acc94688950bea92e236a88a8e8d44dfd8739a683",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "9a4c995aa6355f660564488dfef7c578fceab691cf12f39532da0d939592a1becc3bef66f1e887c45790623a32e8d12318be6a29ebcb73c4f382134d3e61bb69",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbgEEACED3tx+cCWmhODpyvRMUH77osjWEI0EpG5ThOGvXu+d/pH+tXePzolJvF+F6NNKJND+3Zmn7Bdi9I2/l0x+Sj9VvqpRCWaRflr8MrFvKJcgoJ/Xz9SLVNWSOsMqHYGfYAwF"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": false,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007664,
+        "id": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "f867aadb95b4836540b6da7bff63b923d33b46f1de98c1bcc45c3417d05cc2c1810a3f0554002697befe086178b54a9dba1cb93e8d60b1322b16ca59511fffdc",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "p",
+            "e11f40af6b41f494bfbc27c47a178ce572e8b8ca687cc67e1298514861ac5e48",
+            "",
+            "stash"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "active"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "ok": false
+      },
+      "name": "bothy-issued-box-signed-bad-link-signature",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "ebda2ab32f61fa3bee52b694da4abaeeb87ce8eafe756c44fb1c310a250f2736",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "2e8538d53109da989807e9989735b6bcf9e8c7f222c479465d9bb0024e54c79882291c657f492673e8c75888132e21743c1bc1afe6124aa7bc6d7040789b9524",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbgEEACED3tx+cCWmhODpyvRMUH77osjWEI0EpG5ThOGvXu+d/pH+tXePzolJvF+F6NNKJND+3Zmn7Bdi9I2/l0x+Sj9VvqpRCWaRflr8MrFvKJcgoJ/Xz9SLVNWSOsMqHYGfYAwE"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    },
+    {
+      "bothy": {
+        "accepted": false,
+        "stale": false
+      },
+      "claim": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "6e0a7c18879b19c975a5f96285de0aad1bee85166ac3d4649804abeb7028005b",
+        "kind": 30640,
+        "pubkey": "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+        "sig": "40867debdc04e0ba83c02047aff466e772c8804db9e533605c1ed8cd4cc3ac7c351ed2fd76bddd33fcd34dbb1239db2716af57a3159b117e7cc1e9608f9d0734",
+        "tags": [
+          [
+            "d",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+          ],
+          [
+            "p",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "",
+            "node"
+          ],
+          [
+            "p",
+            "8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7",
+            "",
+            "master"
+          ],
+          [
+            "role",
+            "box"
+          ],
+          [
+            "status",
+            "retired"
+          ],
+          [
+            "name",
+            "Interop fixture"
+          ]
+        ]
+      },
+      "expect": {
+        "ok": false
+      },
+      "name": "bothy-issued-retired-claim",
+      "now": 1789007724,
+      "pin": {
+        "card": "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG",
+        "claim": "6e0a7c18879b19c975a5f96285de0aad1bee85166ac3d4649804abeb7028005b",
+        "highestSerial": 1789007725,
+        "nodeId": "db995fe25169d141cab9bbba92baa01f9f2e1ece7df4cb2ac05190f37fcc1f9d",
+        "p": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      },
+      "status": {
+        "content": "",
+        "created_at": 1789007724,
+        "id": "c2036aeb0a99c8b02b683636c04f2e0c71f03f56dac0163a969597d4532e40c4",
+        "kind": 10640,
+        "pubkey": "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "sig": "3db6bc74c99fbe9b9f4d7c187cf91c460deff863df500df7cd17e3a462a8533a758d87a04346d82ca4b333da660e56982e141359d10fd32b218c07ca93537605",
+        "tags": [
+          [
+            "card",
+            "RlNMMQHbmV/iUWnRQcq5u7qSuqAfny4ezn30yyrAUZDzf8wfnQAAAABqohdsAAAAAGqjaOwAAAAAaqIXbQEEACEDChPfOeWQ4aMLoXMho0qqZg8JRjft9AoWRvB24g95kJcV/bVrfBN6JKeMGp/c6FVLPrslgboWNi2qKiOExaA1Lh0wREu2zYdd/39r4IeYJgyOtnhJFtmVyhnYGJzhvKEG"
+          ],
+          [
+            "card-exp",
+            "1789094124"
+          ],
+          [
+            "node",
+            "3omv7ysrnhiudsvzxo5jfovad6ps4hwopx2mwkwakgipg76md6oq"
+          ],
+          [
+            "claim",
+            "63072bccdf75162dd1067dff18e3c6321efb649155aee174aec81ab1fab1365f"
+          ],
+          [
+            "free",
+            "3221225472"
+          ],
+          [
+            "pool",
+            "8589934592"
+          ],
+          [
+            "max-blob",
+            "50000000"
+          ],
+          [
+            "classes",
+            "working",
+            "circle"
+          ],
+          [
+            "charge-control",
+            "none"
+          ],
+          [
+            "sheltered",
+            "1073741824",
+            "200"
+          ],
+          [
+            "policy",
+            "introductions"
+          ],
+          [
+            "software",
+            "bothy-node/0.1.0",
+            "b89cf9b0262f324553c341c49a37ecba9709c7a3"
+          ],
+          [
+            "drops",
+            "on",
+            "wss://owned.example/drops?tenant=family"
+          ],
+          [
+            "expiration",
+            "1789097724"
+          ]
+        ]
+      }
+    }
+  ],
+  "linkCommit": "d9998ac165df47296e2bd28eb751a47a893478aa",
+  "source": "Bothy production Claim/Status builders, CardIssuer over a real loopback Link Endpoint, accept_claim/accept_status, Status::is_stale and LinkCardVerifier. No running bothyd, public relays, live drops, or physical-device proof.",
+  "version": 1,
+  "bothyLockSha256": "cfece17d6308a14ccb3585427969be08fe463eb0b182acfca7c8a2669c405094",
+  "harnessLockSha256": "f53f00c9786ac6aa5d28e45e36e0500caff8c5ae0c51a21ff78bd8fea4e1fccd"
+}
