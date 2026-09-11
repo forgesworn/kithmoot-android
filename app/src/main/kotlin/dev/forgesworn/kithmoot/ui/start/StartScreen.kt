@@ -200,7 +200,7 @@ fun StartScreen(
             pairingRoom?.let { room ->
                 AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
                     text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Paste the Bothy pairing code. KithMoot will verify Bothy and switch this room only after its authenticated relay is ready. Disconnecting later restores the current relays.")
+                        Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. KithMoot will switch only after its authenticated relay is ready. This permission is saved on this device; disconnecting later restores the current relays.")
                         OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
                     } },
                     confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair and switch") } },
