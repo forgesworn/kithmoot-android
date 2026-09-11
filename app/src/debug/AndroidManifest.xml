@@ -1,11 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:usesCleartextTraffic="true">
-        <activity android:name=".g5.DebugFixtureSignerActivity" android:exported="true" android:label="G5 fixture signer">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="nostrsigner" />
-            </intent-filter>
-        </activity>
-    </application>
+    <!-- The G5 fixture control socket is reversed to loopback and exists only
+         in debug builds. Production retains its ordinary transport policy. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

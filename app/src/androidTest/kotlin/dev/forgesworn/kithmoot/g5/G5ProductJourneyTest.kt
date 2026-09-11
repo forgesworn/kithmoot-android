@@ -36,7 +36,7 @@ class G5ProductJourneyTest {
     private val arguments get() = InstrumentationRegistry.getArguments()
     private val control get() = requireNotNull(arguments.getString("fixture_control")).removeSuffix("/")
     private val action get() = requireNotNull(arguments.getString("g5_action"))
-    private val signerPackage get() = InstrumentationRegistry.getInstrumentation().targetContext.packageName
+    private val signerPackage get() = "dev.forgesworn.kithmoot.g5signer"
 
     @Test fun runs_the_requested_product_admission_action() {
         when (action) {

@@ -21,3 +21,4 @@ rootProject.name = "kithmoot-android"
 // application: relays, room session, WebRTC media and the Compose interface.
 include(":protocol")
 include(":app")
+include(":g5-signer")
