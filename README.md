@@ -41,14 +41,17 @@ What is *not* here:
 - No room descriptor, agent ownership, attachments or approvals. Those
   vectors are carried in the published set and counted by the coverage
   guard, but nothing on this side implements them yet.
-- **The message layer is read, not yet written.** Replies and threads,
+- **The message layer is partly written.** Replies and threads,
   edits, retractions, mentions on the wire, direct-message invitations and
   read positions are decoded and resolved exactly as the reference does,
   checked against every `chatThread`, `chatEdit`, `chatRetract`,
   `chatMention`, `chatInvite` and `readPosition` vector, and the chat pane
-  shows edits, retractions and threads. The composer still sends plain
-  messages: no reply, edit or retract control, no DM started from here, and
-  read positions are not published. `members` on a room policy is enforced.
+  shows edits, retractions and threads. A signed-in participant can choose
+  somebody present, create a persistent two-member room, and send its full
+  invitation sealed through the account signer's NIP-44 interface; the
+  recipient deliberately opens and validates it before joining. The composer
+  still sends plain messages: no reply, edit or retract control, and read
+  positions are not published. `members` on a room policy is enforced.
 - **A quiet room is read and written at epoch zero only.** The client
   derives drop keys from the room key it was handed; a quiet room that
   has moved epoch is, to this client, a room that has moved on, exactly
@@ -166,7 +169,7 @@ public profile relays, and both ends of the npub.
 | Roster events | Kind 20461, NIP-44 encrypted to the room key, with the device credential verified on the way in |
 | Signal wrapping | Kind 21059 ephemeral gift wrap carrying SDP and ICE, NIP-44 encrypted to the recipient under a throwaway key |
 | Durable chat | Kind 1460, matching the TypeScript wire format and fixed interop event; room-key encrypted, credential/proof checked, 2,000-character and 30-per-minute sender bounds, 30-day query horizon and 500-message in-memory cap |
-| The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); a two-member `members` policy enforced at the gate |
+| The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); native signer-sealed creation and deliberate opening of persistent two-member rooms; a two-member `members` policy enforced at the gate |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
 | Dead-drop keys and quiet rooms | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`); room drops and the key table (`protocol/RoomDrop.kt`, `QuietKeys.kt`); and the transport that rides a room's chat in them (`session/QuietTransport.kt`). A room whose policy says `quiet` beside its members list reads and posts in drops from this client, with the counters spent and any message waiting for a slot kept on the device. Two devices per person post; a third reads. This client cannot start a quiet room yet, only join one from its link |
@@ -351,7 +354,7 @@ position survive switching between Chat and Call. Invite and contact actions are
 available from Chat. This changes the conversation layout; native assignment and
 agent-approval controls are still separate work.
 
-Chat shows timestamps above messages, searches loaded messages and people, and offers an emoji picker and encrypted quick reactions. Public kind-0 names and pictures are off by default and can be enabled for the current visit from Chat. Names remain paired with shortened keys; profiles are self-reported. Image requests use HTTPS, bounded downloads and a memory cache cleared when profile lookup is disabled or the room is closed.
+Chat shows timestamps above messages, searches loaded messages and people, and offers an emoji picker and encrypted quick reactions. In an ordinary room, a signed-in participant can start a separate private conversation with somebody present. Its persistent room link is sealed by NIP-44 to that account, confirmed on the introduction relay, and opened only after the recipient presses **Open**; the private room does not expose its raw invitation through the ordinary room-share control. Public kind-0 names and pictures are off by default and can be enabled for the current visit from Chat. Names remain paired with shortened keys; profiles are self-reported. Image requests use HTTPS, bounded downloads and a memory cache cleared when profile lookup is disabled or the room is closed.
 
 Tap **Expand screen share** on a shared-screen pane for a full-window viewer. Pinch or use +/− to zoom, drag to pan, and use **Fit to screen** to reset. **Pop out** opens Android picture-in-picture on supported devices; Android supplies its movement and resizing controls. Closing the viewer keeps the call track alive. These controls have emulator coverage using generated video; physical-device acceptance remains a separate release check.
 

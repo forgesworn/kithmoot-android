@@ -110,6 +110,12 @@ import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.decodePrivateConversationInvite
+import dev.forgesworn.kithmoot.session.dmPolicy
+import dev.forgesworn.kithmoot.session.invitePeer
+import dev.forgesworn.kithmoot.session.isDmPolicy
+import dev.forgesworn.kithmoot.session.openInvite
+import dev.forgesworn.kithmoot.session.sealInvite
 import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
@@ -252,6 +258,11 @@ data class RoomState(
     val quietCanSend: Boolean = true,
     val tiles: List<ParticipantTile> = emptyList(),
     val chat: List<ChatMessage> = emptyList(),
+    /** A two-member room whose invitation must travel sealed through another room. */
+    val privateConversation: Boolean = false,
+    /** Current people who can be chosen for a new signer-sealed private conversation. */
+    val privateConversationPeers: List<String> = emptyList(),
+    val privateConversationBusy: Boolean = false,
     val profilesEnabled: Boolean = false,
     val profiles: Map<String, PublicProfile> = emptyMap(),
     val selfParticipant: String = "",
@@ -1653,6 +1664,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
             relaysTotal = relays.size,
             lane = laneOfRelays(relays, circleRelaySet()),
+            privateConversation = isDmPolicy(policy),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
@@ -1714,6 +1726,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     _room.value = _room.value.copy(
                         tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames),
                         chat = chat,
+                        privateConversationPeers = if (accountSigner != null && !isDmPolicy(policy) && quiet == null) {
+                            people.map { it.participant }.filter { it != who.participant }
+                        } else emptyList(),
                     )
                 }
         }
@@ -2020,6 +2035,169 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendChat(body: String) = act {
         try { session?.sendChat(body) } catch (e: IllegalStateException) { note(e.message ?: "Could not send.") } catch (e: IllegalArgumentException) { note(e.message ?: "Could not send.") }
+    }
+
+    /** Create, retain and signer-seal a two-person room before leaving the introduction room. */
+    fun startPrivateConversation(peer: String) {
+        val live = session
+        val signer = accountSigner
+        val source = savedRoom
+        val self = _room.value.selfParticipant
+        val currentPeers = _room.value.privateConversationPeers
+        if (_stage.value != Stage.ROOM || live == null || source == null) return
+        if (signer == null || signer.pubkey != self) {
+            note("Sign in with the room's account before starting a private conversation.")
+            return
+        }
+        if (peer !in currentPeers) {
+            note("That person is no longer present in this room.")
+            return
+        }
+        if (!entering.compareAndSet(false, true)) {
+            note("Finish the current room action first.")
+            return
+        }
+        _room.update { it.copy(privateConversationBusy = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            var retained: SavedRoom? = null
+            try {
+                val policy = dmPolicy(self, peer)
+                val secret = Entropy.bytes(32)
+                val derived = deriveRoom(secret)
+                val host = createRoomInvitation(persistent = true)
+                val relays = relayUrls.toList()
+                val invitation = InvitationPayload(host.invitation, relays, policy)
+                val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
+
+                publishGroup(host, secret, relays)
+                val at = epochSeconds()
+                val who = PrimaryIdentity.createWith(signer, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
+                val sealed = sealInvite(link, peer, derived.roomId, signer)
+                if (session !== live || accountSigner !== signer || peer !in _room.value.privateConversationPeers) {
+                    throw RoomRecoveryException("The introduction room changed while the signer was open. Try again.")
+                }
+
+                val peerName = _room.value.profiles[peer]?.name
+                    ?: _room.value.tiles.firstOrNull { it.participant == peer }?.cardName
+                    ?: shortNpub(peer)
+                retained = SavedRoom.create(
+                    secret = secret,
+                    identity = who,
+                    joinUrl = link,
+                    relays = relays,
+                    name = "Private with $peerName",
+                    now = epochSeconds(),
+                    host = host,
+                    authority = host.invitation.canonicalInviter,
+                )
+                savedRooms.save(retained)
+                _start.update { it.copy(savedRooms = savedRooms.list()) }
+                if (!live.sendInviteConfirmed(sealed)) {
+                    throw RoomRecoveryException("The relays refused the private invitation; nobody was told its link.")
+                }
+                if (session !== live || accountSigner !== signer) {
+                    throw RoomRecoveryException("The private invitation was sent, but this room changed before KithMoot could open it. Open the saved private room from Home.")
+                }
+                open(
+                    derived = derived,
+                    secret = secret,
+                    relays = relays,
+                    who = who,
+                    secondary = false,
+                    joinUrl = link,
+                    invitation = invitation,
+                    invitationHost = host,
+                    policy = policy,
+                    restoring = retained,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoomStorageException) {
+                storageFailed()
+                note("The private conversation could not be saved.")
+            } catch (e: Exception) {
+                val fallback = if (retained != null) " The private room remains saved on Home." else ""
+                note((e.message ?: "The private conversation could not be started.") + fallback)
+            } finally {
+                entering.set(false)
+                _room.update { it.copy(privateConversationBusy = false) }
+            }
+        }
+    }
+
+    /** Deliberately open a verified invitation through the account signer that it addresses. */
+    fun openPrivateConversation(message: ChatMessage) {
+        val live = session ?: return
+        val signer = accountSigner
+        val invite = message.invite ?: return
+        val self = _room.value.selfParticipant
+        val peer = invitePeer(invite, self, message.participant)
+        if (signer == null || signer.pubkey != self || peer == null || message !in _room.value.chat) {
+            note("This private invitation is not addressed to the signed-in room account.")
+            return
+        }
+        if (!entering.compareAndSet(false, true)) {
+            note("Finish the current room action first.")
+            return
+        }
+        _room.update { it.copy(privateConversationBusy = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val link = openInvite(invite, self, message.participant, signer)
+                    ?: throw RoomRecoveryException("The signer could not open this private invitation.")
+                val payload = decodePrivateConversationInvite(link, invite, self, message.participant)
+                    ?: throw RoomRecoveryException("This invitation is not for the claimed two-person conversation.")
+                if (session !== live || accountSigner !== signer) {
+                    throw RoomRecoveryException("The introduction room changed while the signer was open. Try again.")
+                }
+
+                val existing = savedRooms.get(invite.room)
+                if (existing != null) {
+                    if (existing.participant != self || existing.policy != payload.policy ||
+                        existing.invitation?.invitation != payload.invitation) {
+                        throw RoomRecoveryException("A different saved room already uses this invitation's identifier.")
+                    }
+                    openSaved(existing)
+                    return@launch
+                }
+
+                val relays = payload.relays
+                if (relays.isEmpty()) throw RoomRecoveryException("The private invitation names no relay.")
+                val admission = requestAdmission(payload, relays)
+                    ?: throw RoomRecoveryException("The private invitation could not be loaded from its relays. Try again.")
+                val derived = deriveRoom(admission.secret)
+                if (derived.roomId != invite.room) {
+                    throw RoomRecoveryException("The private invitation opened a different room than it claimed.")
+                }
+                val at = epochSeconds()
+                val who = PrimaryIdentity.createWith(signer, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
+                if (session !== live || accountSigner !== signer) {
+                    throw RoomRecoveryException("The introduction room changed while the signer was open. Try again.")
+                }
+                open(
+                    derived = derived,
+                    secret = admission.secret,
+                    relays = relays,
+                    who = who,
+                    secondary = false,
+                    joinUrl = link,
+                    invitation = payload,
+                    invitationHost = admission.delegate,
+                    policy = payload.policy,
+                    localName = "Private with ${shortNpub(peer)}",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RoomStorageException) {
+                storageFailed()
+                note("The private conversation could not be saved.")
+            } catch (e: Exception) {
+                note(e.message ?: "The private conversation could not be opened.")
+            } finally {
+                entering.set(false)
+                _room.update { it.copy(privateConversationBusy = false) }
+            }
+        }
     }
 
     fun react(message: ChatMessage, emoji: String) = act {

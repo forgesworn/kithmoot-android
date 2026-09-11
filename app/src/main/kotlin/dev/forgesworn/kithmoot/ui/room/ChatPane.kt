@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,6 +39,7 @@ fun ChatPane(
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
     onReact: (ChatMessage, String) -> Unit = { _, _ -> },
+    onOpenPrivateConversation: (ChatMessage) -> Unit = {},
     profilesEnabled: Boolean = false,
     profiles: Map<String, PublicProfile> = emptyMap(),
     onProfilesEnabled: (Boolean) -> Unit = {},
@@ -57,6 +60,10 @@ fun ChatPane(
     // a retracted one shown as such, replies under the message they answer.
     // See Messages.kt and docs/messages.md in the reference implementation.
     val resolved = resolveConversation(messages)
+    val privateInvitations = messages.asReversed().filter { message ->
+        val invite = message.invite
+        invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
+    }.distinctBy { it.invite!!.room }.take(5).reversed()
     val rows = buildList {
         for (r in resolved.stream) {
             add(r to false)
@@ -88,6 +95,31 @@ fun ChatPane(
         if (draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
     }
     Column(modifier.fillMaxWidth().imePadding()) {
+        if (privateInvitations.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                privateInvitations.forEach { message ->
+                    val invite = message.invite ?: return@forEach
+                    val peer = if (message.participant == selfParticipant) invite.to else message.participant
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Private conversation", style = MaterialTheme.typography.titleSmall)
+                                Text("With ${shortId(peer)} · ${messageTime(message.sentAt)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Button(onClick = { onOpenPrivateConversation(message) }) { Text("Open") }
+                        }
+                    }
+                }
+            }
+        }
         if (showTitle) Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
         // Which lane the next message will take and what that lane delivers,
         // before anyone sends. Worked out from the room's relays, never claimed.

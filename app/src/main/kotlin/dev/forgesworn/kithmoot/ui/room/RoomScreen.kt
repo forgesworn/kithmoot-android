@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,10 +85,12 @@ fun RoomScreen(
     onOpenCards: () -> Unit = {},
     work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
+    onStartPrivateConversation: (String) -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
     if (inviteOpen) {
         AlertDialog(
@@ -94,6 +98,25 @@ fun RoomScreen(
             title = { Text("Invite people") },
             text = { ShareRoomRow(state.joinUrl) },
             confirmButton = { TextButton(onClick = { inviteOpen = false }) { Text("Done") } },
+        )
+    }
+    if (privateOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!state.privateConversationBusy) privateOpen = false },
+            title = { Text("Start a private conversation") },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Choose someone who is here. KithMoot creates a separate two-person room and asks your signer to seal its invitation to that account.")
+                    state.privateConversationPeers.forEach { peer ->
+                        OutlinedButton(
+                            onClick = { privateOpen = false; onStartPrivateConversation(peer) },
+                            enabled = !state.privateConversationBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(shortId(peer)) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { privateOpen = false }, enabled = !state.privateConversationBusy) { Text("Cancel") } },
         )
     }
     Column(
@@ -119,10 +142,22 @@ fun RoomScreen(
             }
         } else if (!callOpen) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank()) { Text("Invite") }
+                if (state.privateConversation) {
+                    Text("Two-person room", Modifier.padding(horizontal = 12.dp, vertical = 14.dp), style = MaterialTheme.typography.labelMedium)
+                } else {
+                    TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
+                }
                 TextButton(onClick = onOpenCards) { Text("People") }
-                TextButton(onClick = onAddDevice, enabled = state.canAddDevice) { Text("Add your device") }
+                TextButton(onClick = onAddDevice, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
             }
+            if (state.privateConversationPeers.isNotEmpty()) {
+                TextButton(
+                    onClick = { privateOpen = true },
+                    enabled = !state.privateConversationBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Start a private conversation") }
+            }
+            if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
             }
