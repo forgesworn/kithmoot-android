@@ -147,6 +147,7 @@ class G5ProductJourneyTest {
         await("$who Bothy pairing", details = {
             "busy=${model.start.value.busy}; error=${model.start.value.error}; notice=${model.start.value.notice}; connected=${model.start.value.linkConnectedRooms.contains(room)}; grantOwner=${model.start.value.linkGrantOwnerRooms.contains(room)}"
         }) {
+            model.start.value.error?.let { throw AssertionError("$who Bothy pairing failed: $it") }
             !model.start.value.busy && model.start.value.linkConnectedRooms.contains(room)
         }
         assertEquals(expectGrants, model.start.value.linkGrantOwnerRooms.contains(room))
