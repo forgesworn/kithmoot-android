@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      A test-only external signer. It lives in the instrumentation APK, which
+      Android installs as a different package from KithMoot. This lets G5 use
+      the real NIP-55 intent/result boundary without introducing a signer into
+      the production application.
+    -->
+    <application>
+        <activity
+            android:name=".g5.FixtureSignerActivity"
+            android:exported="true"
+            android:label="G5 fixture signer">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="nostrsigner" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

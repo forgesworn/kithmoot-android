@@ -10,8 +10,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-EXPECTED_ARCHIVE_SHA256 = "906f16979bfacc2cbd3e773309fe843e64c940ec468fa6546f6a98aa2afc7706"
-EXPECTED_COMMIT = "6bb5242bc19119fd2da702af50c466cea42975d7"
+EXPECTED_ARCHIVE_SHA256 = "d803438b9cb562e23319d70f009e507f23584ee13d5b204ea1847d74e531ce29"
+EXPECTED_COMMIT = "9db4043ed87dff4b1c6b1623be1e79e66130c93b"
 EXPECTED_FILES = {
     "jniLibs/arm64-v8a/liblink_ffi.so",
     "jniLibs/x86_64/liblink_ffi.so",

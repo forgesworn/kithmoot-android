@@ -147,7 +147,7 @@ class ReflectiveLinkTransportRuntime : LinkTransportRuntime {
         val engineClass = load("LinkEngine")
         val routeClass = load("LinkRoute")
         val configClass = load("LinkConfig")
-        val routes = state.routes.map { route -> routeClass.constructors.single().newInstance(
+        val routes = state.routes.map { route -> constructRecord(routeClass,
             route.routeId, route.card.copyOf(), route.pairedRouteSecret.copyOf(),
             route.cardSerial.toLong(), route.cardVerifiedAt.toLong(),
         ) }
@@ -183,9 +183,11 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
 
     override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
         val bundleClass = Class.forName("dev.forgesworn.link.ffi.LinkPairingBundle")
-        val bundle = bundleClass.constructors.single().newInstance(routeId, card.copyOf(), pairingSecret.copyOf(), expiresAt.toLong())
+        val bundle = constructRecord(bundleClass, routeId, card.copyOf(), pairingSecret.copyOf(), expiresAt.toLong())
         val route = requireNotNull(engine.javaClass.methods.single { it.name == "pairRoute" && it.parameterCount == 1 }.invoke(engine, bundle))
-        fun value(name: String): Any = requireNotNull(route.javaClass.methods.single { it.name == name && it.parameterCount == 0 }.invoke(route))
+        fun value(name: String): Any = requireNotNull(route.javaClass.methods.single {
+            (it.name == name || it.name.startsWith("$name-")) && it.parameterCount == 0
+        }.invoke(route))
         fun unsigned(name: String): ULong = when (val raw = value(name)) {
             is ULong -> raw
             is Long -> raw.toULong()
@@ -201,7 +203,7 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
     }
 
     override fun upsert(route: StoredLinkRoute) {
-        invoke("upsertRoute", routeClass.constructors.single().newInstance(
+        invoke("upsertRoute", constructRecord(routeClass,
             route.routeId, route.card.copyOf(), route.pairedRouteSecret.copyOf(), route.cardSerial.toLong(), route.cardVerifiedAt.toLong(),
         ))
     }
@@ -212,6 +214,17 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
     private fun invoke(name: String, vararg args: Any?) = engine.javaClass.methods.single {
         it.name == name && it.parameterCount == args.size
     }.invoke(engine, *args)
+}
+
+/** UniFFI's Kotlin records with unsigned fields gain one JVM marker parameter. */
+private fun constructRecord(type: Class<*>, vararg fields: Any?): Any {
+    val constructor = type.constructors.single()
+    val arguments = when (constructor.parameterCount) {
+        fields.size -> fields
+        fields.size + 1 -> fields.copyOf(fields.size + 1)
+        else -> throw IllegalStateException("The Link bridge returned an incompatible ${type.simpleName} constructor")
+    }
+    return constructor.newInstance(*arguments)
 }
 
 private class ReflectiveLinkTransportSocket(private val socket: Any) : LinkTransportSocket {
