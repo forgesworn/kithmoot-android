@@ -120,7 +120,7 @@ class G5ProductJourneyTest {
             )
         }
         await("Bob's deliberately opened private conversation", details = {
-            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}"
+            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}; startError=${model.start.value.error}; savedRooms=${model.start.value.savedRooms.size}; targetSaved=${model.start.value.savedRooms.any { it.id == message.invite?.room }}"
         }) {
             model.stage.value == Stage.ROOM && model.room.value.privateConversation && !model.room.value.privateConversationBusy
         }
