@@ -75,7 +75,9 @@ class G5ProductJourneyTest {
         signIn(model)
         val introduction = awaitValue("introduction")
         activity.scenario.onActivity { model.joinFromUrl(introduction.getValue("url").jsonPrimitive.content) }
-        await("Bob's introduction room") {
+        await("Bob's introduction room", details = {
+            "stage=${model.stage.value}; busy=${model.start.value.busy}; error=${model.start.value.error}; roomMatches=${model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content}"
+        }) {
             model.stage.value == Stage.ROOM &&
                 model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content &&
                 !model.room.value.privateConversation
