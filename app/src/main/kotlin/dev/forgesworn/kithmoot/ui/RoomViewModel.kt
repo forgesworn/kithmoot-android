@@ -794,15 +794,24 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Finish the cross-vault commit after a process death, or return it to pending before any relay changed. */
+    /** Finish a committed relay change after process death and discard every incomplete or orphaned route. */
     private fun recoverLinkActivation() {
-        linkConsents.all().filter { it.state == LinkConsentState.ACTIVATING || it.state == LinkConsentState.WITHDRAWING }.forEach { consent ->
+        linkConsents.all().forEach { consent ->
             val roomUsesLink = savedRooms.get(consent.roomId)?.relays == listOf(consent.canonicalUrl)
-            if (consent.state == LinkConsentState.WITHDRAWING && !roomUsesLink) {
-                linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
-                linkEngine.remove(consent.routeId)
-            } else linkConsents.put(consent.copy(state = if (roomUsesLink) LinkConsentState.ACTIVE else LinkConsentState.PENDING))
+            when (consent.state) {
+                LinkConsentState.ACTIVE -> Unit
+                LinkConsentState.ACTIVATING, LinkConsentState.WITHDRAWING ->
+                    if (roomUsesLink) linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE)) else discardLinkConsent(consent)
+                LinkConsentState.PENDING -> discardLinkConsent(consent)
+            }
         }
+        val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
+        linkEngine.routeIds().filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
+    }
+
+    private fun discardLinkConsent(consent: LinkConsent) {
+        linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
+        linkEngine.remove(consent.routeId)
     }
 
     private fun storageFailed() {
@@ -840,32 +849,37 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val canonical = LinkRelayAddress.canonicalForNode(pairing.bothyNodeId)
                 var consent = LinkConsent(account.pubkey, room.id, pairing.bothyNodeId, route.routeId,
                     canonical, room.relays, LinkConsentState.PENDING)
-                linkConsents.put(consent)
-                val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
-                val authenticator = object : RelayAuthenticator {
-                    override val pubkey = signer.pubkey
-                    override suspend fun sign(url: String, challenge: String) = signer.sign(22242, epochSeconds(),
-                        listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                try { linkConsents.put(consent) } catch (e: Exception) {
+                    runCatching { linkEngine.remove(route.routeId) }
+                    throw e
                 }
-                val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url -> route.routeId.takeIf { url == canonical } })
-                val probe = RelayPool(listOf(canonical), sockets, scope,
-                    authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == canonical } })
                 var roomChanged = false
                 try {
-                    probe.start()
-                    kotlinx.coroutines.withTimeout(20_000) { probe.connected.first { canonical in it } }
-                    consent = consent.copy(state = LinkConsentState.ACTIVATING).also(linkConsents::put)
-                    savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
-                        ?: throw RoomRecoveryException("This room is no longer saved on this device.")
-                    roomChanged = true
-                    linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
-                    message = "Bothy is connected to ${room.name}."
+                    val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+                    val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                    val authenticator = object : RelayAuthenticator {
+                        override val pubkey = signer.pubkey
+                        override suspend fun sign(url: String, challenge: String) = signer.sign(22242, epochSeconds(),
+                            listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                    }
+                    val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url -> route.routeId.takeIf { url == canonical } })
+                    val probe = RelayPool(listOf(canonical), sockets, scope,
+                        authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == canonical } })
+                    try {
+                        probe.start()
+                        kotlinx.coroutines.withTimeout(20_000) { probe.connected.first { canonical in it } }
+                        consent = consent.copy(state = LinkConsentState.ACTIVATING).also(linkConsents::put)
+                        savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
+                            ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                        roomChanged = true
+                        linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
+                        message = "Bothy is connected to ${room.name}."
+                    } finally { probe.stop(); scope.cancel() }
                 } catch (e: Exception) {
                     if (roomChanged) savedRooms.update(room.id) { it.withRelays(room.relays) }
-                    linkConsents.put(consent.copy(state = LinkConsentState.PENDING))
+                    discardLinkConsent(consent)
                     throw RoomRecoveryException("Bothy paired, but its authenticated relay was not ready. Your current relays are unchanged.")
-                } finally { probe.stop(); scope.cancel() }
+                }
                 _start.update { it.copy(savedRooms = savedRooms.list(), error = null, notice = message) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
