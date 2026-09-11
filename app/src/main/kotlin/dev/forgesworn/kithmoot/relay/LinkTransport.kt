@@ -124,6 +124,7 @@ interface LinkTransportRuntime {
 
 interface LinkTransportSession {
     fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket
+    fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute
     fun upsert(route: StoredLinkRoute)
     fun remove(routeId: String)
     fun stop()
@@ -178,6 +179,25 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
         val socket = requireNotNull(engine.javaClass.methods.single { it.name == "openSocket" && it.parameterCount == 3 }
             .invoke(engine, url, routeId, callback))
         return ReflectiveLinkTransportSocket(socket)
+    }
+
+    override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
+        val bundleClass = Class.forName("dev.forgesworn.link.ffi.LinkPairingBundle")
+        val bundle = bundleClass.constructors.single().newInstance(routeId, card.copyOf(), pairingSecret.copyOf(), expiresAt.toLong())
+        val route = requireNotNull(engine.javaClass.methods.single { it.name == "pairRoute" && it.parameterCount == 1 }.invoke(engine, bundle))
+        fun value(name: String): Any = requireNotNull(route.javaClass.methods.single { it.name == name && it.parameterCount == 0 }.invoke(route))
+        fun unsigned(name: String): ULong = when (val raw = value(name)) {
+            is ULong -> raw
+            is Long -> raw.toULong()
+            else -> throw IllegalStateException("The Link bridge returned an invalid $name")
+        }
+        return StoredLinkRoute(
+            value("getRouteId") as String,
+            value("getCard") as ByteArray,
+            value("getPairedRouteSecret") as ByteArray,
+            unsigned("getCardSerial"),
+            unsigned("getCardVerifiedAt"),
+        )
     }
 
     override fun upsert(route: StoredLinkRoute) {
@@ -239,6 +259,26 @@ class LinkTransportManager(
     fun remove(routeId: String) {
         vault.remove(routeId)
         worker.execute { if (!closed) session?.remove(routeId) }
+    }
+
+    /** Pairing is native and blocking, so return its completion without ever blocking the UI thread. */
+    fun pair(card: ByteArray, pairingSecret: ByteArray, expiresAt: Long): java.util.concurrent.CompletableFuture<StoredLinkRoute> {
+        require(card.isNotEmpty() && pairingSecret.size == 16 && expiresAt >= 0)
+        val result = java.util.concurrent.CompletableFuture<StoredLinkRoute>()
+        val routeId = "route-" + Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(16).also(SecureRandom()::nextBytes))
+        worker.execute {
+            try {
+                check(!closed) { "Link transport has stopped" }
+                val route = engine().pair(routeId, card, pairingSecret, expiresAt.toULong())
+                vault.upsert(route)
+                result.complete(route.copyForUse())
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            } finally {
+                pairingSecret.fill(0)
+            }
+        }
+        return result
     }
 
     override fun close() {

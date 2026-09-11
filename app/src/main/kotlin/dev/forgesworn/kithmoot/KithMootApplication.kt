@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.storage.RoomRepository
 import dev.forgesworn.kithmoot.relay.LinkTransportVault
 import dev.forgesworn.kithmoot.relay.LinkTransportManager
 import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
+import dev.forgesworn.kithmoot.relay.LinkConsentVault
 
 /**
  * Owns one serialised repository for saved room access across activities.
@@ -24,6 +25,9 @@ class KithMootApplication : Application() {
 
     /** Link credentials have their own encrypted vault, distinct from rooms and accounts. */
     val linkTransport: LinkTransportVault by lazy { LinkTransportVault(EncryptedRoomStorage(this, "kithmoot.link-transport.v1")) }
+
+    /** Account-and-room permissions are deliberately separate from Link route credentials. */
+    val linkConsents: LinkConsentVault by lazy { LinkConsentVault(EncryptedRoomStorage(this, "kithmoot.link-consent.v1")) }
 
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
