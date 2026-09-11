@@ -41,6 +41,8 @@ class G5ProductJourneyTest {
     @Test fun runs_the_requested_product_admission_action() {
         when (action) {
             "alice-introduction" -> aliceIntroduction()
+            "bob-introduction" -> bobIntroduction()
+            "alice-invitation" -> aliceInvitation()
             "bob-invitation" -> bobInvitation()
             "alice-pair" -> pairAlice()
             "bob-pair" -> pairBob()
@@ -61,7 +63,30 @@ class G5ProductJourneyTest {
             model.startRoom()
         }
         await("Alice's introduction room") { model.stage.value == Stage.ROOM && model.room.value.roomId.isNotBlank() }
-        put("introduction", buildJsonObject { put("url", model.room.value.joinUrl) })
+        put("introduction", buildJsonObject {
+            put("url", model.room.value.joinUrl)
+            put("room", model.room.value.roomId)
+        })
+    }
+
+    private fun bobIntroduction() {
+        val model = model()
+        signIn(model)
+        val introduction = awaitValue("introduction")
+        activity.scenario.onActivity { model.joinFromUrl(introduction.getValue("url").jsonPrimitive.content) }
+        await("Bob's introduction room") {
+            model.stage.value == Stage.ROOM &&
+                model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content &&
+                !model.room.value.privateConversation
+        }
+        put("bob-introduction", buildJsonObject { put("room", model.room.value.roomId) })
+    }
+
+    private fun aliceInvitation() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
+        open(model, room)
         await("Bob's signed room device", details = {
             "tiles=${model.room.value.tiles.size}; peers=${model.room.value.privateConversationPeers.size}; signedIn=${model.start.value.account != null}"
         }) { model.room.value.privateConversationPeers.size == 1 }
@@ -75,10 +100,9 @@ class G5ProductJourneyTest {
 
     private fun bobInvitation() {
         val model = model()
-        signIn(model)
-        val invitation = awaitValue("introduction").getValue("url").jsonPrimitive.content
-        activity.scenario.onActivity { model.joinFromUrl(invitation) }
-        await("Bob's introduction room") { model.stage.value == Stage.ROOM && !model.room.value.privateConversation }
+        restoreSignIn(model)
+        val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
+        open(model, room)
         await("Alice's sealed private invitation") { model.room.value.chat.any { it.invite != null } }
         val message = model.room.value.chat.first { it.invite != null }
         activity.scenario.onActivity { model.openPrivateConversation(message) }
@@ -96,7 +120,7 @@ class G5ProductJourneyTest {
 
     private fun pair(who: String, expectGrants: Boolean) {
         val model = model()
-        signIn(model)
+        restoreSignIn(model)
         val room = awaitValue("$who-dm").getValue("room").jsonPrimitive.content
         val pairing = post("pairing").getValue("uri").jsonPrimitive.content
         activity.scenario.onActivity { model.pairBothy(room, pairing) }
@@ -109,7 +133,7 @@ class G5ProductJourneyTest {
 
     private fun aliceSend() {
         val model = model()
-        signIn(model)
+        restoreSignIn(model)
         val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
         open(model, room)
         activity.scenario.onActivity { model.sendChat(ALICE_MESSAGE) }
@@ -119,7 +143,7 @@ class G5ProductJourneyTest {
 
     private fun bobReceiveAndReply() {
         val model = model()
-        signIn(model)
+        restoreSignIn(model)
         val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
         open(model, room)
         await("Bob's received encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
@@ -130,7 +154,7 @@ class G5ProductJourneyTest {
 
     private fun aliceRestored() {
         val model = model()
-        signIn(model)
+        restoreSignIn(model)
         val room = awaitValue("alice-sent").getValue("room").jsonPrimitive.content
         open(model, room)
         await("Alice's retained reply after process restart") { model.room.value.chat.any { it.body == BOB_REPLY } }
@@ -149,6 +173,11 @@ class G5ProductJourneyTest {
         await("fixture signer discovery") { model.start.value.signers.any { it.packageName == signerPackage } }
         activity.scenario.onActivity { model.signInWithSignerApp(signerPackage) }
         await("NIP-55 account sign-in") { model.start.value.account != null && !model.start.value.signingIn }
+        assertEquals("nip55", model.start.value.account?.method)
+    }
+
+    private fun restoreSignIn(model: RoomViewModel) {
+        await("saved NIP-55 account restore") { model.start.value.account != null }
         assertEquals("nip55", model.start.value.account?.method)
     }
 
