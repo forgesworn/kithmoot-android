@@ -159,9 +159,17 @@ class G5ProductJourneyTest {
         restoreSignIn(model)
         val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
         open(model, room)
-        activity.scenario.onActivity { model.sendChat(ALICE_MESSAGE) }
+        activity.scenario.onActivity {
+            model.sendChat(ALICE_MESSAGE)
+            assertTrue(
+                "Alice's send must start from the reopened room",
+                model.room.value.chatSending || model.room.value.chat.any { it.body == ALICE_MESSAGE },
+            )
+        }
         await("Alice's retained encrypted message", details = {
-            "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}"
+            "stage=${model.stage.value}; room=${model.room.value.roomId}; relaysUp=${model.room.value.relaysUp}; " +
+                "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}; " +
+                "connected=${model.start.value.linkConnectedRooms.contains(room)}"
         }) { !model.room.value.chatSending && model.room.value.chat.any { it.body == ALICE_MESSAGE } }
         put("alice-sent", buildJsonObject { put("room", room) })
     }
