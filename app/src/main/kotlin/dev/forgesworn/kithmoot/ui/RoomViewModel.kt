@@ -151,6 +151,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
@@ -2050,6 +2051,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         scope.launch(Dispatchers.IO) {
             try {
                 check(live.sendChatConfirmed(body, reaction)) { "No relay confirmed this message." }
+            } catch (_: TimeoutCancellationException) {
+                if (session === live) {
+                    val message = "No relay confirmed this message."
+                    _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

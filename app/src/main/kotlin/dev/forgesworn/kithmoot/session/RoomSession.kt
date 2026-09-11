@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
+private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
+
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
  * none of them changes what is correct.
@@ -357,7 +359,7 @@ class RoomSession(
             reaction = reaction,
         )
         val message = decodeOwnChat(event, sentAt)
-        if (!transport.publishConfirmed(event)) return false
+        if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         ingestChat(message)
         return true
     }
@@ -377,7 +379,7 @@ class RoomSession(
             invite = invite,
         )
         val message = decodeOwnChat(event, sentAt)
-        if (!transport.publishConfirmed(event)) return false
+        if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         ingestChat(message)
         return true
     }
