@@ -127,6 +127,9 @@ class G5ProductJourneyTest {
         val alice = awaitValue("alice-dm")
         assertEquals(alice.getValue("room").jsonPrimitive.content, model.room.value.roomId)
         put("bob-dm", buildJsonObject { put("room", model.room.value.roomId); put("participant", model.room.value.selfParticipant); put("device", model.room.value.selfDevice) })
+        await("Bob's current private-room roster is retained") {
+            get("journey-roster/bob-dm").getValue("stored").jsonPrimitive.content == "true"
+        }
     }
 
     private fun pairAlice() = pair("alice", expectGrants = true)
@@ -139,7 +142,9 @@ class G5ProductJourneyTest {
         val room = awaitValue("$who-dm").getValue("room").jsonPrimitive.content
         val pairing = post("pairing").getValue("uri").jsonPrimitive.content
         activity.scenario.onActivity { model.pairBothy(room, pairing) }
-        await("$who Bothy pairing") {
+        await("$who Bothy pairing", details = {
+            "busy=${model.start.value.busy}; error=${model.start.value.error}; notice=${model.start.value.notice}; connected=${model.start.value.linkConnectedRooms.contains(room)}; grantOwner=${model.start.value.linkGrantOwnerRooms.contains(room)}"
+        }) {
             !model.start.value.busy && model.start.value.linkConnectedRooms.contains(room)
         }
         assertEquals(expectGrants, model.start.value.linkGrantOwnerRooms.contains(room))
