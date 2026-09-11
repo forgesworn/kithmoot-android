@@ -18,6 +18,10 @@ fun interface Nip55Bridge {
     suspend fun request(intent: Intent): Intent?
 }
 
+/** Build an opaque signer URI without letting payload `#` or `?` become URI metadata. */
+internal fun nip55PayloadUri(payload: String): Uri =
+    Uri.Builder().scheme(Nip55.SCHEME).opaquePart(payload).build()
+
 /** A signer app installed on this phone that answers `nostrsigner:` intents. */
 data class InstalledSigner(val packageName: String, val label: String)
 
@@ -84,7 +88,7 @@ class Nip55Signer(
     }
 
     private suspend fun ask(type: String, payload: String, peer: String? = null): Intent? {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${Nip55.SCHEME}:$payload")).apply {
+        val intent = Intent(Intent.ACTION_VIEW, nip55PayloadUri(payload)).apply {
             `package` = packageName
             putExtra("type", type)
             putExtra("id", java.util.UUID.randomUUID().toString())
