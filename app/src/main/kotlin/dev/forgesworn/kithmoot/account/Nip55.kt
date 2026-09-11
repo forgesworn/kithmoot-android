@@ -23,12 +23,15 @@ object Nip55 {
     const val TYPE_NIP44_ENCRYPT = "nip44_encrypt"
     const val TYPE_NIP44_DECRYPT = "nip44_decrypt"
 
-    /** What KithMoot asks for up front: a credential per room, and the person's own encryption. */
-    fun permissions(): String = JsonArray(listOf(
-        buildJsonObject { put("type", TYPE_SIGN_EVENT); put("kind", 20460) },
-        buildJsonObject { put("type", TYPE_NIP44_ENCRYPT) },
-        buildJsonObject { put("type", TYPE_NIP44_DECRYPT) },
-    )).toString()
+    /** Base room permissions, plus operation-specific event kinds requested at the moment of use. */
+    fun permissions(additionalKinds: Collection<Int> = emptyList()): String = JsonArray(
+        (listOf(20460) + additionalKinds).distinct().map { kind ->
+            buildJsonObject { put("type", TYPE_SIGN_EVENT); put("kind", kind) }
+        } + listOf(
+            buildJsonObject { put("type", TYPE_NIP44_ENCRYPT) },
+            buildJsonObject { put("type", TYPE_NIP44_DECRYPT) },
+        ),
+    ).toString()
 
     /** A signer answers `get_public_key` with an npub or hex; both are the same key. */
     fun publicKeyFromResult(result: String?): String? = result?.let(::publicKeyFrom)

@@ -62,6 +62,21 @@ class Nip55Signer(
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String = crypt(Nip55.TYPE_NIP44_ENCRYPT, peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String): String = crypt(Nip55.TYPE_NIP44_DECRYPT, peer, payload)
 
+    /** Show the signer when an optional product journey needs more authority than ordinary rooms. */
+    suspend fun requestPermissions(kinds: Collection<Int>) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${Nip55.SCHEME}:")).apply {
+            `package` = packageName
+            putExtra("type", Nip55.TYPE_GET_PUBLIC_KEY)
+            putExtra("id", java.util.UUID.randomUUID().toString())
+            putExtra("current_user", pubkey)
+            putExtra("permissions", Nip55.permissions(kinds))
+        }
+        val answer = bridge.request(intent) ?: throw SignerException("Bothy permission was cancelled in ${appLabel()}.")
+        if (answer.getBooleanExtra("rejected", false)) throw SignerException("${appLabel()} declined Bothy permission.")
+        val confirmed = Nip55.publicKeyFromResult(answer.getStringExtra("result") ?: answer.getStringExtra("signature"))
+        if (confirmed != pubkey) throw SignerException("${appLabel()} answered for a different account.")
+    }
+
     private suspend fun crypt(type: String, peer: String, payload: String): String {
         viaProvider(type, payload, peer)?.first?.let { return it }
         val answer = ask(type, payload, peer) ?: throw SignerException("Cancelled in ${appLabel()}.")

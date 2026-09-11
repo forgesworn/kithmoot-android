@@ -4,12 +4,26 @@ import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.KIND_DEVICE_CREDENTIAL
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
 
 class SignInContractsTest {
     private val remote = Entropy.bytes(32)
     private val remotePubkey = Schnorr.publicKeyHex(remote)
+
+    @Test fun `Bothy permissions add authentication and grant signing to the base request`() {
+        val permissions = Json.parseToJsonElement(Nip55.permissions(listOf(22242, 24242))).jsonArray
+        assertEquals(listOf("20460", "22242", "24242"), permissions.take(3).map {
+            it.jsonObject.getValue("kind").jsonPrimitive.content
+        })
+        assertEquals(listOf("nip44_encrypt", "nip44_decrypt"), permissions.drop(3).map {
+            it.jsonObject.getValue("type").jsonPrimitive.content
+        })
+    }
 
     @Test fun `a bunker link names the signer, its relays and the secret`() {
         val pointer = BunkerPointer.parse("bunker://$remotePubkey?relay=wss%3A%2F%2Frelay.example&relay=wss://two.example&secret=s3cret")!!

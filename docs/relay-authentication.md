@@ -1,7 +1,7 @@
 # Sheltered relay authentication
 
-This pins KithMoot's client side of Vennel G3/G4 slice 5 against Android
-`6abcd62`, Bothy Node `dbc85d5`, and ForgeSworn Link `f8a6469`. The frozen wire
+This pins KithMoot's client side of Vennel G3-G5 against Android
+`2d5eb2b`, Bothy Node `5481a1a`, and ForgeSworn Link `6bb5242`. The frozen wire
 and authority contract remains
 `vennel/docs/gate/2026-09-10-g3-g4-integration-contracts.md`.
 
@@ -84,7 +84,28 @@ JVM fakes must show:
 8. hostile and oversized AUTH frames cannot call the signer or kill an
    otherwise valid public connection.
 
-This slice does not enable a Bothy route in the product. Native library
-packaging, encrypted Link state, consent UI, grant issue/revoke and relay-set
-cutover remain slice 6, so merging this state machine changes no current user
-journey.
+## Circle grant lifecycle
+
+Connect Bothy now distinguishes the persistent DM creator from its guest. The
+creator reads the other participant's fresh, signed kind `20461` roster on the
+existing room relays, explicitly asks the selected NIP-55 signer for kinds
+`22242` and `24242`, and signs an active and terminal revoked event for every
+current guest device. Both exact events are encrypted in the consent vault
+before publication. KithMoot publishes the active events only through the
+keeper-authenticated paired Bothy route, requires `OK true`, and commits the
+room's relay cutover afterwards. A guest requests kind `22242`, pairs its own
+route, answers NIP-42, and publishes a fresh signed kind `20461` roster event
+through Bothy. Its confirmed write proves the creator's grant matches this
+exact persona, room, device and kind; only then does KithMoot switch the guest's
+relay set.
+
+The pre-signed revocation makes every crash boundary recoverable without
+retaining an account secret. An interrupted creator install, explicit guest
+revocation, or disconnect retries the exact signed event; Bothy `5481a1a`
+treats an exact retained replay as an idempotent receipt without advancing its
+authority generation. KithMoot retains the Link route until revocation is
+confirmed. The creator can revoke guest access while keeping the room on Bothy;
+the guest socket and subscriptions close under Bothy's authority generation.
+Disconnect restores the prior relay set only after that cleanup. A guest who
+did not issue the remote grant withdraws their local route; the creator remains
+the authority that can revoke the remote grant before its expiry.

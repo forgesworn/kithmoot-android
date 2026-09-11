@@ -151,6 +151,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onProject = model::setRoomProject,
                 onPairBothy = model::pairBothy,
                 onDisconnectBothy = model::disconnectBothy,
+                onRevokeBothyGuests = model::revokeBothyGuests,
                 onRetryStorage = model::refreshSavedRooms,
                 onAddOfferedCard = model::addOfferedCard,
                 onDismissCardOffer = model::dismissCardOffer,
