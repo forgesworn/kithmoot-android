@@ -113,7 +113,9 @@ class G5ProductJourneyTest {
         await("Alice's sealed private invitation") { model.room.value.chat.any { it.invite != null } }
         val message = model.room.value.chat.first { it.invite != null }
         activity.scenario.onActivity { model.openPrivateConversation(message) }
-        await("Bob's deliberately opened private conversation") {
+        await("Bob's deliberately opened private conversation", details = {
+            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}"
+        }) {
             model.stage.value == Stage.ROOM && model.room.value.privateConversation && !model.room.value.privateConversationBusy
         }
         val alice = awaitValue("alice-dm")
