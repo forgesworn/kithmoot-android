@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.g5
 
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.relay.LinkTransportManager
 import dev.forgesworn.kithmoot.relay.LinkTransportVault
@@ -14,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /**
@@ -26,7 +28,7 @@ class G5NativeRouteTest {
         val control = requireNotNull(InstrumentationRegistry.getArguments().getString("fixture_control")) {
             "fixture_control is required"
         }.removeSuffix("/")
-        val pairing = BothyPairing.parse(postJson("$control/pairing").getValue("uri").jsonPrimitive.content, epochSeconds())
+        val pairing = pairing(postJson("$control/pairing").getValue("uri").jsonPrimitive.content)
         val manager = LinkTransportManager(LinkTransportVault(MemoryStorage()), ReflectiveLinkTransportRuntime())
         try {
             val route = manager.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
@@ -36,6 +38,28 @@ class G5NativeRouteTest {
             manager.close()
         }
     }
+
+    private fun pairing(uri: String): NativePairing = try {
+        BothyPairing.parse(uri, epochSeconds()).let {
+            NativePairing(it.card, it.pairingSecret, it.expiresAt)
+        }
+    } catch (error: IllegalArgumentException) {
+        // The ignored loopback diagnostic deliberately uses plain ws over an
+        // adb-reversed localhost socket. Production pairing still goes through
+        // BothyPairing's WebPKI-only verifier above.
+        val root = Json.parseToJsonElement(
+            Base64.getUrlDecoder().decode(uri.removePrefix("bothy:")).decodeToString(),
+        ).jsonObject
+        val card = Base64.getDecoder().decode(root.getValue("card").jsonPrimitive.content)
+        require(card.decodeToString().contains("ws://127.0.0.1:")) { throw error }
+        NativePairing(
+            card,
+            root.getValue("secret").jsonPrimitive.content.hexToBytes(),
+            root.getValue("exp").jsonPrimitive.content.toLong(),
+        )
+    }
+
+    private data class NativePairing(val card: ByteArray, val pairingSecret: ByteArray, val expiresAt: Long)
 
     private fun postJson(url: String) = URL(url).openConnection().let { connection ->
         connection as HttpURLConnection
