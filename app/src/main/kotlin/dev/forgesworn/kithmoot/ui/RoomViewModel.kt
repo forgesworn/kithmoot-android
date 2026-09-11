@@ -1025,7 +1025,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     RosterEntry(identity.participant, identity.devicePubkey, identity.credential, updatedAt = at),
                     room.id, room.secret, identity.deviceSecretKey,
                 )
-                val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
+                val route = try {
+                    linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
+                } catch (error: java.util.concurrent.ExecutionException) {
+                    throw error.cause ?: error
+                }
                 var consent = LinkConsent(account.pubkey, room.id, pairing.linkNodeId, route.routeId,
                     canonical, room.relays, LinkConsentState.PENDING, plans)
                 try { linkConsents.put(consent) } catch (e: Exception) {

@@ -5,6 +5,8 @@ import dev.forgesworn.kithmoot.storage.RoomStorageException
 import java.security.SecureRandom
 import java.util.Base64
 import java.lang.reflect.Proxy
+import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -153,7 +155,7 @@ class ReflectiveLinkTransportRuntime : LinkTransportRuntime {
         ) }
         val config = configClass.constructors.single().newInstance(state.transportSeed.copyOf(), emptyList<String>(), false, routes)
         val companion = requireNotNull(engineClass.getField("Companion").get(null))
-        val engine = requireNotNull(companion.javaClass.methods.single { it.name == "start" && it.parameterCount == 1 }.invoke(companion, config))
+        val engine = requireNotNull(invokeReflected(companion.javaClass.methods.single { it.name == "start" && it.parameterCount == 1 }, companion, config))
         return ReflectiveLinkTransportSession(engine, routeClass)
     }
 
@@ -176,18 +178,17 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
             }
             null
         }
-        val socket = requireNotNull(engine.javaClass.methods.single { it.name == "openSocket" && it.parameterCount == 3 }
-            .invoke(engine, url, routeId, callback))
+        val socket = requireNotNull(invokeReflected(engine.javaClass.methods.single { it.name == "openSocket" && it.parameterCount == 3 }, engine, url, routeId, callback))
         return ReflectiveLinkTransportSocket(socket)
     }
 
     override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
         val bundleClass = Class.forName("dev.forgesworn.link.ffi.LinkPairingBundle")
         val bundle = constructRecord(bundleClass, routeId, card.copyOf(), pairingSecret.copyOf(), expiresAt.toLong())
-        val route = requireNotNull(engine.javaClass.methods.single { it.name == "pairRoute" && it.parameterCount == 1 }.invoke(engine, bundle))
+        val route = requireNotNull(invokeReflected(engine.javaClass.methods.single { it.name == "pairRoute" && it.parameterCount == 1 }, engine, bundle))
         fun value(name: String): Any = requireNotNull(route.javaClass.methods.single {
             (it.name == name || it.name.startsWith("$name-")) && it.parameterCount == 0
-        }.invoke(route))
+        }.let { invokeReflected(it, route) })
         fun unsigned(name: String): ULong = when (val raw = value(name)) {
             is ULong -> raw
             is Long -> raw.toULong()
@@ -213,7 +214,18 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
     }
     private fun invoke(name: String, vararg args: Any?) = engine.javaClass.methods.single {
         it.name == name && it.parameterCount == args.size
-    }.invoke(engine, *args)
+    }.let { invokeReflected(it, engine, *args) }
+}
+
+/** Reflection is only an optional-binding boundary; preserve the native cause for recovery and support. */
+private fun invokeReflected(method: Method, receiver: Any, vararg args: Any?): Any? = try {
+    method.invoke(receiver, *args)
+} catch (error: InvocationTargetException) {
+    when (val cause = error.targetException) {
+        is Exception -> throw cause
+        is Error -> throw cause
+        else -> throw IllegalStateException("The Link bridge call failed", cause)
+    }
 }
 
 /** UniFFI's Kotlin records with unsigned fields gain one JVM marker parameter. */
@@ -233,7 +245,7 @@ private class ReflectiveLinkTransportSocket(private val socket: Any) : LinkTrans
     override fun dispose() { (socket as? AutoCloseable)?.close() }
     private fun invoke(name: String, vararg args: Any?) = socket.javaClass.methods.single {
         it.name == name && it.parameterCount == args.size
-    }.invoke(socket, *args)
+    }.let { invokeReflected(it, socket, *args) }
 }
 
 /**
