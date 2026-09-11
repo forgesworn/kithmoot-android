@@ -63,6 +63,7 @@ fun StartScreen(
     var filedAs by remember { mutableStateOf("") }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
+    var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
     // on the project the person was last working in.
     val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
@@ -182,7 +183,7 @@ fun StartScreen(
                                         TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
                                         if (room.id in state.linkConnectedRooms) {
-                                            TextButton({ onDisconnectBothy(room.id) }, enabled = enabled && room.account == state.account?.pubkey,
+                                            TextButton({ disconnectingRoom = room }, enabled = enabled && room.account == state.account?.pubkey,
                                                 modifier = Modifier.semantics { contentDescription = "Disconnect Bothy from ${room.name}" }) { Text("Disconnect Bothy") }
                                         } else TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
                                             modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
@@ -199,11 +200,17 @@ fun StartScreen(
             pairingRoom?.let { room ->
                 AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
                     text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Paste the Bothy pairing code. It is bound to ${room.name} and your current signed-in account.")
+                        Text("Paste the Bothy pairing code. KithMoot will verify Bothy and switch this room only after its authenticated relay is ready. Disconnecting later restores the current relays.")
                         OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
                     } },
-                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair") } },
+                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair and switch") } },
                     dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
+            }
+            disconnectingRoom?.let { room ->
+                AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
+                    text = { Text("${room.name} will return to the relays it used before Bothy. Its local Link route and consent will be removed.") },
+                    confirmButton = { Button({ onDisconnectBothy(room.id); disconnectingRoom = null }, enabled = enabled) { Text("Disconnect") } },
+                    dismissButton = { TextButton({ disconnectingRoom = null }) { Text("Cancel") } })
             }
 
             OutlinedCard(Modifier.fillMaxWidth()) {
