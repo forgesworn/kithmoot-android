@@ -86,7 +86,7 @@ class G5ProductJourneyTest {
         val model = model()
         restoreSignIn(model)
         val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
-        open(model, room)
+        open(model, room, privateConversation = false)
         await("Bob's signed room device", details = {
             "tiles=${model.room.value.tiles.size}; peers=${model.room.value.privateConversationPeers.size}; signedIn=${model.start.value.account != null}"
         }) { model.room.value.privateConversationPeers.size == 1 }
@@ -102,7 +102,7 @@ class G5ProductJourneyTest {
         val model = model()
         restoreSignIn(model)
         val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
-        open(model, room)
+        open(model, room, privateConversation = false)
         await("Alice's sealed private invitation") { model.room.value.chat.any { it.invite != null } }
         val message = model.room.value.chat.first { it.invite != null }
         activity.scenario.onActivity { model.openPrivateConversation(message) }
@@ -161,10 +161,11 @@ class G5ProductJourneyTest {
         put("alice-restored", buildJsonObject { put("room", room) })
     }
 
-    private fun open(model: RoomViewModel, room: String) {
+    private fun open(model: RoomViewModel, room: String, privateConversation: Boolean = true) {
         activity.scenario.onActivity { model.reopenRoom(room) }
-        await("saved private conversation") {
-            model.stage.value == Stage.ROOM && model.room.value.roomId == room && model.room.value.privateConversation
+        await("saved room") {
+            model.stage.value == Stage.ROOM && model.room.value.roomId == room &&
+                model.room.value.privateConversation == privateConversation
         }
     }
 
