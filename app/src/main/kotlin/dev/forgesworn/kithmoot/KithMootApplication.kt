@@ -5,6 +5,9 @@ import dev.forgesworn.kithmoot.account.AccountStore
 import dev.forgesworn.kithmoot.storage.ContactBook
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
 import dev.forgesworn.kithmoot.storage.RoomRepository
+import dev.forgesworn.kithmoot.relay.LinkTransportVault
+import dev.forgesworn.kithmoot.relay.LinkTransportManager
+import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
 
 /**
  * Owns one serialised repository for saved room access across activities.
@@ -18,4 +21,10 @@ class KithMootApplication : Application() {
 
     /** The people this phone holds a contact card for, in their own vault. */
     val contacts: ContactBook by lazy { ContactBook(EncryptedRoomStorage(this, "kithmoot.contacts.v1")) }
+
+    /** Link credentials have their own encrypted vault, distinct from rooms and accounts. */
+    val linkTransport: LinkTransportVault by lazy { LinkTransportVault(EncryptedRoomStorage(this, "kithmoot.link-transport.v1")) }
+
+    /** One engine owner for the whole process; room consent selects any usable route later. */
+    val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
 }
