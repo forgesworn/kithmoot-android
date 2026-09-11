@@ -42,6 +42,7 @@ fun StartScreen(
     onRename: (String, String) -> Unit,
     onProject: (String, String) -> Unit,
     onPairBothy: (String, String) -> Unit = { _, _ -> },
+    onDisconnectBothy: (String) -> Unit = {},
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -101,6 +102,8 @@ fun StartScreen(
                 Text(state.error, color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
+            state.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
 
             // A contact card opened as a link: said for what it is, and kept
             // only on a press. Nothing is kept by merely opening the link.
@@ -178,7 +181,10 @@ fun StartScreen(
                                             modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
                                         TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
-                                        TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
+                                        if (room.id in state.linkConnectedRooms) {
+                                            TextButton({ onDisconnectBothy(room.id) }, enabled = enabled && room.account == state.account?.pubkey,
+                                                modifier = Modifier.semantics { contentDescription = "Disconnect Bothy from ${room.name}" }) { Text("Disconnect Bothy") }
+                                        } else TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
                                             modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
