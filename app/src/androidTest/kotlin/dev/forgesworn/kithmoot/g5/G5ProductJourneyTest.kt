@@ -157,7 +157,9 @@ class G5ProductJourneyTest {
         val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
         open(model, room)
         activity.scenario.onActivity { model.sendChat(ALICE_MESSAGE) }
-        await("Alice's retained encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
+        await("Alice's retained encrypted message", details = {
+            "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}"
+        }) { !model.room.value.chatSending && model.room.value.chat.any { it.body == ALICE_MESSAGE } }
         put("alice-sent", buildJsonObject { put("room", room) })
     }
 
@@ -168,7 +170,9 @@ class G5ProductJourneyTest {
         open(model, room)
         await("Bob's received encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
         activity.scenario.onActivity { model.sendChat(BOB_REPLY) }
-        await("Bob's retained encrypted reply") { model.room.value.chat.any { it.body == BOB_REPLY } }
+        await("Bob's retained encrypted reply", details = {
+            "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}"
+        }) { !model.room.value.chatSending && model.room.value.chat.any { it.body == BOB_REPLY } }
         put("bob-replied", buildJsonObject { put("room", room) })
     }
 

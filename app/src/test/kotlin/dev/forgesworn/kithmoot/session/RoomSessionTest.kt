@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -175,6 +176,24 @@ class RoomSessionTest {
         runCurrent()
 
         assertEquals(0, relay.countOfKind(KIND_CHAT))
+    }
+
+    @Test
+    fun `confirmed chat is shown only after a relay accepts it`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val mine = session(room, Fixtures.primary(room, 1, 2), relay)
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        relay.confirmsPublications = false
+        assertFalse(mine.sendChatConfirmed("Keep this"))
+        assertTrue(mine.chat.value.isEmpty())
+
+        relay.confirmsPublications = true
+        assertTrue(mine.sendChatConfirmed("Keep this"))
+        assertEquals("Keep this", mine.chat.value.single().body)
     }
 
     @Test

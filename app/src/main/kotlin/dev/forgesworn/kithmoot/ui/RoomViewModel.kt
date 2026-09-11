@@ -110,6 +110,7 @@ import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.ChatReaction
 import dev.forgesworn.kithmoot.session.decodePrivateConversationInvite
 import dev.forgesworn.kithmoot.session.dmPolicy
 import dev.forgesworn.kithmoot.session.invitePeer
@@ -299,6 +300,8 @@ data class RoomState(
     val workBusy: Boolean = false,
     val workError: String? = null,
     val workCompleted: Long = 0,
+    val chatSending: Boolean = false,
+    val chatSendError: String? = null,
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -2033,8 +2036,27 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
     }
 
-    fun sendChat(body: String) = act {
-        try { session?.sendChat(body) } catch (e: IllegalStateException) { note(e.message ?: "Could not send.") } catch (e: IllegalArgumentException) { note(e.message ?: "Could not send.") }
+    fun sendChat(body: String) = sendChat(body, null)
+
+    private fun sendChat(body: String, reaction: ChatReaction?) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        if (_room.value.chatSending) return
+        _room.update { it.copy(chatSending = true, chatSendError = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                check(live.sendChatConfirmed(body, reaction)) { "No relay confirmed this message." }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (session === live) {
+                    val message = error.message ?: "The message could not be confirmed."
+                    _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
+                }
+            } finally {
+                if (session === live) _room.update { it.copy(chatSending = false) }
+            }
+        }
     }
 
     /** Create, retain and signer-seal a two-person room before leaving the introduction room. */
@@ -2201,10 +2223,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun react(message: ChatMessage, emoji: String) = act {
-        val live = session ?: return@act
+        if (session == null) return@act
         runCatching {
             val reaction = dev.forgesworn.kithmoot.session.toggleReaction(_room.value.chat, message, _room.value.selfParticipant, emoji)
-            live.sendChat(dev.forgesworn.kithmoot.session.reactionText(reaction), reaction)
+            sendChat(dev.forgesworn.kithmoot.session.reactionText(reaction), reaction)
         }.onFailure { note("The reaction could not be sent. Try again.") }
     }
 

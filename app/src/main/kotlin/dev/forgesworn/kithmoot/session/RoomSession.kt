@@ -339,6 +339,28 @@ class RoomSession(
         decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
     }
 
+    /** A person's message is shown as sent only after at least one relay accepts it. */
+    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null): Boolean {
+        val text = body.trim()
+        if (text.isEmpty()) return false
+        require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
+        val sentAt = now()
+        val event = encodeChatEvent(
+            body = text,
+            participant = identity.participant,
+            credential = identity.credential,
+            roomId = room.roomId,
+            roomKey = room.roomKey,
+            deviceSecretKey = identity.deviceSecretKey,
+            sentAt = sentAt,
+            proof = proof,
+            reaction = reaction,
+        )
+        if (!transport.publishConfirmed(event)) return false
+        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        return true
+    }
+
     /** A room capability is exposed only after at least one relay confirms its durable event. */
     suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
         val sentAt = now()
