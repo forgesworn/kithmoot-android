@@ -30,10 +30,18 @@ class FakeRelay {
     /** Everything anybody published, in order. Counting these proves the absence of a storm. */
     val published = mutableListOf<NostrEvent>()
 
+    /** Whether the relay confirms a durable publication. */
+    var confirmsPublications: Boolean = true
+
     private val subscriptions = mutableListOf<Subscription>()
 
     fun transport(): RoomTransport = object : RoomTransport {
         override fun publish(event: NostrEvent) = this@FakeRelay.publish(event)
+
+        override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+            if (confirmsPublications) this@FakeRelay.publish(event)
+            return confirmsPublications
+        }
 
         override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
             val subscription = Subscription(filters)

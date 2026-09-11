@@ -1,11 +1,14 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.hexEquals
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.protocol.KindredTier
+import dev.forgesworn.kithmoot.protocol.InvitationPayload
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
+import dev.forgesworn.kithmoot.protocol.decodeInvitationUrl
 
 /**
  * Direct messages. A DM is a room whose link admits two members; its link
@@ -31,20 +34,30 @@ fun dmPeer(policy: RoomPolicy?, self: String): String? {
     return members.firstOrNull { !it.hexEquals(self) }
 }
 
+/** The peer whose signer can open an invitation, from either participant's copy. */
+fun invitePeer(invite: ChatInvite, self: String, sender: String): String? = when {
+    invite.to.hexEquals(self) -> sender.normaliseHex()
+    sender.hexEquals(self) -> invite.to.normaliseHex()
+    else -> null
+}
+
 /**
  * The link inside an invitation, for the addressee or for the sender's own
  * other devices, or null for anybody else: the conversation key is the same
  * from either end, and nobody else is given a decrypt to try.
  */
 fun openInvite(invite: ChatInvite, self: String, sender: String, participantSecretKey: ByteArray): String? {
-    val peer = when {
-        invite.to.hexEquals(self) -> sender
-        sender.hexEquals(self) -> invite.to
-        else -> return null
-    }
+    val peer = invitePeer(invite, self, sender) ?: return null
     return runCatching {
         Nip44.decrypt(invite.link, Nip44.conversationKey(participantSecretKey, peer.normaliseHex().hexToBytes()))
     }.getOrNull()?.takeIf { it.isNotEmpty() }
+}
+
+/** Open a DM invitation without bringing the participant secret onto this device. */
+suspend fun openInvite(invite: ChatInvite, self: String, sender: String, signer: ParticipantSigner): String? {
+    if (!signer.pubkey.hexEquals(self)) return null
+    val peer = invitePeer(invite, self, sender) ?: return null
+    return runCatching { signer.nip44Decrypt(peer, invite.link) }.getOrNull()?.takeIf { it.isNotEmpty() }
 }
 
 /** Seal a DM room's link to one participant. */
@@ -53,4 +66,25 @@ fun sealInvite(link: String, to: String, room: String, participantSecretKey: Byt
     val key = Nip44.conversationKey(participantSecretKey, to.normaliseHex().hexToBytes())
     val sealed = if (nonce == null) Nip44.encrypt(link, key) else Nip44.encrypt(link, key, nonce)
     return ChatInvite(to.normaliseHex(), room.normaliseHex(), sealed)
+}
+
+/** Seal a DM invitation without bringing the participant secret onto this device. */
+suspend fun sealInvite(link: String, to: String, room: String, signer: ParticipantSigner): ChatInvite {
+    require(link.isNotEmpty()) { "an invitation needs a link" }
+    val peer = to.normaliseHex()
+    return ChatInvite(peer, room.normaliseHex(), signer.nip44Encrypt(peer, link))
+}
+
+/** Refuse an opened envelope unless it is the exact persistent two-person room it claims to be. */
+fun decodePrivateConversationInvite(
+    link: String,
+    invite: ChatInvite,
+    self: String,
+    sender: String,
+): InvitationPayload? = try {
+    val peer = invitePeer(invite, self, sender) ?: return null
+    val payload = decodeInvitationUrl(link) ?: return null
+    payload.takeIf { it.invitation.persistent && it.policy == dmPolicy(self, peer) }
+} catch (_: Exception) {
+    null
 }

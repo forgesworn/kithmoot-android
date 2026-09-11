@@ -339,6 +339,25 @@ class RoomSession(
         decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
     }
 
+    /** A room capability is exposed only after at least one relay confirms its durable event. */
+    suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
+        val sentAt = now()
+        val event = encodeChatEvent(
+            body = inviteText(),
+            participant = identity.participant,
+            credential = identity.credential,
+            roomId = room.roomId,
+            roomKey = room.roomKey,
+            deviceSecretKey = identity.deviceSecretKey,
+            sentAt = sentAt,
+            proof = proof,
+            invite = invite,
+        )
+        if (!transport.publishConfirmed(event)) return false
+        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        return true
+    }
+
     fun sendSignal(toDevice: String, body: SignalBody) {
         transport.publish(
             wrapSignal(
