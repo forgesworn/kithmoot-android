@@ -10,13 +10,16 @@ import kotlinx.serialization.json.long
 /** A scanned Bothy code with its bearer secret deliberately redacted from logs. */
 class BothyPairing private constructor(
     val card: ByteArray,
-    val bothyNodeId: String,
+    /** Bothy's Nostr identity, used by the claim/status authority. */
+    val bothyPubkey: String,
+    /** The distinct ForgeSworn Link transport identity signed by [card]. */
+    val linkNodeId: String,
     val pairingSecret: ByteArray,
     val expiresAt: Long,
     val role: String,
     val name: String,
 ) {
-    override fun toString() = "BothyPairing(node=$bothyNodeId, expiresAt=$expiresAt, role=$role, name=$name, secret=<redacted>)"
+    override fun toString() = "BothyPairing(bothy=$bothyPubkey, link=$linkNodeId, expiresAt=$expiresAt, role=$role, name=$name, secret=<redacted>)"
 
     companion object {
         private const val MAX_TTL_SECONDS = 600L
@@ -40,8 +43,8 @@ class BothyPairing private constructor(
             require(Base64.getEncoder().encodeToString(card) == encodedCard) { "The pairing card is not canonical." }
             val verified = LinkCards.verify(card, now)
             require(verified is LinkVerdict.Ok) { "The pairing card was refused." }
-            val node = root.getValue("bothy").jsonPrimitive.content
-            require(HEX_64.matches(node) && node == verified.card.nodeId) { "The pairing code does not match its Link card." }
+            val bothy = root.getValue("bothy").jsonPrimitive.content
+            require(HEX_64.matches(bothy)) { "The Bothy identity is not valid." }
             val secretHex = root.getValue("secret").jsonPrimitive.content
             require(SECRET.matches(secretHex)) { "The pairing secret is not valid." }
             val expiresAt = root.getValue("exp").jsonPrimitive.long
@@ -50,7 +53,7 @@ class BothyPairing private constructor(
             require(role == "phone" || role == "box") { "The pairing role is not valid." }
             val name = root.getValue("name").jsonPrimitive.content
             require(name.isNotBlank() && name.length <= 80 && name.none { it.isISOControl() }) { "The pairing name is not valid." }
-            return BothyPairing(card, node, secretHex.hexToBytes().also { require(it.size == 16) }, expiresAt, role, name)
+            return BothyPairing(card, bothy, verified.card.nodeId, secretHex.hexToBytes().also { require(it.size == 16) }, expiresAt, role, name)
         }
     }
 }

@@ -1014,7 +1014,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val issuesGrants = room.host(epochSeconds()) != null
                 val guests = if (issuesGrants) circleGuestDevices(room, account.pubkey) else emptyList()
                 nip55.requestPermissions(if (issuesGrants) listOf(22242, KIND_CIRCLE_EVENT_GRANT) else listOf(22242))
-                val canonical = LinkRelayAddress.canonicalForNode(pairing.bothyNodeId)
+                val canonical = LinkRelayAddress.canonicalForNode(pairing.linkNodeId)
                 val plans = if (issuesGrants) circleGrantPlans(signer, canonical, room.id, guests) else emptyList()
                 val at = epochSeconds()
                 val identity = room.identity(at, signer)
@@ -1023,7 +1023,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     room.id, room.secret, identity.deviceSecretKey,
                 )
                 val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
-                var consent = LinkConsent(account.pubkey, room.id, pairing.bothyNodeId, route.routeId,
+                var consent = LinkConsent(account.pubkey, room.id, pairing.linkNodeId, route.routeId,
                     canonical, room.relays, LinkConsentState.PENDING, plans)
                 try { linkConsents.put(consent) } catch (e: Exception) {
                     runCatching { linkEngine.remove(route.routeId) }
