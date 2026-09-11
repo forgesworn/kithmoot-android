@@ -356,8 +356,9 @@ class RoomSession(
             proof = proof,
             reaction = reaction,
         )
+        val message = decodeOwnChat(event, sentAt)
         if (!transport.publishConfirmed(event)) return false
-        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        ingestChat(message)
         return true
     }
 
@@ -375,9 +376,19 @@ class RoomSession(
             proof = proof,
             invite = invite,
         )
+        val message = decodeOwnChat(event, sentAt)
         if (!transport.publishConfirmed(event)) return false
-        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        ingestChat(message)
         return true
+    }
+
+    /** A confirmed send cannot report success for an event this room refuses. */
+    private fun decodeOwnChat(event: NostrEvent, sentAt: Long): ChatMessage {
+        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let { return it }
+        if (decodeChatEvent(event, room.roomId, room.roomKey, sentAt) != null) {
+            error("The current room policy refused this sender.")
+        }
+        error("The generated message failed local integrity validation.")
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {
