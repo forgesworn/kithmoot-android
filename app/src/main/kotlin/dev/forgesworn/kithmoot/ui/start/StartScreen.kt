@@ -41,6 +41,8 @@ fun StartScreen(
     onForget: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onProject: (String, String) -> Unit,
+    onPairBothy: (String, String) -> Unit = { _, _ -> },
+    onDisconnectBothy: (String) -> Unit = {},
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -59,6 +61,9 @@ fun StartScreen(
     var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
+    var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var pairingCode by remember { mutableStateOf("") }
+    var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
     // on the project the person was last working in.
     val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
@@ -98,6 +103,8 @@ fun StartScreen(
                 Text(state.error, color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
+            state.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
 
             // A contact card opened as a link: said for what it is, and kept
             // only on a press. Nothing is kept by merely opening the link.
@@ -175,6 +182,11 @@ fun StartScreen(
                                             modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
                                         TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
+                                        if (room.id in state.linkConnectedRooms) {
+                                            TextButton({ disconnectingRoom = room }, enabled = enabled && room.account == state.account?.pubkey,
+                                                modifier = Modifier.semantics { contentDescription = "Disconnect Bothy from ${room.name}" }) { Text("Disconnect Bothy") }
+                                        } else TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
+                                            modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
                                     }
@@ -183,6 +195,22 @@ fun StartScreen(
                         }
                     }
                 }
+            }
+
+            pairingRoom?.let { room ->
+                AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. KithMoot will switch only after its authenticated relay is ready. This permission is saved on this device; disconnecting later restores the current relays.")
+                        OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
+                    } },
+                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair and switch") } },
+                    dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
+            }
+            disconnectingRoom?.let { room ->
+                AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
+                    text = { Text("${room.name} will return to the relays it used before Bothy. Its local Link route and consent will be removed.") },
+                    confirmButton = { Button({ onDisconnectBothy(room.id); disconnectingRoom = null }, enabled = enabled) { Text("Disconnect") } },
+                    dismissButton = { TextButton({ disconnectingRoom = null }) { Text("Cancel") } })
             }
 
             OutlinedCard(Modifier.fillMaxWidth()) {

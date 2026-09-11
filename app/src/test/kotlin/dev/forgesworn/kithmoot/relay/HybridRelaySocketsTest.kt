@@ -13,6 +13,11 @@ class HybridRelaySocketsTest {
         override fun onClosed(reason: String) = Unit
     }
 
+    @Test fun `node ids become canonical Link relay URLs`() {
+        assertEquals("ws://${"a".repeat(52)}/events", LinkRelayAddress.canonicalForNode("00".repeat(32)))
+        assertEquals("ws://${"7".repeat(51)}q/events", LinkRelayAddress.canonicalForNode("ff".repeat(32)))
+    }
+
     @Test
     fun `ordinary relays retain the public socket path`() {
         val calls = mutableListOf<String>()

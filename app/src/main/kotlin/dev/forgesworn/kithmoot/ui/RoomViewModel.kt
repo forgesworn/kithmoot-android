@@ -93,6 +93,14 @@ import dev.forgesworn.kithmoot.protocol.encodeJoinUrl
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
+import dev.forgesworn.kithmoot.relay.LinkConsent
+import dev.forgesworn.kithmoot.relay.LinkConsentState
+import dev.forgesworn.kithmoot.relay.LinkRelayAddress
+import dev.forgesworn.kithmoot.relay.HybridRelaySockets
+import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
+import dev.forgesworn.kithmoot.relay.RelayAuthenticator
+import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
+import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.WebAppAddress
@@ -177,11 +185,13 @@ data class StartState(
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
     val busy: Boolean = false,
     val error: String? = null,
+    val notice: String? = null,
     val roomName: String = "",
     val persistentGroup: Boolean = true,
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
+    val linkConnectedRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
     val account: AccountView? = null,
     /** A sign-in is under way: the signer app is up, the bunker is being reached, or Signet has the browser. */
@@ -378,6 +388,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
+    private val linkConsents = (application as KithMootApplication).linkConsents
+    private val linkEngine = (application as KithMootApplication).linkEngine
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
     private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
 
@@ -774,9 +786,22 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _start.update { it.copy(loadingRooms = true) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                recoverLinkActivation()
                 val rooms = savedRooms.list()
-                _start.update { it.copy(savedRooms = rooms, loadingRooms = false, storageError = false, error = null) }
+                val linked = linkConsents.all().filter { it.state == LinkConsentState.ACTIVE }.map { it.roomId }.toSet()
+                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, loadingRooms = false, storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
+        }
+    }
+
+    /** Finish the cross-vault commit after a process death, or return it to pending before any relay changed. */
+    private fun recoverLinkActivation() {
+        linkConsents.all().filter { it.state == LinkConsentState.ACTIVATING || it.state == LinkConsentState.WITHDRAWING }.forEach { consent ->
+            val roomUsesLink = savedRooms.get(consent.roomId)?.relays == listOf(consent.canonicalUrl)
+            if (consent.state == LinkConsentState.WITHDRAWING && !roomUsesLink) {
+                linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
+                linkEngine.remove(consent.routeId)
+            } else linkConsents.put(consent.copy(state = if (roomUsesLink) LinkConsentState.ACTIVE else LinkConsentState.PENDING))
         }
     }
 
@@ -787,11 +812,84 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun forgetRoom(id: String) = changeSavedRooms {
         savedRooms.get(id)?.let { AssignmentVault(getApplication(),id,it.participant).reset() }
+        linkConsents.all().filter { it.roomId == id }.forEach { consent ->
+            linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
+            linkEngine.remove(consent.routeId)
+        }
         savedRooms.forget(id)
     }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
-    fun resetSavedRooms() = changeSavedRooms { savedRooms.reset() }
+    fun resetSavedRooms() = changeSavedRooms {
+        linkConsents.all().forEach { linkEngine.remove(it.routeId) }
+        linkConsents.reset()
+        savedRooms.reset()
+    }
+
+    fun pairBothy(roomId: String, code: String) {
+        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        _start.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            var message: String? = null
+            try {
+                val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before connecting Bothy.")
+                require(room.viaAccount && room.participant == account.pubkey) { "This saved room is not owned by the signed-in account." }
+                val pairing = BothyPairing.parse(code, epochSeconds())
+                val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
+                val canonical = LinkRelayAddress.canonicalForNode(pairing.bothyNodeId)
+                var consent = LinkConsent(account.pubkey, room.id, pairing.bothyNodeId, route.routeId,
+                    canonical, room.relays, LinkConsentState.PENDING)
+                linkConsents.put(consent)
+                val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val authenticator = object : RelayAuthenticator {
+                    override val pubkey = signer.pubkey
+                    override suspend fun sign(url: String, challenge: String) = signer.sign(22242, epochSeconds(),
+                        listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                }
+                val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url -> route.routeId.takeIf { url == canonical } })
+                val probe = RelayPool(listOf(canonical), sockets, scope,
+                    authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == canonical } })
+                var roomChanged = false
+                try {
+                    probe.start()
+                    kotlinx.coroutines.withTimeout(20_000) { probe.connected.first { canonical in it } }
+                    consent = consent.copy(state = LinkConsentState.ACTIVATING).also(linkConsents::put)
+                    savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
+                        ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                    roomChanged = true
+                    linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
+                    message = "Bothy is connected to ${room.name}."
+                } catch (e: Exception) {
+                    if (roomChanged) savedRooms.update(room.id) { it.withRelays(room.relays) }
+                    linkConsents.put(consent.copy(state = LinkConsentState.PENDING))
+                    throw RoomRecoveryException("Bothy paired, but its authenticated relay was not ready. Your current relays are unchanged.")
+                } finally { probe.stop(); scope.cancel() }
+                _start.update { it.copy(savedRooms = savedRooms.list(), error = null, notice = message) }
+            } catch (_: RoomStorageException) { storageFailed() }
+            catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
+            finally { entering.set(false); _start.update { it.copy(busy = false) } }
+        }
+    }
+
+    fun disconnectBothy(roomId: String) = changeSavedRooms {
+        val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before disconnecting Bothy.")
+        val consent = linkConsents.all().singleOrNull {
+            it.accountPubkey == account.pubkey && it.roomId == room.id && it.state == LinkConsentState.ACTIVE
+        } ?: throw RoomRecoveryException("This room is not connected through Bothy.")
+        linkConsents.put(consent.copy(state = LinkConsentState.WITHDRAWING))
+        try {
+            savedRooms.update(room.id) { it.withRelays(consent.previousRelays) }
+                ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        } catch (e: Exception) {
+            linkConsents.put(consent)
+            throw e
+        }
+        linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
+        linkEngine.remove(consent.routeId)
+    }
 
     private fun changeSavedRooms(change: () -> Unit) {
         if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
@@ -800,8 +898,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 change()
                 val rooms = savedRooms.list()
-                _start.update { it.copy(savedRooms = rooms, storageError = false, error = null) }
+                val linked = linkConsents.all().filter { it.state == LinkConsentState.ACTIVE }.map { it.roomId }.toSet()
+                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
+            catch (e: Exception) { _start.update { it.copy(error = e.message ?: "The saved room could not be changed.") } }
             finally { entering.set(false); _start.update { it.copy(busy = false) } }
         }
     }
@@ -1285,7 +1385,19 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         closeSession()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-        val transport = RelayPool(relays, OkHttpRelaySockets(), scope, circle = ::circleRelaySet)
+        val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
+        val socketFactory = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute)
+        val accountIdentity = who as? PrimaryIdentity
+        val authenticators = RelayAuthenticatorProvider { url ->
+            linkConsents.activeRoute(who.participant, record.id, url)?.let {
+                accountIdentity?.let { primary -> object : RelayAuthenticator {
+                    override val pubkey = primary.participant
+                    override suspend fun sign(url: String, challenge: String) = primary.signer.sign(22242, epochSeconds(),
+                        listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                } }
+            }
+        }
+        val transport = RelayPool(relays, socketFactory, scope, circle = ::circleRelaySet, authenticators = authenticators)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
         // wrapper owes the device between visits. The device holding the
         // identity is slot 0, the device it paired slot 1; each draws from its

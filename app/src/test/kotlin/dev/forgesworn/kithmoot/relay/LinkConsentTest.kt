@@ -34,6 +34,16 @@ class LinkConsentTest {
         assertEquals(LinkConsentState.ACTIVE, restored.state)
     }
 
+    @Test fun `intermediate commit states never resolve a route and survive restart`() {
+        for (state in listOf(LinkConsentState.ACTIVATING, LinkConsentState.WITHDRAWING)) {
+            val storage = MemoryStorage()
+            LinkConsentVault(storage).put(consent(state))
+            val restored = LinkConsentVault(storage)
+            assertEquals(state, restored.all().single().state)
+            assertNull(restored.activeRoute(account, room, url))
+        }
+    }
+
     private fun consent(state: LinkConsentState) = LinkConsent(
         account, room, node, "route-1", url, listOf("wss://relay.example"), state,
     )

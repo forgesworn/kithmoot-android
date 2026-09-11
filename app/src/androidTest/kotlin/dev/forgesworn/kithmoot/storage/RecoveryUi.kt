@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.storage
 
+import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -60,18 +61,22 @@ internal class RecoveryUi {
         // Home controls can sit above or below the current scroll position.
         repeat(8) {
             find()?.let { return it }
-            val scroll = nodes().firstOrNull { it.isScrollable } ?: return@repeat
+            val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) SystemClock.sleep(120)
         }
         repeat(12) {
             find()?.let { return it }
-            val scroll = nodes().firstOrNull { it.isScrollable } ?: return@repeat
+            val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) SystemClock.sleep(120)
         }
         var found: T? = null
         await("visible control") { found = find(); found != null }
         return found!!
     }
+
+    private fun scrollContainer(): AccessibilityNodeInfo? = nodes()
+        .filter { it.isScrollable }
+        .maxByOrNull { node -> Rect().also(node::getBoundsInScreen).height() }
 
     fun click(text: String) {
         // Locate the control even while an asynchronous operation keeps it

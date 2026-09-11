@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-enum class LinkConsentState { PENDING, ACTIVE }
+enum class LinkConsentState { PENDING, ACTIVATING, ACTIVE, WITHDRAWING }
 
 /** This vault holds permission only. Link cards and route secrets stay in LinkTransportVault. */
 data class LinkConsent(
@@ -40,6 +40,7 @@ class LinkConsentVault(private val storage: RoomStorage) {
     @Synchronized fun put(consent: LinkConsent) = write(read().filterNot { same(it, consent) } + consent)
     @Synchronized fun remove(accountPubkey: String, roomId: String, bothyNodeId: String) =
         write(read().filterNot { it.accountPubkey == accountPubkey && it.roomId == roomId && it.bothyNodeId == bothyNodeId })
+    @Synchronized fun reset() = guarded { storage.reset() }
 
     /** The only lookup the hybrid factory needs. Pending consent cannot route. */
     @Synchronized fun activeRoute(accountPubkey: String, roomId: String, canonicalUrl: String): String? = read()

@@ -105,6 +105,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val clean = project?.trim()?.take(48).orEmpty()
         if (clean.isEmpty()) remove("project") else put("project", clean)
     }
+    fun withRelays(relays: List<String>): SavedRoom = changed {
+        require(relays.isNotEmpty() && relays.size <= 16)
+        require(relays.all { it.startsWith("ws://") || it.startsWith("wss://") })
+        put("relays", JsonArray(relays.map(::JsonPrimitive)))
+    }.also { it.validate() }
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {
