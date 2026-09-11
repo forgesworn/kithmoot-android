@@ -43,6 +43,7 @@ fun StartScreen(
     onProject: (String, String) -> Unit,
     onPairBothy: (String, String) -> Unit = { _, _ -> },
     onDisconnectBothy: (String) -> Unit = {},
+    onRevokeBothyGuests: (String) -> Unit = {},
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -64,6 +65,7 @@ fun StartScreen(
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
     // on the project the person was last working in.
     val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
@@ -190,6 +192,12 @@ fun StartScreen(
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
                                     }
+                                    if (room.id in state.linkGrantOwnerRooms) {
+                                        TextButton({ revokingRoom = room }, enabled = enabled,
+                                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Revoke Bothy guest access for ${room.name}" }) {
+                                            Text("Revoke guest access")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -200,17 +208,25 @@ fun StartScreen(
             pairingRoom?.let { room ->
                 AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
                     text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. KithMoot will switch only after its authenticated relay is ready. This permission is saved on this device; disconnecting later restores the current relays.")
+                        Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. If this account created the conversation, KithMoot asks your signer for a 30-day, revocable message grant for the other person's current signed device. Otherwise, the creator must already have issued your grant. KithMoot switches only after Bothy confirms access.")
                         OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
                     } },
-                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair and switch") } },
+                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Connect and verify") } },
                     dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
             }
             disconnectingRoom?.let { room ->
                 AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
-                    text = { Text("${room.name} will return to the relays it used before Bothy. Its local Link route and consent will be removed.") },
+                    text = { Text(if (room.id in state.linkGrantOwnerRooms)
+                        "KithMoot will ask Bothy to revoke this room's guest-device grants, wait for confirmation, then return ${room.name} to its earlier relays and remove the local Link route."
+                    else "${room.name} will return to its earlier relays and this device's local Link route will be removed. Any remote grant issued by the conversation creator remains under their control until they revoke it or it expires.") },
                     confirmButton = { Button({ onDisconnectBothy(room.id); disconnectingRoom = null }, enabled = enabled) { Text("Disconnect") } },
                     dismissButton = { TextButton({ disconnectingRoom = null }) { Text("Cancel") } })
+            }
+            revokingRoom?.let { room ->
+                AlertDialog(onDismissRequest = { revokingRoom = null }, title = { Text("Revoke guest access?") },
+                    text = { Text("Bothy will close the other person's live subscriptions and refuse their next reads and writes. This device stays connected and keeps the room's acknowledged ciphertext.") },
+                    confirmButton = { Button({ onRevokeBothyGuests(room.id); revokingRoom = null }, enabled = enabled) { Text("Revoke access") } },
+                    dismissButton = { TextButton({ revokingRoom = null }) { Text("Cancel") } })
             }
 
             OutlinedCard(Modifier.fillMaxWidth()) {

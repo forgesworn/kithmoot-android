@@ -63,6 +63,12 @@ import androidx.lifecycle.viewModelScope
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.CircleGrantStatus
+import dev.forgesworn.kithmoot.protocol.CircleGrantTerms
+import dev.forgesworn.kithmoot.protocol.KIND_CIRCLE_EVENT_GRANT
+import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.RosterEntry
+import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.WebRtcEngine
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
@@ -95,6 +101,7 @@ import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.relay.LinkConsent
 import dev.forgesworn.kithmoot.relay.LinkConsentState
+import dev.forgesworn.kithmoot.relay.CircleGrantPlan
 import dev.forgesworn.kithmoot.relay.LinkRelayAddress
 import dev.forgesworn.kithmoot.relay.HybridRelaySockets
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
@@ -107,6 +114,7 @@ import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.currentCircleGuestDevices
 import dev.forgesworn.kithmoot.session.QuietTransport
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.QuietKeys
@@ -192,6 +200,8 @@ data class StartState(
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
     val linkConnectedRooms: Set<String> = emptySet(),
+    /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
+    val linkGrantOwnerRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
     val account: AccountView? = null,
     /** A sign-in is under way: the signer app is up, the bunker is being reached, or Signet has the browser. */
@@ -314,6 +324,8 @@ private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
+private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
+private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
 private class RetiredInvitationException : Exception()
 
 /**
@@ -380,6 +392,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * the new session's relay pool is stopped by the old session's teardown.
      */
     private val gate = Mutex()
+    private val circleGrantGate = Mutex()
     private val entering = AtomicBoolean(false)
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
@@ -500,6 +513,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _start.update { it.copy(account = view, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
         startSharedProjects(session)
+        viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
     }
 
     private suspend fun stopSharedProjects() {
@@ -787,9 +801,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 recoverLinkActivation()
+                accountSession?.let { recoverCircleGrantCleanup(it.account.pubkey, it.signer) }
                 val rooms = savedRooms.list()
-                val linked = linkConsents.all().filter { it.state == LinkConsentState.ACTIVE }.map { it.roomId }.toSet()
-                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, loadingRooms = false, storageError = false, error = null) }
+                val linked = activeLinkRooms()
+                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
         }
     }
@@ -800,9 +815,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             val roomUsesLink = savedRooms.get(consent.roomId)?.relays == listOf(consent.canonicalUrl)
             when (consent.state) {
                 LinkConsentState.ACTIVE -> Unit
-                LinkConsentState.ACTIVATING, LinkConsentState.WITHDRAWING ->
-                    if (roomUsesLink) linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE)) else discardLinkConsent(consent)
-                LinkConsentState.PENDING -> discardLinkConsent(consent)
+                LinkConsentState.ACTIVATING -> if (roomUsesLink) {
+                    linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
+                } else if (consent.grants.isEmpty()) discardLinkConsent(consent)
+                LinkConsentState.REVOKING -> Unit
+                LinkConsentState.WITHDRAWING -> Unit
+                LinkConsentState.PENDING -> if (consent.grants.isEmpty()) discardLinkConsent(consent)
             }
         }
         val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
@@ -814,23 +832,148 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         linkEngine.remove(consent.routeId)
     }
 
+    private fun activeLinkRooms(): Set<String> = linkConsents.all()
+        .filter { it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING) }
+        .mapTo(mutableSetOf()) { it.roomId }
+
+    private fun activeGrantOwnerRooms(): Set<String> = linkConsents.all()
+        .filter { it.grants.isNotEmpty() && !it.grantsRevoked && it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING) }
+        .mapTo(mutableSetOf()) { it.roomId }
+
+    private fun unexpiredRevocations(consent: LinkConsent): List<NostrEvent> = consent.grants
+        .map { it.revoked }
+        .filter { it.tagValue("expiration")?.toLongOrNull()?.let { expiry -> expiry > epochSeconds() } == true }
+
+    /** Resolve Bob's current signed device roster before the public room relay is removed. */
+    private suspend fun circleGuestDevices(room: SavedRoom, self: String): List<Pair<String, String>> {
+        if (room.invitation?.invitation?.persistent != true || room.policy?.quiet == true) {
+            throw RoomRecoveryException("Bothy can currently shelter only an ordinary persistent conversation.")
+        }
+        val members = room.policy?.members
+            ?.takeIf { it.size == 2 && self in it }
+            ?: throw RoomRecoveryException("Bothy can currently shelter only a two-person persistent conversation.")
+        val guest = members.single { it != self }
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+        val source = RelayPool(room.relays, OkHttpRelaySockets(), scope)
+        return try {
+            source.start()
+            val now = epochSeconds()
+            val events = source.queryStored(listOf(Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("#d" to listOf(room.id)))))
+            val latest = currentCircleGuestDevices(
+                events, room.id, room.secret, guest, now, CIRCLE_ROSTER_FRESH_SECONDS,
+            )
+            if (latest.isEmpty()) {
+                throw RoomRecoveryException("The other person must have this conversation open before Bothy can grant their current device.")
+            }
+            latest
+        } finally {
+            source.stop()
+            scope.cancel()
+        }
+    }
+
+    private suspend fun circleGrantPlans(
+        signer: ParticipantSigner,
+        server: String,
+        room: String,
+        guests: List<Pair<String, String>>,
+    ): List<CircleGrantPlan> {
+        val createdAt = epochSeconds()
+        val expiration = createdAt + CIRCLE_GRANT_LIFETIME_SECONDS
+        return guests.map { (persona, device) ->
+            val terms = CircleGrantTerms(server, room, persona, device, Entropy.bytes(16).toHex(), expiration)
+            CircleGrantPlan(
+                signer.sign(KIND_CIRCLE_EVENT_GRANT, createdAt, terms.tags(CircleGrantStatus.ACTIVE), ""),
+                signer.sign(KIND_CIRCLE_EVENT_GRANT, createdAt + 1, terms.tags(CircleGrantStatus.REVOKED), ""),
+            )
+        }
+    }
+
+    /** Publish through one exact paired route. A second exact send resolves a lost OK safely. */
+    private suspend fun publishShelteredEvents(consent: LinkConsent, signer: ParticipantSigner, events: List<NostrEvent>) {
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+        val authenticator = object : RelayAuthenticator {
+            override val pubkey = signer.pubkey
+            override suspend fun sign(url: String, challenge: String) = signer.sign(
+                22242, epochSeconds(), listOf(listOf("relay", url), listOf("challenge", challenge)), "",
+            )
+        }
+        val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url ->
+            consent.routeId.takeIf { url == consent.canonicalUrl }
+        })
+        val relay = RelayPool(listOf(consent.canonicalUrl), sockets, scope,
+            authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == consent.canonicalUrl } })
+        try {
+            relay.start()
+            withTimeoutOrNull(20_000) { relay.connected.first { consent.canonicalUrl in it } }
+                ?: throw RoomRecoveryException("Bothy's authenticated relay did not become ready.")
+            for (event in events) {
+                var failure: Exception? = null
+                var confirmed = false
+                repeat(2) {
+                    if (confirmed) return@repeat
+                    try {
+                        confirmed = relay.publishConfirmed(event)
+                        if (!confirmed) throw RoomRecoveryException("Bothy refused a required sheltered event.")
+                    } catch (e: Exception) {
+                        failure = e
+                    }
+                }
+                if (!confirmed) throw RoomRecoveryException(failure?.message ?: "Bothy did not confirm a required sheltered event.")
+            }
+        } finally {
+            relay.stop()
+            scope.cancel()
+        }
+    }
+
+    /** Finish authority withdrawal after process death while retaining the only route that can reach it. */
+    private suspend fun recoverCircleGrantCleanup(account: String, signer: ParticipantSigner) = circleGrantGate.withLock {
+        val pending = linkConsents.all().filter { consent ->
+            consent.accountPubkey == account && when (consent.state) {
+                LinkConsentState.PENDING -> consent.grants.isNotEmpty()
+                LinkConsentState.ACTIVATING -> consent.grants.isNotEmpty() && savedRooms.get(consent.roomId)?.relays != listOf(consent.canonicalUrl)
+                LinkConsentState.REVOKING -> consent.grants.isNotEmpty()
+                LinkConsentState.WITHDRAWING -> true
+                LinkConsentState.ACTIVE -> false
+            }
+        }
+        for (consent in pending) {
+            try {
+                unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
+                when (consent.state) {
+                    LinkConsentState.REVOKING -> linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE, grantsRevoked = true))
+                    LinkConsentState.WITHDRAWING -> {
+                        savedRooms.update(consent.roomId) { it.withRelays(consent.previousRelays) }
+                        discardLinkConsent(consent)
+                    }
+                    else -> discardLinkConsent(consent)
+                }
+            } catch (e: Exception) {
+                _start.update { it.copy(error = e.message ?: "Bothy grant withdrawal is waiting to retry.") }
+            }
+        }
+        _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms()) }
+    }
+
     private fun storageFailed() {
         _start.update { it.copy(loadingRooms = false, storageError = true, savedRooms = emptyList(),
             error = "Saved rooms could not be unlocked or saved. Try again. Your saved data has been kept.") }
     }
 
     fun forgetRoom(id: String) = changeSavedRooms {
-        savedRooms.get(id)?.let { AssignmentVault(getApplication(),id,it.participant).reset() }
-        linkConsents.all().filter { it.roomId == id }.forEach { consent ->
-            linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
-            linkEngine.remove(consent.routeId)
+        if (linkConsents.all().any { it.roomId == id }) {
+            throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
+        savedRooms.get(id)?.let { AssignmentVault(getApplication(),id,it.participant).reset() }
         savedRooms.forget(id)
     }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
     fun resetSavedRooms() = changeSavedRooms {
-        linkConsents.all().forEach { linkEngine.remove(it.routeId) }
+        if (linkConsents.all().isNotEmpty()) {
+            throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
+        }
         linkConsents.reset()
         savedRooms.reset()
     }
@@ -839,70 +982,130 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
+            if (!circleGrantGate.tryLock()) {
+                entering.set(false)
+                _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
+                return@launch
+            }
             var message: String? = null
             try {
                 val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
                 val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before connecting Bothy.")
                 require(room.viaAccount && room.participant == account.pubkey) { "This saved room is not owned by the signed-in account." }
                 val pairing = BothyPairing.parse(code, epochSeconds())
-                val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
+                if (linkConsents.all().any { it.accountPubkey == account.pubkey && it.roomId == room.id }) {
+                    throw RoomRecoveryException("This room already has a Bothy connection or a withdrawal waiting to finish.")
+                }
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val nip55 = signer as? Nip55Signer ?: throw RoomRecoveryException("The first Bothy journey requires an on-device NIP-55 signer.")
+                // Persistent invitation hosts are retained only by the creator;
+                // the invitation key itself is deliberately unrelated to their account.
+                val issuesGrants = room.host(epochSeconds()) != null
+                val guests = if (issuesGrants) circleGuestDevices(room, account.pubkey) else emptyList()
+                nip55.requestPermissions(if (issuesGrants) listOf(22242, KIND_CIRCLE_EVENT_GRANT) else listOf(22242))
                 val canonical = LinkRelayAddress.canonicalForNode(pairing.bothyNodeId)
+                val plans = if (issuesGrants) circleGrantPlans(signer, canonical, room.id, guests) else emptyList()
+                val at = epochSeconds()
+                val identity = room.identity(at, signer)
+                val readiness = encodeRosterEvent(
+                    RosterEntry(identity.participant, identity.devicePubkey, identity.credential, updatedAt = at),
+                    room.id, room.secret, identity.deviceSecretKey,
+                )
+                val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
                 var consent = LinkConsent(account.pubkey, room.id, pairing.bothyNodeId, route.routeId,
-                    canonical, room.relays, LinkConsentState.PENDING)
+                    canonical, room.relays, LinkConsentState.PENDING, plans)
                 try { linkConsents.put(consent) } catch (e: Exception) {
                     runCatching { linkEngine.remove(route.routeId) }
                     throw e
                 }
                 var roomChanged = false
+                var publicationStarted = false
                 try {
-                    val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-                    val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
-                    val authenticator = object : RelayAuthenticator {
-                        override val pubkey = signer.pubkey
-                        override suspend fun sign(url: String, challenge: String) = signer.sign(22242, epochSeconds(),
-                            listOf(listOf("relay", url), listOf("challenge", challenge)), "")
-                    }
-                    val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url -> route.routeId.takeIf { url == canonical } })
-                    val probe = RelayPool(listOf(canonical), sockets, scope,
-                        authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == canonical } })
-                    try {
-                        probe.start()
-                        kotlinx.coroutines.withTimeout(20_000) { probe.connected.first { canonical in it } }
-                        consent = consent.copy(state = LinkConsentState.ACTIVATING).also(linkConsents::put)
-                        savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
-                            ?: throw RoomRecoveryException("This room is no longer saved on this device.")
-                        roomChanged = true
-                        linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
-                        message = "Bothy is connected to ${room.name}."
-                    } finally { probe.stop(); scope.cancel() }
+                    publicationStarted = true
+                    publishShelteredEvents(consent, signer, plans.map { it.active } + readiness)
+                    consent = consent.copy(state = LinkConsentState.ACTIVATING).also(linkConsents::put)
+                    savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
+                        ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                    roomChanged = true
+                    linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE))
+                    message = if (issuesGrants) {
+                        "Bothy is connected to ${room.name}; ${plans.size} guest device grant${if (plans.size == 1) "" else "s"} confirmed."
+                    } else "Bothy is connected to ${room.name}; the creator's grant for this device was confirmed."
                 } catch (e: Exception) {
                     if (roomChanged) savedRooms.update(room.id) { it.withRelays(room.relays) }
-                    discardLinkConsent(consent)
-                    throw RoomRecoveryException("Bothy paired, but its authenticated relay was not ready. Your current relays are unchanged.")
+                    val withdrawn = !publicationStarted || plans.isEmpty() || runCatching {
+                        publishShelteredEvents(consent, signer, plans.map { it.revoked })
+                    }.isSuccess
+                    if (withdrawn) discardLinkConsent(consent)
+                    throw RoomRecoveryException(if (withdrawn)
+                        "Bothy could not confirm the room grants. Your current relays are unchanged."
+                    else "Bothy could not confirm grant withdrawal. Your current relays are unchanged and KithMoot kept the route to finish cleanup.")
                 }
-                _start.update { it.copy(savedRooms = savedRooms.list(), error = null, notice = message) }
+                _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), error = null, notice = message) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
-            finally { entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
         }
     }
 
-    fun disconnectBothy(roomId: String) = changeSavedRooms {
-        val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
-        val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before disconnecting Bothy.")
-        val consent = linkConsents.all().singleOrNull {
-            it.accountPubkey == account.pubkey && it.roomId == room.id && it.state == LinkConsentState.ACTIVE
-        } ?: throw RoomRecoveryException("This room is not connected through Bothy.")
-        linkConsents.put(consent.copy(state = LinkConsentState.WITHDRAWING))
-        try {
-            savedRooms.update(room.id) { it.withRelays(consent.previousRelays) }
-                ?: throw RoomRecoveryException("This room is no longer saved on this device.")
-        } catch (e: Exception) {
-            linkConsents.put(consent)
-            throw e
+    fun disconnectBothy(roomId: String) {
+        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        _start.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!circleGrantGate.tryLock()) {
+                entering.set(false)
+                _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
+                return@launch
+            }
+            try {
+                val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before disconnecting Bothy.")
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val consent = linkConsents.all().singleOrNull {
+                    it.accountPubkey == account.pubkey && it.roomId == room.id &&
+                        it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING)
+                } ?: throw RoomRecoveryException("This room is not connected through Bothy.")
+                linkConsents.put(consent.copy(state = LinkConsentState.WITHDRAWING))
+                if (consent.grants.isNotEmpty() && !consent.grantsRevoked) {
+                    unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
+                }
+                savedRooms.update(room.id) { it.withRelays(consent.previousRelays) }
+                    ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                discardLinkConsent(consent)
+                _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
+            } catch (_: RoomStorageException) { storageFailed() }
+            catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy access could not be withdrawn; KithMoot kept the route for retry.") } }
+            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
         }
-        linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
-        linkEngine.remove(consent.routeId)
+    }
+
+    /** Revoke Bob's authority while Alice keeps her keeper connection and retained ciphertext. */
+    fun revokeBothyGuests(roomId: String) {
+        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        _start.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!circleGrantGate.tryLock()) {
+                entering.set(false)
+                _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
+                return@launch
+            }
+            try {
+                val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before revoking guest access.")
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val consent = linkConsents.all().singleOrNull {
+                    it.accountPubkey == account.pubkey && it.roomId == room.id &&
+                        it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING) &&
+                        it.grants.isNotEmpty() && !it.grantsRevoked
+                } ?: throw RoomRecoveryException("This room has no active guest grants issued by this account.")
+                val revoking = consent.copy(state = LinkConsentState.REVOKING).also(linkConsents::put)
+                unexpiredRevocations(revoking).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(revoking, signer, it) }
+                linkConsents.put(revoking.copy(state = LinkConsentState.ACTIVE, grantsRevoked = true))
+                _start.update { it.copy(linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy confirmed guest access was revoked for ${room.name}.") }
+            } catch (_: RoomStorageException) { storageFailed() }
+            catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy guest revocation is waiting to retry.") } }
+            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+        }
     }
 
     private fun changeSavedRooms(change: () -> Unit) {
@@ -912,8 +1115,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 change()
                 val rooms = savedRooms.list()
-                val linked = linkConsents.all().filter { it.state == LinkConsentState.ACTIVE }.map { it.roomId }.toSet()
-                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, storageError = false, error = null) }
+                val linked = activeLinkRooms()
+                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "The saved room could not be changed.") } }
             finally { entering.set(false); _start.update { it.copy(busy = false) } }
@@ -1558,9 +1761,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         // emulators do not have; a room that is text and presence only is worth
         // far more than a crash on the way in.
         opening = scope.launch {
-            val built = withContext(Dispatchers.Default) {
-                runCatching { WebRtcEngine(getApplication(), live, scope, iceServers()) }
-            }
+            val built = withContext(Dispatchers.Default) { runCatching {
+                WebRtcEngine(getApplication(), live, scope, iceServers())
+            } }
             val media = built.getOrElse { failure ->
                 _room.value = _room.value.copy(
                     mediaFault = "Audio and video are unavailable on this device: " +
