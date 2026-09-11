@@ -50,4 +50,17 @@ internal object LinkRelayAddress {
         val expected = "ws://$host/events"
         return expected.takeIf { value == it }
     }
+
+    fun canonicalForNode(nodeId: String): String {
+        require(nodeId.matches(Regex("[0-9a-f]{64}")))
+        val bytes = nodeId.chunked(2).map { it.toInt(16).toByte() }
+        val alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+        var bits = 0; var value = 0; val out = StringBuilder(52)
+        for (byte in bytes) {
+            value = (value shl 8) or (byte.toInt() and 0xff); bits += 8
+            while (bits >= 5) { out.append(alphabet[(value shr (bits - 5)) and 31]); bits -= 5 }
+        }
+        if (bits > 0) out.append(alphabet[(value shl (5 - bits)) and 31])
+        return "ws://$out/events"
+    }
 }

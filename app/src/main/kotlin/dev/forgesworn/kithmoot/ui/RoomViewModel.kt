@@ -93,6 +93,10 @@ import dev.forgesworn.kithmoot.protocol.encodeJoinUrl
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
+import dev.forgesworn.kithmoot.relay.LinkConsent
+import dev.forgesworn.kithmoot.relay.LinkConsentState
+import dev.forgesworn.kithmoot.relay.LinkRelayAddress
+import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.WebAppAddress
@@ -378,6 +382,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
+    private val linkConsents = (application as KithMootApplication).linkConsents
+    private val linkEngine = (application as KithMootApplication).linkEngine
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
     private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
 
@@ -792,6 +798,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
     fun resetSavedRooms() = changeSavedRooms { savedRooms.reset() }
+
+    fun pairBothy(roomId: String, code: String) = changeSavedRooms {
+        val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before connecting Bothy.")
+        require(room.viaAccount && room.participant == account.pubkey) { "This saved room is not owned by the signed-in account." }
+        val pairing = BothyPairing.parse(code, epochSeconds())
+        val route = linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
+        linkConsents.put(LinkConsent(account.pubkey, room.id, pairing.bothyNodeId, route.routeId,
+            LinkRelayAddress.canonicalForNode(pairing.bothyNodeId), room.relays, LinkConsentState.PENDING))
+    }
 
     private fun changeSavedRooms(change: () -> Unit) {
         if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return

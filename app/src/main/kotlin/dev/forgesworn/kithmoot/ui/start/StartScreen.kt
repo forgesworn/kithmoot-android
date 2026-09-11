@@ -41,6 +41,7 @@ fun StartScreen(
     onForget: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onProject: (String, String) -> Unit,
+    onPairBothy: (String, String) -> Unit = { _, _ -> },
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -59,6 +60,8 @@ fun StartScreen(
     var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
+    var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var pairingCode by remember { mutableStateOf("") }
     // The project tab in view, remembered on the device so the phone opens
     // on the project the person was last working in.
     val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
@@ -175,6 +178,8 @@ fun StartScreen(
                                             modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
                                         TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
+                                        TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
+                                            modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
                                     }
@@ -183,6 +188,16 @@ fun StartScreen(
                         }
                     }
                 }
+            }
+
+            pairingRoom?.let { room ->
+                AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Paste the Bothy pairing code. It is bound to ${room.name} and your current signed-in account.")
+                        OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
+                    } },
+                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Pair") } },
+                    dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
             }
 
             OutlinedCard(Modifier.fillMaxWidth()) {
