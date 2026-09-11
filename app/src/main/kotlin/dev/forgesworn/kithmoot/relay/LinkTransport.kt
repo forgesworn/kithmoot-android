@@ -261,6 +261,9 @@ class LinkTransportManager(
         worker.execute { if (!closed) session?.remove(routeId) }
     }
 
+    /** Used at startup to discard transport credentials that have no consent record. */
+    fun routeIds(): Set<String> = vault.state().routes.mapTo(mutableSetOf()) { it.routeId }
+
     /** Pairing is native and blocking, so return its completion without ever blocking the UI thread. */
     fun pair(card: ByteArray, pairingSecret: ByteArray, expiresAt: Long): java.util.concurrent.CompletableFuture<StoredLinkRoute> {
         require(card.isNotEmpty() && pairingSecret.size == 16 && expiresAt >= 0)

@@ -4,6 +4,10 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.swipeDown
+import androidx.test.espresso.action.ViewActions.swipeUp
+import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
 
@@ -63,11 +67,17 @@ internal class RecoveryUi {
             find()?.let { return it }
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) SystemClock.sleep(120)
+            find()?.let { return it }
+            runCatching { onView(isRoot()).perform(swipeDown()) }
+            SystemClock.sleep(120)
         }
         repeat(12) {
             find()?.let { return it }
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) SystemClock.sleep(120)
+            find()?.let { return it }
+            runCatching { onView(isRoot()).perform(swipeUp()) }
+            SystemClock.sleep(120)
         }
         var found: T? = null
         await("visible control") { found = find(); found != null }

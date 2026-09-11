@@ -55,6 +55,20 @@ class LinkTransportTest {
         manager.close()
     }
 
+    @Test fun `manager lists persisted routes without starting native engine`() {
+        val vault = LinkTransportVault(MemoryStorage())
+        vault.upsert(route("route-1"))
+        vault.upsert(route("route-2"))
+        val runtime = RecordingRuntime()
+        val manager = LinkTransportManager(vault, runtime)
+
+        assertEquals(setOf("route-1", "route-2"), manager.routeIds())
+        assertEquals(0, runtime.starts)
+        manager.remove("route-1")
+        assertEquals(setOf("route-2"), manager.routeIds())
+        manager.close()
+    }
+
     private fun route(id: String) = StoredLinkRoute(id, byteArrayOf(1, 2), ByteArray(32) { 3 }, 1UL, 2UL)
     private fun listener(events: MutableList<String>) = object : RelaySocketListener {
         override fun onOpen() { events += "open" }
