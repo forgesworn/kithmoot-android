@@ -79,6 +79,11 @@ android {
     }
 
     sourceSets.getByName("androidTest").assets.srcDir("../protocol/src/test/resources")
+    // The reviewed Link bundle is unpacked into build/link-bridge only after
+    // its archive and per-file manifest have been verified. Never copy these
+    // generated bindings or JNI libraries into source control.
+    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("link-bridge/kotlin"))
+    sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("link-bridge/jniLibs"))
 
     packaging {
         resources {
@@ -125,6 +130,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.webrtc.android)
     implementation(libs.bouncycastle.provider)
+
+    // UniFFI's generated Link Kotlin bindings load liblink_ffi through JNA.
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // libsecp256k1: the JNI natives for the device, and the desktop natives so
     // the unit tests can sign and verify on a plain JVM.
