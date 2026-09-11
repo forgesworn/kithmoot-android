@@ -29,11 +29,7 @@ class G5NativeRouteTest {
         val pairing = BothyPairing.parse(postJson("$control/pairing").getValue("uri").jsonPrimitive.content, epochSeconds())
         val manager = LinkTransportManager(LinkTransportVault(MemoryStorage()), ReflectiveLinkTransportRuntime())
         try {
-            val route = try {
-                manager.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
-            } catch (_: java.util.concurrent.ExecutionException) {
-                manager.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
-            }
+            val route = manager.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
             assertTrue(route.routeId.isNotBlank())
             assertEquals(32, route.pairedRouteSecret.size)
         } finally {
