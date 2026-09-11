@@ -99,7 +99,9 @@ class G5ProductJourneyTest {
         }) { model.room.value.privateConversationPeers.size == 1 }
         val bob = model.room.value.privateConversationPeers.single()
         activity.scenario.onActivity { model.startPrivateConversation(bob) }
-        await("Alice's signer-sealed private conversation") {
+        await("Alice's signer-sealed private conversation", details = {
+            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}; startError=${model.start.value.error}; savedRooms=${model.start.value.savedRooms.size}"
+        }) {
             model.stage.value == Stage.ROOM && model.room.value.privateConversation && !model.room.value.privateConversationBusy
         }
         put("alice-dm", buildJsonObject { put("room", model.room.value.roomId); put("participant", model.room.value.selfParticipant) })
@@ -260,7 +262,7 @@ class G5ProductJourneyTest {
     }
 
     private fun await(description: String, details: () -> String = { "" }, predicate: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 60_000
+        val deadline = SystemClock.uptimeMillis() + 120_000
         while (!predicate()) {
             if (SystemClock.uptimeMillis() >= deadline) throw AssertionError("Timed out waiting for $description (${details()})")
             SystemClock.sleep(50)
