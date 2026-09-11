@@ -871,7 +871,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             val now = epochSeconds()
             val events = source.queryStored(listOf(Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("#d" to listOf(room.id)))))
             val latest = currentCircleGuestDevices(
-                events, room.id, room.secret, guest, now, CIRCLE_ROSTER_FRESH_SECONDS,
+                events, room.id, deriveRoom(room.secret).roomKey, guest, now, CIRCLE_ROSTER_FRESH_SECONDS,
             )
             if (latest.isEmpty()) {
                 throw RoomRecoveryException("The other person must have this conversation open before Bothy can grant their current device.")
