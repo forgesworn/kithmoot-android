@@ -66,6 +66,7 @@ class G5ProductJourneyTest {
         put("introduction", buildJsonObject {
             put("url", model.room.value.joinUrl)
             put("room", model.room.value.roomId)
+            put("participant", model.room.value.selfParticipant)
         })
     }
 
@@ -79,6 +80,10 @@ class G5ProductJourneyTest {
                 model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content &&
                 !model.room.value.privateConversation
         }
+        assertTrue(
+            "G5 fixture signer personas must be distinct",
+            model.room.value.selfParticipant != introduction.getValue("participant").jsonPrimitive.content,
+        )
         put("bob-introduction", buildJsonObject { put("room", model.room.value.roomId) })
     }
 
