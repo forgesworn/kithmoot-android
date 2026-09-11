@@ -36,12 +36,17 @@ class G5ProductJourneyTest {
     private val arguments get() = InstrumentationRegistry.getArguments()
     private val control get() = requireNotNull(arguments.getString("fixture_control")).removeSuffix("/")
     private val action get() = requireNotNull(arguments.getString("g5_action"))
-    private val signerPackage get() = InstrumentationRegistry.getInstrumentation().context.packageName
+    private val signerPackage get() = InstrumentationRegistry.getInstrumentation().targetContext.packageName
 
     @Test fun runs_the_requested_product_admission_action() {
         when (action) {
             "alice-introduction" -> aliceIntroduction()
             "bob-invitation" -> bobInvitation()
+            "alice-pair" -> pairAlice()
+            "bob-pair" -> pairBob()
+            "alice-send" -> aliceSend()
+            "bob-receive-reply" -> bobReceiveAndReply()
+            "alice-restored" -> aliceRestored()
             else -> throw AssertionError("unknown G5 product action")
         }
     }
@@ -83,6 +88,60 @@ class G5ProductJourneyTest {
         put("bob-dm", buildJsonObject { put("room", model.room.value.roomId); put("participant", model.room.value.selfParticipant); put("device", model.room.value.selfDevice) })
     }
 
+    private fun pairAlice() = pair("alice", expectGrants = true)
+
+    private fun pairBob() = pair("bob", expectGrants = false)
+
+    private fun pair(who: String, expectGrants: Boolean) {
+        val model = model()
+        signIn(model)
+        val room = awaitValue("$who-dm").getValue("room").jsonPrimitive.content
+        val pairing = post("pairing").getValue("uri").jsonPrimitive.content
+        activity.scenario.onActivity { model.pairBothy(room, pairing) }
+        await("$who Bothy pairing") {
+            !model.start.value.busy && model.start.value.linkConnectedRooms.contains(room)
+        }
+        assertEquals(expectGrants, model.start.value.linkGrantOwnerRooms.contains(room))
+        put("$who-paired", buildJsonObject { put("room", room) })
+    }
+
+    private fun aliceSend() {
+        val model = model()
+        signIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        activity.scenario.onActivity { model.sendChat(ALICE_MESSAGE) }
+        await("Alice's retained encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
+        put("alice-sent", buildJsonObject { put("room", room) })
+    }
+
+    private fun bobReceiveAndReply() {
+        val model = model()
+        signIn(model)
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's received encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
+        activity.scenario.onActivity { model.sendChat(BOB_REPLY) }
+        await("Bob's retained encrypted reply") { model.room.value.chat.any { it.body == BOB_REPLY } }
+        put("bob-replied", buildJsonObject { put("room", room) })
+    }
+
+    private fun aliceRestored() {
+        val model = model()
+        signIn(model)
+        val room = awaitValue("alice-sent").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Alice's retained reply after process restart") { model.room.value.chat.any { it.body == BOB_REPLY } }
+        put("alice-restored", buildJsonObject { put("room", room) })
+    }
+
+    private fun open(model: RoomViewModel, room: String) {
+        activity.scenario.onActivity { model.reopenRoom(room) }
+        await("saved private conversation") {
+            model.stage.value == Stage.ROOM && model.room.value.roomId == room && model.room.value.privateConversation
+        }
+    }
+
     private fun signIn(model: RoomViewModel) {
         activity.scenario.onActivity { model.refreshSigners() }
         await("fixture signer discovery") { model.start.value.signers.any { it.packageName == signerPackage } }
@@ -98,6 +157,19 @@ class G5ProductJourneyTest {
     }
 
     private fun ready() = get("ready")
+
+    private fun post(path: String): kotlinx.serialization.json.JsonObject {
+        val connection = URL("$control/$path").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            require(connection.responseCode in 200..299) { "fixture control rejected $path" }
+            return Json.parseToJsonElement(connection.inputStream.bufferedReader().use { it.readText() }).jsonObject
+        } finally { connection.disconnect() }
+    }
 
     private fun awaitValue(key: String): kotlinx.serialization.json.JsonObject {
         var value: kotlinx.serialization.json.JsonObject? = null
@@ -123,6 +195,7 @@ class G5ProductJourneyTest {
         try {
             connection.requestMethod = "POST"
             connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.outputStream.bufferedWriter().use { it.write(value.toString()) }
@@ -136,5 +209,10 @@ class G5ProductJourneyTest {
             if (SystemClock.uptimeMillis() >= deadline) throw AssertionError("Timed out waiting for $description")
             SystemClock.sleep(50)
         }
+    }
+
+    private companion object {
+        const val ALICE_MESSAGE = "g5 retained message from Alice"
+        const val BOB_REPLY = "g5 retained reply from Bob"
     }
 }
