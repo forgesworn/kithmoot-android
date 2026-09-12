@@ -959,6 +959,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 when (consent.state) {
                     LinkConsentState.REVOKING -> linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE, grantsRevoked = true))
                     LinkConsentState.WITHDRAWING -> {
+                        linkEngine.retire(consent.routeId).get()
                         savedRooms.update(consent.roomId) { it.withRelays(consent.previousRelays) }
                         discardLinkConsent(consent)
                     }
@@ -1087,6 +1088,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 linkConsents.put(consent.copy(state = LinkConsentState.WITHDRAWING))
                 if (consent.grants.isNotEmpty() && !consent.grantsRevoked) {
                     unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
+                }
+                try {
+                    linkEngine.retire(consent.routeId).get()
+                } catch (error: java.util.concurrent.ExecutionException) {
+                    throw error.cause ?: error
                 }
                 savedRooms.update(room.id) { it.withRelays(consent.previousRelays) }
                     ?: throw RoomRecoveryException("This room is no longer saved on this device.")
