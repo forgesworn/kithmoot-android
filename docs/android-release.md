@@ -3,6 +3,29 @@
 The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
 
+## 0.5.12 paired Bothy preview candidate
+
+Version code 20 lets a signed-in participant move a private conversation onto
+their paired Bothy. The app authenticates the sheltered relay with the selected
+signer, asks for the minimum room-scoped grant, saves a pre-signed revocation
+before publishing the grant, and changes routes only after Bothy confirms the
+write. A guest proves its exact persona, room and device through a confirmed
+roster write before cutover. Disconnect and explicit revocation retire the
+Bothy route before the local Link route is withdrawn, including recovery after
+an interrupted first attempt.
+
+The private conversation itself is created from a participant in an ordinary
+room. Its invitation is sealed to that account and requires an explicit Open
+action. The reviewed ForgeSworn Link Android bundle is pinned by source commit,
+archive checksum and per-file manifest in `docs/link-android-bridge.md`.
+
+This remains a debug-signed preview using the existing preview certificate.
+The composed two-emulator journey covers distinct NIP-55 personas, public-relay
+introduction, paired Bothy delivery, retained chat, restart recovery and
+two-phase route retirement. Physical-phone continuity, background push,
+production signing and a recovery/export path for existing preview installs
+remain open release gates.
+
 ## 0.5.11 shared-project preview candidate
 
 Version code 19 connects the signed-in account's shared project directory to the

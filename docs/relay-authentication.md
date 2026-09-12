@@ -1,7 +1,7 @@
 # Sheltered relay authentication
 
 This pins KithMoot's client side of Vennel G3-G5 against Android
-`2d5eb2b`, Bothy Node `5481a1a`, and ForgeSworn Link `6bb5242`. The frozen wire
+`f208d3c`, Bothy Node `c20c98f`, and ForgeSworn Link `f127d18`. The frozen wire
 and authority contract remains
 `vennel/docs/gate/2026-09-10-g3-g4-integration-contracts.md`.
 
@@ -101,7 +101,7 @@ relay set.
 
 The pre-signed revocation makes every crash boundary recoverable without
 retaining an account secret. An interrupted creator install, explicit guest
-revocation, or disconnect retries the exact signed event; Bothy `5481a1a`
+revocation, or disconnect retries the exact signed event; Bothy `c20c98f`
 treats an exact retained replay as an idempotent receipt without advancing its
 authority generation. KithMoot retains the Link route until revocation is
 confirmed. The creator can revoke guest access while keeping the room on Bothy;

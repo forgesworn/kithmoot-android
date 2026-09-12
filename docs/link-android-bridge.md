@@ -4,11 +4,11 @@ KithMoot consumes ForgeSworn Link as a reviewed binary hand-off. It does not
 rebuild Link, copy JNI libraries into the repository, or accept an unpinned
 release name.
 
-The current hand-off is Link commit `6bb5242bc19119fd2da702af50c466cea42975d7`,
-GitHub Actions artifact `10189494804`, with archive SHA-256
-`906f16979bfacc2cbd3e773309fe843e64c940ec468fa6546f6a98aa2afc7706`.
-It expires on 10 December 2026. Its manifest pins the two shipped ABIs and the
-generated UniFFI Kotlin binding individually.
+The current hand-off is Link commit `f127d18b3e5ed9d3ee64074cb539b6123d325d1c`,
+GitHub Actions artifact `10295928458`, with archive SHA-256
+`cfe1b3ea68c11aa74fad12710d94cfaee1c8e2e67ea80e0ac120e089e96b8f6b`.
+Its manifest pins the two shipped ABIs and the generated UniFFI Kotlin binding
+individually.
 
 To prepare a local build, download the archive with a token that can read only
 the Actions artifacts in `forgesworn/forgesworn-link`, then verify and unpack it:
