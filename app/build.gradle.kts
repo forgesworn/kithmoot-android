@@ -17,6 +17,25 @@ if (hasReleaseSigning) {
     }
 }
 
+val linkBridgeDirectory = layout.buildDirectory.dir("link-bridge")
+val requiredLinkBridgeFiles = listOf(
+    "jniLibs/arm64-v8a/liblink_ffi.so",
+    "jniLibs/x86_64/liblink_ffi.so",
+    "kotlin/dev/forgesworn/link/ffi/link_ffi.kt",
+    "manifest.json",
+)
+val verifyLinkBridgePrepared by tasks.registering {
+    inputs.files(requiredLinkBridgeFiles.map { relative -> linkBridgeDirectory.map { it.file(relative) } })
+    doLast {
+        val root = linkBridgeDirectory.get().asFile
+        val missing = requiredLinkBridgeFiles.filter { !root.resolve(it).isFile || root.resolve(it).length() == 0L }
+        require(missing.isEmpty()) {
+            "ForgeSworn Link bridge is not prepared; missing: ${missing.joinToString()}. " +
+                "Run scripts/fetch-link-bridge.sh and scripts/prepare-link-bridge.py first."
+        }
+    }
+}
+
 android {
     namespace = "dev.forgesworn.kithmoot"
     compileSdk = 35
@@ -101,6 +120,10 @@ android {
         includeInApk = false
         includeInBundle = false
     }
+}
+
+tasks.named("preBuild") {
+    dependsOn(verifyLinkBridgePrepared)
 }
 
 kotlin {
