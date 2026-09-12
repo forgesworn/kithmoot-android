@@ -129,6 +129,7 @@ interface LinkTransportSession {
     fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute
     fun upsert(route: StoredLinkRoute)
     fun retire(routeId: String)
+    fun finalize(routeId: String)
     fun remove(routeId: String)
     fun stop()
 }
@@ -210,6 +211,7 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
         ))
     }
     override fun retire(routeId: String) { invoke("retireRoute", routeId) }
+    override fun finalize(routeId: String) { invoke("finalizeRoute", routeId) }
     override fun remove(routeId: String) { invoke("removeRoute", routeId) }
     override fun stop() {
         try { invoke("stop") } finally { (engine as? AutoCloseable)?.close() }
@@ -296,6 +298,22 @@ class LinkTransportManager(
                 check(!closed) { "Link transport has stopped" }
                 check(vault.state().routes.any { it.routeId == routeId }) { "Unknown Link route" }
                 engine().retire(routeId)
+                result.complete(Unit)
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            }
+        }
+        return result
+    }
+
+    /** Remove server transport after durable logical retirement. */
+    fun finalize(routeId: String): java.util.concurrent.CompletableFuture<Unit> {
+        val result = java.util.concurrent.CompletableFuture<Unit>()
+        worker.execute {
+            try {
+                check(!closed) { "Link transport has stopped" }
+                check(vault.state().routes.any { it.routeId == routeId }) { "Unknown Link route" }
+                engine().finalize(routeId)
                 result.complete(Unit)
             } catch (e: Exception) {
                 result.completeExceptionally(e)

@@ -16,7 +16,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-enum class LinkConsentState { PENDING, ACTIVATING, ACTIVE, REVOKING, WITHDRAWING }
+enum class LinkConsentState { PENDING, ACTIVATING, ACTIVE, REVOKING, WITHDRAWING, RETIRED }
 
 /** Both signed halves are retained so an interrupted install can always be withdrawn safely. */
 data class CircleGrantPlan(val active: NostrEvent, val revoked: NostrEvent) {
