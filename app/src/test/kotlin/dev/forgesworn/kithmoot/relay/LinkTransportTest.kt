@@ -69,6 +69,21 @@ class LinkTransportTest {
         manager.close()
     }
 
+    @Test fun `retirement waits for native acknowledgement before local removal`() {
+        val vault = LinkTransportVault(MemoryStorage())
+        vault.upsert(route("route-1"))
+        val runtime = RetiringRuntime()
+        val manager = LinkTransportManager(vault, runtime)
+
+        manager.retire("route-1").get()
+
+        assertEquals(listOf("route-1"), runtime.retired)
+        assertEquals(setOf("route-1"), manager.routeIds(), "acknowledgement does not remove the retry credential")
+        manager.remove("route-1")
+        assertTrue(manager.routeIds().isEmpty())
+        manager.close()
+    }
+
     private fun route(id: String) = StoredLinkRoute(id, byteArrayOf(1, 2), ByteArray(32) { 3 }, 1UL, 2UL)
     private fun listener(events: MutableList<String>) = object : RelaySocketListener {
         override fun onOpen() { events += "open" }
@@ -89,5 +104,16 @@ class LinkTransportTest {
     private class RecordingRuntime : LinkTransportRuntime {
         var starts = 0
         override fun start(state: LinkTransportState): LinkTransportSession = error("must not start")
+    }
+    private class RetiringRuntime : LinkTransportRuntime {
+        val retired = mutableListOf<String>()
+        override fun start(state: LinkTransportState): LinkTransportSession = object : LinkTransportSession {
+            override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
+            override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
+            override fun upsert(route: StoredLinkRoute) = Unit
+            override fun retire(routeId: String) { retired += routeId }
+            override fun remove(routeId: String) = Unit
+            override fun stop() = Unit
+        }
     }
 }

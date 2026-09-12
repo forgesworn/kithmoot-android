@@ -128,6 +128,7 @@ interface LinkTransportSession {
     fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket
     fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute
     fun upsert(route: StoredLinkRoute)
+    fun retire(routeId: String)
     fun remove(routeId: String)
     fun stop()
 }
@@ -208,6 +209,7 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
             route.routeId, route.card.copyOf(), route.pairedRouteSecret.copyOf(), route.cardSerial.toLong(), route.cardVerifiedAt.toLong(),
         ))
     }
+    override fun retire(routeId: String) { invoke("retireRoute", routeId) }
     override fun remove(routeId: String) { invoke("removeRoute", routeId) }
     override fun stop() {
         try { invoke("stop") } finally { (engine as? AutoCloseable)?.close() }
@@ -284,6 +286,22 @@ class LinkTransportManager(
     fun remove(routeId: String) {
         vault.remove(routeId)
         worker.execute { if (!closed) session?.remove(routeId) }
+    }
+
+    /** Retire the server route before removing the matching local credential. */
+    fun retire(routeId: String): java.util.concurrent.CompletableFuture<Unit> {
+        val result = java.util.concurrent.CompletableFuture<Unit>()
+        worker.execute {
+            try {
+                check(!closed) { "Link transport has stopped" }
+                check(vault.state().routes.any { it.routeId == routeId }) { "Unknown Link route" }
+                engine().retire(routeId)
+                result.complete(Unit)
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            }
+        }
+        return result
     }
 
     /** Used at startup to discard transport credentials that have no consent record. */
