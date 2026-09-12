@@ -16,6 +16,6 @@ trap 'rm -f "${temporary}"' EXIT
 # GH_TOKEN stays in the child environment rather than appearing in a command
 # argument or URL. A failed transfer leaves the previous archive untouched.
 GH_TOKEN="${FORGESWORN_LINK_ARTIFACT_TOKEN}" gh api \
-    repos/forgesworn/forgesworn-link/actions/artifacts/10286259939/zip > "${temporary}"
+    repos/forgesworn/forgesworn-link/actions/artifacts/10295928458/zip > "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT

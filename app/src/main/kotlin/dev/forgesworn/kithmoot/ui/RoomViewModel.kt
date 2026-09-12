@@ -835,6 +835,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 } else if (consent.grants.isEmpty()) discardLinkConsent(consent)
                 LinkConsentState.REVOKING -> Unit
                 LinkConsentState.WITHDRAWING -> Unit
+                LinkConsentState.RETIRED -> Unit
                 LinkConsentState.PENDING -> if (consent.grants.isEmpty()) discardLinkConsent(consent)
             }
         }
@@ -848,7 +849,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun activeLinkRooms(): Set<String> = linkConsents.all()
-        .filter { it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING) }
+        .filter { it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING, LinkConsentState.RETIRED) }
         .mapTo(mutableSetOf()) { it.roomId }
 
     private fun activeGrantOwnerRooms(): Set<String> = linkConsents.all()
@@ -950,19 +951,24 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 LinkConsentState.ACTIVATING -> consent.grants.isNotEmpty() && savedRooms.get(consent.roomId)?.relays != listOf(consent.canonicalUrl)
                 LinkConsentState.REVOKING -> consent.grants.isNotEmpty()
                 LinkConsentState.WITHDRAWING -> true
+                LinkConsentState.RETIRED -> true
                 LinkConsentState.ACTIVE -> false
             }
         }
         for (consent in pending) {
             try {
-                unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
+                if (consent.state != LinkConsentState.RETIRED) {
+                    unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
+                }
                 when (consent.state) {
                     LinkConsentState.REVOKING -> linkConsents.put(consent.copy(state = LinkConsentState.ACTIVE, grantsRevoked = true))
                     LinkConsentState.WITHDRAWING -> {
                         linkEngine.retire(consent.routeId).get()
-                        savedRooms.update(consent.roomId) { it.withRelays(consent.previousRelays) }
-                        discardLinkConsent(consent)
+                        val retired = consent.copy(state = LinkConsentState.RETIRED)
+                        linkConsents.put(retired)
+                        completeRetiredLinkCleanup(retired)
                     }
+                    LinkConsentState.RETIRED -> completeRetiredLinkCleanup(consent)
                     else -> discardLinkConsent(consent)
                 }
             } catch (e: Exception) {
@@ -970,6 +976,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms()) }
+    }
+
+    private fun completeRetiredLinkCleanup(consent: LinkConsent) {
+        runCatching { linkEngine.finalize(consent.routeId).get() }
+        savedRooms.update(consent.roomId) { it.withRelays(consent.previousRelays) }
+            ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        discardLinkConsent(consent)
     }
 
     private fun storageFailed() {
@@ -1083,8 +1096,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
                 val consent = linkConsents.all().singleOrNull {
                     it.accountPubkey == account.pubkey && it.roomId == room.id &&
-                        it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING)
+                        it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING, LinkConsentState.RETIRED)
                 } ?: throw RoomRecoveryException("This room is not connected through Bothy.")
+                if (consent.state == LinkConsentState.RETIRED) {
+                    completeRetiredLinkCleanup(consent)
+                    _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
+                    return@launch
+                }
                 linkConsents.put(consent.copy(state = LinkConsentState.WITHDRAWING))
                 if (consent.grants.isNotEmpty() && !consent.grantsRevoked) {
                     unexpiredRevocations(consent).takeIf { it.isNotEmpty() }?.let { publishShelteredEvents(consent, signer, it) }
@@ -1094,9 +1112,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 } catch (error: java.util.concurrent.ExecutionException) {
                     throw error.cause ?: error
                 }
-                savedRooms.update(room.id) { it.withRelays(consent.previousRelays) }
-                    ?: throw RoomRecoveryException("This room is no longer saved on this device.")
-                discardLinkConsent(consent)
+                val retired = consent.copy(state = LinkConsentState.RETIRED)
+                linkConsents.put(retired)
+                completeRetiredLinkCleanup(retired)
                 _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy access could not be withdrawn; KithMoot kept the route for retry.") } }

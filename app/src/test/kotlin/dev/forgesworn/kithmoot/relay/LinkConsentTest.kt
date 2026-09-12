@@ -52,7 +52,7 @@ class LinkConsentTest {
     }
 
     @Test fun `intermediate commit states never resolve a route and survive restart`() {
-        for (state in listOf(LinkConsentState.ACTIVATING, LinkConsentState.WITHDRAWING)) {
+        for (state in listOf(LinkConsentState.ACTIVATING, LinkConsentState.WITHDRAWING, LinkConsentState.RETIRED)) {
             val storage = MemoryStorage()
             LinkConsentVault(storage).put(consent(state))
             val restored = LinkConsentVault(storage)

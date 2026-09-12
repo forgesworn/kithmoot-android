@@ -5,7 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.relay.LinkConsentState
+import dev.forgesworn.kithmoot.relay.RelaySocketListener
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
 import kotlinx.serialization.json.Json
@@ -20,6 +23,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * One action per isolated emulator process for the composed G5 rehearsal.
@@ -44,11 +49,16 @@ class G5ProductJourneyTest {
             "bob-introduction" -> bobIntroduction()
             "alice-invitation" -> aliceInvitation()
             "bob-invitation" -> bobInvitation()
+            "bob-roster-refresh" -> bobRosterRefresh()
             "alice-pair" -> pairAlice()
             "bob-pair" -> pairBob()
             "alice-send" -> aliceSend()
             "bob-receive-reply" -> bobReceiveAndReply()
             "alice-restored" -> aliceRestored()
+            "alice-withdraw-outage" -> aliceWithdrawDuringOutage()
+            "alice-withdraw-recover" -> aliceWithdrawalRecovers()
+            "alice-route-restored" -> routeRestored("alice")
+            "bob-route-restored" -> bobRouteRestored()
             else -> throw AssertionError("unknown G5 product action")
         }
     }
@@ -138,6 +148,18 @@ class G5ProductJourneyTest {
 
     private fun pairBob() = pair("bob", expectGrants = false)
 
+    private fun bobRosterRefresh() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-dm").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's current private-room roster refresh", details = {
+            "relaysUp=${model.room.value.relaysUp}; notice=${model.room.value.notice}"
+        }) { model.room.value.relaysUp > 0 }
+        SystemClock.sleep(2_000)
+        put("bob-roster-refreshed", buildJsonObject { put("room", room) })
+    }
+
     private fun pair(who: String, expectGrants: Boolean) {
         val model = model()
         restoreSignIn(model)
@@ -195,6 +217,71 @@ class G5ProductJourneyTest {
         await("Alice's retained reply after process restart") { model.room.value.chat.any { it.body == BOB_REPLY } }
         put("alice-restored", buildJsonObject { put("room", room) })
     }
+
+    private fun aliceWithdrawDuringOutage() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        activity.scenario.onActivity { model.disconnectBothy(room) }
+        await("Alice's withdrawal to remain pending during the outage", details = {
+            "busy=${model.start.value.busy}; error=${model.start.value.error}; connected=${model.start.value.linkConnectedRooms.contains(room)}"
+        }) { !model.start.value.busy && model.start.value.error != null }
+        val consent = application().linkConsents.all().single { it.roomId == room }
+        assertEquals(LinkConsentState.WITHDRAWING, consent.state)
+        assertTrue(application().linkEngine.routeIds().contains(consent.routeId))
+        assertTrue(model.start.value.linkConnectedRooms.contains(room))
+        put("alice-withdraw-outage", buildJsonObject {
+            put("pending", true)
+            put("localRouteRetained", true)
+        })
+    }
+
+    private fun aliceWithdrawalRecovers() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        repeat(4) { attempt ->
+            if (application().linkConsents.all().none { it.roomId == room }) return@repeat
+            activity.scenario.onActivity { model.refreshSavedRooms() }
+            await("Alice's withdrawal recovery attempt ${attempt + 1}", details = {
+                "loading=${model.start.value.loadingRooms}; error=${model.start.value.error}; connected=${model.start.value.linkConnectedRooms.contains(room)}; consents=${application().linkConsents.all().size}"
+            }) { !model.start.value.loadingRooms }
+            if (application().linkConsents.all().any { it.roomId == room }) SystemClock.sleep(3_000)
+        }
+        assertTrue("Alice's pending withdrawal did not converge after bounded refresh retries", application().linkConsents.all().none { it.roomId == room })
+        assertTrue(!model.start.value.linkConnectedRooms.contains(room))
+        assertTrue(application().linkEngine.routeIds().isEmpty())
+        val introduction = ready().getValue("introduction_relay_url").jsonPrimitive.content
+        assertEquals(listOf(introduction), application().savedRooms.get(room)?.relays)
+        put("alice-withdraw-recover", buildJsonObject {
+            put("completed", true)
+            put("localRouteRemoved", true)
+            put("previousRelayRestored", true)
+        })
+    }
+
+    private fun bobRouteRestored() = routeRestored("bob")
+
+    private fun routeRestored(who: String) {
+        val room = awaitValue("$who-paired").getValue("room").jsonPrimitive.content
+        val consent = application().linkConsents.all().single { it.roomId == room }
+        val opened = AtomicBoolean(false)
+        val failure = AtomicReference<String?>(null)
+        val socket = application().linkEngine.open(consent.canonicalUrl, consent.routeId, object : RelaySocketListener {
+            override fun onOpen() { opened.set(true) }
+            override fun onMessage(text: String) = Unit
+            override fun onClosed(reason: String) { failure.set(reason) }
+        })
+        try {
+            await("$who's retained Link route after Bothy restart", details = { "failure=${failure.get()}" }) {
+                failure.get()?.let { throw AssertionError("$who's retained Link route failed: $it") }
+                opened.get()
+            }
+        } finally { socket.close() }
+        put("$who-route-restored", buildJsonObject { put("connected", true) })
+    }
+
+    private fun application() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as KithMootApplication
 
     private fun open(model: RoomViewModel, room: String, privateConversation: Boolean = true) {
         activity.scenario.onActivity { model.reopenRoom(room) }

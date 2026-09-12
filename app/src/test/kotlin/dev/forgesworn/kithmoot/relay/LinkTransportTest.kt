@@ -76,8 +76,10 @@ class LinkTransportTest {
         val manager = LinkTransportManager(vault, runtime)
 
         manager.retire("route-1").get()
+        manager.finalize("route-1").get()
 
         assertEquals(listOf("route-1"), runtime.retired)
+        assertEquals(listOf("route-1"), runtime.finalized)
         assertEquals(setOf("route-1"), manager.routeIds(), "acknowledgement does not remove the retry credential")
         manager.remove("route-1")
         assertTrue(manager.routeIds().isEmpty())
@@ -107,11 +109,13 @@ class LinkTransportTest {
     }
     private class RetiringRuntime : LinkTransportRuntime {
         val retired = mutableListOf<String>()
+        val finalized = mutableListOf<String>()
         override fun start(state: LinkTransportState): LinkTransportSession = object : LinkTransportSession {
             override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
             override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
             override fun upsert(route: StoredLinkRoute) = Unit
             override fun retire(routeId: String) { retired += routeId }
+            override fun finalize(routeId: String) { finalized += routeId }
             override fun remove(routeId: String) = Unit
             override fun stop() = Unit
         }
