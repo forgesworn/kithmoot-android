@@ -126,12 +126,43 @@ interface LinkTransportRuntime {
 
 interface LinkTransportSession {
     fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket
+    fun request(request: LinkJsonRequest): LinkJsonResponse
     fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute
     fun upsert(route: StoredLinkRoute)
     fun retire(routeId: String)
     fun finalize(routeId: String)
     fun remove(routeId: String)
     fun stop()
+}
+
+/** Opaque JSON crossing the reviewed native bridge. Secrets are deliberately absent from toString. */
+data class LinkJsonRequest(
+    val routeId: String,
+    val method: String,
+    val path: String,
+    val authorization: String,
+    val body: ByteArray,
+) {
+    override fun toString() = "LinkJsonRequest(method=$method, body=${body.size} bytes)"
+}
+
+data class LinkPathState(
+    val status: String,
+    val relay: String?,
+    val direct: String?,
+    val cause: String,
+)
+
+data class LinkJsonResponse(
+    val status: Int,
+    val body: ByteArray,
+    val path: LinkPathState,
+) {
+    override fun toString() = "LinkJsonResponse(status=$status, body=${body.size} bytes, path=$path)"
+}
+
+fun interface LinkJsonTransport {
+    fun request(request: LinkJsonRequest): java.util.concurrent.CompletableFuture<LinkJsonResponse>
 }
 
 interface LinkTransportSocket {
@@ -184,6 +215,40 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
         return ReflectiveLinkTransportSocket(socket)
     }
 
+    override fun request(request: LinkJsonRequest): LinkJsonResponse {
+        val requestClass = Class.forName("dev.forgesworn.link.ffi.LinkHttpRequest")
+        val nativeRequest = constructRecord(
+            requestClass,
+            request.routeId,
+            request.method,
+            request.path,
+            request.authorization,
+            request.body.copyOf(),
+        )
+        val response = requireNotNull(invoke("requestJson", nativeRequest))
+        val path = requireNotNull(recordValue(response, "getPath"))
+        val status = when (val raw = recordValue(response, "getStatus")) {
+            is UShort -> raw.toInt()
+            is Short -> raw.toUShort().toInt()
+            is Int -> raw
+            else -> throw IllegalStateException("The Link bridge returned an invalid HTTP status")
+        }
+        check(status in 100..599) { "The Link bridge returned an invalid HTTP status" }
+        return LinkJsonResponse(
+            status,
+            (recordValue(response, "getBody") as? ByteArray)?.copyOf()
+                ?: throw IllegalStateException("The Link bridge returned an invalid response body"),
+            LinkPathState(
+                recordValue(path, "getStatus") as? String
+                    ?: throw IllegalStateException("The Link bridge returned an invalid path status"),
+                recordValue(path, "getRelay") as? String,
+                recordValue(path, "getDirect") as? String,
+                recordValue(path, "getCause") as? String
+                    ?: throw IllegalStateException("The Link bridge returned an invalid path cause"),
+            ),
+        )
+    }
+
     override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
         val bundleClass = Class.forName("dev.forgesworn.link.ffi.LinkPairingBundle")
         val bundle = constructRecord(bundleClass, routeId, card.copyOf(), pairingSecret.copyOf(), expiresAt.toLong())
@@ -220,6 +285,10 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
         it.name == name && it.parameterCount == args.size
     }.let { invokeReflected(it, engine, *args) }
 }
+
+private fun recordValue(record: Any, name: String): Any? = record.javaClass.methods.single {
+    (it.name == name || it.name.startsWith("$name-")) && it.parameterCount == 0
+}.let { invokeReflected(it, record) }
 
 /** Reflection is only an optional-binding boundary; preserve the native cause for recovery and support. */
 private fun invokeReflected(method: Method, receiver: Any, vararg args: Any?): Any? = try {
@@ -259,7 +328,7 @@ private class ReflectiveLinkTransportSocket(private val socket: Any) : LinkTrans
 class LinkTransportManager(
     private val vault: LinkTransportVault,
     private val runtime: LinkTransportRuntime,
-) : LinkRelaySocketFactory, AutoCloseable {
+) : LinkRelaySocketFactory, LinkJsonTransport, AutoCloseable {
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "kithmoot-link").apply { isDaemon = true }
     }
@@ -283,6 +352,21 @@ class LinkTransportManager(
     fun upsert(route: StoredLinkRoute) {
         vault.upsert(route)
         worker.execute { if (!closed) session?.upsert(route.copyForUse()) }
+    }
+
+    /** Send one bounded request on the same serial worker and pinned route as relay traffic. */
+    override fun request(request: LinkJsonRequest): java.util.concurrent.CompletableFuture<LinkJsonResponse> {
+        val result = java.util.concurrent.CompletableFuture<LinkJsonResponse>()
+        worker.execute {
+            try {
+                check(!closed) { "Link transport has stopped" }
+                check(vault.state().routes.any { it.routeId == request.routeId }) { "Unknown Link route" }
+                result.complete(engine().request(request.copy(body = request.body.copyOf())))
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            }
+        }
+        return result
     }
 
     fun remove(routeId: String) {

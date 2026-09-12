@@ -51,7 +51,7 @@ run_tests() {
   fi
 }
 
-run_tests storage-and-ui 6 -e class \
+run_tests storage-and-ui 7 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot

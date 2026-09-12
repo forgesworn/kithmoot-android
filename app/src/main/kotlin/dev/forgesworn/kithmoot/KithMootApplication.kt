@@ -4,11 +4,14 @@ import android.app.Application
 import dev.forgesworn.kithmoot.account.AccountStore
 import dev.forgesworn.kithmoot.storage.ContactBook
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
+import dev.forgesworn.kithmoot.storage.RollbackResistantRoomStorage
 import dev.forgesworn.kithmoot.storage.RoomRepository
 import dev.forgesworn.kithmoot.relay.LinkTransportVault
 import dev.forgesworn.kithmoot.relay.LinkTransportManager
 import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
 import dev.forgesworn.kithmoot.relay.LinkConsentVault
+import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
+import dev.forgesworn.kithmoot.cadence.CadenceClient
 
 /**
  * Owns one serialised repository for saved room access across activities.
@@ -29,6 +32,14 @@ class KithMootApplication : Application() {
     /** Account-and-room permissions are deliberately separate from Link route credentials. */
     val linkConsents: LinkConsentVault by lazy { LinkConsentVault(EncryptedRoomStorage(this, "kithmoot.link-consent.v1")) }
 
+    /** Counter ownership survives timeouts and restarts in a dedicated encrypted journal. */
+    val cadenceLeases: CadenceLeaseVault by lazy {
+        CadenceLeaseVault(RollbackResistantRoomStorage(this, "kithmoot.cadence.v1", 1024 * 1024))
+    }
+
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
+
+    /** Dormant until a consented paired Bothy is explicitly probed by product UI. */
+    val cadenceClient: CadenceClient by lazy { CadenceClient(linkEngine, linkConsents) }
 }

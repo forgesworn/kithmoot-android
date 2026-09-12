@@ -8,6 +8,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import java.util.concurrent.ExecutionException
 
 class LinkTransportTest {
     @Test fun `vault makes and retains a 32 byte seed`() {
@@ -69,6 +70,37 @@ class LinkTransportTest {
         manager.close()
     }
 
+    @Test fun `manager sends exact cadence bytes on its Link worker`() {
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("route-1")) }
+        val runtime = RequestRuntime()
+        val manager = LinkTransportManager(vault, runtime)
+        val body = "{\"v\":1}".toByteArray()
+        val request = LinkJsonRequest("route-1", "POST", "/cadence/v1/status", "Nostr dGVzdA==", body)
+
+        val response = manager.request(request).get()
+
+        assertEquals(request, runtime.request!!.copy(body = body))
+        assertContentEquals(body, runtime.request!!.body)
+        assertEquals("kithmoot-link", runtime.thread)
+        assertEquals(403, response.status)
+        assertContentEquals("{\"v\":1,\"code\":\"scope\"}".toByteArray(), response.body)
+        assertEquals("relayed", response.path.status)
+        manager.close()
+    }
+
+    @Test fun `unknown cadence route fails without starting native engine`() {
+        val runtime = RecordingRuntime()
+        val manager = LinkTransportManager(LinkTransportVault(MemoryStorage()), runtime)
+
+        val failure = assertFailsWith<ExecutionException> {
+            manager.request(LinkJsonRequest("absent", "POST", "/cadence/v1/status", "Nostr dGVzdA==", byteArrayOf(1))).get()
+        }
+
+        assertEquals("Unknown Link route", failure.cause?.message)
+        assertEquals(0, runtime.starts)
+        manager.close()
+    }
+
     @Test fun `retirement waits for native acknowledgement before local removal`() {
         val vault = LinkTransportVault(MemoryStorage())
         vault.upsert(route("route-1"))
@@ -112,10 +144,30 @@ class LinkTransportTest {
         val finalized = mutableListOf<String>()
         override fun start(state: LinkTransportState): LinkTransportSession = object : LinkTransportSession {
             override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
+            override fun request(request: LinkJsonRequest): LinkJsonResponse = error("not needed")
             override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
             override fun upsert(route: StoredLinkRoute) = Unit
             override fun retire(routeId: String) { retired += routeId }
             override fun finalize(routeId: String) { finalized += routeId }
+            override fun remove(routeId: String) = Unit
+            override fun stop() = Unit
+        }
+    }
+
+    private class RequestRuntime : LinkTransportRuntime {
+        var request: LinkJsonRequest? = null
+        var thread: String? = null
+        override fun start(state: LinkTransportState): LinkTransportSession = object : LinkTransportSession {
+            override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
+            override fun request(request: LinkJsonRequest): LinkJsonResponse {
+                this@RequestRuntime.request = request
+                thread = Thread.currentThread().name
+                return LinkJsonResponse(403, "{\"v\":1,\"code\":\"scope\"}".toByteArray(), LinkPathState("relayed", "relay", null, ""))
+            }
+            override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
+            override fun upsert(route: StoredLinkRoute) = Unit
+            override fun retire(routeId: String) = Unit
+            override fun finalize(routeId: String) = Unit
             override fun remove(routeId: String) = Unit
             override fun stop() = Unit
         }

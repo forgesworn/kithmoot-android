@@ -1,0 +1,167 @@
+{
+  "about": "Frozen cadence v1 Link bodies and NIP-98 events. All keys are public test fixtures and sign nothing outside this file.",
+  "allowlisted_destinations": [
+    "wss://relay-a.example",
+    "wss://relay-b.example"
+  ],
+  "generated_by": "bothy-node crates/bothy-core cadence vector generator",
+  "grant": {
+    "active": true,
+    "device": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
+    "expires_at": 1800014400,
+    "grant_id": "33333333333333333333333333333333",
+    "persona": "a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1",
+    "room": "4242424242424242424242424242424242424242424242424242424242424242",
+    "server": "ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events",
+    "write_1460": true
+  },
+  "hostile_single_field_mutations": [
+    {
+      "name": "signature",
+      "target": "lease.authorization_event.sig",
+      "replacement": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "expect": "authentication"
+    },
+    {
+      "name": "server",
+      "target": "lease.body.server",
+      "replacement": "ws://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/events",
+      "expect": "scope"
+    },
+    {
+      "name": "room",
+      "target": "lease.body.room",
+      "replacement": "4343434343434343434343434343434343434343434343434343434343434343",
+      "expect": "scope"
+    },
+    {
+      "name": "persona",
+      "target": "lease.body.persona",
+      "replacement": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expect": "scope"
+    },
+    {
+      "name": "device",
+      "target": "lease.body.device",
+      "replacement": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expect": "scope"
+    },
+    {
+      "name": "slot_seconds",
+      "target": "lease.body.slot_seconds",
+      "replacement": 301,
+      "expect": "profile"
+    },
+    {
+      "name": "counter_lo",
+      "target": "lease.body.counter_lo",
+      "replacement": 1,
+      "expect": "counter range"
+    },
+    {
+      "name": "counter_hi",
+      "target": "lease.body.counter_hi",
+      "replacement": 9,
+      "expect": "counter range"
+    },
+    {
+      "name": "generation",
+      "target": "lease.body.generation",
+      "replacement": 0,
+      "expect": "id or generation"
+    },
+    {
+      "name": "credential_expiration",
+      "target": "lease.body.credential.tags.expiration",
+      "replacement": "1800007199",
+      "expect": "credential expires before lease"
+    },
+    {
+      "name": "payload_sha256",
+      "target": "lease.authorization_event.tags.payload",
+      "replacement": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expect": "authentication"
+    },
+    {
+      "name": "method",
+      "target": "lease.authorization_event.tags.method",
+      "replacement": "POST",
+      "expect": "authentication"
+    },
+    {
+      "name": "url",
+      "target": "lease.authorization_event.tags.u",
+      "replacement": "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/status",
+      "expect": "authentication"
+    },
+    {
+      "name": "request_id_reuse_with_changed_body",
+      "target": "lease.body.bucket_bytes",
+      "replacement": 4095,
+      "expect": "request conflict"
+    }
+  ],
+  "lease": {
+    "authorization": "Nostr eyJpZCI6ImQ0MDJmMTljOGY4MjQzZGVjNmFkZWI1ODg1Y2E5OGMzOTM5MTJjNDcwZmZmNmY2MWVjMjIzNzExYjVjOWNjMTIiLCJwdWJrZXkiOiJlZDgzNzA0Yzk1ZDgyOTA0NmYxYWMyNzgwNjIxMTEzMjEwMmMzNGU5YWM3ZmZhMWI3MTExMDY1OGU1YjlkMWJkIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMiJdLFsibWV0aG9kIiwiUFVUIl0sWyJwYXlsb2FkIiwiNTc2MTc1YWJhMzIwOTAyMzNmZTU3OTE2OWI4Nzg2ZWFlOTRmOTIxNmYwMGZiZTYwNzdkYjc3MjhiMTI1MzlmZSJdXSwiY29udGVudCI6IiIsInNpZyI6IjZmODBkMTBmNWM0YzU4MmI4MDEwZGRkYjM3ZjQzYWU1ZmQ5YzlmMjQ3ODMwZTc1M2I1M2IxOTQ0MjU0ZTZiNmRiNDEzZTM3ZWNlZWZkOTcwZWIxZDUzNWExYzNhN2EwYjA3NjNhY2I5MmUyYWJjMGY0MWMwMWVlOGM0YjY5ZGUwIn0=",
+    "authorization_event": {
+      "content": "",
+      "created_at": 1800000000,
+      "id": "d402f19c8f8243dec6adeb5885ca98c393912c470fff6f61ec223711b5c9cc12",
+      "kind": 27235,
+      "pubkey": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
+      "sig": "6f80d10f5c4c582b8010dddb37f43ae5fd9c9f247830e753b53b1944254e6b6db413e37eceefd970eb1d535a1c3a7a0b0763acb92e2abc0f41c01ee8c4b69de0",
+      "tags": [
+        [
+          "u",
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/22222222222222222222222222222222"
+        ],
+        [
+          "method",
+          "PUT"
+        ],
+        [
+          "payload",
+          "576175aba32090233fe579169b8786eae94f9216f00fbe6077db7728b12539fe"
+        ]
+      ]
+    },
+    "body": "{\"v\":1,\"request_id\":\"11111111111111111111111111111111\",\"lease_id\":\"22222222222222222222222222222222\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"persona\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"device\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"credential\":{\"id\":\"ab5820292a96224bef9c6048ff6f60fb12991d8ae848b12171a4f66d59809740\",\"pubkey\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"created_at\":1800000000,\"kind\":20460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"sig\":\"504dcdd966753c768b02314286dc738d961f9cde995a8f8452a5e639a888811b059024059061173d65cc4e37b9df4d457a7969d998138b568c883b6b79fcbd88\"},\"grant_id\":\"33333333333333333333333333333333\",\"device_slot\":0,\"room_generation\":1,\"epoch_seconds\":3600,\"slot_seconds\":300,\"bucket_bytes\":4096,\"allowed_inner_kinds\":[1460],\"device_slots\":2,\"counter_lo\":0,\"counter_hi\":8,\"start_epoch\":500002,\"end_epoch\":500004,\"real_send_until_epoch\":500004,\"cover_until_epoch\":500004,\"drop_keys\":[{\"epoch\":500002,\"counter\":0,\"pubkey\":\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"},{\"epoch\":500002,\"counter\":1,\"pubkey\":\"c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\"},{\"epoch\":500002,\"counter\":2,\"pubkey\":\"f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\"},{\"epoch\":500002,\"counter\":3,\"pubkey\":\"e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\"},{\"epoch\":500002,\"counter\":4,\"pubkey\":\"2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\"},{\"epoch\":500002,\"counter\":5,\"pubkey\":\"fff97bd5755eeea420453a14355235d382f6472f8568a18b2f057a1460297556\"},{\"epoch\":500002,\"counter\":6,\"pubkey\":\"5cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc\"},{\"epoch\":500002,\"counter\":7,\"pubkey\":\"2f01e5e15cca351daff3843fb70f3c2f0a1bdd05e5af888a67784ef3e10a2a01\"},{\"epoch\":500003,\"counter\":0,\"pubkey\":\"acd484e2f0c7f65309ad178a9f559abde09796974c57e714c35f110dfc27ccbe\"},{\"epoch\":500003,\"counter\":1,\"pubkey\":\"a0434d9e47f3c86235477c7b1ae6ae5d3442d49b1943c2b752a68e2a47e247c7\"},{\"epoch\":500003,\"counter\":2,\"pubkey\":\"774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cb\"},{\"epoch\":500003,\"counter\":3,\"pubkey\":\"d01115d548e7561b15c38f004d734633687cf4419620095bc5b0f47070afe85a\"},{\"epoch\":500003,\"counter\":4,\"pubkey\":\"f28773c2d975288bc7d1d205c3748651b075fbc6610e58cddeeddf8f19405aa8\"},{\"epoch\":500003,\"counter\":5,\"pubkey\":\"499fdf9e895e719cfd64e67f07d38e3226aa7b63678949e6e49b241a60e823e4\"},{\"epoch\":500003,\"counter\":6,\"pubkey\":\"d7924d4f7d43ea965a465ae3095ff41131e5946f3c85f79e44adbcf8e27e080e\"},{\"epoch\":500003,\"counter\":7,\"pubkey\":\"e60fce93b59e9ec53011aabc21c23e97b2a31369b87a5ae9c44ee89e2a6dec0a\"}],\"public_relays\":[\"wss://relay-a.example\",\"wss://relay-b.example\"],\"circle_boxes\":[\"local\"]}",
+    "content_type": "application/json",
+    "method": "PUT",
+    "path": "/cadence/v1/leases/22222222222222222222222222222222",
+    "payload_sha256": "576175aba32090233fe579169b8786eae94f9216f00fbe6077db7728b12539fe"
+  },
+  "node_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "now": 1800000000,
+  "queue": {
+    "authorization": "Nostr eyJpZCI6IjQ2M2E1ZmU0YmFhZjQ5YThmNWJlNzg4NjJlYWNkNTM5ZTEzOTIyNjgwNGZmYWE4ZDNhNjEzMmIyNzhmN2FkOGMiLCJwdWJrZXkiOiJlZDgzNzA0Yzk1ZDgyOTA0NmYxYWMyNzgwNjIxMTEzMjEwMmMzNGU5YWM3ZmZhMWI3MTExMDY1OGU1YjlkMWJkIiwiY3JlYXRlZF9hdCI6MTgwMDAwMDAwMCwia2luZCI6MjcyMzUsInRhZ3MiOltbInUiLCJodHRwOi8vYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9jYWRlbmNlL3YxL2xlYXNlcy8yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMi9xdWV1ZSJdLFsibWV0aG9kIiwiUE9TVCJdLFsicGF5bG9hZCIsImYzM2NkZTYwOWY5Y2I3N2M4ZGJiY2QzODUwZmZiM2ViMWU4ZjVkYmEwMDJiNGNlMzk1MDEwZDY5YzVhZjU2YjEiXV0sImNvbnRlbnQiOiIiLCJzaWciOiJlMjdhZmZmNTg0MjYzNmU5MzJmZWMwMTdhZDlmNzIzNTcwYjU5Zjk5ZmViMDNmYTg2NWQwNTk0NzBjODc5YjkzMDU5YTMzMjUwM2YwMzllZjE4OGE0ZDM2MzQ0ZmJlMTliZGY5MDU5ZTY3YzA2NWNmMjE0ODIwOGJkNGI5YWVjYyJ9",
+    "authorization_event": {
+      "content": "",
+      "created_at": 1800000000,
+      "id": "463a5fe4baaf49a8f5be78862eacd539e139226804ffaa8d3a6132b278f7ad8c",
+      "kind": 27235,
+      "pubkey": "ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd",
+      "sig": "e27afff5842636e932fec017ad9f723570b59f99feb03fa865d059470c879b93059a332503f039ef188a4d36344fbe19bdf9059e67c065cf2148208bd4b9aecc",
+      "tags": [
+        [
+          "u",
+          "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cadence/v1/leases/22222222222222222222222222222222/queue"
+        ],
+        [
+          "method",
+          "POST"
+        ],
+        [
+          "payload",
+          "f33cde609f9cb77c8dbbcd3850ffb3eb1e8f5dba002b4ce395010d69c5af56b1"
+        ]
+      ]
+    },
+    "body": "{\"v\":1,\"request_id\":\"44444444444444444444444444444444\",\"lease_id\":\"22222222222222222222222222222222\",\"generation\":1,\"server\":\"ws://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/events\",\"room\":\"4242424242424242424242424242424242424242424242424242424242424242\",\"persona\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"device\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"credential\":{\"id\":\"ab5820292a96224bef9c6048ff6f60fb12991d8ae848b12171a4f66d59809740\",\"pubkey\":\"a706ad8f73115f90500266f273f7571df9429a4cfb4bbfbcd825227202dabad1\",\"created_at\":1800000000,\"kind\":20460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"],[\"device\",\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\"],[\"expiration\",\"1800014400\"]],\"content\":\"\",\"sig\":\"504dcdd966753c768b02314286dc738d961f9cde995a8f8452a5e639a888811b059024059061173d65cc4e37b9df4d457a7969d998138b568c883b6b79fcbd88\"},\"grant_id\":\"33333333333333333333333333333333\",\"event\":{\"id\":\"4c68d5ac31f0549e86d9f4051bccbc3804f68a3c9ad35409d1d2c273ddd765fc\",\"pubkey\":\"ed83704c95d829046f1ac27806211132102c34e9ac7ffa1b71110658e5b9d1bd\",\"created_at\":1800000000,\"kind\":1460,\"tags\":[[\"d\",\"4242424242424242424242424242424242424242424242424242424242424242\"]],\"content\":\"nip44-v2-opaque-vector-ciphertext\",\"sig\":\"1c9cd683efd92c9afc47e32a2aa4c28e7415123588e3c40cb5fdee7f0b279498222f22af5649d56768d045c2f23af2796aa1091fdf8df47da37541b90d0ae92e\"}}",
+    "content_type": "application/json",
+    "method": "POST",
+    "path": "/cadence/v1/leases/22222222222222222222222222222222/queue",
+    "payload_sha256": "f33cde609f9cb77c8dbbcd3850ffb3eb1e8f5dba002b4ce395010d69c5af56b1"
+  },
+  "version": 1
+}
