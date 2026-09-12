@@ -16,7 +16,7 @@ trap 'rm -f "${temporary}"' EXIT
 # contained file, so this URL is a transport rather than a trust root.
 curl --fail --location --silent --show-error \
     --proto '=https' --tlsv1.2 \
-    'https://github.com/forgesworn/forgesworn-link/releases/download/android-ffi-f127d18/link-ffi-android.zip' \
+    'https://github.com/forgesworn/forgesworn-link/releases/download/android-ffi-c454bb3/link-ffi-android.zip' \
     --output "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT

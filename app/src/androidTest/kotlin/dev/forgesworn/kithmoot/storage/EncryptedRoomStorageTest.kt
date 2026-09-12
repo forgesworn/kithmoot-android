@@ -18,6 +18,7 @@ class EncryptedRoomStorageTest {
     private lateinit var context: Context
     private lateinit var alias: String
     private lateinit var storage: EncryptedRoomStorage
+    private lateinit var rollbackStorage: RollbackResistantRoomStorage
     private val plain = "{\"version\":1,\"rooms\":[],\"fixture\":\"private-room-access\"}".toByteArray()
     private val file get() = File(context.noBackupFilesDir, "$alias.vault")
 
@@ -25,10 +26,12 @@ class EncryptedRoomStorageTest {
         context = ApplicationProvider.getApplicationContext()
         alias = "kithmoot.test.${UUID.randomUUID()}"
         storage = EncryptedRoomStorage(context, alias)
+        rollbackStorage = RollbackResistantRoomStorage(context, "$alias.rollback")
     }
     @After fun cleanup() {
         File(file.path + ".new").deleteRecursively()
         storage.reset()
+        rollbackStorage.reset()
     }
 
     @Test fun encrypted_data_survives_a_new_storage_instance_and_stays_out_of_backups() {
@@ -69,5 +72,26 @@ class EncryptedRoomStorageTest {
         try { storage.write("replacement".toByteArray()); fail("The write should fail") } catch (_: java.io.IOException) { }
         obstruction.deleteRecursively()
         assertArrayEquals(plain, storage.read())
+    }
+
+    @Test fun cadence_journal_refuses_a_corrupt_missing_or_rolled_back_ciphertext() {
+        val journal = File(context.noBackupFilesDir, "$alias.rollback.vault")
+        rollbackStorage.write("first".toByteArray())
+        val first = journal.readBytes()
+        rollbackStorage.write("second".toByteArray())
+        assertArrayEquals("second".toByteArray(), rollbackStorage.read())
+
+        val corrupt = journal.readBytes().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        journal.writeBytes(corrupt)
+        assertThrows(Exception::class.java) { rollbackStorage.read() }
+
+        journal.writeBytes(first)
+        assertThrows(java.io.IOException::class.java) { rollbackStorage.read() }
+        assertArrayEquals(first, journal.readBytes())
+
+        rollbackStorage.reset()
+        rollbackStorage.write("delegated".toByteArray())
+        assertTrue(journal.delete())
+        assertThrows(java.io.FileNotFoundException::class.java) { rollbackStorage.read() }
     }
 }
