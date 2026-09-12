@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
+private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
+
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
  * none of them changes what is correct.
@@ -339,6 +341,29 @@ class RoomSession(
         decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
     }
 
+    /** A person's message is shown as sent only after at least one relay accepts it. */
+    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null): Boolean {
+        val text = body.trim()
+        if (text.isEmpty()) return false
+        require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
+        val sentAt = now()
+        val event = encodeChatEvent(
+            body = text,
+            participant = identity.participant,
+            credential = identity.credential,
+            roomId = room.roomId,
+            roomKey = room.roomKey,
+            deviceSecretKey = identity.deviceSecretKey,
+            sentAt = sentAt,
+            proof = proof,
+            reaction = reaction,
+        )
+        val message = decodeOwnChat(event, sentAt)
+        if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
+        ingestChat(message)
+        return true
+    }
+
     /** A room capability is exposed only after at least one relay confirms its durable event. */
     suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
         val sentAt = now()
@@ -353,9 +378,19 @@ class RoomSession(
             proof = proof,
             invite = invite,
         )
-        if (!transport.publishConfirmed(event)) return false
-        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        val message = decodeOwnChat(event, sentAt)
+        if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
+        ingestChat(message)
         return true
+    }
+
+    /** A confirmed send cannot report success for an event this room refuses. */
+    private fun decodeOwnChat(event: NostrEvent, sentAt: Long): ChatMessage {
+        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let { return it }
+        if (decodeChatEvent(event, room.roomId, room.roomKey, sentAt) != null) {
+            error("The current room policy refused this sender.")
+        }
+        error("The generated message failed local integrity validation.")
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {

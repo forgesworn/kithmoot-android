@@ -27,9 +27,12 @@ class BothyPairingTest {
             put("v", 2); put("card", Base64.getEncoder().encodeToString(card)); put("bothy", bothy)
             put("secret", "cd".repeat(16)); put("exp", now + 600); put("role", "box"); put("name", "fixture")
         }.toString().encodeToByteArray()
-        val parsed = BothyPairing.parse("bothy:" + Base64.getUrlEncoder().withoutPadding().encodeToString(body), now)
+        val uri = "bothy:" + Base64.getUrlEncoder().withoutPadding().encodeToString(body)
+        val parsed = BothyPairing.parse(uri, now)
 
         assertEquals(bothy, parsed.bothyPubkey)
         assertEquals("3b4316cfcfab2a9791bbb89bc15e21b20531aa00761f2bb6141f6a23d4836517", parsed.linkNodeId)
+        BothyPairing.parse(uri, now - 60)
+        assertThrows(IllegalArgumentException::class.java) { BothyPairing.parse(uri, now - 61) }
     }
 }

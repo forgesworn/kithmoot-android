@@ -23,6 +23,7 @@ class BothyPairing private constructor(
 
     companion object {
         private const val MAX_TTL_SECONDS = 600L
+        private const val CLOCK_SKEW_SECONDS = 60L
         private val URI_BODY = Regex("[A-Za-z0-9_-]{1,8192}")
         private val STANDARD_BASE64 = Regex("[A-Za-z0-9+/]+={0,2}")
         private val HEX_64 = Regex("[0-9a-f]{64}")
@@ -48,7 +49,7 @@ class BothyPairing private constructor(
             val secretHex = root.getValue("secret").jsonPrimitive.content
             require(SECRET.matches(secretHex)) { "The pairing secret is not valid." }
             val expiresAt = root.getValue("exp").jsonPrimitive.long
-            require(expiresAt > now && expiresAt - now <= MAX_TTL_SECONDS) { "This pairing code has expired. Show it again on Bothy." }
+            require(expiresAt > now && expiresAt - now <= MAX_TTL_SECONDS + CLOCK_SKEW_SECONDS) { "This pairing code has expired. Show it again on Bothy." }
             val role = root.getValue("role").jsonPrimitive.content
             require(role == "phone" || role == "box") { "The pairing role is not valid." }
             val name = root.getValue("name").jsonPrimitive.content

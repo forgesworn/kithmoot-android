@@ -243,6 +243,8 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                             lane = roomState.lane,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
+                            sending = roomState.chatSending,
+                            sendError = roomState.chatSendError,
                             modifier = Modifier.fillMaxSize(),
                             showTitle = false,
                         )

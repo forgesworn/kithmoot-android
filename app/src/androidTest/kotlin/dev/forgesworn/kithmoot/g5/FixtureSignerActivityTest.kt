@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.account.Nip55
 import dev.forgesworn.kithmoot.account.checkedSignedEvent
+import dev.forgesworn.kithmoot.account.nip55PayloadUri
 import dev.forgesworn.kithmoot.account.unsignedEventJson
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import kotlinx.serialization.json.Json
@@ -30,5 +31,14 @@ class FixtureSignerActivityTest {
         val event = NostrEvent.fromJson(Json.parseToJsonElement(requireNotNull(signed.getStringExtra("event"))).jsonObject)
 
         assertEquals(pubkey, checkedSignedEvent(event, pubkey, 24242, 1_800_000_000, tags, "").pubkey)
+    }
+
+    @Test fun signer_payload_uri_preserves_invitation_fragments() {
+        val invitation = "https://moot.example/j/#capability?relay=wss://relay.example"
+
+        val uri = nip55PayloadUri(invitation)
+
+        assertEquals(invitation, uri.schemeSpecificPart)
+        assertEquals(null, uri.fragment)
     }
 }

@@ -36,12 +36,19 @@ class G5ProductJourneyTest {
     private val arguments get() = InstrumentationRegistry.getArguments()
     private val control get() = requireNotNull(arguments.getString("fixture_control")).removeSuffix("/")
     private val action get() = requireNotNull(arguments.getString("g5_action"))
-    private val signerPackage get() = InstrumentationRegistry.getInstrumentation().context.packageName
+    private val signerPackage get() = "dev.forgesworn.kithmoot.g5signer"
 
     @Test fun runs_the_requested_product_admission_action() {
         when (action) {
             "alice-introduction" -> aliceIntroduction()
+            "bob-introduction" -> bobIntroduction()
+            "alice-invitation" -> aliceInvitation()
             "bob-invitation" -> bobInvitation()
+            "alice-pair" -> pairAlice()
+            "bob-pair" -> pairBob()
+            "alice-send" -> aliceSend()
+            "bob-receive-reply" -> bobReceiveAndReply()
+            "alice-restored" -> aliceRestored()
             else -> throw AssertionError("unknown G5 product action")
         }
     }
@@ -56,11 +63,45 @@ class G5ProductJourneyTest {
             model.startRoom()
         }
         await("Alice's introduction room") { model.stage.value == Stage.ROOM && model.room.value.roomId.isNotBlank() }
-        put("introduction", buildJsonObject { put("url", model.room.value.joinUrl) })
-        await("Bob's signed room device") { model.room.value.privateConversationPeers.size == 1 }
+        put("introduction", buildJsonObject {
+            put("url", model.room.value.joinUrl)
+            put("room", model.room.value.roomId)
+            put("participant", model.room.value.selfParticipant)
+        })
+    }
+
+    private fun bobIntroduction() {
+        val model = model()
+        signIn(model)
+        val introduction = awaitValue("introduction")
+        activity.scenario.onActivity { model.joinFromUrl(introduction.getValue("url").jsonPrimitive.content) }
+        await("Bob's introduction room", details = {
+            "stage=${model.stage.value}; busy=${model.start.value.busy}; error=${model.start.value.error}; roomMatches=${model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content}"
+        }) {
+            model.stage.value == Stage.ROOM &&
+                model.room.value.roomId == introduction.getValue("room").jsonPrimitive.content &&
+                !model.room.value.privateConversation
+        }
+        assertTrue(
+            "G5 fixture signer personas must be distinct",
+            model.room.value.selfParticipant != introduction.getValue("participant").jsonPrimitive.content,
+        )
+        put("bob-introduction", buildJsonObject { put("room", model.room.value.roomId) })
+    }
+
+    private fun aliceInvitation() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
+        open(model, room, privateConversation = false)
+        await("Bob's signed room device", details = {
+            "tiles=${model.room.value.tiles.size}; peers=${model.room.value.privateConversationPeers.size}; signedIn=${model.start.value.account != null}"
+        }) { model.room.value.privateConversationPeers.size == 1 }
         val bob = model.room.value.privateConversationPeers.single()
         activity.scenario.onActivity { model.startPrivateConversation(bob) }
-        await("Alice's signer-sealed private conversation") {
+        await("Alice's signer-sealed private conversation", details = {
+            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}; startError=${model.start.value.error}; savedRooms=${model.start.value.savedRooms.size}"
+        }) {
             model.stage.value == Stage.ROOM && model.room.value.privateConversation && !model.room.value.privateConversationBusy
         }
         put("alice-dm", buildJsonObject { put("room", model.room.value.roomId); put("participant", model.room.value.selfParticipant) })
@@ -68,19 +109,99 @@ class G5ProductJourneyTest {
 
     private fun bobInvitation() {
         val model = model()
-        signIn(model)
-        val invitation = awaitValue("introduction").getValue("url").jsonPrimitive.content
-        activity.scenario.onActivity { model.joinFromUrl(invitation) }
-        await("Bob's introduction room") { model.stage.value == Stage.ROOM && !model.room.value.privateConversation }
+        restoreSignIn(model)
+        val room = awaitValue("bob-introduction").getValue("room").jsonPrimitive.content
+        open(model, room, privateConversation = false)
         await("Alice's sealed private invitation") { model.room.value.chat.any { it.invite != null } }
         val message = model.room.value.chat.first { it.invite != null }
-        activity.scenario.onActivity { model.openPrivateConversation(message) }
-        await("Bob's deliberately opened private conversation") {
+        activity.scenario.onActivity {
+            model.openPrivateConversation(message)
+            assertTrue(
+                "Bob's private invitation action must start (notice=${model.room.value.notice})",
+                model.room.value.privateConversationBusy,
+            )
+        }
+        await("Bob's deliberately opened private conversation", details = {
+            "stage=${model.stage.value}; private=${model.room.value.privateConversation}; busy=${model.room.value.privateConversationBusy}; notice=${model.room.value.notice}; startError=${model.start.value.error}; savedRooms=${model.start.value.savedRooms.size}; targetSaved=${model.start.value.savedRooms.any { it.id == message.invite?.room }}"
+        }) {
             model.stage.value == Stage.ROOM && model.room.value.privateConversation && !model.room.value.privateConversationBusy
         }
         val alice = awaitValue("alice-dm")
         assertEquals(alice.getValue("room").jsonPrimitive.content, model.room.value.roomId)
         put("bob-dm", buildJsonObject { put("room", model.room.value.roomId); put("participant", model.room.value.selfParticipant); put("device", model.room.value.selfDevice) })
+        await("Bob's current private-room roster is retained") {
+            get("journey-roster/bob-dm").getValue("stored").jsonPrimitive.content == "true"
+        }
+    }
+
+    private fun pairAlice() = pair("alice", expectGrants = true)
+
+    private fun pairBob() = pair("bob", expectGrants = false)
+
+    private fun pair(who: String, expectGrants: Boolean) {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("$who-dm").getValue("room").jsonPrimitive.content
+        val pairing = post("pairing").getValue("uri").jsonPrimitive.content
+        activity.scenario.onActivity { model.pairBothy(room, pairing) }
+        await("$who Bothy pairing", details = {
+            "busy=${model.start.value.busy}; error=${model.start.value.error}; notice=${model.start.value.notice}; connected=${model.start.value.linkConnectedRooms.contains(room)}; grantOwner=${model.start.value.linkGrantOwnerRooms.contains(room)}"
+        }) {
+            model.start.value.error?.let { throw AssertionError("$who Bothy pairing failed: $it") }
+            !model.start.value.busy && model.start.value.linkConnectedRooms.contains(room)
+        }
+        assertEquals(expectGrants, model.start.value.linkGrantOwnerRooms.contains(room))
+        put("$who-paired", buildJsonObject { put("room", room) })
+    }
+
+    private fun aliceSend() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        activity.scenario.onActivity {
+            model.sendChat(ALICE_MESSAGE)
+            assertTrue(
+                "Alice's send must start from the reopened room",
+                model.room.value.chatSending || model.room.value.chat.any { it.body == ALICE_MESSAGE },
+            )
+        }
+        await("Alice's retained encrypted message", details = {
+            "stage=${model.stage.value}; room=${model.room.value.roomId}; relaysUp=${model.room.value.relaysUp}; " +
+                "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}; " +
+                "connected=${model.start.value.linkConnectedRooms.contains(room)}"
+        }) { !model.room.value.chatSending && model.room.value.chat.any { it.body == ALICE_MESSAGE } }
+        put("alice-sent", buildJsonObject { put("room", room) })
+    }
+
+    private fun bobReceiveAndReply() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's received encrypted message") { model.room.value.chat.any { it.body == ALICE_MESSAGE } }
+        activity.scenario.onActivity { model.sendChat(BOB_REPLY) }
+        await("Bob's retained encrypted reply", details = {
+            "sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}; notice=${model.room.value.notice}"
+        }) { !model.room.value.chatSending && model.room.value.chat.any { it.body == BOB_REPLY } }
+        put("bob-replied", buildJsonObject { put("room", room) })
+    }
+
+    private fun aliceRestored() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-sent").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Alice's retained reply after process restart") { model.room.value.chat.any { it.body == BOB_REPLY } }
+        put("alice-restored", buildJsonObject { put("room", room) })
+    }
+
+    private fun open(model: RoomViewModel, room: String, privateConversation: Boolean = true) {
+        activity.scenario.onActivity { model.reopenRoom(room) }
+        await("saved room") {
+            model.stage.value == Stage.ROOM && model.room.value.roomId == room &&
+                model.room.value.privateConversation == privateConversation
+        }
     }
 
     private fun signIn(model: RoomViewModel) {
@@ -91,6 +212,11 @@ class G5ProductJourneyTest {
         assertEquals("nip55", model.start.value.account?.method)
     }
 
+    private fun restoreSignIn(model: RoomViewModel) {
+        await("saved NIP-55 account restore") { model.start.value.account != null }
+        assertEquals("nip55", model.start.value.account?.method)
+    }
+
     private fun model(): RoomViewModel {
         lateinit var model: RoomViewModel
         activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
@@ -98,6 +224,19 @@ class G5ProductJourneyTest {
     }
 
     private fun ready() = get("ready")
+
+    private fun post(path: String): kotlinx.serialization.json.JsonObject {
+        val connection = URL("$control/$path").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            require(connection.responseCode in 200..299) { "fixture control rejected $path" }
+            return Json.parseToJsonElement(connection.inputStream.bufferedReader().use { it.readText() }).jsonObject
+        } finally { connection.disconnect() }
+    }
 
     private fun awaitValue(key: String): kotlinx.serialization.json.JsonObject {
         var value: kotlinx.serialization.json.JsonObject? = null
@@ -123,6 +262,7 @@ class G5ProductJourneyTest {
         try {
             connection.requestMethod = "POST"
             connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.outputStream.bufferedWriter().use { it.write(value.toString()) }
@@ -130,11 +270,16 @@ class G5ProductJourneyTest {
         } finally { connection.disconnect() }
     }
 
-    private fun await(description: String, predicate: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 60_000
+    private fun await(description: String, details: () -> String = { "" }, predicate: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + 120_000
         while (!predicate()) {
-            if (SystemClock.uptimeMillis() >= deadline) throw AssertionError("Timed out waiting for $description")
+            if (SystemClock.uptimeMillis() >= deadline) throw AssertionError("Timed out waiting for $description (${details()})")
             SystemClock.sleep(50)
         }
+    }
+
+    private companion object {
+        const val ALICE_MESSAGE = "g5 retained message from Alice"
+        const val BOB_REPLY = "g5 retained reply from Bob"
     }
 }
