@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the immutable Link artifact. The token is read only and must be scoped
-# to this one private repository's Actions artifacts.
+# Fetch the immutable Link artifact from its source-pinned public release.
 set -euo pipefail
 
 if (( $# != 1 )); then
@@ -8,14 +7,16 @@ if (( $# != 1 )); then
     exit 2
 fi
 
-: "${FORGESWORN_LINK_ARTIFACT_TOKEN:?set a read-only token for forgesworn/forgesworn-link Actions artifacts}"
 output="$1"
 mkdir -p "$(dirname "$output")"
 temporary="$(mktemp "${output}.XXXXXX")"
 trap 'rm -f "${temporary}"' EXIT
-# GH_TOKEN stays in the child environment rather than appearing in a command
-# argument or URL. A failed transfer leaves the previous archive untouched.
-GH_TOKEN="${FORGESWORN_LINK_ARTIFACT_TOKEN}" gh api \
-    repos/forgesworn/forgesworn-link/actions/artifacts/10295928458/zip > "${temporary}"
+# A failed transfer leaves the previous archive untouched. The preparation
+# script separately pins the archive digest, manifest source commit and every
+# contained file, so this URL is a transport rather than a trust root.
+curl --fail --location --silent --show-error \
+    --proto '=https' --tlsv1.2 \
+    'https://github.com/forgesworn/forgesworn-link/releases/download/android-ffi-f127d18/link-ffi-android.zip' \
+    --output "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT

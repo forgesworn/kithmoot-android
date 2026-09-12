@@ -40,6 +40,11 @@ jobs:
           packages: 'platforms;android-35 build-tools;34.0.0'
           log-accepted-android-sdk-licenses: false
 
+      - name: Prepare the reviewed ForgeSworn Link bridge
+        run: |
+          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+
       - name: Test, lint and build
         run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
 
@@ -76,6 +81,11 @@ jobs:
         with:
           packages: 'platforms;android-35 build-tools;34.0.0'
           log-accepted-android-sdk-licenses: false
+
+      - name: Prepare the reviewed ForgeSworn Link bridge
+        run: |
+          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
       - name: Build the debug app and instrumentation APK
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
