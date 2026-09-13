@@ -24,8 +24,11 @@ end epoch. Before the start, KithMoot continues its normal cadence. The app will
 not start a hand-off while a locally queued quiet message is waiting for its
 phone slot, and it pauses chat submissions while ownership is changing. During
 the delegated window, a new chat event is queued through Bothy and its receipt
-is written to the journal. The phone emits neither a real wrapper nor filler for
-the delegated counters.
+is written to the journal. Its exact inner event remains in the saved phone
+queue until that receipt is durable. The queue request id is derived from the
+event id, so restart recovery can query the lease and retry the same event
+idempotently without creating another logical message. The phone emits neither
+a real wrapper nor filler for the delegated counters.
 
 Stop requests choose a future safe epoch. Bothy stops real sends at that
 boundary but keeps the fixed cover pattern until the original end epoch, so the
@@ -44,7 +47,8 @@ it does not create a fresh request while ownership is uncertain.
 
 Protocol and JVM tests cover exact lease and queue bodies, route and identity
 pinning, lost lease-response retry, encrypted journal ownership, cadence routing,
-phone suppression and durable local quiet queueing. The Compose instrumentation
+phone suppression and durable local quiet queueing through a lost box reply.
+The Compose instrumentation
 test covers the acknowledged schedule evidence and safe-stop action. The normal
 Android release build runs protocol tests, app tests, debug and release lint,
 and both APK assemblies with the pinned Link archive.

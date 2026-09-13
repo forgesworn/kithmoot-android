@@ -7,8 +7,9 @@ does not promote it to a production release.
 
 Version code 21 lets a persistent quiet room connected to Bothy schedule a
 bounded cadence hand-off of up to twelve hours for this device. An exact lease
-request survives a lost reply, delegated counters remain unavailable to the
-phone, and stop preserves cover through the original end epoch. The room shows
+request and any unconfirmed queued inner event survive a lost reply, delegated
+counters remain unavailable to the phone, and stop preserves cover through the
+original end epoch. The room shows
 the acknowledged schedule and Bothy's queue outcome counts. See
 [the quiet cadence guide](quiet-cadence.md)
 for the ownership model, test evidence and remaining live and physical-device

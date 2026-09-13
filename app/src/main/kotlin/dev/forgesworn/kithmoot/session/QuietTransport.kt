@@ -138,6 +138,20 @@ class QuietTransport(
 
     val pending: Int get() = synchronized(queue) { queue.size }
 
+    /** Exact inner events retained on this device until their delegated box
+     * queue receipt has also been saved. */
+    fun queuedEvents(): List<NostrEvent> = synchronized(queue) { queue.toList() }
+
+    /** Remove a box-confirmed inner event only after the smaller durable state
+     * has been written. A failed write leaves the event available for retry. */
+    fun confirmQueued(eventId: String): Boolean = synchronized(queue) {
+        if (queue.none { it.id == eventId }) return@synchronized false
+        val retained = queue.filterNot { it.id == eventId }
+        onState(QuietState(keys.exportUsed(), retained))
+        queue.removeAll { it.id == eventId }
+        true
+    }
+
     fun stop() {
         timer?.cancel(); timer = null
         broadcast?.cancel(); broadcast = null
@@ -155,16 +169,17 @@ class QuietTransport(
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
-        var added = false
         synchronized(queue) {
             check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            if (queue.none { it.id == event.id }) { queue.addLast(event); added = true }
-        }
-        if (added) try {
-            onState(state())
-        } catch (error: Exception) {
-            synchronized(queue) { queue.removeAll { it.id == event.id } }
-            throw error
+            if (queue.none { it.id == event.id }) {
+                queue.addLast(event)
+                try {
+                    onState(QuietState(keys.exportUsed(), queue.toList()))
+                } catch (error: Exception) {
+                    queue.removeAll { it.id == event.id }
+                    throw error
+                }
+            }
         }
     }
 

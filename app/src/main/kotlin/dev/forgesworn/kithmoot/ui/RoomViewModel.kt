@@ -66,6 +66,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CompletableFuture
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.crypto.Schnorr
@@ -1802,6 +1803,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 scope,
                 leaseAt = { epoch -> cadenceLeases.all(derived.roomId, who.devicePubkey)
                     .singleOrNull { it.ownership != CadenceOwnership.ENDED && epoch in it.plan.startEpoch until it.plan.endEpoch } },
+                retain = { event -> check(quietRoom.publishConfirmed(event)) },
                 queue = { lease, event ->
                     val context = cadenceAccess.context
                     if (context == null) {
@@ -1817,7 +1819,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                                         it.plan.leaseId == lease.plan.leaseId && it.plan.generation == lease.plan.generation
                                     }
                                     cadenceClient.queue(
-                                        who.participant, context.scope, who, current, Entropy.bytes(16).toHex(), event,
+                                        who.participant, context.scope, who, current, cadenceQueueId(event.id), event,
                                         epochSeconds(), cadenceLeases,
                                     ).get()
                                 }
@@ -1830,7 +1832,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                         queued
                     }
                 },
-                onFailure = { message -> _room.update { it.copy(chatSendError = message, notice = message) } },
+                release = { eventId -> check(quietRoom.confirmQueued(eventId)) { "The confirmed quiet message was not retained locally." } },
+                onFailure = { message -> _room.update { state -> state.copy(
+                    chatSendError = message,
+                    notice = message,
+                    cadence = state.cadence?.copy(
+                        state = "unresolved-message",
+                        detail = "A quiet message is retained on this phone. Retry to resolve Bothy's queue receipt.",
+                    ),
+                ) } },
             )
         }
         val live = RoomSession(
@@ -2345,7 +2355,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
         }
-        _room.update { it.copy(cadence = cadenceView(result.lease, eligible = true)) }
+        val lease = recoverCadenceQueue(context, who, result.lease)
+        _room.update { it.copy(cadence = cadenceView(lease, eligible = true)) }
     }
 
     private fun stopCadence(record: SavedRoom, who: RoomIdentity, secondary: Boolean, failure: String) {
@@ -2370,6 +2381,35 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         .maxByOrNull { it.plan.generation }
 
     private fun cadenceId(): String = Entropy.bytes(16).toHex()
+
+    private fun cadenceQueueId(eventId: String): String = Digests.sha256(
+        "kithmoot/cadence/queue/v1\u0000$eventId".toByteArray(Charsets.UTF_8),
+    ).toHex().take(32)
+
+    /** Resolve exact phone-retained messages after a lost queue reply or process restart. */
+    private fun recoverCadenceQueue(
+        context: CadenceContext,
+        who: RoomIdentity,
+        lease: StoredCadenceLease,
+    ): StoredCadenceLease {
+        val quiet = quietTransport ?: return lease
+        var current = lease
+        for (event in quiet.queuedEvents()) {
+            val receipt = current.receipt
+            if (event.id in (receipt?.sentItemIds ?: emptyList()) || event.id in (receipt?.failedItemIds ?: emptyList())) {
+                quiet.confirmQueued(event.id)
+                continue
+            }
+            val epoch = DeadDrop.epochIndexAt(epochSeconds())
+            if (current.ownership != CadenceOwnership.BOX_OWNED || epoch !in current.plan.startEpoch until current.plan.endEpoch) continue
+            current = cadenceClient.queue(
+                who.participant, context.scope, who, current, cadenceQueueId(event.id), event,
+                epochSeconds(), cadenceLeases,
+            ).get().lease
+            check(quiet.confirmQueued(event.id)) { "The queued quiet message was not retained locally." }
+        }
+        return current
+    }
 
     /** Real sends stop before the Link route and its circle authority are retired. */
     private suspend fun stopCadenceBeforeDisconnect(record: SavedRoom, signer: ParticipantSigner) = cadenceGate.withLock {

@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.test.assertFailsWith
 
 class CadenceRoomTransportTest {
     @Test fun boxOwnedEpochQueuesChatWhilePlainEventsAndLaterChatUseThePhone() = runTest {
@@ -23,7 +24,9 @@ class CadenceRoomTransportTest {
             0,
         )
         val phone = mutableListOf<Int>()
+        val retained = mutableListOf<String>()
         val queued = mutableListOf<String>()
+        val released = mutableListOf<String>()
         val inner = object : RoomTransport {
             override fun publish(event: dev.forgesworn.kithmoot.protocol.NostrEvent) { phone += event.kind }
             override suspend fun publishConfirmed(event: dev.forgesworn.kithmoot.protocol.NostrEvent, timeoutMs: Long): Boolean {
@@ -32,14 +35,40 @@ class CadenceRoomTransportTest {
             override fun subscribe(filters: List<Filter>) = emptyFlow<dev.forgesworn.kithmoot.protocol.NostrEvent>()
         }
         var now = 500002L * 3600
-        val transport = CadenceRoomTransport(inner, backgroundScope, { epoch -> lease.takeIf { epoch in 500002 until 500004 } }, { _, event ->
-            queued += event.id; CompletableFuture.completedFuture(true)
-        }, { now })
+        val transport = CadenceRoomTransport(
+            inner,
+            backgroundScope,
+            leaseAt = { epoch -> lease.takeIf { epoch in 500002 until 500004 } },
+            retain = { event -> retained += event.id },
+            queue = { _, event -> queued += event.id; CompletableFuture.completedFuture(true) },
+            release = { released += it },
+            now = { now },
+        )
         val chat = Events.sign(deviceKey, 1460, now, listOf(listOf("d", room)), "cipher", ByteArray(32))
         assertTrue(transport.publishConfirmed(chat))
         transport.publish(Events.sign(deviceKey, 20461, now, listOf(listOf("d", room)), "roster", ByteArray(32)))
+        assertEquals(listOf(chat.id), retained)
         assertEquals(listOf(chat.id), queued)
+        assertEquals(listOf(chat.id), released)
         assertEquals(listOf(20461), phone)
+        val failedRetained = mutableListOf<String>()
+        val failedReleased = mutableListOf<String>()
+        val failures = mutableListOf<String>()
+        val refusing = CadenceRoomTransport(
+            inner,
+            backgroundScope,
+            leaseAt = { lease },
+            retain = { failedRetained += it.id },
+            queue = { _, _ -> CompletableFuture<Boolean>().also { it.completeExceptionally(IllegalStateException("reply lost")) } },
+            release = { failedReleased += it },
+            now = { now },
+            onFailure = { failures += it },
+        )
+        val retainedEvent = Events.sign(deviceKey, 1460, now + 1, listOf(listOf("d", room)), "kept", ByteArray(32))
+        assertFailsWith<IllegalStateException> { refusing.publishConfirmed(retainedEvent) }
+        assertEquals(listOf(retainedEvent.id), failedRetained)
+        assertEquals(emptyList<String>(), failedReleased)
+        assertEquals(listOf("reply lost"), failures)
         now = 500004L * 3600
         assertTrue(transport.publishConfirmed(chat))
         assertEquals(listOf(20461, 1460), phone)

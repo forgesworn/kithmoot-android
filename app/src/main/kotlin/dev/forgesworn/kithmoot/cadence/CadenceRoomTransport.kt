@@ -18,14 +18,16 @@ class CadenceRoomTransport(
     private val inner: RoomTransport,
     private val scope: CoroutineScope,
     private val leaseAt: (Long) -> StoredCadenceLease?,
+    private val retain: suspend (NostrEvent) -> Unit,
     private val queue: (StoredCadenceLease, NostrEvent) -> CompletableFuture<Boolean>,
+    private val release: (String) -> Unit,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val onFailure: (String) -> Unit = {},
 ) : RoomTransport {
     override fun publish(event: NostrEvent) {
         val lease = delegated(event) ?: return inner.publish(event)
         scope.launch {
-            runCatching { queue(lease, event).await() }.onFailure {
+            runCatching { handoff(lease, event) }.onFailure {
                 onFailure(it.message ?: "Bothy could not queue the quiet message.")
             }
         }
@@ -33,7 +35,12 @@ class CadenceRoomTransport(
 
     override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
         val lease = delegated(event) ?: return inner.publishConfirmed(event, timeoutMs)
-        return queue(lease, event).await()
+        return try {
+            handoff(lease, event)
+        } catch (error: Exception) {
+            onFailure(error.message ?: "Bothy could not queue the quiet message.")
+            throw error
+        }
     }
 
     override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long) = inner.queryStored(filters, timeoutMs)
@@ -47,6 +54,13 @@ class CadenceRoomTransport(
         return leaseAt(epoch)?.also {
             check(it.ownership == CadenceOwnership.BOX_OWNED) { "Bothy's cadence lease outcome is unresolved. Retry it before sending." }
         }
+    }
+
+    private suspend fun handoff(lease: StoredCadenceLease, event: NostrEvent): Boolean {
+        retain(event)
+        val accepted = queue(lease, event).await()
+        if (accepted) release(event.id)
+        return accepted
     }
 }
 
