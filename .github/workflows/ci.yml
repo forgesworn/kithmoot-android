@@ -46,7 +46,7 @@ jobs:
           python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
       - name: Test, lint and build
-        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
+        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
       - name: Verify Link is packaged in both APKs
         run: |
@@ -58,9 +58,19 @@ jobs:
             done
           done
 
+      - name: Keep exact signing-lineage APK inputs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signing-lineage-apks
+          path: |
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Keep test and lint reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: native-check-reports
           path: |
@@ -123,7 +133,7 @@ jobs:
 
       - name: Keep emulator reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: recovery-emulator-reports
           path: app/build/reports/recovery-emulator/
@@ -131,6 +141,7 @@ jobs:
           retention-days: 7
 
   signing-lineage-emulator:
+    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -154,13 +165,11 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
 
-      - name: Prepare the reviewed ForgeSworn Link bridge
-        run: |
-          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
-          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
-
-      - name: Build the unsigned production app and instrumentation APK
-        run: ./gradlew :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Download the exact APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
 
       - name: Enable KVM
         run: |
@@ -185,7 +194,7 @@ jobs:
 
       - name: Keep signing-lineage reports
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: signing-lineage-api-${{ matrix.api-level }}
           path: app/build/reports/signing-lineage-api-${{ matrix.api-level }}/
