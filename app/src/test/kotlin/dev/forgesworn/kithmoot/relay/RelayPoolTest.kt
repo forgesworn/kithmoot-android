@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 private class TestAuthenticator(private val signer: LocalSigner, private val clock: () -> Long) : RelayAuthenticator {
@@ -169,6 +170,29 @@ class RelayPoolTest {
 
         sockets.openAll()
         assertEquals(3, sockets.opened.count { it.publishedFrames().size == 1 })
+    }
+
+    @Test
+    fun `rekey blocks publication and discards old offline frames`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        val old = event("57".repeat(32))
+        val successor = event("58".repeat(32))
+        pool.publish(old)
+
+        pool.beginRekey()
+        assertFailsWith<IllegalStateException> { pool.publish(successor) }
+        pool.rekey(ByteArray(32) { 9 })
+        pool.completeRekey()
+        pool.publish(successor)
+
+        sockets.opened.single().open()
+        val frames = sockets.opened.single().publishedFrames()
+        assertEquals(1, frames.size)
+        assertTrue(successor.id in frames.single())
+        assertTrue(old.id !in frames.single())
     }
 
     @Test

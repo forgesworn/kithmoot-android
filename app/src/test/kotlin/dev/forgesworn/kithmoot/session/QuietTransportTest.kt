@@ -223,6 +223,34 @@ class QuietTransportTest {
     }
 
     @Test
+    fun `rekey rejects every old quiet event and starts the successor with empty counters`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        val rejected = mutableListOf<NostrEvent>()
+        val a = QuietTransport(
+            relay.transport(), room.roomKey, ada.participant, policy.members!!, 0, backgroundScope,
+            intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            onState = { states += it }, onRekeyed = { rejected += it },
+        )
+        val old = chat(ada, "written before the successor")
+        a.publish(old)
+
+        a.beginRekey()
+        assertFailsWith<IllegalStateException> { a.publish(chat(ada, "blocked")) }
+        a.rekey(ByteArray(32) { 22 })
+        assertEquals(listOf(old.id), rejected.map { it.id })
+        assertEquals(0, a.pending)
+        assertTrue(states.last().used.isEmpty())
+        assertTrue(states.last().queued.isEmpty())
+        assertTrue(states.last().boxPending.isEmpty())
+
+        a.completeRekey()
+        a.publish(chat(ada, "written after the successor"))
+        assertEquals(1, a.pending)
+        a.stop()
+    }
+
+    @Test
     fun `a box owned epoch suppresses the phones real wrap and filler`() = runTest {
         val relay = FakeRelay()
         val delegatedEpoch = dev.forgesworn.kithmoot.protocol.DeadDrop.epochIndexAt(clock)

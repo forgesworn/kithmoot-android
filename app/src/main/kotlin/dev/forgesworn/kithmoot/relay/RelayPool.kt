@@ -59,6 +59,15 @@ interface RoomTransport {
      *  own circle. Only those are ever shown as sheltered. Link transport hints
      *  in a contact card alone cannot establish that ownership. */
     fun circleRelays(): Set<String> = emptySet()
+
+    /** Stop every publication path before a room key transition begins. */
+    suspend fun beginRekey() = Unit
+
+    /** Drop work encrypted for the previous key before successor subscriptions start. */
+    suspend fun rekey(roomKey: ByteArray) = Unit
+
+    /** Reopen publication only after every room subscriber has moved. */
+    fun completeRekey() = Unit
 }
 
 /**
@@ -94,6 +103,7 @@ class RelayPool(
     private val publications = linkedMapOf<String, Publication>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
+    @Volatile private var publicationBlocked = false
 
     private val _connected = MutableStateFlow<Set<String>>(emptySet())
 
@@ -147,6 +157,7 @@ class RelayPool(
     }
 
     override fun publish(event: NostrEvent) {
+        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
         val frame = RelayCodec.publishFrame(event)
         val targets: List<RelayLink>
         synchronized(lock) { targets = links.values.toList() }
@@ -155,10 +166,12 @@ class RelayPool(
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
     override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
+        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
         connected.first { it.isNotEmpty() }
         val publication: Publication
         val targets: List<RelayLink>
         synchronized(lock) {
+            check(!publicationBlocked) { "Room publication is blocked during a secure update" }
             targets = links.values.filter { it.isOpen }
             check(targets.isNotEmpty()) { "No relay is connected" }
             check(event.id !in publications) { "Event publication is already pending" }
@@ -169,6 +182,26 @@ class RelayPool(
             targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
             publication.result.await()
         } finally { synchronized(lock) { publications.remove(event.id) } }
+    }
+
+    override suspend fun beginRekey() {
+        publicationBlocked = true
+        val current = synchronized(lock) {
+            publications.values.forEach { it.result.complete(false) }
+            links.values.toList()
+        }
+        current.forEach { it.clearOutbox() }
+    }
+
+    override suspend fun rekey(roomKey: ByteArray) {
+        require(roomKey.size == 32) { "room key must be 32 bytes" }
+        check(publicationBlocked) { "room publication must be blocked before rekey" }
+        synchronized(lock) { links.values.toList() }.forEach { it.clearOutbox() }
+    }
+
+    override fun completeRekey() {
+        check(publicationBlocked) { "room rekey is not in progress" }
+        publicationBlocked = false
     }
 
     /** A complete snapshot from the currently connected relays. Disconnection, CLOSED,
@@ -436,6 +469,8 @@ class RelayPool(
             }
             for (pending in ready) sendIfOpen(pending.frame)
         }
+
+        fun clearOutbox() = synchronized(outboxLock) { outbox.clear() }
     }
 
     private enum class AuthState { CLOSED, AWAITING_CHALLENGE, SIGNING, AWAITING_OK, READY, BLOCKED }

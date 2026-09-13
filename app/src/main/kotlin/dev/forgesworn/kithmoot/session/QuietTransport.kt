@@ -57,6 +57,8 @@ class QuietTransport(
     restore: QuietState? = null,
     /** Called whenever a counter is spent or the queue changes, with what to keep. */
     private val onState: (QuietState) -> Unit = {},
+    /** Old-key inner events returned to the conversation when an epoch retires. */
+    private val onRekeyed: (List<NostrEvent>) -> Unit = {},
     /** Start the slot timer. Tests drive [tick] by hand. */
     ticking: Boolean = true,
     /** Where inside each slot this device posts, in seconds from the slot's
@@ -95,6 +97,7 @@ class QuietTransport(
     )
 
     private val member = member.lowercase()
+    private val members = members.map(String::lowercase).distinct()
     private val range = counterRange(slot)
     val canSend: Boolean = range != null && members.any { it.equals(member, ignoreCase = true) }
 
@@ -110,11 +113,11 @@ class QuietTransport(
     private val opened = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 512)
     private var broadcast: Job? = null
     private var timer: Job? = null
-    private val ikm = DeadDrop.roomIkm(roomKey)
+    @Volatile private var publicationBlocked = false
 
     init {
         require(intervalSeconds > 0) { "intervalSeconds must be positive" }
-        keys.set(ikm, members)
+        keys.set(DeadDrop.roomIkm(roomKey), this.members)
         keys.refresh(now())
         if (restore != null) {
             keys.importUsed(restore.used, now())
@@ -172,6 +175,36 @@ class QuietTransport(
     override fun describe(): List<String> = inner.describe()
     override fun circleRelays(): Set<String> = inner.circleRelays()
 
+    override suspend fun beginRekey() {
+        publicationBlocked = true
+        inner.beginRekey()
+        lock.withLock { /* wait for an in-flight slot to finish or fail */ }
+    }
+
+    override suspend fun rekey(roomKey: ByteArray) {
+        require(roomKey.size == 32) { "room key must be 32 bytes" }
+        check(publicationBlocked) { "room publication must be blocked before rekey" }
+        val rejected = lock.withLock {
+            synchronized(queue) {
+                val old = queue.toList()
+                onState(QuietState(emptyMap(), emptyList(), emptySet()))
+                queue.clear()
+                boxPending.clear()
+                current = null
+                keys.set(DeadDrop.roomIkm(roomKey), members)
+                old
+            }
+        }
+        inner.rekey(roomKey)
+        if (rejected.isNotEmpty()) onRekeyed(rejected)
+    }
+
+    override fun completeRekey() {
+        check(publicationBlocked) { "room rekey is not in progress" }
+        inner.completeRekey()
+        publicationBlocked = false
+    }
+
     /**
      * A quiet kind is queued for the next slot; an event too large for the
      * bucket is refused here, to the caller, not discovered at its slot.
@@ -184,6 +217,7 @@ class QuietTransport(
     fun retainForBox(event: NostrEvent) = retain(event, forBox = true)
 
     private fun retain(event: NostrEvent, forBox: Boolean) {
+        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
@@ -237,8 +271,10 @@ class QuietTransport(
      * burns no counter. Two ticks never overlap.
      */
     suspend fun tick() {
+        if (publicationBlocked) return
         if (!lock.tryLock()) return
         try {
+            if (publicationBlocked) return
             val t = now()
             val slot = slotIndex(t)
             if (slot <= lastSlot) return
