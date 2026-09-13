@@ -17,7 +17,7 @@ class CadenceRoomTransportTest {
         val deviceKey = ByteArray(32) { 7 }
         val room = "42".repeat(32)
         val lease = StoredCadenceLease(
-            CadenceLeasePlan("a".repeat(52), room, dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceKey), "22".repeat(16), 1,
+            CadenceLeasePlan("a".repeat(52), room, room, 1, dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceKey), "22".repeat(16), 1,
                 "11".repeat(16), "{}", 500002, 500004, 0, 8),
             CadenceOwnership.BOX_OWNED,
             CadenceReceipt("status", "22".repeat(16), 1, "active", 0, 500002, 500004, 0, emptyList(), emptyList()),

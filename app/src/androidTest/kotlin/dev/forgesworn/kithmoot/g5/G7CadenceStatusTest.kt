@@ -126,7 +126,7 @@ class G7CadenceStatusTest {
     }
 
     private fun scope(identity: PrimaryIdentity, nodeId: String) =
-        CadenceScope(nodeId, ROOM, identity.participant, identity.devicePubkey, identity.credential, GRANT_ID)
+        CadenceScope(nodeId, ROOM, ROOM, 1, identity.participant, identity.devicePubkey, identity.credential, GRANT_ID)
 
     private fun consent(identity: PrimaryIdentity, nodeId: String, routeId: String, bothy: String) = LinkConsent(
         identity.participant, ROOM, bothy, routeId, "ws://$nodeId/events",
@@ -140,7 +140,7 @@ class G7CadenceStatusTest {
             put("server", "ws://$nodeId/events"); put("room", ROOM); put("device", DEVICE)
             put("start_epoch", start); put("end_epoch", end); put("counter_lo", 0); put("counter_hi", 8)
         }.toString()
-        return CadenceLeasePlan(nodeId, ROOM, DEVICE, LEASE_ID, 1, REQUEST_ID, body, start, end, 0, 8)
+        return CadenceLeasePlan(nodeId, ROOM, ROOM, 1, DEVICE, LEASE_ID, 1, REQUEST_ID, body, start, end, 0, 8)
     }
 
     private fun parsePairing(uri: String, now: Long): NativePairing = try {

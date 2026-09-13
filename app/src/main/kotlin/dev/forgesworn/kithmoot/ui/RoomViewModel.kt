@@ -933,7 +933,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return CadenceAccess(null, "Cadence needs at least two canonical public WSS relays from the room's earlier route.")
         }
         return CadenceAccess(CadenceContext(
-            CadenceScope(nodeId, record.id, who.participant, who.devicePubkey, who.credential, grantId),
+            CadenceScope(nodeId, record.id, record.id, 1, who.participant, who.devicePubkey, who.credential, grantId),
             publicRelays,
             requireNotNull(grant.active.tagValue("expiration")).toLong(),
             if (secondary) 1 else 0,
@@ -2299,7 +2299,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         require(end > start) { "This device credential expires too soon. Reopen the room and try again." }
         val generation = (cadenceLeases.all(record.id, who.devicePubkey).maxOfOrNull { it.plan.generation } ?: 0) + 1
         val options = CadenceLeaseOptions(
-            context.scope, cadenceId(), cadenceId(), generation, 1, context.deviceSlot,
+            context.scope, cadenceId(), cadenceId(), generation, context.deviceSlot,
             status.currentEpoch, start, end, context.roomKey, context.publicRelays, listOf("local"), epochSeconds(),
         )
         val result = cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()

@@ -31,7 +31,7 @@ class CadenceClientTest {
         val device = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceSecret)
         val credential = createDeviceCredential(personaSecret, device, room, now + 14_400, now, ByteArray(32))
         val identity = PrimaryIdentity(LocalSigner(personaSecret), deviceSecret, credential)
-        val scope = CadenceScope("a".repeat(52), room, identity.participant, device, credential, "33".repeat(16))
+        val scope = CadenceScope("a".repeat(52), room, room, 1, identity.participant, device, credential, "33".repeat(16))
         val consentStorage = MemoryStorage()
         val consents = LinkConsentVault(consentStorage).apply {
             put(LinkConsent(identity.participant, room, "cc".repeat(32), "circle-main", "ws://${scope.nodeId}/events", listOf("wss://relay.example"), LinkConsentState.ACTIVE))
@@ -65,7 +65,7 @@ class CadenceClientTest {
         val device = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceSecret)
         val credential = createDeviceCredential(personaSecret, device, room, now + 14_400, now, ByteArray(32))
         val identity = PrimaryIdentity(LocalSigner(personaSecret), deviceSecret, credential)
-        val scope = CadenceScope("a".repeat(52), room, identity.participant, device, credential, "33".repeat(16))
+        val scope = CadenceScope("a".repeat(52), room, room, 1, identity.participant, device, credential, "33".repeat(16))
         val consents = LinkConsentVault(MemoryStorage())
         consents.put(LinkConsent(identity.participant, room, "cc".repeat(32), "route", "ws://${scope.nodeId}/events", listOf("wss://relay.example"), LinkConsentState.ACTIVE))
         val pending = CompletableFuture<LinkJsonResponse>()
@@ -87,6 +87,7 @@ class CadenceClientTest {
             val code = when {
                 request.path.endsWith("/queue") -> "queued"
                 request.path.endsWith("/stop") -> "stopping"
+                request.path.endsWith("/rekey") -> "rekeyed"
                 else -> "staged"
             }
             CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(queue, code), LinkPathState("direct", "route", null, "")))
@@ -94,7 +95,7 @@ class CadenceClientTest {
         val vault = CadenceLeaseVault(MemoryStorage())
         val client = CadenceClient(transport, fixture.consents)
         val options = CadenceLeaseOptions(
-            fixture.scope, "11".repeat(16), "22".repeat(16), 1, 1, 0, 500000, 500002, 500004,
+            fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0, 500000, 500002, 500004,
             ByteArray(32) { 9 }, listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now,
         )
         val staged = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault).get()
@@ -102,17 +103,20 @@ class CadenceClientTest {
         assertEquals((0 until 8).toList(), vault.reservedCounters(fixture.scope.room, fixture.scope.device, 500002))
         assertEquals(staged.lease.plan.requestBody, requests.single().body.decodeToString())
 
-        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now, listOf(listOf("d", fixture.scope.room)), "cipher", ByteArray(32))
+        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now, listOf(listOf("d", fixture.scope.trafficRoom)), "cipher", ByteArray(32))
         val queued = client.queue(fixture.identity.participant, fixture.scope, fixture.identity, staged.lease, "44".repeat(16), event, fixture.now, vault).get()
         assertEquals(1, queued.lease.receipt?.queueCount)
         val stopped = client.stop(fixture.identity.participant, fixture.scope, fixture.identity, queued.lease, "55".repeat(16), 500002, fixture.now, vault).get()
-        assertEquals(listOf("PUT", "POST", "PUT"), requests.map { it.method })
+        val rekeyed = client.rekey(fixture.identity.participant, fixture.scope, fixture.identity, stopped.lease, "66".repeat(16), 2, fixture.now, vault).get()
+        assertEquals(listOf("PUT", "POST", "PUT", "PUT"), requests.map { it.method })
         assertEquals(listOf(
             "/cadence/v1/leases/${"22".repeat(16)}",
             "/cadence/v1/leases/${"22".repeat(16)}/queue",
             "/cadence/v1/leases/${"22".repeat(16)}/stop",
+            "/cadence/v1/leases/${"22".repeat(16)}/rekey",
         ), requests.map { it.path })
-        assertEquals(CadenceOwnership.BOX_OWNED, stopped.lease.ownership)
+        assertEquals("rekeyed", rekeyed.lease.receipt?.code)
+        assertEquals(CadenceOwnership.BOX_OWNED, rekeyed.lease.ownership)
     }
 
     @Test fun aLostLeaseResponseKeepsTheExactRequestExcludedForRetry() {
@@ -126,7 +130,7 @@ class CadenceClientTest {
         }, fixture.consents)
         val vault = CadenceLeaseVault(MemoryStorage())
         val options = CadenceLeaseOptions(
-            fixture.scope, "11".repeat(16), "22".repeat(16), 1, 1, 0, 500000, 500002, 500004,
+            fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0, 500000, 500002, 500004,
             ByteArray(32) { 9 }, listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now,
         )
         val pending = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault)
@@ -147,7 +151,7 @@ class CadenceClientTest {
         val device = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceSecret)
         val credential = createDeviceCredential(personaSecret, device, room, now + 14_400, now, ByteArray(32))
         val identity = PrimaryIdentity(LocalSigner(personaSecret), deviceSecret, credential)
-        val scope = CadenceScope("a".repeat(52), room, identity.participant, device, credential, "33".repeat(16))
+        val scope = CadenceScope("a".repeat(52), room, room, 1, identity.participant, device, credential, "33".repeat(16))
         val consents = LinkConsentVault(MemoryStorage()).apply {
             put(LinkConsent(identity.participant, room, "cc".repeat(32), "route", "ws://${scope.nodeId}/events", listOf("wss://relay.example"), LinkConsentState.ACTIVE))
         }

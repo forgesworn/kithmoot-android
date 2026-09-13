@@ -32,6 +32,8 @@ const val CADENCE_MAX_FUTURE_START_EPOCHS = 7 * 24L
 data class CadenceScope(
     val nodeId: String,
     val room: String,
+    val trafficRoom: String,
+    val roomGeneration: Long,
     val persona: String,
     val device: String,
     val credential: NostrEvent,
@@ -63,7 +65,6 @@ data class CadenceLeaseOptions(
     val requestId: String,
     val leaseId: String,
     val generation: Long,
-    val roomGeneration: Long,
     val deviceSlot: Int,
     val currentEpoch: Long,
     val startEpoch: Long,
@@ -103,6 +104,7 @@ object BoxCadence {
     fun queuePath(leaseId: String) = "${leasePath(leaseId)}/queue"
     fun leaseStatusPath(leaseId: String) = "${leasePath(leaseId)}/status"
     fun stopPath(leaseId: String) = "${leasePath(leaseId)}/stop"
+    fun rekeyPath(leaseId: String) = "${leasePath(leaseId)}/rekey"
     fun withdrawPath(leaseId: String, eventId: String) = "${queuePath(leaseId)}/${exactId(eventId, HEX64, "event id")}/withdraw"
 
     /** Build the fixed quiet-v1 profile while retaining only public drop keys. */
@@ -110,7 +112,7 @@ object BoxCadence {
         val scope = options.scope
         val common = statusBody(scope, options.requestId, options.now)
         exactId(options.leaseId, ID32, "lease id")
-        require(options.generation > 0 && options.roomGeneration > 0 && options.deviceSlot in 0 until CADENCE_DEVICE_SLOTS) {
+        require(options.generation > 0 && scope.roomGeneration > 0 && options.deviceSlot in 0 until CADENCE_DEVICE_SLOTS) {
             "invalid cadence generation or device slot"
         }
         require(options.roomKey.size == 32) { "invalid cadence room key" }
@@ -150,8 +152,9 @@ object BoxCadence {
         return buildJsonObject {
             put("v", 1); put("request_id", options.requestId); put("lease_id", options.leaseId)
             put("generation", options.generation); put("server", common.getValue("server")); put("room", common.getValue("room"))
+            put("traffic_room", common.getValue("traffic_room"))
             put("persona", common.getValue("persona")); put("device", common.getValue("device")); put("credential", common.getValue("credential"))
-            put("grant_id", common.getValue("grant_id")); put("device_slot", options.deviceSlot); put("room_generation", options.roomGeneration)
+            put("grant_id", common.getValue("grant_id")); put("device_slot", options.deviceSlot); put("room_generation", scope.roomGeneration)
             put("epoch_seconds", CADENCE_EPOCH_SECONDS); put("slot_seconds", CADENCE_SLOT_SECONDS); put("bucket_bytes", CADENCE_BUCKET_BYTES)
             put("allowed_inner_kinds", buildJsonArray { add(JsonPrimitive(1460)) }); put("device_slots", CADENCE_DEVICE_SLOTS)
             put("counter_lo", counterLo); put("counter_hi", counterLo + CADENCE_COUNTERS_PER_DEVICE)
@@ -165,10 +168,10 @@ object BoxCadence {
 
     fun queueBody(lease: JsonObject, requestId: String, event: NostrEvent): JsonObject {
         exactId(requestId, ID32, "request id")
-        val room = leaseText(lease, "room", HEX64)
+        val trafficRoom = leaseText(lease, "traffic_room", HEX64)
         val device = leaseText(lease, "device", HEX64)
         require(event.kind == 1460 && event.pubkey.normaliseHex() == device && Events.verify(event) &&
-            event.tags.filter { it.firstOrNull() == "d" } == listOf(listOf("d", room))) { "invalid cadence queue event" }
+            event.tags.filter { it.firstOrNull() == "d" } == listOf(listOf("d", trafficRoom))) { "invalid cadence queue event" }
         try { RoomDrops.plaintext(event, CADENCE_BUCKET_BYTES) { ByteArray(it) } } catch (_: RoomDrops.RumorTooLarge) {
             throw IllegalArgumentException("cadence queue event exceeds bucket")
         }
@@ -180,6 +183,17 @@ object BoxCadence {
         require(boundaryEpoch == null || boundaryEpoch >= 0) { "invalid cadence boundary epoch" }
         return buildAuthorityBody(lease, requestId) {
             put("boundary_epoch", boundaryEpoch?.let(::JsonPrimitive) ?: JsonNull)
+            put("next_room_generation", JsonNull)
+        }
+    }
+
+    fun rekeyBody(lease: JsonObject, requestId: String, nextRoomGeneration: Long): JsonObject {
+        exactId(requestId, ID32, "request id")
+        val current = lease.getValue("room_generation").jsonPrimitive.long
+        require(nextRoomGeneration > current) { "invalid cadence next room generation" }
+        return buildAuthorityBody(lease, requestId) {
+            put("boundary_epoch", JsonNull)
+            put("next_room_generation", nextRoomGeneration)
         }
     }
 
@@ -189,9 +203,12 @@ object BoxCadence {
         require((leaseId == null) == (generation == null)) { "incomplete cadence lease scope" }
         if (leaseId != null) require(ID32.matches(leaseId) && requireNotNull(generation) > 0) { "invalid cadence lease scope" }
         val room = scope.room.normaliseHex()
+        val trafficRoom = scope.trafficRoom.normaliseHex()
         val persona = scope.persona.normaliseHex()
         val device = scope.device.normaliseHex()
-        require(HEX64.matches(room) && HEX64.matches(persona) && HEX64.matches(device)) { "invalid cadence identity" }
+        require(HEX64.matches(room) && HEX64.matches(trafficRoom) && HEX64.matches(persona) && HEX64.matches(device) && scope.roomGeneration > 0) {
+            "invalid cadence identity"
+        }
         require(ID32.matches(scope.grantId)) { "invalid cadence grant id" }
         val credential = verifyDeviceCredential(scope.credential, room, now, acceptPerson = true)
         require(credential is CredentialCheck.Valid && credential.participant == persona && credential.device == device) {
@@ -205,6 +222,8 @@ object BoxCadence {
             put("request_id", requestId)
             put("server", server(scope.nodeId))
             put("room", room)
+            put("traffic_room", trafficRoom)
+            put("room_generation", scope.roomGeneration)
             put("persona", persona)
             put("device", device)
             put("credential", scope.credential.toRustWireJson())
@@ -309,7 +328,7 @@ object BoxCadence {
         val start = nonNegative(root, "start_epoch")
         val end = nonNegative(root, "end_epoch")
         val queue = nonNegative(root, "queue_count")
-        require(code in setOf("staged", "queued", "status", "withdrawn", "stopping") &&
+        require(code in setOf("staged", "queued", "status", "withdrawn", "stopping", "rekeyed") &&
             ID32.matches(leaseId) && generation > 0 && state in setOf("staged", "active", "cover", "ended") && end > start && queue <= 256) {
             "invalid cadence receipt"
         }
@@ -340,7 +359,7 @@ object BoxCadence {
     private fun buildAuthorityBody(lease: JsonObject, requestId: String, tail: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) = buildJsonObject {
         require(lease.getValue("v").jsonPrimitive.long == 1L)
         put("v", 1); put("request_id", requestId)
-        for (key in listOf("lease_id", "generation", "server", "room", "persona", "device", "credential", "grant_id")) {
+        for (key in listOf("lease_id", "generation", "server", "room", "traffic_room", "room_generation", "persona", "device", "credential", "grant_id")) {
             put(key, lease.getValue(key))
         }
         exactId(leaseText(lease, "lease_id", ID32), ID32, "lease id")

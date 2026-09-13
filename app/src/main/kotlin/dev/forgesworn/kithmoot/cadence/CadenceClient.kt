@@ -109,6 +109,23 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault)
     }
 
+    fun rekey(
+        accountPubkey: String,
+        scope: CadenceScope,
+        identity: RoomIdentity,
+        current: StoredCadenceLease,
+        requestId: String,
+        nextRoomGeneration: Long,
+        now: Long,
+        vault: CadenceLeaseVault,
+    ): CompletableFuture<CadenceLeaseResult> {
+        validateLeaseScope(scope, identity, current)
+        require(current.ownership == CadenceOwnership.BOX_OWNED) { "cadence lease ownership is unresolved" }
+        val body = BoxCadence.rekeyBody(exactLeaseBody(current), requestId, nextRoomGeneration)
+        val signed = BoxCadence.sign(scope.nodeId, "PUT", BoxCadence.rekeyPath(current.plan.leaseId), body, identity.deviceSecretKey, now)
+        return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault)
+    }
+
     fun withdraw(
         accountPubkey: String,
         scope: CadenceScope,
@@ -180,7 +197,9 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
 
     private fun validateLeaseScope(scope: CadenceScope, identity: RoomIdentity, current: StoredCadenceLease) {
         validateIdentity(scope, identity)
-        require(current.plan.nodeId == scope.nodeId && current.plan.room == scope.room && current.plan.device == scope.device) {
+        require(current.plan.nodeId == scope.nodeId && current.plan.room == scope.room &&
+            current.plan.trafficRoom == scope.trafficRoom && current.plan.roomGeneration == scope.roomGeneration &&
+            current.plan.device == scope.device) {
             "cadence lease does not belong to this scope"
         }
     }
@@ -193,6 +212,8 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
     private fun plan(options: CadenceLeaseOptions, body: JsonObject) = CadenceLeasePlan(
         options.scope.nodeId,
         options.scope.room,
+        options.scope.trafficRoom,
+        options.scope.roomGeneration,
         options.scope.device,
         options.leaseId,
         options.generation,
