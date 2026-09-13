@@ -63,6 +63,10 @@ class QuietTransport(
      *  start. Drawn fresh per slot by default so posting times carry no fixed
      *  phase a relay could link across circuits. Tests pass `{ 0 }`. */
     private val slotOffset: ((Long) -> Long)? = null,
+    /** Counters delegated durably to a box. A complete device range means the
+     * box owns this phone's cadence for that epoch, so the phone emits no
+     * competing filler or real wrap. */
+    private val reservedCounters: (Long) -> Set<Int> = { emptySet() },
 ) : RoomTransport {
 
     companion object {
@@ -189,6 +193,12 @@ class QuietTransport(
             val slot = slotIndex(t)
             if (slot <= lastSlot) return
             if (t < slot * intervalSeconds + offsetFor(slot)) return
+            val epoch = DeadDrop.epochIndexAt(t)
+            if (range != null && range.all { it in reservedCounters(epoch) }) {
+                lastSlot = slot
+                current = null
+                return
+            }
             val built = current?.takeIf { it.first == slot } ?: buildForSlot(slot).also { current = it }
             val taken = try {
                 if (inner is RelayPool) inner.publishConfirmed(built.second) else { inner.publish(built.second); true }

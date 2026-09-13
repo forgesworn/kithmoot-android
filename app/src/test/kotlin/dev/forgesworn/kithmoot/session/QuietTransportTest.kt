@@ -174,4 +174,24 @@ class QuietTransportTest {
         assertEquals(0, a.pending)
         a.stop()
     }
+
+    @Test
+    fun `a box owned epoch suppresses the phones real wrap and filler`() = runTest {
+        val relay = FakeRelay()
+        val delegatedEpoch = dev.forgesworn.kithmoot.protocol.DeadDrop.epochIndexAt(clock)
+        val a = QuietTransport(
+            relay.transport(), room.roomKey, ada.participant, policy.members!!, 0, backgroundScope,
+            intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            reservedCounters = { epoch -> if (epoch == delegatedEpoch) (0 until 8).toSet() else emptySet() },
+        )
+        a.publish(chat(ada, "the box will carry this"))
+        a.tick(); runCurrent()
+        assertEquals(0, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(1, a.pending)
+        clock += 3600
+        a.tick(); runCurrent()
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(0, a.pending)
+        a.stop()
+    }
 }
