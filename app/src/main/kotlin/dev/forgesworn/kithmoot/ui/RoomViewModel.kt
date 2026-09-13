@@ -376,6 +376,13 @@ private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
 private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
 private class RetiredInvitationException : Exception()
 
+internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
+    is SignerException,
+    is RoomRecoveryException,
+    is GroupInvitationException -> error.message ?: "The room could not be opened. Try again."
+    else -> "The room could not be opened. Try again."
+}
+
 /**
  * Everything the two screens need, and the only thing that owns a session.
  *
@@ -1387,9 +1394,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 gate.withLock { closeSession(); _room.value = RoomState(); _stage.value = Stage.START }
                 when (e) {
                     is RoomStorageException -> storageFailed()
-                    is RoomRecoveryException -> _start.update { it.copy(error = e.message) }
-                    is GroupInvitationException -> _start.update { it.copy(error = e.message) }
-                    else -> _start.update { it.copy(error = "The room could not be opened. Try again.") }
+                    else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
                 }
             } finally {
                 // Publish room controls only once entry has released its guard.
