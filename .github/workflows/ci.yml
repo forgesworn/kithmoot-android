@@ -45,6 +45,11 @@ jobs:
           scripts/fetch-link-bridge.sh build/link-ffi-android.zip
           python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
+      - name: Check release helper syntax
+        run: |
+          bash -n scripts/*.sh
+          python3 -m py_compile scripts/*.py
+
       - name: Test, lint and build
         run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
