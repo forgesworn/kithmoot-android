@@ -84,7 +84,12 @@ class CadenceClientTest {
         val transport = LinkJsonTransport { request ->
             requests += request
             val queue = if (request.path.endsWith("/queue")) 1 else 0
-            CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(queue), LinkPathState("direct", "route", null, "")))
+            val code = when {
+                request.path.endsWith("/queue") -> "queued"
+                request.path.endsWith("/stop") -> "stopping"
+                else -> "staged"
+            }
+            CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(queue, code), LinkPathState("direct", "route", null, "")))
         }
         val vault = CadenceLeaseVault(MemoryStorage())
         val client = CadenceClient(transport, fixture.consents)
@@ -117,7 +122,7 @@ class CadenceClientTest {
         var call = 0
         val client = CadenceClient(LinkJsonTransport { request ->
             bodies += request.body.copyOf()
-            if (call++ == 0) first else CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0), LinkPathState("relayed", "route", null, "")))
+            if (call++ == 0) first else CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0, "staged"), LinkPathState("relayed", "route", null, "")))
         }, fixture.consents)
         val vault = CadenceLeaseVault(MemoryStorage())
         val options = CadenceLeaseOptions(
@@ -149,7 +154,7 @@ class CadenceClientTest {
         return Fixture(now, identity, scope, consents)
     }
 
-    private fun receipt(queue: Int) = "{\"v\":1,\"code\":\"ok\",\"lease_id\":\"${"22".repeat(16)}\",\"generation\":1,\"state\":\"staged\",\"server_time\":1800000000,\"start_epoch\":500002,\"end_epoch\":500004,\"queue_count\":$queue,\"sent_item_ids\":[],\"failed_item_ids\":[]}".toByteArray()
+    private fun receipt(queue: Int, code: String) = "{\"v\":1,\"code\":\"$code\",\"lease_id\":\"${"22".repeat(16)}\",\"generation\":1,\"state\":\"staged\",\"server_time\":1800000000,\"start_epoch\":500002,\"end_epoch\":500004,\"queue_count\":$queue,\"sent_item_ids\":[],\"failed_item_ids\":[]}".toByteArray()
 
     private data class Fixture(
         val now: Long,

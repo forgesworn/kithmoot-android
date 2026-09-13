@@ -302,13 +302,15 @@ object BoxCadence {
             "invalid cadence receipt fields"
         }
         require(root.getValue("v").jsonPrimitive.long == 1L) { "unsupported cadence receipt version" }
+        val code = root.getValue("code").jsonPrimitive.content
         val leaseId = root.getValue("lease_id").jsonPrimitive.content
         val generation = nonNegative(root, "generation")
         val state = root.getValue("state").jsonPrimitive.content
         val start = nonNegative(root, "start_epoch")
         val end = nonNegative(root, "end_epoch")
         val queue = nonNegative(root, "queue_count")
-        require(ID32.matches(leaseId) && generation > 0 && state in setOf("staged", "active", "cover", "ended") && end > start && queue <= 256) {
+        require(code in setOf("staged", "queued", "status", "withdrawn", "stopping") &&
+            ID32.matches(leaseId) && generation > 0 && state in setOf("staged", "active", "cover", "ended") && end > start && queue <= 256) {
             "invalid cadence receipt"
         }
         fun ids(key: String): List<String> = root.getValue(key).jsonArray.map { it.jsonPrimitive.content }.also {
@@ -318,7 +320,7 @@ object BoxCadence {
         val failed = ids("failed_item_ids")
         require((sent.toSet() intersect failed.toSet()).isEmpty()) { "invalid cadence receipt item states" }
         return CadenceReceipt(
-            root.getValue("code").jsonPrimitive.content,
+            code,
             leaseId,
             generation,
             state,

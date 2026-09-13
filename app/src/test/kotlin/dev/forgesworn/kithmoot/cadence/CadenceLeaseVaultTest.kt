@@ -68,7 +68,7 @@ class CadenceLeaseVaultTest {
     )
 
     private fun receipt(state: String) = CadenceReceipt(
-        "ok", "22".repeat(16), 1, state, 100, 12, 14, 0, emptyList(), emptyList(),
+        "status", "22".repeat(16), 1, state, 100, 12, 14, 0, emptyList(), emptyList(),
     )
 
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {

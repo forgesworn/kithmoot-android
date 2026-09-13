@@ -174,7 +174,7 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
     }
 
     private fun validateReceipt(value: CadenceReceipt) {
-        require(value.code.isNotEmpty() && value.code.length <= 64 && ID.matches(value.leaseId) && value.generation > 0)
+        require(value.code in setOf("staged", "queued", "status", "withdrawn", "stopping") && ID.matches(value.leaseId) && value.generation > 0)
         require(value.state in setOf("staged", "active", "cover", "ended"))
         require(value.serverTime >= 0 && value.startEpoch >= 0 && value.endEpoch > value.startEpoch && value.queueCount in 0..256)
         require(value.sentItemIds.size <= 256 && value.failedItemIds.size <= 256)

@@ -136,12 +136,15 @@ class BoxCadenceTest {
     }
 
     @Test fun receiptsAreStrictAndBounded() {
-        val body = "{\"v\":1,\"code\":\"ok\",\"lease_id\":\"${"22".repeat(16)}\",\"generation\":1,\"state\":\"active\",\"server_time\":1800000000,\"start_epoch\":500002,\"end_epoch\":500004,\"queue_count\":1,\"sent_item_ids\":[\"${"ab".repeat(32)}\"],\"failed_item_ids\":[]}".toByteArray()
+        val body = "{\"v\":1,\"code\":\"status\",\"lease_id\":\"${"22".repeat(16)}\",\"generation\":1,\"state\":\"active\",\"server_time\":1800000000,\"start_epoch\":500002,\"end_epoch\":500004,\"queue_count\":1,\"sent_item_ids\":[\"${"ab".repeat(32)}\"],\"failed_item_ids\":[]}".toByteArray()
         val receipt = BoxCadence.parseReceipt(200, body)
         assertEquals("active", receipt.state)
         assertEquals(1, receipt.queueCount)
         assertThrows(IllegalArgumentException::class.java) {
             BoxCadence.parseReceipt(200, body.toString(Charsets.UTF_8).replace("\"failed_item_ids\":[]", "\"failed_item_ids\":[\"${"ab".repeat(32)}\"]").toByteArray())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BoxCadence.parseReceipt(200, body.toString(Charsets.UTF_8).replace("\"status\"", "\"ok\"").toByteArray())
         }
     }
 }

@@ -19,7 +19,7 @@ class CadenceRoomTransportTest {
             CadenceLeasePlan("a".repeat(52), room, dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceKey), "22".repeat(16), 1,
                 "11".repeat(16), "{}", 500002, 500004, 0, 8),
             CadenceOwnership.BOX_OWNED,
-            CadenceReceipt("ok", "22".repeat(16), 1, "active", 0, 500002, 500004, 0, emptyList(), emptyList()),
+            CadenceReceipt("status", "22".repeat(16), 1, "active", 0, 500002, 500004, 0, emptyList(), emptyList()),
             0,
         )
         val phone = mutableListOf<Int>()
