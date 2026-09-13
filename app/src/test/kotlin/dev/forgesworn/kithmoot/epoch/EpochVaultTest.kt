@@ -1,12 +1,18 @@
 package dev.forgesworn.kithmoot.epoch
 
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
+import dev.forgesworn.kithmoot.protocol.EpochGrant
+import dev.forgesworn.kithmoot.protocol.decodeEpochGrant
+import dev.forgesworn.kithmoot.protocol.encodeEpochRequest
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.session.Fixtures
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import kotlin.test.assertIs
 import org.junit.Test
 
 class EpochVaultTest {
@@ -75,10 +81,67 @@ class EpochVaultTest {
         }
     }
 
+    @Test fun `signed catch-up may cross a gap but direct transition may not`() {
+        val storage = MemoryStorage()
+        val vault = EpochVault(storage)
+        vault.initialise(room, authority, initial, 100)
+        val current = ByteArray(32) { 12 }
+        val notice = RekeyNotice(3, listOf("55".repeat(32)), null, false, current, 101, catchUp = true)
+
+        val pending = vault.beginCatchUp(room, 0, notice, "aa".repeat(32), null, 102)
+        assertEquals(3, pending.pending?.epoch)
+        assertEquals(0, EpochVault(storage).get(room)?.currentEpoch)
+        assertEquals(3, EpochVault(storage).activate(room, 3, 103).currentEpoch)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            EpochVault(MemoryStorage()).beginCatchUp(room, 0, notice, "aa".repeat(32), null, 104)
+        }
+    }
+
     @Test fun `damaged journal is never replaced by an empty epoch set`() {
         val storage = MemoryStorage("{bad".toByteArray())
         assertThrows(RoomStorageException::class.java) { EpochVault(storage).get(room) }
         assertEquals("{bad", storage.value?.decodeToString())
+    }
+
+    @Test fun `reopened creator grants durable current epoch and refuses removed and closed members`() {
+        val storage = MemoryStorage()
+        val vault = EpochVault(storage)
+        val authoritySecret = Fixtures.key(61)
+        val authorityPubkey = Schnorr.publicKeyHex(authoritySecret)
+        val retained = Fixtures.primary(Fixtures.room(), 1, 2)
+        val removed = Fixtures.primary(Fixtures.room(), 3, 4)
+        vault.initialise(room, authorityPubkey, initial, 100)
+        val successor = ByteArray(32) { 13 }
+        vault.beginCatchUp(
+            room, 0, RekeyNotice(2, listOf(removed.participant), null, false, successor, 101, catchUp = true),
+            "aa".repeat(32), null, 101,
+        )
+        vault.activate(room, 2, 102)
+        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, null) { 103 }
+
+        val retainedRequest = encodeEpochRequest(room, authorityPubkey, retained.deviceSecretKey, retained.credential, 103)
+        val retainedAnswer = requireNotNull(responder.answer(retainedRequest))
+        val current = assertIs<EpochGrant.Current>(
+            decodeEpochGrant(retainedAnswer, room, authorityPubkey, retained.deviceSecretKey, retainedRequest.id, 103),
+        )
+        assertEquals(2, current.epoch)
+        assertArrayEquals(successor, current.secret)
+
+        val removedRequest = encodeEpochRequest(room, authorityPubkey, removed.deviceSecretKey, removed.credential, 103)
+        val removedAnswer = requireNotNull(responder.answer(removedRequest))
+        assertEquals(
+            EpochGrant.Refused("removed"),
+            decodeEpochGrant(removedAnswer, room, authorityPubkey, removed.deviceSecretKey, removedRequest.id, 103),
+        )
+
+        vault.terminal(room, 2, RekeyNotice(3, emptyList(), null, true, null, 104), "bb".repeat(32), 104)
+        val closedRequest = encodeEpochRequest(room, authorityPubkey, retained.deviceSecretKey, retained.credential, 104)
+        val closedAnswer = requireNotNull(responder.answer(closedRequest))
+        assertEquals(
+            EpochGrant.Refused("closed"),
+            decodeEpochGrant(closedAnswer, room, authorityPubkey, retained.deviceSecretKey, closedRequest.id, 104),
+        )
     }
 
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {

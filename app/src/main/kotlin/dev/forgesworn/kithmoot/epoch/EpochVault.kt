@@ -84,8 +84,33 @@ class EpochVault(private val storage: RoomStorage) {
         cadence: CadenceEpochCoordinate?,
         now: Long,
     ): StoredRoomEpoch {
+        require(notice.epoch == expectedCurrentEpoch + 1) { "a direct room update must be consecutive" }
+        return beginSuccessor(stableRoom, expectedCurrentEpoch, notice, cause, cadence, now)
+    }
+
+    /** Persist an authority-proved current epoch when this device missed one or more rekeys. */
+    @Synchronized fun beginCatchUp(
+        stableRoom: String,
+        expectedCurrentEpoch: Int,
+        notice: RekeyNotice,
+        cause: String,
+        cadence: CadenceEpochCoordinate?,
+        now: Long,
+    ): StoredRoomEpoch {
+        require(notice.catchUp && notice.epoch > expectedCurrentEpoch) { "a catch-up must prove a newer epoch" }
+        return beginSuccessor(stableRoom, expectedCurrentEpoch, notice, cause, cadence, now)
+    }
+
+    private fun beginSuccessor(
+        stableRoom: String,
+        expectedCurrentEpoch: Int,
+        notice: RekeyNotice,
+        cause: String,
+        cadence: CadenceEpochCoordinate?,
+        now: Long,
+    ): StoredRoomEpoch {
         val successorSecret = requireNotNull(notice.secret) { "room epoch transition has no successor secret" }
-        require(successorSecret.size == 32 && notice.epoch == expectedCurrentEpoch + 1 && notice.epoch <= MAX_EPOCH)
+        require(successorSecret.size == 32 && notice.epoch > expectedCurrentEpoch && notice.epoch <= MAX_EPOCH)
         require(cause.matches(ID) && now >= 0)
         val records = read().toMutableList()
         val index = records.indexOfFirst { it.stableRoom == stableRoom }
@@ -219,7 +244,7 @@ class EpochVault(private val storage: RoomStorage) {
         require((value.phase == EpochPhase.REMOVED || value.phase == EpochPhase.CLOSED) == (value.terminalCause != null))
         value.terminalCause?.let { require(it.matches(ID)) }
         value.pending?.let {
-            require(it.epoch == value.currentEpoch + 1 && it.secret.size == 32 && it.cause.matches(ID) && it.at >= 0)
+            require(it.epoch > value.currentEpoch && it.epoch <= MAX_EPOCH && it.secret.size == 32 && it.cause.matches(ID) && it.at >= 0)
             require(it.removed == it.removed.map(String::lowercase).distinct().sorted() && it.removed.containsAll(value.removed))
             it.cadence?.let { c -> require(c.nodeId.matches(NODE) && c.leaseId.matches(SHORT_ID) && c.generation > 0 && c.trafficRoom.matches(HEX) && c.roomGeneration == value.currentEpoch + 1L) }
         }

@@ -57,6 +57,8 @@ class RekeyNotice(
     val closed: Boolean,
     secret: ByteArray?,
     val at: Long,
+    /** True only for an authority grant that proves the current epoch after a gap. */
+    val catchUp: Boolean = false,
 ) {
     val removed = removed.toList()
     val secret = secret?.copyOf()

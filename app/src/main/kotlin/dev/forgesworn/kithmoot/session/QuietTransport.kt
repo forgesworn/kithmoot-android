@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.DeadDrop
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.QuietKeys
@@ -87,6 +89,11 @@ class QuietTransport(
             val width = DeadDrop.MAX_PER_EPOCH_ROOM / DEVICE_SLOTS
             return (slot * width) until ((slot + 1) * width)
         }
+
+        fun fingerprintFor(roomKey: ByteArray): String {
+            require(roomKey.size == 32)
+            return Digests.sha256(roomKey).toHex()
+        }
     }
 
     /** What survives a restart. */
@@ -94,6 +101,7 @@ class QuietTransport(
         val used: Map<String, QuietKeys.UsedCounters>,
         val queued: List<NostrEvent>,
         val boxPending: Set<String> = emptySet(),
+        val keyFingerprint: String? = null,
     )
 
     private val member = member.lowercase()
@@ -114,12 +122,16 @@ class QuietTransport(
     private var broadcast: Job? = null
     private var timer: Job? = null
     @Volatile private var publicationBlocked = false
+    @Volatile private var keyFingerprint = fingerprintFor(roomKey)
 
     init {
         require(intervalSeconds > 0) { "intervalSeconds must be positive" }
         keys.set(DeadDrop.roomIkm(roomKey), this.members)
         keys.refresh(now())
         if (restore != null) {
+            require(restore.keyFingerprint == null || restore.keyFingerprint == keyFingerprint) {
+                "quiet state belongs to an earlier room epoch"
+            }
             keys.importUsed(restore.used, now())
             for (e in restore.queued) if (e.kind in quietKinds && queue.size < MAX_PENDING) queue.addLast(e)
             val retainedIds = queue.mapTo(mutableSetOf()) { it.id }
@@ -161,7 +173,7 @@ class QuietTransport(
     fun confirmQueued(eventId: String): Boolean = synchronized(queue) {
         if (queue.none { it.id == eventId }) return@synchronized false
         val retained = queue.filterNot { it.id == eventId }
-        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId))
+        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId, keyFingerprint))
         queue.removeAll { it.id == eventId }
         boxPending.remove(eventId)
         true
@@ -184,14 +196,16 @@ class QuietTransport(
     override suspend fun rekey(roomKey: ByteArray) {
         require(roomKey.size == 32) { "room key must be 32 bytes" }
         check(publicationBlocked) { "room publication must be blocked before rekey" }
+        val nextFingerprint = fingerprintFor(roomKey)
         val rejected = lock.withLock {
             synchronized(queue) {
                 val old = queue.toList()
-                onState(QuietState(emptyMap(), emptyList(), emptySet()))
+                onState(QuietState(emptyMap(), emptyList(), emptySet(), nextFingerprint))
                 queue.clear()
                 boxPending.clear()
                 current = null
                 keys.set(DeadDrop.roomIkm(roomKey), members)
+                keyFingerprint = nextFingerprint
                 old
             }
         }
@@ -204,6 +218,7 @@ class QuietTransport(
         inner.completeRekey()
         publicationBlocked = false
     }
+    override fun publishRecovery(event: NostrEvent) = inner.publishRecovery(event)
 
     /**
      * A quiet kind is queued for the next slot; an event too large for the
@@ -229,7 +244,7 @@ class QuietTransport(
             if (marked) boxPending += event.id
             if (added || marked) {
                 try {
-                    onState(QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet()))
+                    onState(QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint))
                 } catch (error: Exception) {
                     if (added) queue.removeAll { it.id == event.id }
                     if (marked) boxPending.remove(event.id)
@@ -246,7 +261,7 @@ class QuietTransport(
         return true
     }
 
-    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet()) }
+    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint) }
 
     fun exportState(): QuietState = state()
 

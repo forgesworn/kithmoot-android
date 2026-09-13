@@ -90,6 +90,7 @@ fun RoomScreen(
     onRefreshCadence: () -> Unit = {},
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
+    onRetryRoomUpdate: () -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -129,7 +130,7 @@ fun RoomScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header(state, onLeave)
-        state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
+        state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
         TabRow(selectedTabIndex = if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = !callOpen && !workOpen, onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -139,6 +140,11 @@ fun RoomScreen(
             Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
             })
+        }
+        if (state.movedOn != null) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                RoomUpdatePanel(state.roomUpdate, state.notice, onRetryRoomUpdate)
+            }
         }
 
         if (workOpen) {
@@ -150,7 +156,7 @@ fun RoomScreen(
                 if (state.privateConversation) {
                     Text("Two-person room", Modifier.padding(horizontal = 12.dp, vertical = 14.dp), style = MaterialTheme.typography.labelMedium)
                 } else {
-                    TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
+                    TextButton(onClick = { inviteOpen = true }, enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
                 }
                 TextButton(onClick = onOpenCards) { Text("People") }
                 TextButton(onClick = onAddDevice, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
@@ -195,11 +201,6 @@ fun RoomScreen(
                             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
                         )
                     }
-                    if (state.movedOn != null) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            MovedOnPanel()
-                        }
-                    }
                     if (state.mediaFault != null) {
                         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             FaultPanel(state.mediaFault)
@@ -208,17 +209,19 @@ fun RoomScreen(
                 }
             }
 
-            Controls(
-                state = state,
-                onToggleMic = onToggleMic,
-                onToggleAgentsMayHear = onToggleAgentsMayHear,
-                onToggleCamera = onToggleCamera,
-                onSwitchCamera = onSwitchCamera,
-                onToggleScreenShare = onToggleScreenShare,
-                onOpenChat = { callOpen = false },
-                onAddDevice = onAddDevice,
-                onOpenCards = onOpenCards,
-            )
+            if (state.movedOn == null) {
+                Controls(
+                    state = state,
+                    onToggleMic = onToggleMic,
+                    onToggleAgentsMayHear = onToggleAgentsMayHear,
+                    onToggleCamera = onToggleCamera,
+                    onSwitchCamera = onSwitchCamera,
+                    onToggleScreenShare = onToggleScreenShare,
+                    onOpenChat = { callOpen = false },
+                    onAddDevice = onAddDevice,
+                    onOpenCards = onOpenCards,
+                )
+            }
         }
     }
 }
@@ -419,7 +422,21 @@ private fun FaultPanel(message: String) {
  * broken.
  */
 @Composable
-private fun MovedOnPanel() {
+private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
+    val title = when (state) {
+        "removed" -> "You were removed from this room"
+        "closed" -> "This room was closed"
+        "updating" -> "Updating this secure room"
+        "recovery" -> "Room update needs attention"
+        else -> "This room has moved on"
+    }
+    val message = detail ?: when (state) {
+        "removed" -> "This device was not given the successor key and cannot rejoin or publish."
+        "closed" -> "The authority ended this room. This device will not rejoin or publish."
+        "updating" -> "Nothing will be sent under the previous room key while Bothy retires its old schedule."
+        "recovery" -> "Nothing will be sent under the previous room key. Retry when the authority and Bothy are reachable."
+        else -> "The room changed its key and this device cannot safely continue."
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -428,18 +445,20 @@ private fun MovedOnPanel() {
             .padding(20.dp),
     ) {
         Text(
-            text = "This room has moved on",
+            text = title,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Somebody was removed, so the room changed its key. This app cannot " +
-                "follow that yet, so you will hear nothing further here. Ask for a fresh " +
-                "link and join again.",
+            text = message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
+        if (state == "updating" || state == "recovery") {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onRetry) { Text("Retry secure update") }
+        }
     }
 }
 

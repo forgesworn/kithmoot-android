@@ -27,10 +27,12 @@ class QuietStateJsonTest {
             used = emptyMap(),
             queued = listOf(event),
             boxPending = setOf(event.id),
+            keyFingerprint = "4".repeat(64),
         )))
 
         assertEquals(listOf(event), restored?.queued)
         assertEquals(setOf(event.id), restored?.boxPending)
+        assertEquals("4".repeat(64), restored?.keyFingerprint)
     }
 
     @Test

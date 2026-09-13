@@ -68,6 +68,9 @@ interface RoomTransport {
 
     /** Reopen publication only after every room subscriber has moved. */
     fun completeRekey() = Unit
+
+    /** Stable-room recovery control remains available while epoch traffic is blocked. */
+    fun publishRecovery(event: NostrEvent) = publish(event)
 }
 
 /**
@@ -162,6 +165,13 @@ class RelayPool(
         val targets: List<RelayLink>
         synchronized(lock) { targets = links.values.toList() }
         for (link in targets) link.sendOrQueue(frame)
+    }
+
+    override fun publishRecovery(event: NostrEvent) {
+        require(event.kind in setOf(1462, 20_468, 20_469)) { "event is not room recovery control" }
+        val frame = RelayCodec.publishFrame(event)
+        val targets = synchronized(lock) { links.values.toList() }
+        targets.forEach { it.sendOrQueue(frame) }
     }
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */

@@ -56,6 +56,11 @@ import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceOwnership
 import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
 import dev.forgesworn.kithmoot.cadence.StoredCadenceLease
+import dev.forgesworn.kithmoot.epoch.CadenceEpochCoordinate
+import dev.forgesworn.kithmoot.epoch.EpochPhase
+import dev.forgesworn.kithmoot.epoch.EpochVault
+import dev.forgesworn.kithmoot.epoch.EpochRecoveryResponder
+import dev.forgesworn.kithmoot.epoch.StoredRoomEpoch
 import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import dev.forgesworn.kithmoot.storage.SavedRoom
@@ -89,6 +94,9 @@ import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_RETIREMENT
 import dev.forgesworn.kithmoot.protocol.RoomAdmission
 import dev.forgesworn.kithmoot.protocol.Room
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.RekeyNotice
+import dev.forgesworn.kithmoot.protocol.RoomEpoch
 import dev.forgesworn.kithmoot.protocol.RoomInvitationHost
 import dev.forgesworn.kithmoot.protocol.createRoomInvitation
 import dev.forgesworn.kithmoot.protocol.decodeRoomAdmissionGrant
@@ -97,6 +105,7 @@ import dev.forgesworn.kithmoot.protocol.decodeInvitationRetirement
 import dev.forgesworn.kithmoot.protocol.decodeInvitationUrl
 import dev.forgesworn.kithmoot.protocol.decodeJoinUrl
 import dev.forgesworn.kithmoot.protocol.deriveRoom
+import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.deriveInvitationId
 import dev.forgesworn.kithmoot.protocol.encodeInvitationGrant
 import dev.forgesworn.kithmoot.protocol.encodeInvitationRequest
@@ -128,6 +137,7 @@ import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.EpochGateResult
 import dev.forgesworn.kithmoot.session.currentCircleGuestDevices
 import dev.forgesworn.kithmoot.session.QuietTransport
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -308,6 +318,7 @@ data class RoomState(
      * hear nothing further. Said out loud rather than left as silence.
      */
     val movedOn: Int? = null,
+    val roomUpdate: String? = null,
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -445,6 +456,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val linkEngine = (application as KithMootApplication).linkEngine
     private val cadenceClient: CadenceClient = (application as KithMootApplication).cadenceClient
     private val cadenceLeases: CadenceLeaseVault = (application as KithMootApplication).cadenceLeases
+    private val roomEpochs: EpochVault = (application as KithMootApplication).roomEpochs
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
     private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
 
@@ -908,7 +920,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private data class CadenceAccess(val context: CadenceContext?, val reason: String?)
 
+    private fun activeRoomEpoch(record: SavedRoom): EpochKeys {
+        val stored = record.authority?.let { roomEpochs.get(record.id) }
+        return if (stored == null) {
+            val room = deriveRoom(record.secret)
+            EpochKeys(0, room.roomId, room.roomKey)
+        } else {
+            require(stored.phase == EpochPhase.ACTIVE || stored.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
+                if (stored.phase == EpochPhase.CLOSED) "This room was closed" else "You were removed from this room"
+            }
+            deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
+        }
+    }
+
     private fun cadenceAccess(record: SavedRoom, who: RoomIdentity, secondary: Boolean): CadenceAccess {
+        val epoch = activeRoomEpoch(record)
         val consent = linkConsents.all().singleOrNull {
             it.accountPubkey == who.participant && it.roomId == record.id &&
                 it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING)
@@ -933,11 +959,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             return CadenceAccess(null, "Cadence needs at least two canonical public WSS relays from the room's earlier route.")
         }
         return CadenceAccess(CadenceContext(
-            CadenceScope(nodeId, record.id, record.id, 1, who.participant, who.devicePubkey, who.credential, grantId),
+            CadenceScope(nodeId, record.id, epoch.id, epoch.epoch.toLong() + 1, who.participant, who.devicePubkey, who.credential, grantId),
             publicRelays,
             requireNotNull(grant.active.tagValue("expiration")).toLong(),
             if (secondary) 1 else 0,
-            deriveRoom(record.secret).roomKey,
+            epoch.key,
         ), null)
     }
 
@@ -1766,6 +1792,22 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             previous?.authority ?: invitation?.invitation?.canonicalInviter)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds())
         savedRooms.save(record)
+        var durableEpoch = record.authority?.let {
+            roomEpochs.initialise(record.id, it, record.secret, epochSeconds())
+        }
+        if (durableEpoch?.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
+            durableEpoch = cadenceGate.withLock { resumePendingRoomEpoch(record, who, secondary, durableEpoch!!) }
+        }
+        if (durableEpoch?.phase == EpochPhase.REMOVED) throw RoomRecoveryException("You were removed from this room")
+        if (durableEpoch?.phase == EpochPhase.CLOSED) throw RoomRecoveryException("This room was closed")
+        val openedEpoch = durableEpoch?.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) }
+            ?: EpochKeys(0, derived.roomId, derived.roomKey)
+        val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
+            it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
+        }
+        val epochResponder = epochAuthorityHost?.let {
+            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, record.policy, ::epochSeconds)
+        }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
         closeSession()
@@ -1789,13 +1831,30 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         // identity is slot 0, the device it paired slot 1; each draws from its
         // own half of the member's drop keys. See session/QuietTransport.kt.
         val quietMembers = policy?.members?.takeIf { policy.quiet }
+        val quietFingerprint = QuietTransport.fingerprintFor(openedEpoch.key)
+        val savedQuietState = record.quietState?.let {
+            checkNotNull(quietStateFromJson(it)) { "The saved quiet queue is invalid." }
+        }
+        val discardedOldQuiet = savedQuietState != null &&
+            savedQuietState.keyFingerprint != quietFingerprint && !(openedEpoch.epoch == 0 && savedQuietState.keyFingerprint == null)
+        if (discardedOldQuiet) {
+            checkNotNull(savedRooms.update(record.id) {
+                it.withQuietState(quietStateToJson(QuietTransport.QuietState(emptyMap(), emptyList(), emptySet(), quietFingerprint)))
+            })
+        }
         val quiet = if (quietMembers != null) QuietTransport(
-            transport, derived.roomKey, who.participant, quietMembers, if (secondary) 1 else 0, scope,
-            restore = record.quietState?.let {
-                checkNotNull(quietStateFromJson(it)) { "The saved quiet queue is invalid." }
-            },
+            transport, openedEpoch.key, who.participant, quietMembers, if (secondary) 1 else 0, scope,
+            restore = savedQuietState?.takeUnless { discardedOldQuiet },
             onState = { state -> checkNotNull(savedRooms.update(derived.roomId) { it.withQuietState(quietStateToJson(state)) }) },
             reservedCounters = { epoch -> cadenceLeases.reservedCounters(derived.roomId, who.devicePubkey, epoch).toSet() },
+            onRekeyed = { rejected ->
+                if (rejected.isNotEmpty()) _room.update { state ->
+                    val noun = if (rejected.size == 1) "message was" else "messages were"
+                    state.copy(
+                        chatSendError = "Conversation rekeyed. ${rejected.size} retained $noun not sent; the local copy remains in this conversation.",
+                    )
+                }
+            },
         ) else null
         quietTransport = quiet
         val cadenceAccess = if (quiet != null) cadenceAccess(record, who, secondary) else CadenceAccess(null, null)
@@ -1855,6 +1914,22 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             // believes. A legacy link carries none, and a room opened from
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
+            initialEpoch = openedEpoch,
+            epochGate = if (record.authority == null) null else { event, notice ->
+                withContext(Dispatchers.IO) {
+                    cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
+                }
+            },
+            onEpochApplied = { _, next ->
+                roomWork?.rekey(next.id, next.key)
+            },
+            onEpochBlocked = ::stopMediaForEpoch,
+            onEpochReady = {
+                session?.let { current -> startMedia(current, scope, who) }
+            },
+            epochResponder = epochResponder?.let { responder ->
+                { request -> responder.answer(request) }
+            },
         )
 
         sessionScope = scope
@@ -1882,7 +1957,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             canAddDevice = who is PrimaryIdentity,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
             canShowCard = who is PrimaryIdentity,
+            notice = if (discardedOldQuiet) "Messages retained under the previous room key were marked Conversation rekeyed." else null,
         )
+        observeRoomEpoch(live, scope)
         if (quiet != null) {
             _room.update { state -> state.copy(cadence = state.cadence?.copy(busy = cadenceAccess.context != null)) }
             scope.launch(Dispatchers.IO) {
@@ -1926,10 +2003,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
+        if (live.epochState.value !is dev.forgesworn.kithmoot.session.RoomEpochState.Active) return@withLock
         // Verification, replay and encrypted persistence must not run on the UI thread.
         val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
-        val work = RoomWork(derived.roomId,derived.roomKey,who,quiet?:transport,
-            AssignmentVault(getApplication(),derived.roomId,who.participant),workScope,policy)
+        val liveEpoch=live.epochKeys()
+        val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
+            AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
+            initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
         roomWork=work
         scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
         scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
@@ -1967,30 +2047,6 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         scope.launch {
-            live.movedOn.collect { epoch ->
-                gate.withLock {
-                    if (session !== live) return@withLock
-                    _room.value = _room.value.copy(movedOn = epoch)
-                    if (epoch != null) {
-                        roomWork?.close()
-                        invitationHostJob?.cancel()
-                        roomInvitationHost = null
-                        _room.value = _room.value.copy(canRotateInvitation = false)
-                        persistLiveRoom(record.id) { it.keysChanged() }
-                    }
-                }
-                if (epoch != null) scope.launch(Dispatchers.IO) {
-                    runCatching { cadenceGate.withLock { stopCadence(record, who, secondary, "Bothy could not stop the old room schedule after rekey.") } }
-                        .onFailure { error ->
-                            _room.update { state -> state.copy(cadence = state.cadence?.copy(
-                                state = "blocked",
-                                detail = error.message ?: "The old cadence lease remains reserved until its original end epoch.",
-                            )) }
-                        }
-                }
-            }
-        }
-        scope.launch {
             live.localRoles.collect { roles ->
                 // Another of your devices has taken the microphone. Let go of
                 // the hardware rather than sitting on a hot mic: the roster
@@ -2002,46 +2058,39 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // The media stack is brought up off the main thread and is allowed to
-        // fail. WebRTC needs native libraries that some devices and most
-        // emulators do not have; a room that is text and presence only is worth
-        // far more than a crash on the way in.
+        startMedia(live, scope, who)
+    }
+
+    /** Build media only while this exact session is active at one traffic epoch. */
+    private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
+        if (session !== live || engine != null) return
+        opening?.cancel()
         opening = scope.launch {
             val built = withContext(Dispatchers.Default) { runCatching {
-                WebRtcEngine(getApplication(), live, scope, iceServers())
+                WebRtcEngine(getApplication(), live, this@launch, iceServers())
             } }
             val media = built.getOrElse { failure ->
-                _room.value = _room.value.copy(
+                _room.update { it.copy(
                     mediaFault = "Audio and video are unavailable on this device: " +
                         (failure.message ?: failure::class.java.simpleName),
-                )
+                ) }
                 return@launch
             }
+            if (session !== live) { media.dispose(); return@launch }
             engine = media
             media.localMedia.onScreenShareStopped = { stopScreenShare() }
             media.localMedia.onCameraLost = { cameraLost() }
             media.start()
 
-            scope.launch {
+            launch {
                 combine(media.remoteTracks, media.localMedia.tracks) { remote, local ->
                     buildMap {
-                        for (track in remote) {
-                            (track.track as? VideoTrack)?.let { put(key(track.device, track.trackId), it) }
-                        }
-                        for (track in local) {
-                            (track.track as? VideoTrack)?.let { put(key(who.devicePubkey, track.trackId), it) }
-                        }
+                        for (track in remote) (track.track as? VideoTrack)?.let { put(key(track.device, track.trackId), it) }
+                        for (track in local) (track.track as? VideoTrack)?.let { put(key(who.devicePubkey, track.trackId), it) }
                     }
                 }.collect { _videos.value = it }
             }
-            // Never your own voice, and nothing on a device that is not the
-            // one you listen on. A second device of yours sends its
-            // microphone here like anybody else's, and the native stack
-            // plays every received audio track by default: that is how a
-            // person on a phone and a laptop heard themselves back, a beat
-            // late, on both. The roster's monitor election was computed and
-            // never applied; this applies it, and the own-device rule with it.
-            scope.launch {
+            launch {
                 combine(media.remoteTracks, live.participants, live.localRoles) { remote, people, roles ->
                     val mine = people.firstOrNull { it.participant == who.participant }
                         ?.devices?.map { it.device }?.toSet() ?: emptySet()
@@ -2049,19 +2098,51 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     remote.mapNotNull { track ->
                         (track.track as? AudioTrack)?.let { it to (listeningHere && track.device !in mine) }
                     }
-                }.collect { decisions ->
-                    for ((track, play) in decisions) runCatching { track.setEnabled(play) }
+                }.collect { decisions -> for ((track, play) in decisions) runCatching { track.setEnabled(play) } }
+            }
+            launch { media.localMedia.tracks.collect(::onLocalTracks) }
+            launch {
+                live.agentDevices.collect { agents ->
+                    _room.update { it.copy(agentCount = agents.size) }
+                    applyAudience(media, agents)
                 }
             }
-            scope.launch {
-                media.localMedia.tracks.collect { tracks -> onLocalTracks(tracks) }
-            }
-            // Who this device's media may go to, re-decided whenever the
-            // switch moves or an agent arrives.
-            scope.launch {
-                live.agentDevices.collect { agents ->
-                    _room.value = _room.value.copy(agentCount = agents.size)
-                    applyAudience(media, agents)
+        }
+    }
+
+    /** Tear down peer connections before an old epoch can continue media exchange. */
+    private fun stopMediaForEpoch() {
+        opening?.cancel()
+        opening = null
+        engine?.stop()
+        engine?.dispose()
+        engine = null
+        _videos.value = emptyMap()
+        _room.update { it.copy(micOn = false, cameraOn = false, screenOn = false, agentCount = 0) }
+    }
+
+    private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
+        scope.launch {
+            live.epochState.collect { state ->
+                if (session !== live) return@collect
+                when (state) {
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update {
+                        it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)
+                    }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update {
+                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = "Secure room update is waiting for Bothy to retire the old schedule.")
+                    }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
+                        it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
+                    }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Removed -> {
+                        roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
+                        _room.update { it.copy(movedOn = state.epoch, roomUpdate = "removed", canRotateInvitation = false, notice = "You were removed from this room") }
+                    }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Closed -> {
+                        roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
+                        _room.update { it.copy(movedOn = state.epoch, roomUpdate = "closed", canRotateInvitation = false, notice = "This room was closed") }
+                    }
                 }
             }
         }
@@ -2101,6 +2182,42 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 entering.set(false)
                 _start.update { it.copy(busy = false) }
                 refreshSavedRooms()
+            }
+        }
+    }
+
+    fun retryRoomUpdate() {
+        val record = savedRoom ?: return
+        val live = session ?: return
+        if (sessionScope == null) return
+        if (_room.value.roomUpdate !in setOf("updating", "recovery")) return
+        _room.update { it.copy(notice = "Retrying the secure room update…") }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (roomEpochs.get(record.id)?.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
+                    gate.withLock { if (session === live) closeSession() }
+                    val saved = savedRooms.get(record.id) ?: throw RoomRecoveryException("This room is no longer saved on this device")
+                    openSaved(saved)
+                    return@launch
+                }
+                live.retryEpoch()
+                if (live.epochState.value is dev.forgesworn.kithmoot.session.RoomEpochState.Active && roomWork == null) {
+                    gate.withLock { if (session === live) closeSession() }
+                    val saved = savedRooms.get(record.id) ?: throw RoomRecoveryException("This room is no longer saved on this device")
+                    openSaved(saved)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (session == null) {
+                    _room.value = RoomState()
+                    _stage.value = Stage.START
+                    _start.update {
+                        it.copy(error = error.message ?: "The secure room update is still unavailable. Open the room to retry.")
+                    }
+                } else {
+                    _room.update { it.copy(roomUpdate = "recovery", notice = error.message ?: "The secure room update is still unavailable. Try again.") }
+                }
             }
         }
     }
@@ -2381,6 +2498,125 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private fun currentCadence(room: String, device: String): StoredCadenceLease? = cadenceLeases.all(room, device)
         .filter { it.ownership != CadenceOwnership.ENDED }
         .maxByOrNull { it.plan.generation }
+
+    private fun epochCadence(record: SavedRoom, who: RoomIdentity, epoch: EpochKeys): StoredCadenceLease? =
+        cadenceLeases.all(record.id, who.devicePubkey)
+            .filter {
+                it.ownership != CadenceOwnership.ENDED &&
+                    it.plan.trafficRoom == epoch.id && it.plan.roomGeneration == epoch.epoch.toLong() + 1
+            }
+            .maxByOrNull { it.plan.generation }
+
+    private fun cadenceCoordinate(lease: StoredCadenceLease?) = lease?.let {
+        CadenceEpochCoordinate(
+            it.plan.nodeId, it.plan.leaseId, it.plan.generation,
+            it.plan.trafficRoom, it.plan.roomGeneration,
+        )
+    }
+
+    private fun cadenceRekeyId(cause: String, lease: StoredCadenceLease, nextRoomGeneration: Long): String =
+        Digests.sha256(
+            "kithmoot/cadence/rekey/v1\u0000$cause\u0000${lease.plan.leaseId}\u0000${lease.plan.generation}\u0000$nextRoomGeneration"
+                .toByteArray(Charsets.UTF_8),
+        ).toHex().take(32)
+
+    /** Resolve a possibly lost lease result, then advance Bothy's durable room-generation fence. */
+    private fun retireCadenceForEpoch(
+        record: SavedRoom,
+        who: RoomIdentity,
+        secondary: Boolean,
+        cause: String,
+        nextRoomGeneration: Long,
+        coordinate: CadenceEpochCoordinate?,
+    ): StoredCadenceLease? {
+        if (coordinate == null) return null
+        val access = cadenceAccess(record, who, secondary)
+        val context = requireNotNull(access.context) { access.reason ?: "Bothy cadence authority is unavailable" }
+        require(
+            context.scope.nodeId == coordinate.nodeId && context.scope.trafficRoom == coordinate.trafficRoom &&
+                context.scope.roomGeneration == coordinate.roomGeneration
+        ) { "The pending room update does not match the saved Bothy scope" }
+        var current = cadenceLeases.all(record.id, who.devicePubkey).singleOrNull {
+            it.plan.nodeId == coordinate.nodeId && it.plan.leaseId == coordinate.leaseId &&
+                it.plan.generation == coordinate.generation && it.plan.trafficRoom == coordinate.trafficRoom &&
+                it.plan.roomGeneration == coordinate.roomGeneration
+        } ?: throw RoomRecoveryException("The pending room update has lost its Bothy lease journal")
+        if (current.ownership == CadenceOwnership.CLIENT_EXCLUDED) {
+            current = try {
+                cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get().lease
+            } catch (_: Exception) {
+                cadenceClient.leaseStatus(
+                    who.participant, context.scope, who, current,
+                    cadenceRekeyId(cause, current, nextRoomGeneration), epochSeconds(), cadenceLeases,
+                ).get().lease
+            }
+        }
+        if (current.ownership == CadenceOwnership.ENDED || current.receipt?.state in setOf("cover", "ended")) return current
+        require(current.ownership == CadenceOwnership.BOX_OWNED) { "Bothy's old room ownership is unresolved" }
+        val result = cadenceClient.rekey(
+            who.participant, context.scope, who, current,
+            cadenceRekeyId(cause, current, nextRoomGeneration), nextRoomGeneration,
+            epochSeconds(), cadenceLeases,
+        ).get()
+        require(result.lease.receipt?.code == "rekeyed" && result.lease.receipt?.state in setOf("cover", "ended")) {
+            "Bothy did not prove that old room sends were retired"
+        }
+        _room.update { state -> state.copy(cadence = state.cadence?.copy(
+            state = result.lease.receipt?.state ?: "cover",
+            detail = "Bothy retired real sends under the previous room key and is finishing its promised cover.",
+            failedCount = result.lease.receipt?.failedItemIds?.size ?: 0,
+        )) }
+        return result.lease
+    }
+
+    private fun commitRoomEpoch(
+        record: SavedRoom,
+        who: RoomIdentity,
+        secondary: Boolean,
+        event: NostrEvent,
+        notice: RekeyNotice,
+    ): EpochGateResult {
+        val durable = roomEpochs.get(record.id) ?: throw RoomRecoveryException("The room epoch journal is missing")
+        if (durable.phase == EpochPhase.ACTIVE && durable.currentEpoch == notice.epoch && notice.secret != null) {
+            require(durable.currentSecret.contentEquals(notice.secret)) { "The committed room epoch has a different secret" }
+            return EpochGateResult.COMMITTED
+        }
+        require(
+            durable.currentEpoch + 1 == notice.epoch || notice.catchUp && notice.epoch > durable.currentEpoch
+        ) { "The room update skipped an unproved epoch" }
+        val current = deriveEpoch(RoomEpoch(durable.currentEpoch, durable.currentSecret))
+        val lease = epochCadence(record, who, current)
+        val coordinate = cadenceCoordinate(lease)
+        if (notice.closed || notice.secret == null && notice.removed.any { it.equals(who.participant, ignoreCase = true) }) {
+            retireCadenceForEpoch(record, who, secondary, event.id, notice.epoch.toLong() + 1, coordinate)
+            roomEpochs.terminal(record.id, durable.currentEpoch, notice, event.id, epochSeconds())
+            return EpochGateResult.COMMITTED
+        }
+        require(notice.secret != null) { "The room authority must restore this device" }
+        if (notice.catchUp) {
+            roomEpochs.beginCatchUp(record.id, durable.currentEpoch, notice, event.id, coordinate, epochSeconds())
+        } else {
+            roomEpochs.beginTransition(record.id, durable.currentEpoch, notice, event.id, coordinate, epochSeconds())
+        }
+        try {
+            retireCadenceForEpoch(record, who, secondary, event.id, notice.epoch.toLong() + 1, coordinate)
+        } catch (_: Exception) {
+            return EpochGateResult.PENDING
+        }
+        roomEpochs.activate(record.id, notice.epoch, epochSeconds())
+        return EpochGateResult.COMMITTED
+    }
+
+    private fun resumePendingRoomEpoch(
+        record: SavedRoom,
+        who: RoomIdentity,
+        secondary: Boolean,
+        durable: StoredRoomEpoch,
+    ): StoredRoomEpoch {
+        val pending = requireNotNull(durable.pending)
+        retireCadenceForEpoch(record, who, secondary, pending.cause, pending.epoch.toLong() + 1, pending.cadence)
+        return roomEpochs.activate(record.id, pending.epoch, epochSeconds())
+    }
 
     private fun cadenceId(): String = Entropy.bytes(16).toHex()
 
@@ -2915,6 +3151,7 @@ internal fun quietStateToJson(state: QuietTransport.QuietState): JsonObject = bu
     })
     put("queued", buildJsonArray { for (e in state.queued) add(e.toJson()) })
     put("boxPending", buildJsonArray { for (id in state.boxPending.sorted()) add(JsonPrimitive(id)) })
+    state.keyFingerprint?.let { put("keyFingerprint", it) }
 }
 
 internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = runCatching {
@@ -2930,5 +3167,7 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
     } ?: emptyList()
     require(boxPending.size <= QuietTransport.MAX_PENDING && boxPending.distinct().size == boxPending.size)
     require(boxPending.all { it.matches(Regex("[0-9a-f]{64}")) && it in retainedIds })
-    QuietTransport.QuietState(used, queued, boxPending.toSet())
+    val keyFingerprint = json["keyFingerprint"]?.jsonPrimitive?.content
+    require(keyFingerprint == null || keyFingerprint.matches(Regex("[0-9a-f]{64}")))
+    QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint)
 }.getOrNull()

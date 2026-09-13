@@ -48,6 +48,8 @@ fun ChatPane(
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
+    /** False while a room key transition is incomplete or terminal. */
+    canSend: Boolean = true,
     sending: Boolean = false,
     sendError: String? = null,
     showTitle: Boolean = true,
@@ -176,7 +178,7 @@ fun ChatPane(
                                 val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
                                 if (emoji in listOf("👍", "❤️", "🤦") || active.isNotEmpty()) {
                                     val mine = active.any { it.participant == selfParticipant }
-                                    FilterChip(selected = mine, onClick = { onReact(r.original, emoji) },
+                                    FilterChip(selected = mine, onClick = { onReact(r.original, emoji) }, enabled = canSend,
                                         label = { Text(emoji + if (active.isEmpty()) "" else " ${active.size}") },
                                         modifier = Modifier.semantics { contentDescription = "${if (mine) "Remove" else "Add"} $emoji reaction, ${active.size}" })
                                 }
@@ -187,13 +189,13 @@ fun ChatPane(
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = !sending,
+            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend && !sending,
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
-            IconButton(onClick = { send() }, enabled = draft.text.isNotBlank() && !sending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+            IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
         if (sending) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        TextButton(onClick = { emojiOpen = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("😊 Emoji") }
+        TextButton(onClick = { emojiOpen = true }, enabled = canSend, modifier = Modifier.padding(horizontal = 8.dp)) { Text("😊 Emoji") }
     }
     if (emojiOpen) EmojiDialog(onDismiss = { emojiOpen = false }) { emoji ->
         val start = draft.selection.min; val end = draft.selection.max

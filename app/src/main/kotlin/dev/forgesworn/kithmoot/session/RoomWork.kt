@@ -21,8 +21,12 @@ class RoomWork(
     private val roomId:String,private val roomKey:ByteArray,private val identity:RoomIdentity,
     private val transport:RoomTransport,storage:AssignmentStorage,private val scope:CoroutineScope,
     private val policy:RoomPolicy?=null,private val now:()->Long={System.currentTimeMillis()/1000},
+    initialTrafficRoomId:String=roomId,initialTrafficRoomKey:ByteArray=roomKey,
 ) {
-    val journal=AssignmentJournal(roomId,roomKey,identity,transport,storage,scope,policy,now=now)
+    @Volatile private var trafficRoomId=initialTrafficRoomId
+    @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
+    val journal=AssignmentJournal(roomId,roomKey,identity,transport,storage,scope,policy,now=now,
+        initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey)
     private val mutableActions=MutableStateFlow<List<AvailableAssignmentAction>>(emptyList())
     val actions=mutableActions.asStateFlow()
     private val mutableError=MutableStateFlow<String?>(null)
@@ -60,24 +64,40 @@ class RoomWork(
     suspend fun open() { journal.open();refreshActions() }
     suspend fun refreshActions() = discoveryMutex.withLock {
         check(!closed) {"This room has closed"}
+        val id=trafficRoomId;val key=trafficRoomKey
         if(collector?.isActive!=true) {
-        val address=deriveChatChannel(roomId,roomKey,"control")
+        val address=deriveChatChannel(id,key,"control")
         val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
         collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
-            try { transport.subscribe(filters).collect { event -> if(!closed)decodeChatEvent(event,roomId,roomKey,now(),policy,"control")?.let(::receive) } }
+            try { transport.subscribe(filters).collect { event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive) } }
             catch(cancelled:CancellationException){throw cancelled}
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
         // Stored discovery may be absent; the explicit request also reaches a
         // host that joined after this query. History itself is never a job.
-        try {transport.queryStored(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,roomId,roomKey,now(),policy,"control")?.let(::receive)}}
+        try {transport.queryStored(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
         catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         }
         check(!closed) {"This room has closed"}
-        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,roomId,roomKey,identity.deviceSecretKey,now(),channel="control")
+        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId)
         check(transport.publishConfirmed(request)) {"No relay confirmed the agent discovery request"}
         mutableError.value=null
+    }
+    suspend fun rekey(id:String,key:ByteArray) {
+        require(id.matches(Regex("[0-9a-f]{64}"))&&key.size==32)
+        check(!closed) {"This room has closed"}
+        collector?.cancelAndJoin();collector=null
+        trafficRoomId=id;trafficRoomKey=key.copyOf()
+        synchronized(catalogues){catalogues.clear();mutableActions.value=emptyList()}
+        journal.rekey(id,key)
+        val address=deriveChatChannel(id,key,"control")
+        val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
+        collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {transport.subscribe(filters).collect {event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
+            catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
+        }
     }
     fun close() {closed=true;journal.close();collector?.cancel();mutableActions.value=emptyList()}
 }

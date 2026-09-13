@@ -31,8 +31,8 @@ class RelayPoolTest {
 
     private val relays = listOf("wss://one.example", "wss://two.example", "wss://three.example")
 
-    private fun event(id: String) = NostrEvent(
-        kind = 20461,
+    private fun event(id: String, kind: Int = 20461) = NostrEvent(
+        kind = kind,
         createdAt = 1799995000,
         tags = listOf(listOf("d", "room")),
         content = "opaque",
@@ -193,6 +193,26 @@ class RelayPoolTest {
         assertEquals(1, frames.size)
         assertTrue(successor.id in frames.single())
         assertTrue(old.id !in frames.single())
+    }
+
+    @Test
+    fun `recovery control can cross the publication barrier while room traffic cannot`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        val socket = sockets.opened.single()
+        socket.open()
+        val ordinary = event("59".repeat(32))
+        val recovery = event("5a".repeat(32), 20_468)
+
+        pool.beginRekey()
+        assertFailsWith<IllegalStateException> { pool.publish(ordinary) }
+        pool.publishRecovery(recovery)
+
+        val frames = socket.publishedFrames()
+        assertEquals(1, frames.size)
+        assertTrue(recovery.id in frames.single())
     }
 
     @Test

@@ -31,6 +31,8 @@ class AssignmentJournal(
     private val policy: RoomPolicy? = null,
     private val proof: KindredProof? = null,
     private val now: () -> Long = { System.currentTimeMillis()/1000 },
+    initialTrafficRoomId: String = roomId,
+    initialTrafficRoomKey: ByteArray = roomKey,
 ) {
     private data class Pending(val inner: NostrEvent, val outer: NostrEvent)
     private val mutex=Mutex()
@@ -43,13 +45,18 @@ class AssignmentJournal(
     private var collector: Job?=null
     private var opened=false
     @Volatile private var closed=false
+    @Volatile private var trafficRoomId=initialTrafficRoomId
+    @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
     private var loaded=false
     private var failure:String?=null
     private fun refresh() {
         val projected=projectAssignments(events.values.toList(),roomId)
         mutable.value=AssignmentSnapshot(projected.assignments,loaded&&!closed&&failure==null&&projected.pending.isEmpty(),projected.pending.size,outbox.size,failure)
     }
-    private fun decode(event:NostrEvent)=decodeChatEvent(event,roomId,roomKey,now(),policy,ASSIGNMENT_CHANNEL)?.assignment
+    private fun decode(event:NostrEvent):NostrEvent? {
+        val id=trafficRoomId;val key=trafficRoomKey
+        return decodeChatEvent(event,id,key,now(),policy,ASSIGNMENT_CHANNEL,credentialRoomId=roomId)?.assignment
+    }
     private fun live() { check(!closed) { "This assignment room has closed" } }
     private suspend fun persist(nextEvents:Map<String,NostrEvent>,nextOutbox:Map<String,Pending>) {
         check(nextEvents.size<=20_000&&nextOutbox.size<=100) { "Assignment history is full" }
@@ -97,7 +104,8 @@ class AssignmentJournal(
         collector?.cancelAndJoin()
         mutex.withLock {loaded=false;refresh()}
         try {
-            val address=deriveChatChannel(roomId,roomKey,ASSIGNMENT_CHANNEL)
+            val id=trafficRoomId;val key=trafficRoomKey
+            val address=deriveChatChannel(id,key,ASSIGNMENT_CHANNEL)
             val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
             collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
                 try { transport.subscribe(filters).collect { outer ->
@@ -140,7 +148,12 @@ class AssignmentJournal(
                 val projection=projectAssignments(events.values.toList()+inner,roomId)
                 val next=projection.assignments.find{it.id==id}
                 check(next!=null&&next.head==inner.id&&next.status!="conflicted"&&inner.id !in projection.pending) { "This update is not permitted in the current assignment state" }
-                val outer=encodeChatEvent("Assignment ${operation.assignmentText("op")}",identity.participant,identity.credential,roomId,roomKey,identity.deviceSecretKey,now(),proof=proof,channel=ASSIGNMENT_CHANNEL,assignment=inner)
+                val trafficId=trafficRoomId;val trafficKey=trafficRoomKey
+                val outer=encodeChatEvent(
+                    "Assignment ${operation.assignmentText("op")}",identity.participant,identity.credential,
+                    trafficId,trafficKey,identity.deviceSecretKey,now(),proof=proof,channel=ASSIGNMENT_CHANNEL,
+                    assignment=inner,credentialRoomId=roomId,
+                )
                 val value=Pending(inner,outer)
                 persist(events,outbox+(request to value));outbox[request]=value;refresh();value
             }
@@ -160,6 +173,14 @@ class AssignmentJournal(
     suspend fun retry() {
         val pending=mutex.withLock { outbox.values.toList() }
         for(value in pending) {val p=assignmentPayload(value.inner,roomId)!!;submit(if(p.operation.assignmentText("op")=="create") null else p.assignment,p.operation,p.request,p.previous)}
+    }
+    /** Keep the stable assignment history and storage key, but move its encrypted live envelope. */
+    suspend fun rekey(id:String,key:ByteArray) {
+        require(id.matches(Regex("[0-9a-f]{64}"))&&key.size==32)
+        live()
+        collector?.cancelAndJoin()
+        mutex.withLock {trafficRoomId=id;trafficRoomKey=key.copyOf();loaded=false;refresh()}
+        refreshHistory()
     }
     /** Stop disclosure immediately. An interrupted send remains encrypted for explicit reconciliation. */
     fun close() {closed=true;collector?.cancel();mutable.value=mutable.value.copy(ready=false)}

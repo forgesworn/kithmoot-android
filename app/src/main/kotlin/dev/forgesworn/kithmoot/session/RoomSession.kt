@@ -1,9 +1,19 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.KIND_ROOM_REKEY
+import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_GRANT
+import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
 import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.RekeyNotice
+import dev.forgesworn.kithmoot.protocol.EpochGrant
+import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.decodeRekeyEvent
+import dev.forgesworn.kithmoot.protocol.decodeEpochGrant
+import dev.forgesworn.kithmoot.protocol.deriveEpoch
+import dev.forgesworn.kithmoot.protocol.encodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -23,7 +33,12 @@ import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,10 +46,18 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import java.util.TreeMap
 import kotlin.random.Random
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
+private const val DEFAULT_EPOCH_SETTLE_MS = 1_500L
+private const val EPOCH_RECOVERY_TIMEOUT_MS = 30_000L
 
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
@@ -65,6 +88,16 @@ data class LocalRoles(
     val micDevice: String? = null,
     val monitorDevice: String? = null,
 )
+
+enum class EpochGateResult { COMMITTED, PENDING }
+
+sealed interface RoomEpochState {
+    data class Active(val epoch: Int, val trafficRoom: String) : RoomEpochState
+    data class Updating(val epoch: Int) : RoomEpochState
+    data class RecoveryNeeded(val expectedEpoch: Int, val reason: String) : RoomEpochState
+    data class Removed(val epoch: Int) : RoomEpochState
+    data class Closed(val epoch: Int) : RoomEpochState
+}
 
 /**
  * One device's participation in one room.
@@ -102,9 +135,20 @@ class RoomSession(
      * somebody to trust. See `peekRekeyEpoch`.
      */
     private val authority: String? = null,
+    initialEpoch: EpochKeys = EpochKeys(0, room.roomId, room.roomKey),
+    private val epochSettleMs: Long = DEFAULT_EPOCH_SETTLE_MS,
+    private val epochGate: (suspend (NostrEvent, RekeyNotice) -> EpochGateResult)? = null,
+    private val onEpochApplied: suspend (RekeyNotice, EpochKeys) -> Unit = { _, _ -> },
+    private val onEpochBlocked: () -> Unit = {},
+    private val onEpochReady: (EpochKeys) -> Unit = {},
+    /** Present only on the authority device; validates a request and returns its signed answer. */
+    private val epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
 ) {
 
     private val lock = Any()
+    private val epochMutex = Mutex()
+    private var activeEpoch = initialEpoch
+    private val pendingRekeys = TreeMap<Int, NostrEvent>()
     private val roster = linkedMapOf<String, RosterEntry>()
 
     /**
@@ -138,7 +182,11 @@ class RoomSession(
 
     private var responseJob: Job? = null
     private val jobs = mutableListOf<Job>()
+    private val trafficJobs = mutableListOf<Job>()
     private var joined = false
+    private var settled = false
+    @Volatile private var publicationAllowed = false
+    @Volatile private var transportBlocked = false
 
     private var tracks: List<TrackRef> = emptyList()
     private var claims: Map<String, Long> = emptyMap()
@@ -175,6 +223,16 @@ class RoomSession(
      */
     val movedOn: StateFlow<Int?> = _movedOn.asStateFlow()
 
+    private val _epochState = MutableStateFlow<RoomEpochState>(RoomEpochState.Active(initialEpoch.epoch, initialEpoch.id))
+    val epochState: StateFlow<RoomEpochState> = _epochState.asStateFlow()
+
+    fun epochKeys(): EpochKeys = synchronized(lock) { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
+
+    suspend fun retryEpoch() = epochMutex.withLock {
+        check(epochGate != null) { "This room has no pinned epoch authority" }
+        drainRekeys()
+    }
+
     private val _agentDevices = MutableStateFlow<Set<String>>(emptySet())
 
     /**
@@ -202,7 +260,7 @@ class RoomSession(
 
     // --- lifecycle -----------------------------------------------------------
 
-    fun join() {
+    suspend fun join() {
         policy?.let {
             val decision = evaluateAccess(it, identity.participant, proof, now(), room.roomId)
             require(decision.admitted) { decision.reason }
@@ -211,24 +269,34 @@ class RoomSession(
             if (joined) return
             joined = true
         }
-        jobs += scope.launch {
-            transport.subscribe(listOf(rosterFilter())).collect(::onRosterEvent)
-        }
-        jobs += scope.launch {
-            transport.subscribe(listOf(chatFilter())).collect(::onChatEvent)
-        }
-        jobs += scope.launch {
-            transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
-        }
         if (authority != null) {
-            scope.launch {
+            jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)
             }
+            if (epochResponder != null) {
+                jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    transport.subscribe(listOf(epochRequestFilter())).collect { request ->
+                        epochResponder.invoke(request)?.let(transport::publishRecovery)
+                    }
+                }
+            }
+            if (epochSettleMs > 0) delay(epochSettleMs)
+        }
+        settled = true
+        var resumedTransition = false
+        if (_epochState.value is RoomEpochState.Active) {
+            startTrafficJobs()
+            resumedTransition = transportBlocked
+            if (transportBlocked) {
+                transport.completeRekey()
+                transportBlocked = false
+            }
+            publicationAllowed = true
         }
         jobs += scope.launch {
             while (true) {
                 delay(timing.heartbeatIntervalMs)
-                announce()
+                if (publicationAllowed) announce()
             }
         }
         jobs += scope.launch {
@@ -237,7 +305,21 @@ class RoomSession(
                 sweep()
             }
         }
-        announce()
+        if (publicationAllowed) announce()
+        if (resumedTransition) onEpochReady(epochKeys())
+    }
+
+    private fun startTrafficJobs() {
+        if (trafficJobs.isNotEmpty()) return
+        trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.subscribe(listOf(rosterFilter())).collect(::onRosterEvent)
+        }
+        trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.subscribe(listOf(chatFilter())).collect(::onChatEvent)
+        }
+        trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
+        }
     }
 
     /**
@@ -253,17 +335,24 @@ class RoomSession(
      */
     fun leave() {
         val cancelling: List<Job>
+        val traffic: List<Job>
+        val farewell: Boolean
         synchronized(lock) {
             if (!joined) return
+            farewell = publicationAllowed
             joined = false
+            publicationAllowed = false
             tracks = emptyList()
             claims = emptyMap()
             cancelling = jobs.toList()
             jobs.clear()
+            traffic = trafficJobs.toList()
+            trafficJobs.clear()
         }
-        announce(reply = true, left = true)
+        if (farewell) publishAnnouncement(reply = true, left = true)
         responseJob?.cancel()
         for (job in cancelling) job.cancel()
+        for (job in traffic) job.cancel()
     }
 
     // --- publishing ----------------------------------------------------------
@@ -272,6 +361,12 @@ class RoomSession(
      *  an answer or a farewell rather than an arrival; `left` marks the
      *  farewell itself. */
     fun announce(reply: Boolean = false, left: Boolean = false) {
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        publishAnnouncement(reply, left)
+    }
+
+    private fun publishAnnouncement(reply: Boolean, left: Boolean) {
+        val epoch = epochKeys()
         val entry = synchronized(lock) {
             RosterEntry(
                 participant = identity.participant,
@@ -288,8 +383,8 @@ class RoomSession(
         transport.publish(
             encodeRosterEvent(
                 entry = entry,
-                roomId = room.roomId,
-                roomKey = room.roomKey,
+                roomId = epoch.id,
+                roomKey = epoch.key,
                 deviceSecretKey = identity.deviceSecretKey,
             ),
         )
@@ -320,45 +415,51 @@ class RoomSession(
     }
 
     fun sendChat(body: String, reaction: ChatReaction? = null) {
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
         if (text.isEmpty()) return
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
+        val epoch = epochKeys()
         val event = encodeChatEvent(
             body = text,
             participant = identity.participant,
             credential = identity.credential,
-            roomId = room.roomId,
-            roomKey = room.roomKey,
+            roomId = epoch.id,
+            roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
             proof = proof,
             reaction = reaction,
+            credentialRoomId = room.roomId,
         )
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id
         // is the event id, so the echo is de-duplicated against this.
-        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let(::ingestChat)
+        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let(::ingestChat)
     }
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
     suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null): Boolean {
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
+        val epoch = epochKeys()
         val event = encodeChatEvent(
             body = text,
             participant = identity.participant,
             credential = identity.credential,
-            roomId = room.roomId,
-            roomKey = room.roomKey,
+            roomId = epoch.id,
+            roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
             proof = proof,
             reaction = reaction,
+            credentialRoomId = room.roomId,
         )
-        val message = decodeOwnChat(event, sentAt)
+        val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         ingestChat(message)
         return true
@@ -366,37 +467,42 @@ class RoomSession(
 
     /** A room capability is exposed only after at least one relay confirms its durable event. */
     suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val sentAt = now()
+        val epoch = epochKeys()
         val event = encodeChatEvent(
             body = inviteText(),
             participant = identity.participant,
             credential = identity.credential,
-            roomId = room.roomId,
-            roomKey = room.roomKey,
+            roomId = epoch.id,
+            roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
             proof = proof,
             invite = invite,
+            credentialRoomId = room.roomId,
         )
-        val message = decodeOwnChat(event, sentAt)
+        val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         ingestChat(message)
         return true
     }
 
     /** A confirmed send cannot report success for an event this room refuses. */
-    private fun decodeOwnChat(event: NostrEvent, sentAt: Long): ChatMessage {
-        decodeChatEvent(event, room.roomId, room.roomKey, sentAt, policy)?.let { return it }
-        if (decodeChatEvent(event, room.roomId, room.roomKey, sentAt) != null) {
+    private fun decodeOwnChat(event: NostrEvent, sentAt: Long, epoch: EpochKeys): ChatMessage {
+        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let { return it }
+        if (decodeChatEvent(event, epoch.id, epoch.key, sentAt, credentialRoomId = room.roomId) != null) {
             error("The current room policy refused this sender.")
         }
         error("The generated message failed local integrity validation.")
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        val epoch = epochKeys()
         transport.publish(
             wrapSignal(
-                body = body,
+                body = body.copy(roomId = epoch.id),
                 senderSecretKey = identity.deviceSecretKey,
                 recipientPubkey = toDevice,
                 // Stamped on the session's own clock, which is what the
@@ -409,7 +515,8 @@ class RoomSession(
     // --- incoming ------------------------------------------------------------
 
     internal fun onRosterEvent(event: NostrEvent) {
-        val entry = decodeRosterEvent(event, room.roomId, room.roomKey, now()) ?: return
+        val epoch = epochKeys()
+        val entry = decodeRosterEvent(event, epoch.id, epoch.key, now(), room.roomId) ?: return
         policy?.let {
             if (!evaluateAccess(it, entry.participant, entry.proof, now(), room.roomId).admitted) return
         }
@@ -449,7 +556,8 @@ class RoomSession(
     }
 
     internal fun onChatEvent(event: NostrEvent) {
-        val message = decodeChatEvent(event, room.roomId, room.roomKey, now(), policy) ?: return
+        val epoch = epochKeys()
+        val message = decodeChatEvent(event, epoch.id, epoch.key, now(), policy, credentialRoomId = room.roomId) ?: return
         ingestChat(message)
     }
 
@@ -463,7 +571,7 @@ class RoomSession(
 
         // Unwrapping applies the staleness rule, judged by the session's own
         // clock rather than the wall clock.
-        val signal = unwrapSignal(event, identity.deviceSecretKey, room.roomId, now = at) ?: return
+        val signal = unwrapSignal(event, identity.deviceSecretKey, epochKeys().id, now = at) ?: return
 
         // Rate limiting against the *sending device* rather than the wrap's
         // pubkey: every wrap is signed by a fresh ephemeral key, so the only
@@ -581,14 +689,220 @@ class RoomSession(
      * fallen several epochs behind still sees every later rekey and can
      * still say how far behind it is.
      */
-    private fun onRekeyEvent(event: NostrEvent) {
+    private suspend fun onRekeyEvent(event: NostrEvent) = epochMutex.withLock {
         val trusted = authority ?: return
         val epoch = peekRekeyEpoch(event, room.roomId, trusted) ?: return
-        // Highest wins: several rekeys may arrive in any order, and what a
-        // person needs told is where the room is now, not where it went
-        // first.
+        val current = epochKeys()
+        if (epoch <= current.epoch) return
+        pendingRekeys[epoch] = event
+        if (epochGate == null) {
+            if (epoch > (_movedOn.value ?: 0)) _movedOn.value = epoch
+            return
+        }
+        drainRekeys()
+    }
+
+    private suspend fun drainRekeys() {
+        while (true) {
+            val current = epochKeys()
+            val nextEvent = pendingRekeys[current.epoch + 1]
+            if (nextEvent == null) {
+                val ahead = pendingRekeys.lastKeyOrNull()?.takeIf { it > current.epoch }
+                if (ahead != null) recoverFromAuthority(ahead, "The room update was missed on this device")
+                return
+            }
+            val trusted = requireNotNull(authority)
+            val notice = decodeRekeyEvent(nextEvent, room.roomId, trusted, current, identity.deviceSecretKey)
+            if (notice == null) {
+                recoverFromAuthority(current.epoch + 1, "The room update could not be authenticated")
+                return
+            }
+            if (notice.secret == null && !notice.closed && notice.removed.none { it.equals(identity.participant, ignoreCase = true) }) {
+                recoverFromAuthority(notice.epoch, "The room authority must restore this device")
+                return
+            }
+            blockForRekey()
+            _epochState.value = RoomEpochState.Updating(notice.epoch)
+            val outcome = try {
+                requireNotNull(epochGate).invoke(nextEvent, notice)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _epochState.value = RoomEpochState.RecoveryNeeded(notice.epoch, error.message ?: "The room update could not be recovered on this device")
+                _movedOn.value = notice.epoch
+                return
+            }
+            if (outcome == EpochGateResult.PENDING) return
+            when {
+                notice.closed -> {
+                    stopTraffic()
+                    pendingRekeys.remove(notice.epoch)
+                    _epochState.value = RoomEpochState.Closed(notice.epoch)
+                    _movedOn.value = notice.epoch
+                    return
+                }
+                notice.secret == null && notice.removed.any { it.equals(identity.participant, ignoreCase = true) } -> {
+                    stopTraffic()
+                    pendingRekeys.remove(notice.epoch)
+                    _epochState.value = RoomEpochState.Removed(notice.epoch)
+                    _movedOn.value = notice.epoch
+                    return
+                }
+                notice.secret == null -> {
+                    recoverFromAuthority(notice.epoch, "The room authority must restore this device")
+                    return
+                }
+                else -> try {
+                    applyEpoch(notice)
+                    pendingRekeys.remove(notice.epoch)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _epochState.value = RoomEpochState.RecoveryNeeded(
+                        notice.epoch, error.message ?: "The room update could not move every local subsystem",
+                    )
+                    _movedOn.value = notice.epoch
+                    return
+                }
+            }
+        }
+    }
+
+    /** Recover directly to the authority's signed current epoch over the stable room channel. */
+    private suspend fun recoverFromAuthority(expectedEpoch: Int, reason: String) {
+        val trusted = authority ?: return requireRecovery(expectedEpoch, reason)
+        blockForRekey()
+        _epochState.value = RoomEpochState.Updating(expectedEpoch)
+        val response = try {
+            coroutineScope {
+                val request = encodeEpochRequest(
+                    room.roomId, trusted, identity.deviceSecretKey, identity.credential, now(), proof,
+                )
+                val answer = async(start = CoroutineStart.UNDISPATCHED) {
+                    withTimeout(EPOCH_RECOVERY_TIMEOUT_MS) {
+                        transport.subscribe(listOf(epochGrantFilter())).mapNotNull { event ->
+                            decodeEpochGrant(
+                                event, room.roomId, trusted, identity.deviceSecretKey, request.id, now(),
+                            )?.let { event to it }
+                        }.first()
+                    }
+                }
+                transport.publishRecovery(request)
+                answer.await()
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            requireRecovery(expectedEpoch, reason)
+            return
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            requireRecovery(expectedEpoch, error.message ?: reason)
+            return
+        }
+        val (event, grant) = response
+        when (grant) {
+            is EpochGrant.Refused -> {
+                val current = epochKeys()
+                val terminal = RekeyNotice(
+                    current.epoch + 1,
+                    if (grant.reason == "removed") listOf(identity.participant) else emptyList(),
+                    null,
+                    grant.reason == "closed",
+                    null,
+                    event.createdAt,
+                    catchUp = true,
+                )
+                val outcome = try {
+                    requireNotNull(epochGate).invoke(event, terminal)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    requireRecovery(expectedEpoch, error.message ?: reason)
+                    return
+                }
+                if (outcome == EpochGateResult.PENDING) return
+                stopTraffic()
+                _epochState.value = if (terminal.closed) RoomEpochState.Closed(expectedEpoch) else RoomEpochState.Removed(expectedEpoch)
+                _movedOn.value = expectedEpoch
+            }
+            is EpochGrant.Current -> {
+                val current = epochKeys()
+                val secret = grant.secret
+                if (grant.epoch <= current.epoch || secret == null) {
+                    requireRecovery(expectedEpoch, "The authority did not prove a newer room epoch")
+                    return
+                }
+                val notice = RekeyNotice(grant.epoch, grant.removed, null, false, secret, event.createdAt, catchUp = true)
+                val outcome = try {
+                    requireNotNull(epochGate).invoke(event, notice)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    requireRecovery(expectedEpoch, error.message ?: reason)
+                    return
+                }
+                if (outcome == EpochGateResult.PENDING) return
+                try {
+                    applyEpoch(notice)
+                    pendingRekeys.keys.removeAll { it <= notice.epoch }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    requireRecovery(notice.epoch, error.message ?: "The recovered room update could not move every local subsystem")
+                }
+            }
+        }
+    }
+
+    private suspend fun requireRecovery(epoch: Int, reason: String) {
+        blockForRekey()
+        _epochState.value = RoomEpochState.RecoveryNeeded(epoch, reason)
         if (epoch > (_movedOn.value ?: 0)) _movedOn.value = epoch
     }
+
+    private suspend fun blockForRekey() {
+        publicationAllowed = false
+        responseJob?.cancel()
+        if (!transportBlocked) {
+            onEpochBlocked()
+            transport.beginRekey()
+            transportBlocked = true
+        }
+    }
+
+    private suspend fun applyEpoch(notice: RekeyNotice) {
+        val secret = requireNotNull(notice.secret)
+        val next = deriveEpoch(RoomEpoch(notice.epoch, secret))
+        stopTraffic()
+        transport.rekey(next.key)
+        onEpochApplied(notice, next)
+        synchronized(lock) {
+            activeEpoch = next
+            notice.removed.forEach { removed ->
+                roster.entries.removeAll { it.value.participant.equals(removed, ignoreCase = true) }
+            }
+            respondedTo.clear()
+            departed.clear()
+        }
+        _epochState.value = RoomEpochState.Active(next.epoch, next.id)
+        _movedOn.value = null
+        recompute()
+        if (settled && joined) {
+            startTrafficJobs()
+            transport.completeRekey()
+            transportBlocked = false
+            publicationAllowed = true
+            announce(reply = true)
+            onEpochReady(next)
+        }
+    }
+
+    private fun stopTraffic() {
+        trafficJobs.forEach(Job::cancel)
+        trafficJobs.clear()
+    }
+
+    private fun <K, V> TreeMap<K, V>.lastKeyOrNull(): K? = if (isEmpty()) null else lastKey()
 
     private fun rekeyFilter() = Filter(
         kinds = listOf(KIND_ROOM_REKEY),
@@ -596,14 +910,25 @@ class RoomSession(
         tags = mapOf("#d" to listOf(room.roomId)),
     )
 
+    private fun epochRequestFilter() = Filter(
+        kinds = listOf(KIND_EPOCH_REQUEST),
+        tags = mapOf("#d" to listOf(room.roomId), "#p" to listOfNotNull(authority)),
+    )
+
+    private fun epochGrantFilter() = Filter(
+        kinds = listOf(KIND_EPOCH_GRANT),
+        authors = listOfNotNull(authority),
+        tags = mapOf("#d" to listOf(room.roomId), "#p" to listOf(identity.devicePubkey)),
+    )
+
     private fun rosterFilter() = Filter(
         kinds = listOf(KIND_ROSTER),
-        tags = mapOf("#d" to listOf(room.roomId)),
+        tags = mapOf("#d" to listOf(epochKeys().id)),
     )
 
     private fun chatFilter() = Filter(
         kinds = listOf(KIND_CHAT),
-        tags = mapOf("#d" to listOf(room.roomId)),
+        tags = mapOf("#d" to listOf(epochKeys().id)),
         since = now() - CHAT_RETENTION_SECONDS,
     )
 
