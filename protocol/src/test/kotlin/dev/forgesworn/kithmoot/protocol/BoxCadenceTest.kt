@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,6 +63,41 @@ class BoxCadenceTest {
         assertTrue(Events.verify(signed.authorizationEvent))
         val decoded = Base64.getDecoder().decode(signed.authorization.removePrefix("Nostr ")).toString(Charsets.UTF_8)
         assertEquals(signed.authorizationEvent.toRustWireJson().toString(), decoded)
+    }
+
+    @Test fun leaseBuilderUsesTheFixedProfileAndPublishesNoPrivateDropKey() {
+        val frozen = Json.parseToJsonElement(vectors.getValue("lease").jsonObject.getValue("body").jsonPrimitive.content).jsonObject
+        val scope = CadenceScope(
+            vectors.getValue("node_id").jsonPrimitive.content,
+            frozen.getValue("room").jsonPrimitive.content,
+            frozen.getValue("persona").jsonPrimitive.content,
+            frozen.getValue("device").jsonPrimitive.content,
+            NostrEvent.fromJson(frozen.getValue("credential")),
+            frozen.getValue("grant_id").jsonPrimitive.content,
+        )
+        val built = BoxCadence.leaseBody(CadenceLeaseOptions(
+            scope, "11".repeat(16), "22".repeat(16), 1, 1, 0, 500000, 500002, 500004,
+            ByteArray(32) { 9 }, listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"),
+            vectors.getValue("now").jsonPrimitive.content.toLong(),
+        ))
+        assertEquals(3600, built.getValue("epoch_seconds").jsonPrimitive.content.toLong())
+        assertEquals(300, built.getValue("slot_seconds").jsonPrimitive.content.toLong())
+        assertEquals(4096, built.getValue("bucket_bytes").jsonPrimitive.content.toLong())
+        assertEquals(16, built.getValue("drop_keys").jsonArray.size)
+        assertFalse(built.toString().contains("private"))
+        assertEquals("/cadence/v1/leases/${"22".repeat(16)}", BoxCadence.leasePath("22".repeat(16)))
+    }
+
+    @Test fun queueBuilderReproducesBothysFrozenBytes() {
+        val lease = Json.parseToJsonElement(vectors.getValue("lease").jsonObject.getValue("body").jsonPrimitive.content).jsonObject
+        val queue = vectors.getValue("queue").jsonObject
+        val queueValue = Json.parseToJsonElement(queue.getValue("body").jsonPrimitive.content).jsonObject
+        val event = NostrEvent.fromJson(queueValue.getValue("event"))
+        assertEquals(queue.getValue("body").jsonPrimitive.content, BoxCadence.queueBody(lease, "44".repeat(16), event).toString())
+        assertEquals(queue.getValue("path").jsonPrimitive.content, BoxCadence.queuePath("22".repeat(16)))
+        assertThrows(IllegalArgumentException::class.java) {
+            BoxCadence.queueBody(lease, "44".repeat(16), event.copy(kind = 1))
+        }
     }
 
     @Test fun changedScopeAndPublicWebPathsFailBeforeSigning() {
