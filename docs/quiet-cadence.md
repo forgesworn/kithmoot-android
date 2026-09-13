@@ -28,7 +28,9 @@ is written to the journal. Its exact inner event remains in the saved phone
 queue until that receipt is durable. The queue request id is derived from the
 event id, so restart recovery can query the lease and retry the same event
 idempotently without creating another logical message. The phone emits neither
-a real wrapper nor filler for the delegated counters.
+a real wrapper nor filler for the delegated counters. If the queue receipt is
+still unknown when the lease ends, the phone keeps that event and emits filler
+instead of risking a duplicate real send; Retry must resolve the receipt first.
 
 Stop requests choose a future safe epoch. Bothy stops real sends at that
 boundary but keeps the fixed cover pattern until the original end epoch, so the

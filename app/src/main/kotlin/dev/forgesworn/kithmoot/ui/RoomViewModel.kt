@@ -1791,7 +1791,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         val quietMembers = policy?.members?.takeIf { policy.quiet }
         val quiet = if (quietMembers != null) QuietTransport(
             transport, derived.roomKey, who.participant, quietMembers, if (secondary) 1 else 0, scope,
-            restore = record.quietState?.let(::quietStateFromJson),
+            restore = record.quietState?.let {
+                checkNotNull(quietStateFromJson(it)) { "The saved quiet queue is invalid." }
+            },
             onState = { state -> checkNotNull(savedRooms.update(derived.roomId) { it.withQuietState(quietStateToJson(state)) }) },
             reservedCounters = { epoch -> cadenceLeases.reservedCounters(derived.roomId, who.devicePubkey, epoch).toSet() },
         ) else null
@@ -1803,7 +1805,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 scope,
                 leaseAt = { epoch -> cadenceLeases.all(derived.roomId, who.devicePubkey)
                     .singleOrNull { it.ownership != CadenceOwnership.ENDED && epoch in it.plan.startEpoch until it.plan.endEpoch } },
-                retain = { event -> check(quietRoom.publishConfirmed(event)) },
+                retain = quietRoom::retainForBox,
                 queue = { lease, event ->
                     val context = cadenceAccess.context
                     if (context == null) {
@@ -2912,6 +2914,7 @@ internal fun quietStateToJson(state: QuietTransport.QuietState): JsonObject = bu
         for ((member, u) in state.used) put(member, buildJsonObject { put("epoch", u.epoch); put("counters", buildJsonArray { for (c in u.counters) add(JsonPrimitive(c)) }) })
     })
     put("queued", buildJsonArray { for (e in state.queued) add(e.toJson()) })
+    put("boxPending", buildJsonArray { for (id in state.boxPending.sorted()) add(JsonPrimitive(id)) })
 }
 
 internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = runCatching {
@@ -2920,5 +2923,12 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
         QuietKeys.UsedCounters(o.getValue("epoch").jsonPrimitive.long, o.getValue("counters").jsonArray.map { it.jsonPrimitive.int }.toSet())
     } ?: emptyMap()
     val queued = (json["queued"] as? JsonArray)?.map { NostrEvent.fromJson(it.jsonObject) } ?: emptyList()
-    QuietTransport.QuietState(used, queued)
+    require(queued.size <= QuietTransport.MAX_PENDING && queued.map { it.id }.distinct().size == queued.size)
+    val retainedIds = queued.mapTo(mutableSetOf()) { it.id }
+    val boxPending = json["boxPending"]?.jsonArray?.map {
+        it.jsonPrimitive.also { value -> require(value.isString) }.content
+    } ?: emptyList()
+    require(boxPending.size <= QuietTransport.MAX_PENDING && boxPending.distinct().size == boxPending.size)
+    require(boxPending.all { it.matches(Regex("[0-9a-f]{64}")) && it in retainedIds })
+    QuietTransport.QuietState(used, queued, boxPending.toSet())
 }.getOrNull()

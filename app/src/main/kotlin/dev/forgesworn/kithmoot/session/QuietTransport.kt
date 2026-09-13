@@ -77,6 +77,7 @@ class QuietTransport(
         const val MAX_PENDING: Int = 256
         const val CANNOT_SEND: String = "This device cannot post in a quiet room. Two devices per person can: the one holding your identity and the one it paired. Others read."
         const val TOO_LONG: String = "This message is too long for a quiet room. Every message in a quiet room is padded to one size, and this one does not fit."
+        private val EVENT_ID = Regex("[0-9a-f]{64}")
         const val MEANING: String = "Quiet room. Messages ride the gift-wrap stream as dead drops, one every five minutes at most, and a relay cannot tell whether anything was said, by whom, or when. Being here still shows while you are here, and calls are not quiet."
 
         fun counterRange(slot: Int): IntRange? {
@@ -87,7 +88,11 @@ class QuietTransport(
     }
 
     /** What survives a restart. */
-    class QuietState(val used: Map<String, QuietKeys.UsedCounters>, val queued: List<NostrEvent>)
+    class QuietState(
+        val used: Map<String, QuietKeys.UsedCounters>,
+        val queued: List<NostrEvent>,
+        val boxPending: Set<String> = emptySet(),
+    )
 
     private val member = member.lowercase()
     private val range = counterRange(slot)
@@ -96,6 +101,7 @@ class QuietTransport(
     private val keys = QuietKeys(lookbackEpochs = ((lookbackSeconds + DeadDrop.EPOCH_SECONDS - 1) / DeadDrop.EPOCH_SECONDS).toInt())
     private val lock = Mutex()
     private val queue = ArrayDeque<NostrEvent>()
+    private val boxPending = mutableSetOf<String>()
     private var current: Triple<Long, NostrEvent, NostrEvent?>? = null
     private var lastSlot = -1L
     private var offsetSlot = -1L
@@ -113,6 +119,11 @@ class QuietTransport(
         if (restore != null) {
             keys.importUsed(restore.used, now())
             for (e in restore.queued) if (e.kind in quietKinds && queue.size < MAX_PENDING) queue.addLast(e)
+            val retainedIds = queue.mapTo(mutableSetOf()) { it.id }
+            require(restore.boxPending.size <= MAX_PENDING && restore.boxPending.all { EVENT_ID.matches(it) && it in retainedIds }) {
+                "invalid box-pending quiet queue"
+            }
+            boxPending += restore.boxPending
         }
         if (ticking) timer = scope.launch {
             var first = true
@@ -147,8 +158,9 @@ class QuietTransport(
     fun confirmQueued(eventId: String): Boolean = synchronized(queue) {
         if (queue.none { it.id == eventId }) return@synchronized false
         val retained = queue.filterNot { it.id == eventId }
-        onState(QuietState(keys.exportUsed(), retained))
+        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId))
         queue.removeAll { it.id == eventId }
+        boxPending.remove(eventId)
         true
     }
 
@@ -165,18 +177,28 @@ class QuietTransport(
      * bucket is refused here, to the caller, not discovered at its slot.
      * Anything else goes straight to the relays.
      */
-    override fun publish(event: NostrEvent) {
+    override fun publish(event: NostrEvent) = retain(event, forBox = false)
+
+    /** Retain a delegated event across process death and keep the phone timer
+     * from taking it after the lease boundary while its box receipt is unknown. */
+    fun retainForBox(event: NostrEvent) = retain(event, forBox = true)
+
+    private fun retain(event: NostrEvent, forBox: Boolean) {
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
         synchronized(queue) {
-            check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            if (queue.none { it.id == event.id }) {
-                queue.addLast(event)
+            val added = queue.none { it.id == event.id }
+            if (added) check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
+            val marked = forBox && event.id !in boxPending
+            if (added) queue.addLast(event)
+            if (marked) boxPending += event.id
+            if (added || marked) {
                 try {
-                    onState(QuietState(keys.exportUsed(), queue.toList()))
+                    onState(QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet()))
                 } catch (error: Exception) {
-                    queue.removeAll { it.id == event.id }
+                    if (added) queue.removeAll { it.id == event.id }
+                    if (marked) boxPending.remove(event.id)
                     throw error
                 }
             }
@@ -190,7 +212,7 @@ class QuietTransport(
         return true
     }
 
-    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList()) }
+    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet()) }
 
     fun exportState(): QuietState = state()
 
@@ -245,7 +267,7 @@ class QuietTransport(
         val t = now()
         keys.refresh(t)
         while (true) {
-            val head = synchronized(queue) { queue.firstOrNull() } ?: break
+            val head = synchronized(queue) { queue.firstOrNull()?.takeUnless { it.id in boxPending } } ?: break
             val key = try { keys.sendKey(member, t, range!!) } catch (_: QuietKeys.EpochExhausted) { break }
             try {
                 return Triple(slot, RoomDrops.createRoomDrop(head, key.publicKey, bucket, t, random), head)

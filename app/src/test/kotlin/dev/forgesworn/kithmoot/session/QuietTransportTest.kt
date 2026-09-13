@@ -199,6 +199,30 @@ class QuietTransportTest {
     }
 
     @Test
+    fun `a box pending message never returns to the phone timer before its receipt is durable`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        var storageLocked = false
+        val a = quiet(relay, ada, onState = { if (storageLocked) error("storage locked") else states += it })
+        val message = chat(ada, "waiting for Bothy's receipt")
+
+        a.retainForBox(message)
+        assertEquals(setOf(message.id), states.single().boxPending)
+        a.tick(); runCurrent()
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(1, a.pending)
+
+        storageLocked = true
+        assertFailsWith<IllegalStateException> { a.confirmQueued(message.id) }
+        assertEquals(setOf(message.id), a.exportState().boxPending)
+        storageLocked = false
+        assertTrue(a.confirmQueued(message.id))
+        assertEquals(emptySet(), states.last().boxPending)
+        assertEquals(0, a.pending)
+        a.stop()
+    }
+
+    @Test
     fun `a box owned epoch suppresses the phones real wrap and filler`() = runTest {
         val relay = FakeRelay()
         val delegatedEpoch = dev.forgesworn.kithmoot.protocol.DeadDrop.epochIndexAt(clock)
