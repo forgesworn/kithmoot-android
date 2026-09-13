@@ -36,7 +36,7 @@ class SharedProjectsUiTest {
         }
         activity.scenario.onActivity {
             model.onRelaysChanged(relay.url)
-            model.signInWithSecretKey(key.toString(16).padStart(2, '0').repeat(32))
+            model.installLocalTestAccount(ByteArray(32) { key.toByte() })
         }
         ui.await("account project history") { model.start.value.account != null && model.start.value.projects.ready }
     }

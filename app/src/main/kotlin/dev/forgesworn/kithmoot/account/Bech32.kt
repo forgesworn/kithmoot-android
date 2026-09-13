@@ -4,9 +4,9 @@ import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 
 /**
- * Bech32 (BIP-173), as NIP-19 uses it: `npub1…` for a public key and
- * `nsec1…` for a secret one. An npub is an encoding of the key, not a hash of
- * it; the same key always gives the same npub, and the npub gives the key back.
+ * Bech32 (BIP-173), as NIP-19 uses it for `npub1…` public keys. An npub is an
+ * encoding of the key, not a hash of it; the same key always gives the same
+ * npub, and the npub gives the key back.
  */
 object Bech32 {
     private const val CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
@@ -101,12 +101,4 @@ fun publicKeyFrom(text: String): String? {
     if (clean.matches(Regex("[0-9a-fA-F]{64}"))) return clean.lowercase()
     val (hrp, bytes) = Bech32.decode(clean) ?: return null
     return if (hrp == "npub" && bytes.size == 32) bytes.toHex() else null
-}
-
-/** A secret key from `nsec1…` or 64 hex characters; null for anything else. */
-fun secretKeyFrom(text: String): ByteArray? {
-    val clean = text.trim()
-    if (clean.matches(Regex("[0-9a-fA-F]{64}"))) return clean.hexToBytes()
-    val (hrp, bytes) = Bech32.decode(clean) ?: return null
-    return if (hrp == "nsec" && bytes.size == 32) bytes else null
 }

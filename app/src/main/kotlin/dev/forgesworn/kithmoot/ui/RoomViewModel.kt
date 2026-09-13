@@ -44,7 +44,6 @@ import dev.forgesworn.kithmoot.account.SignetSignIn
 import dev.forgesworn.kithmoot.account.installedSigners
 import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.openAccount
-import dev.forgesworn.kithmoot.account.secretKeyFrom
 import dev.forgesworn.kithmoot.account.shortNpub
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -812,12 +811,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The last resort: a pasted nsec, kept in the encrypted vault on this phone. */
-    fun signInWithSecretKey(text: String) = signIn {
-        val key = secretKeyFrom(text) ?: throw SignerException("That is not a private key. It starts with nsec1 or is 64 hex characters.")
-        val signer = LocalSigner(key)
-        val account = NostrAccount(signer.pubkey, "local", secretKey = key, signedInAt = epochSeconds())
-        AccountSession(account, signer) to account
+    /** Synthetic local accounts exist only for installed debug-test fixtures. */
+    internal fun installLocalTestAccount(key: ByteArray) {
+        check(getApplication<Application>().applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            "Local test accounts are unavailable in release builds"
+        }
+        require(key.size == 32) { "A test key is 32 bytes" }
+        signIn {
+            val signer = LocalSigner(key)
+            val account = NostrAccount(signer.pubkey, "local", secretKey = key, signedInAt = epochSeconds())
+            AccountSession(account, signer) to account
+        }
     }
 
     fun signOut() {

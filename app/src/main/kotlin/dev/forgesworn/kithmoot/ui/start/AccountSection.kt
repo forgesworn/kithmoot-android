@@ -19,13 +19,12 @@ class AccountActions(
     val onSignInWithApp: (String) -> Unit,
     val onSignInWithSignet: () -> Unit,
     val onSignInWithBunker: (String) -> Unit,
-    val onSignInWithKey: (String) -> Unit,
     val onCancelSignIn: () -> Unit,
     val onSignOut: () -> Unit,
     val onDismissError: () -> Unit,
 ) {
     companion object {
-        val None = AccountActions({}, {}, {}, {}, {}, {}, {}, {})
+        val None = AccountActions({}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -96,7 +95,6 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
     var advanced by remember { mutableStateOf(false) }
     var bunker by remember { mutableStateOf("") }
-    var secret by remember { mutableStateOf("") }
     Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Sign in to KithMoot", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         Text("Choose where your key lives. It never leaves your signer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -127,15 +125,6 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
                 Text("Connect to this signer")
             }
             Text("Any NIP-46 signer, a Heartwood included.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            OutlinedTextField(secret, { secret = it }, Modifier.fillMaxWidth(), label = { Text("Private key") },
-                placeholder = { Text("nsec1…") }, singleLine = true,
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
-            OutlinedButton({ done(); actions.onSignInWithKey(secret) }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = secret.isNotBlank()) {
-                Text("Use this key")
-            }
-            Text("Last resort. The key is kept in this app's encrypted vault on this phone, and anything that reads the app's memory can read it. A signer app keeps it out of here altogether.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
     }
 }

@@ -173,7 +173,6 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onSignInWithApp = model::signInWithSignerApp,
                     onSignInWithSignet = model::signInWithSignet,
                     onSignInWithBunker = model::signInWithBunker,
-                    onSignInWithKey = model::signInWithSecretKey,
                     onCancelSignIn = model::cancelSignIn,
                     onSignOut = model::signOut,
                     onDismissError = model::dismissSignInError,

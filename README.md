@@ -145,11 +145,14 @@ Where the key can live:
   same-tab redirect hands over no signer for an in-app persona, by design,
   which is why the invitation goes the other way.)
 - **A bunker link** (NIP-46), pasted: any remote signer, a Heartwood included.
-- **A private key**, pasted, as a last resort; it is kept in the encrypted
-  vault with the rooms.
+
+KithMoot does not accept a pasted `nsec` or hex private key. Existing debug
+preview installs that used the former local-key option remain readable while
+the separate preview-data migration is prepared; the option cannot create a
+new local account and it is unavailable in release builds.
 
 What is saved is the least that gets the signer back: a package name, or the
-bunker link and this phone's NIP-46 client key, or the pasted key. A room
+bunker link and this phone's NIP-46 client key. A room
 joined as the account records only the public key; it opens only while that
 account is signed in, and any other account is told whose room it is. The
 account line shows the person's kind 0 name and picture, looked up on the

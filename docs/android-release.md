@@ -18,6 +18,12 @@ ordinary paired Link route, old-message failure, retained cover, Android and
 Bothy restart, and lower-generation refusal. Production signing, preview-data
 migration and the physical checks below remain release gates.
 
+New account sign-in accepts only NIP-55 signer apps and NIP-46 signers. The
+production UI has no raw `nsec` or hex-key entry, and a release build refuses a
+legacy local-key account. Debug previews retain read access so an existing
+install is not destroyed before the preview-data decision and migration path
+are settled.
+
 ## 0.5.13 quiet cadence integration candidate
 
 Version code 21 lets a persistent quiet room connected to Bothy schedule a
