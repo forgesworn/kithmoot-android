@@ -312,11 +312,7 @@ data class RoomState(
     /** How many members of this room say they are agents. The switch is
      *  hidden when there are none, because it would mean nothing. */
     val agentCount: Int = 0,
-    /**
-     * Set when the room has moved past this client: somebody was removed, the
-     * room is published under a key this client cannot follow, and it will
-     * hear nothing further. Said out loud rather than left as silence.
-     */
+    /** The observed successor epoch while recovery is pending or terminal. */
     val movedOn: Int? = null,
     val roomUpdate: String? = null,
     val work: AssignmentSnapshot = AssignmentSnapshot(),

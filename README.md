@@ -27,6 +27,13 @@ invitations, or explicitly join an invitation. Signed updates use the web
 protocol and an encrypted device cache with exact pending-send recovery.
 The existing room labels under Chats remain local organisation.
 
+Authority-pinned saved rooms follow signed successor epochs. The app stores the
+active epoch in a rollback-resistant journal, catches up after missed rekeys,
+moves roster, chat, work, signalling and quiet traffic together, and keeps all
+publication blocked when the authority or a paired Bothy cannot prove a safe
+transition. Removed and closed devices receive terminal states without a
+successor secret.
+
 **It joins rooms.** The protocol layer is checked against the published interop
 vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
 and an Android interface. Two emulators have been in the same room as one
@@ -52,20 +59,10 @@ What is *not* here:
   recipient deliberately opens and validates it before joining. The composer
   still sends plain messages: no reply, edit or retract control, and read
   positions are not published. `members` on a room policy is enforced.
-- **A quiet room is read and written at epoch zero only.** The client
-  derives drop keys from the room key it was handed; a quiet room that
-  has moved epoch is, to this client, a room that has moved on, exactly
-  as a plain one is. Starting a quiet conversation is the web client's
-  for now. Relays hand back two days of a quiet room's history; a
-  message waits up to five minutes for its slot.
-- **Cannot follow a room epoch, but says so.** When somebody is removed the
-  room moves to a key this client was not given, and everything would
-  otherwise simply stop - no roster, no chat, no error, which reads as an
-  application that is broken rather than a room that has moved on. It now
-  watches for the authority's rekey, needs no key to do it, and tells the
-  person what happened and to ask for a fresh link. Following the epoch
-  properly is still to do; the rest of the `roomEpoch` vectors are counted
-  and not run.
+- **Android cannot start a quiet room yet.** It can join one, follow its signed
+  successor epochs and hand a bounded cadence to a paired Bothy. Creating the
+  quiet policy remains a web-client action. Relays hand back two days of quiet
+  history; a phone-owned message waits up to five minutes for its slot.
 - No peer assist. An assist offer on somebody's roster entry is read and
   dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.

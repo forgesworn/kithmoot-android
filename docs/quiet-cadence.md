@@ -36,9 +36,16 @@ Stop requests choose a future safe epoch. Bothy stops real sends at that
 boundary but keeps the fixed cover pattern until the original end epoch, so the
 phone does not reclaim counters early. Disconnecting Bothy first resolves any
 uncertain lease and requests this safe stop; only then can the Link route and
-circle authority be retired. A room move or rekey makes the same stop attempt.
-If it cannot be confirmed, the old counters remain reserved through the saved
-end epoch.
+circle authority be retired.
+
+A room rekey uses the stricter `/rekey` mutation. Android first persists the
+successor secret as pending, blocks every ordinary publication path and asks
+Bothy to advance the room-generation high-water mark. Bothy fails uncommitted
+old-generation messages, refuses later lower-generation work and continues the
+old lease's promised fillers. Android activates the successor only after that
+receipt is durable. A lost reply or process death resumes the same request from
+the pending epoch and cadence journals. If retirement cannot be proved, the old
+counters remain reserved and the room stays read-only.
 
 The room panel exposes `off`, `staged`, `active`, `stopping`, `cover`, `ended`,
 `unresolved`, `not-ready` and `blocked` states. It shows the scheduled window
@@ -55,9 +62,10 @@ test covers the acknowledged schedule evidence and safe-stop action. The normal
 Android release build runs protocol tests, app tests, debug and release lint,
 and both APK assemblies with the pinned Link archive.
 
-This is integration evidence, not live production acceptance. Promotion still
-requires the matching Bothy worker to be merged and deployed, a ready status and
-full schedule/queue/stop cycle against that exact deployment, packet-capture
-evidence for the fixed cadence, and physical Android background and battery
-acceptance. The current room-move path safely stops the old lease; automatically
-following a successor room remains a separate recovery gate.
+The retained Vennel composition checks the exact web, Kotlin and Rust vectors,
+then drives stage, queue, successor rekey, restart recovery, retained cover and
+lower-generation refusal through Android JNI, ordinary paired Link and the
+Bothy fixture. This is candidate integration evidence, not live production
+acceptance. Promotion still requires the matching Bothy worker to be reviewed
+and deployed, a full cycle against that exact deployment over live Tor and I2P,
+and physical Android background and battery acceptance.

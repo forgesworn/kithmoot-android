@@ -412,15 +412,7 @@ private fun FaultPanel(message: String) {
     }
 }
 
-/**
- * The room has moved on without this client.
- *
- * Somebody was removed, so the room is now published under a key this client
- * has not got and cannot yet apply. Everything simply stops: no roster, no
- * chat, no error - which is why this panel exists. It says what happened and
- * what to do about it rather than leaving a person to conclude the app is
- * broken.
- */
+/** A visible, retryable or terminal state while ordinary room traffic is blocked. */
 @Composable
 private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
     val title = when (state) {

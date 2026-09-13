@@ -3,6 +3,21 @@
 The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
 
+## 0.5.14 successor-room recovery candidate
+
+Version code 22 completes authority-pinned room epoch recovery. A retained
+device durably follows a signed successor, requests the current epoch after a
+missed update, and moves roster, chat, channels, work, descriptor, media
+signalling and quiet traffic together. A removed or closed device receives no
+successor secret and cannot publish. If a paired Bothy owns the old quiet
+cadence, Android blocks publication until Bothy durably retires old-generation
+real sends; the exact pending transition resumes after process death.
+
+The four-repository Vennel composition covers the generated JNI call over an
+ordinary paired Link route, old-message failure, retained cover, Android and
+Bothy restart, and lower-generation refusal. Production signing, preview-data
+migration and the physical checks below remain release gates.
+
 ## 0.5.13 quiet cadence integration candidate
 
 Version code 21 lets a persistent quiet room connected to Bothy schedule a
@@ -129,6 +144,10 @@ Android version and date alongside the results. Preserve existing app data.
 - Exchange encrypted chat with the current web client, including reconnecting
   after switching Wi-Fi/mobile data. Verify the documented read-only message
   features and unsupported features remain accurately labelled.
+- Schedule a quiet cadence through the reviewed Bothy deployment, rotate the
+  room while the app is backgrounded, and verify the old queued message is
+  marked **Conversation rekeyed**, the successor room resumes only after the
+  Bothy receipt, and both states survive force-stop and restart.
 - Exercise microphone, camera, screen sharing, expanded view and picture in
   picture with a second device. Confirm sharing stops when requested and Android
   foreground-service controls agree with the app.

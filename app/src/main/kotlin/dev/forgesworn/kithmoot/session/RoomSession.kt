@@ -208,19 +208,7 @@ class RoomSession(
 
     private val _movedOn = MutableStateFlow<Int?>(null)
 
-    /**
-     * The epoch this room has moved to, once it has moved past this client.
-     *
-     * Null while the room is where this client is. Set when the authority
-     * publishes a rekey, which means somebody has been removed and the room
-     * is now published under a key this client was either not given or
-     * cannot yet apply - following an epoch is not implemented here.
-     *
-     * Announced rather than swallowed because the alternative is worse: the
-     * roster and the chat move to an id this client is not subscribed to, so
-     * the room simply stops, and a room that stops reads as an application
-     * that is broken rather than as a room that has moved on without you.
-     */
+    /** The observed successor epoch while its transition is pending or terminal. */
     val movedOn: StateFlow<Int?> = _movedOn.asStateFlow()
 
     private val _epochState = MutableStateFlow<RoomEpochState>(RoomEpochState.Active(initialEpoch.epoch, initialEpoch.id))
