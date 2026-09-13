@@ -119,6 +119,19 @@ new KithMoot production key outside the checkout before this step. Do not reuse
 an SDK debug key or another application's key, and do not let an unattended
 build invent the lasting production identity.
 
+The reviewed interactive helper fixes the alias, algorithm, lifetime and
+certificate subject while leaving the path and password with the owner. It
+refuses non-interactive input, an existing file and any path inside the
+checkout:
+
+```sh
+bash scripts/prepare-production-key.sh /absolute/private/path/kithmoot-production.p12
+```
+
+`keytool` asks for the password directly. Make two offline byte-for-byte
+backups, compare both backup checksums with the printed keystore checksum and
+record the public certificate fingerprint independently before continuing.
+
 Supply these values from the host's private credential store:
 
 | Variable | Value |
@@ -188,6 +201,35 @@ the lineage hash, UID, Android version and results.
 
 Record the source commit, APK checksum, certificate fingerprint, device/model,
 Android version and date alongside the results. Preserve existing app data.
+
+Capture the exact public facts before and after the manual in-place update. The
+collector is read-only: it validates the supplied APK, refuses emulators and
+Android versions below 13, pulls only the installed APK and records a hash of
+the device serial. It never reads app-private storage, logcat, screenshots or
+signer data, and it refuses to overwrite an evidence file.
+
+```sh
+python3 scripts/capture-physical-release-state.py \
+  --channel preview \
+  --apk /path/to/exact-public-kithmoot-0.5.12-preview.apk \
+  --out /private/evidence/physical-before.json
+
+# Deliberately install the verified production APK with `adb install -r`, then
+# complete the manual checks below without uninstalling or clearing KithMoot.
+
+python3 scripts/capture-physical-release-state.py \
+  --channel production \
+  --apk app/build/outputs/apk/release/kithmoot-0.6.0-production.apk \
+  --lineage /absolute/private/path/preview-to-production.lineage \
+  --production-cert-sha256 "$KITHMOOT_CERT_SHA256" \
+  --out /private/evidence/physical-after.json
+```
+
+The two records must name the same device-serial hash and package UID. The
+before record must match the pinned public preview; the after record must match
+the exact production certificate and embedded two-signer lineage. The records
+establish installation identity and continuity only; record the manual vault,
+background, battery, accessibility and second-device results separately.
 
 - Create and reopen a saved group; force-stop and restart the app; verify the
   same identity, rooms and creator controls return with media initially off.
