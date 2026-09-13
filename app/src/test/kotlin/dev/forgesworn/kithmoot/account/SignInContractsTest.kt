@@ -93,4 +93,16 @@ class SignInContractsTest {
         assertFailsWith<IllegalArgumentException> { NostrAccount.fromJson(NostrAccount(remotePubkey, "nip55").toJson()) }
         assertEquals("NostrAccount(${shortNpub(remotePubkey)}, bunker)", bunker.toString(), "no secret in the string form")
     }
+
+    @Test fun `a retained preview account accepts only the same public identity`() {
+        val retained = NostrAccount(remotePubkey, "local", secretKey = remote)
+        val same = NostrAccount(remotePubkey, "nip55", signerPackage = "example.signer")
+        requireSameRetainedAccount(retained, same)
+
+        val other = NostrAccount(Schnorr.publicKeyHex(Entropy.bytes(32)), "nip55", signerPackage = "example.signer")
+        val refusal = assertFailsWith<SignerException> { requireSameRetainedAccount(retained, other) }
+        assertTrue(shortNpub(remotePubkey) in refusal.message!!)
+        assertTrue("Nothing was changed" in refusal.message!!)
+        requireSameRetainedAccount(null, other)
+    }
 }

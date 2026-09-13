@@ -106,6 +106,16 @@ class AccountSession(val account: NostrAccount, val signer: ParticipantSigner) {
     fun close() = signer.close()
 }
 
+/** A preview local-key account may only be replaced by the same public identity. */
+internal fun requireSameRetainedAccount(retained: NostrAccount?, replacement: NostrAccount) {
+    if (retained?.method == "local" && retained.pubkey != replacement.pubkey) {
+        throw SignerException(
+            "That signer is ${shortNpub(replacement.pubkey)}, but this preview kept ${shortNpub(retained.pubkey)}. " +
+                "Sign in with the same account. Nothing was changed on this phone.",
+        )
+    }
+}
+
 /** A bunker signer that presents itself to the signer once, on first use, so the app opens without waiting on a relay. */
 private class ConnectingSigner(private val inner: BunkerSigner, private val connect: suspend () -> Unit) : ParticipantSigner by inner {
     private val gate = Mutex()

@@ -44,6 +44,7 @@ import dev.forgesworn.kithmoot.account.SignetSignIn
 import dev.forgesworn.kithmoot.account.installedSigners
 import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.openAccount
+import dev.forgesworn.kithmoot.account.requireSameRetainedAccount
 import dev.forgesworn.kithmoot.account.shortNpub
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -232,6 +233,8 @@ data class StartState(
     val linkGrantOwnerRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
     val account: AccountView? = null,
+    /** A release build retained this debug-preview identity and needs the same account from an external signer. */
+    val retainedAccount: AccountView? = null,
     /** A sign-in is under way: the signer app is up, the bunker is being reached, or Signet has the browser. */
     val signingIn: Boolean = false,
     val signInError: String? = null,
@@ -486,12 +489,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         refreshContacts()
     }
     private var accountSession: AccountSession? = null
+    @Volatile private var retainedLegacyAccount: NostrAccount? = null
     private var sharedProjects: SharedProjects? = null
     private var projectsScope: CoroutineScope? = null
     private var projectsLifecycle: Job? = null
     private val projectEditing = AtomicBoolean(false)
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
+    /** Serialises startup restore with replacement of a retained preview account. */
+    private val accountStoreGate = Mutex()
     /** The Signet pairing under way: waiting on a relay for Signet to take up the invitation. */
     private var signetPairing: Job? = null
 
@@ -521,13 +527,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun restoreAccount() {
         viewModelScope.launch(Dispatchers.IO) {
-            val saved = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@launch
-            val bridge = signerBridge ?: LateBridge { signerBridge }
-            try {
-                adopt(openAccount(saved, getApplication(), bridge, newAccountScope()), saved)
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                _start.update { it.copy(signInError = e.message ?: "The saved account could not be opened.") }
+            accountStoreGate.withLock {
+                if (accountSession != null) return@withLock
+                val saved = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@withLock
+                val bridge = signerBridge ?: LateBridge { signerBridge }
+                try {
+                    adopt(openAccount(saved, getApplication(), bridge, newAccountScope()), saved)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (saved.method == "local") {
+                        retainedLegacyAccount = saved
+                        _start.update { it.copy(retainedAccount = accountView(saved), signInError = null) }
+                    } else {
+                        _start.update { it.copy(signInError = e.message ?: "The saved account could not be opened.") }
+                    }
+                }
             }
         }
     }
@@ -551,18 +565,36 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         stopSharedProjects()
         accountSession?.close()
         accountSession = session
-        val view = AccountView(
-            pubkey = account.pubkey, npub = account.npub, short = shortNpub(account.pubkey), method = account.method,
-            // The signer's name as the phone shows it; on a restore the sheet's list is not loaded yet, so ask the phone.
-            signerLabel = account.signerPackage?.let { pkg ->
-                (_start.value.signers.ifEmpty { installedSigners(getApplication()) }).firstOrNull { it.packageName == pkg }?.label ?: pkg
-            },
-            name = account.displayName,
-        )
-        _start.update { it.copy(account = view, signingIn = false, signInError = null) }
+        _start.update { it.copy(account = accountView(account), retainedAccount = null, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
         startSharedProjects(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
+    }
+
+    private fun accountView(account: NostrAccount) = AccountView(
+        pubkey = account.pubkey, npub = account.npub, short = shortNpub(account.pubkey), method = account.method,
+        // The signer's name as the phone shows it; on a restore the sheet's list is not loaded yet, so ask the phone.
+        signerLabel = account.signerPackage?.let { pkg ->
+            (_start.value.signers.ifEmpty { installedSigners(getApplication()) }).firstOrNull { it.packageName == pkg }?.label ?: pkg
+        },
+        name = account.displayName,
+    )
+
+    private suspend fun saveAndAdopt(session: AccountSession, account: NostrAccount) {
+        accountStoreGate.withLock {
+            try {
+                val retained = retainedLegacyAccount ?: if (
+                    getApplication<Application>().applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0
+                ) accounts.load()?.takeIf { it.method == "local" } else null
+                requireSameRetainedAccount(retained, account)
+                accounts.save(account)
+            } catch (e: Exception) {
+                session.close()
+                throw e
+            }
+            retainedLegacyAccount = null
+            adopt(session, account)
+        }
     }
 
     private suspend fun stopSharedProjects() {
@@ -701,8 +733,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val (session, account) = block()
-                accounts.save(account)
-                adopt(session, account)
+                saveAndAdopt(session, account)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 val message = when (e) {
@@ -750,8 +781,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val client = Nip46Client(pointer, clientKey, pool, scope)
                 val pubkey = client.getPublicKey()
                 val account = NostrAccount(pubkey, "bunker", bunkerUri = pointer.toUri(), clientSecretKey = clientKey, signedInAt = epochSeconds())
-                accounts.save(account)
-                adopt(AccountSession(account, BunkerSigner(pubkey, client, onClose = pool::stop)), account)
+                saveAndAdopt(AccountSession(account, BunkerSigner(pubkey, client, onClose = pool::stop)), account)
             } catch (e: CancellationException) { pool.stop(); throw e }
             catch (e: Exception) {
                 pool.stop()
@@ -827,15 +857,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         if (_stage.value != Stage.START) { note("Leave the room before signing out."); return }
         viewModelScope.launch(Dispatchers.IO) {
-            accountGate.withLock {
-                stopSharedProjects()
-                accountSession?.close()
-                accountSession = null
-                accountScope?.cancel()
-                accountScope = null
+            accountStoreGate.withLock {
+                accountGate.withLock {
+                    stopSharedProjects()
+                    accountSession?.close()
+                    accountSession = null
+                    accountScope?.cancel()
+                    accountScope = null
+                }
+                try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
+                retainedLegacyAccount = null
             }
-            try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
-            _start.update { it.copy(account = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+            _start.update { it.copy(account = null, retainedAccount = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
         }
     }
 
