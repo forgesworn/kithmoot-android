@@ -4,12 +4,13 @@ import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.account.LocalSigner
-import dev.forgesworn.kithmoot.cadence.CadenceLeasePlan
 import dev.forgesworn.kithmoot.cadence.CadenceOwnership
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.protocol.BoxCadence
+import dev.forgesworn.kithmoot.protocol.CadenceLeaseOptions
 import dev.forgesworn.kithmoot.protocol.CadenceScope
+import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.createDeviceCredential
 import dev.forgesworn.kithmoot.relay.LinkConsent
 import dev.forgesworn.kithmoot.relay.LinkConsentState
@@ -40,13 +41,13 @@ class G7CadenceStatusTest {
 
     @Test fun runsRequestedCadenceProof() {
         when (action) {
-            "probe" -> pairProbeWithdrawAndExclude()
-            "restart-check" -> reconnectAndRetainExclusion()
+            "probe" -> pairAndRunSuccessorCutover()
+            "restart-check" -> reconnectAndVerifySuccessorCutover()
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
 
-    private fun pairProbeWithdrawAndExclude() {
+    private fun pairAndRunSuccessorCutover() {
         val now = epochSeconds()
         val pairing = parsePairing(post("pairing").getValue("uri").jsonPrimitive.content, now)
         val changedCard = pairing.card.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
@@ -82,36 +83,91 @@ class G7CadenceStatusTest {
         app.linkConsents.put(consent)
         val result = app.cadenceClient.status(identity.participant, scope, REQUEST_ID, identity, epochSeconds()).get(120, TimeUnit.SECONDS)
         val status = result.answer
-        assertFalse(status.ready)
-        assertEquals(listOf("store-key-provider", "tor-i2p-carriers"), status.missing)
+        assertTrue(status.ready)
+        assertTrue(status.missing.isEmpty())
 
-        val plan = plan(nodeId, status.currentEpoch + 2)
-        val stored = app.cadenceLeases.prepare(plan, epochSeconds())
-        assertEquals(CadenceOwnership.CLIENT_EXCLUDED, stored.ownership)
-        assertEquals((0 until 8).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, plan.startEpoch))
+        val start = status.earliestStartEpoch
+        val options = leaseOptions(scope, REQUEST_ID, LEASE_ID, status.currentEpoch, start, start + 1, now, 1)
+        val staged = app.cadenceClient.stage(identity.participant, options, identity, epochSeconds(), app.cadenceLeases)
+            .get(120, TimeUnit.SECONDS).lease
+        assertEquals(CadenceOwnership.BOX_OWNED, staged.ownership)
+        assertEquals("staged", staged.receipt?.code)
+        assertEquals("staged", staged.receipt?.state)
+        assertEquals((0 until 8).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, start))
+
+        val queuedEvent = Events.sign(
+            identity.deviceSecretKey, 1460, epochSeconds(), listOf(listOf("d", ROOM)),
+            "fixture quiet ciphertext", ByteArray(32) { 7 },
+        )
+        val queued = app.cadenceClient.queue(
+            identity.participant, scope, identity, staged, QUEUE_REQUEST_ID, queuedEvent,
+            epochSeconds(), app.cadenceLeases,
+        ).get(120, TimeUnit.SECONDS).lease
+        assertEquals("queued", queued.receipt?.code)
+        assertEquals(1, queued.receipt?.queueCount)
+
+        val rekeyed = app.cadenceClient.rekey(
+            identity.participant, scope, identity, queued, REKEY_REQUEST_ID, 3,
+            epochSeconds(), app.cadenceLeases,
+        ).get(120, TimeUnit.SECONDS).lease
+        assertEquals("rekeyed", rekeyed.receipt?.code)
+        assertEquals("cover", rekeyed.receipt?.state)
+        assertEquals(0, rekeyed.receipt?.queueCount)
+        assertEquals(listOf(queuedEvent.id), rekeyed.receipt?.failedItemIds)
+        assertFutureRefused(app.cadenceClient.queue(
+            identity.participant, scope, identity, rekeyed, OLD_QUEUE_REQUEST_ID,
+            Events.sign(identity.deviceSecretKey, 1460, epochSeconds(), listOf(listOf("d", ROOM)), "late", ByteArray(32) { 8 }),
+            epochSeconds(), app.cadenceLeases,
+        ))
         put("g7-cadence-probe", buildJsonObject {
             put("authenticated", true); put("ready", status.ready); put("missing", status.missing.joinToString(","))
             put("linkPath", result.path.status); put("consentWithdrawalRefusedLateResult", true); put("countersExcluded", true)
+            put("leaseStaged", true); put("messageQueued", true); put("rekeyedBeforeStart", true)
+            put("queuedMessageFailed", true); put("oldGenerationQueueRefused", true)
             put("changedNodeCardRefused", true); put("unknownRouteRefused", true); put("changedMethodRefused", true)
             put("changedPathRefused", true); put("changedPayloadRefused", true); put("changedDeviceSignatureRefused", true)
             put("hostPinnedByBridge", true)
         })
     }
 
-    private fun reconnectAndRetainExclusion() {
+    private fun reconnectAndVerifySuccessorCutover() {
         val stored = app.cadenceLeases.all(ROOM, DEVICE).single()
-        assertEquals(CadenceOwnership.CLIENT_EXCLUDED, stored.ownership)
+        assertEquals(CadenceOwnership.BOX_OWNED, stored.ownership)
+        assertEquals("rekeyed", stored.receipt?.code)
+        assertEquals("cover", stored.receipt?.state)
+        assertEquals(1, stored.receipt?.failedItemIds?.size)
         assertEquals((0 until 8).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, stored.plan.startEpoch))
-        assertEquals(stored, app.cadenceLeases.prepare(stored.plan, epochSeconds()))
         val consent = app.linkConsents.all().single { it.roomId == ROOM }
         assertTrue(app.linkEngine.routeIds().contains(consent.routeId))
-        val identity = identity(epochSeconds())
+        val now = epochSeconds()
+        val identity = identity(now)
         val nodeId = consent.canonicalUrl.removePrefix("ws://").removeSuffix("/events")
         val status = app.cadenceClient.status(identity.participant, scope(identity, nodeId), "66".repeat(16), identity, epochSeconds()).get(120, TimeUnit.SECONDS)
-        assertFalse(status.answer.ready)
+        assertTrue(status.answer.ready)
+        val retained = app.cadenceClient.leaseStatus(
+            identity.participant, scope(identity, nodeId), identity, stored, STATUS_REQUEST_ID,
+            epochSeconds(), app.cadenceLeases,
+        ).get(120, TimeUnit.SECONDS).lease
+        assertEquals("status", retained.receipt?.code)
+        assertEquals("cover", retained.receipt?.state)
+        assertEquals(stored.receipt?.failedItemIds, retained.receipt?.failedItemIds)
+
+        val lowerScope = scope(identity, nodeId, LOWER_TRAFFIC_ROOM, 2)
+        val lowerStart = maxOf(status.answer.earliestStartEpoch, stored.plan.endEpoch)
+        assertFutureRefused(app.cadenceClient.stage(
+            identity.participant,
+            leaseOptions(
+                lowerScope, LOWER_REQUEST_ID, LOWER_LEASE_ID, status.answer.currentEpoch,
+                lowerStart, lowerStart + 1, now, 2,
+            ),
+            identity, epochSeconds(), app.cadenceLeases,
+        ))
+        val lower = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == LOWER_LEASE_ID }
+        assertEquals(CadenceOwnership.CLIENT_EXCLUDED, lower.ownership)
         put("g7-cadence-restart", buildJsonObject {
-            put("routeRestored", true); put("exactLeaseRetryRetained", true); put("countersStillExcluded", true)
-            put("authenticatedStatusAfterRestart", true); put("linkPath", status.path.status)
+            put("routeRestored", true); put("rekeyReceiptRetained", true); put("countersStillExcluded", true)
+            put("authenticatedStatusAfterRestart", true); put("oldLeaseCoverAfterRestart", true)
+            put("queuedFailureRetained", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })
     }
 
@@ -125,23 +181,34 @@ class G7CadenceStatusTest {
         )
     }
 
-    private fun scope(identity: PrimaryIdentity, nodeId: String) =
-        CadenceScope(nodeId, ROOM, ROOM, 1, identity.participant, identity.devicePubkey, identity.credential, GRANT_ID)
+    private fun scope(
+        identity: PrimaryIdentity,
+        nodeId: String,
+        trafficRoom: String = ROOM,
+        roomGeneration: Long = 1,
+    ) = CadenceScope(
+        nodeId, ROOM, trafficRoom, roomGeneration,
+        identity.participant, identity.devicePubkey, identity.credential, GRANT_ID,
+    )
 
     private fun consent(identity: PrimaryIdentity, nodeId: String, routeId: String, bothy: String) = LinkConsent(
         identity.participant, ROOM, bothy, routeId, "ws://$nodeId/events",
         listOf(get("ready").getValue("introduction_relay_url").jsonPrimitive.content), LinkConsentState.ACTIVE,
     )
 
-    private fun plan(nodeId: String, start: Long): CadenceLeasePlan {
-        val end = start + 2
-        val body = buildJsonObject {
-            put("v", 1); put("request_id", REQUEST_ID); put("lease_id", LEASE_ID); put("generation", 1)
-            put("server", "ws://$nodeId/events"); put("room", ROOM); put("device", DEVICE)
-            put("start_epoch", start); put("end_epoch", end); put("counter_lo", 0); put("counter_hi", 8)
-        }.toString()
-        return CadenceLeasePlan(nodeId, ROOM, ROOM, 1, DEVICE, LEASE_ID, 1, REQUEST_ID, body, start, end, 0, 8)
-    }
+    private fun leaseOptions(
+        scope: CadenceScope,
+        requestId: String,
+        leaseId: String,
+        currentEpoch: Long,
+        start: Long,
+        end: Long,
+        now: Long,
+        generation: Long,
+    ) = CadenceLeaseOptions(
+        scope, requestId, leaseId, generation, 0, currentEpoch, start, end,
+        ByteArray(32) { scope.roomGeneration.toByte() }, FIXTURE_RELAYS, listOf("local"), now,
+    )
 
     private fun parsePairing(uri: String, now: Long): NativePairing = try {
         BothyPairing.parse(uri, now).let { NativePairing(it.card, it.pairingSecret, it.expiresAt) }
@@ -194,5 +261,13 @@ class G7CadenceStatusTest {
         const val GRANT_ID = "33333333333333333333333333333333"
         const val REQUEST_ID = "11111111111111111111111111111111"
         const val LEASE_ID = "22222222222222222222222222222222"
+        const val QUEUE_REQUEST_ID = "44444444444444444444444444444444"
+        const val REKEY_REQUEST_ID = "55555555555555555555555555555555"
+        const val OLD_QUEUE_REQUEST_ID = "77777777777777777777777777777777"
+        const val STATUS_REQUEST_ID = "88888888888888888888888888888888"
+        const val LOWER_REQUEST_ID = "99999999999999999999999999999999"
+        const val LOWER_LEASE_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        const val LOWER_TRAFFIC_ROOM = "4343434343434343434343434343434343434343434343434343434343434343"
+        val FIXTURE_RELAYS = listOf("wss://relay-a.example", "wss://relay-b.example")
     }
 }
