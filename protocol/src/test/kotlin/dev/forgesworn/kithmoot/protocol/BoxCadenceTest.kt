@@ -89,6 +89,16 @@ class BoxCadenceTest {
         }
     }
 
+    @Test fun readyStatusUsesBothysOkCode() {
+        val body = "{\"v\":1,\"code\":\"ok\",\"ready\":true,\"server_time\":1800000000,\"current_epoch\":500000,\"earliest_start_epoch\":500002,\"missing\":[]}".toByteArray()
+        val status = BoxCadence.parseStatus(200, body)
+        assertTrue(status.ready)
+        assertEquals("ok", status.code)
+        assertThrows(IllegalArgumentException::class.java) {
+            BoxCadence.parseStatus(200, body.toString(Charsets.UTF_8).replace("\"ok\"", "\"ready\"").toByteArray())
+        }
+    }
+
     @Test fun receiptsAreStrictAndBounded() {
         val body = "{\"v\":1,\"code\":\"ok\",\"lease_id\":\"${"22".repeat(16)}\",\"generation\":1,\"state\":\"active\",\"server_time\":1800000000,\"start_epoch\":500002,\"end_epoch\":500004,\"queue_count\":1,\"sent_item_ids\":[\"${"ab".repeat(32)}\"],\"failed_item_ids\":[]}".toByteArray()
         val receipt = BoxCadence.parseReceipt(200, body)

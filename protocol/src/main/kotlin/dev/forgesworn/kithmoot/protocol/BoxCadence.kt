@@ -167,7 +167,7 @@ object BoxCadence {
         require(root.getValue("v").jsonPrimitive.long == 1L) { "unsupported cadence status version" }
         val code = root.getValue("code").jsonPrimitive.content
         val ready = root.getValue("ready").jsonPrimitive.boolean
-        require((ready && code == "ready") || (!ready && code == "not-ready")) { "invalid cadence readiness" }
+        require((ready && code == "ok") || (!ready && code == "not-ready")) { "invalid cadence readiness" }
         val serverTime = nonNegative(root, "server_time")
         val currentEpoch = nonNegative(root, "current_epoch")
         val earliest = nonNegative(root, "earliest_start_epoch")
