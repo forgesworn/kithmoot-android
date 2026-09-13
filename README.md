@@ -21,6 +21,12 @@ source.
 
 ## Status
 
+The first production-lineage candidate is 0.6.0 (23) and requires Android 13
+or later. It preserves app-private encrypted data from the published preview
+through an APK Signature Scheme v3 certificate lineage. Publication still
+requires the owner-held production key, exact-preview upgrade evidence and
+physical-device acceptance; see the [release guide](docs/android-release.md).
+
 The [shared project directory](docs/shared-projects.md) follows your signed-in
 account. Open **Projects** to create a project, choose people, agents and room
 invitations, or explicitly join an invitation. Signed updates use the web
@@ -265,7 +271,7 @@ keeps the vector suite fast and leaves the protocol reusable outside the app.
 
 ### Running it
 
-Use JDK 21 and an Android SDK with platform 35 and build tools 34.0.0. Set
+Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 `ANDROID_HOME` to the SDK directory, or put `sdk.dir=/path/to/sdk` in the
 gitignored `local.properties` file.
 
@@ -279,10 +285,11 @@ The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
 and pushes to `main`, and retains reports for seven days. A separate API 35
 emulator job installs the debug app and tests actual Android Keystore storage,
 corruption and missing-key handling, saved-room controls and identity continuity
-across a forced process restart. Release signing and physical-device acceptance
-remain separate requirements. The [release guide](docs/android-release.md)
-covers signing with a selected key, APK verification and the physical acceptance
-record.
+across a forced process restart. Android 13 and 15 lineage jobs create
+disposable certificate pairs, update a release package in place, verify its UID
+and production vault contents survive, and refuse old-signer rollback. The
+owner-key candidate and physical-device acceptance remain separate requirements.
+The release guide covers exact signing and acceptance evidence.
 
 To run the recovery checks on a **disposable emulator** (they replace KithMoot's
 saved room data on that emulator):

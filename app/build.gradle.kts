@@ -4,19 +4,6 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-val releaseSigningNames = listOf(
-    "KITHMOOT_KEYSTORE", "KITHMOOT_STORE_PASSWORD", "KITHMOOT_KEY_ALIAS", "KITHMOOT_KEY_PASSWORD",
-)
-val releaseSigning = releaseSigningNames.associateWith { providers.environmentVariable(it).orNull }
-val hasReleaseSigning = releaseSigning.values.any { it != null }
-if (hasReleaseSigning) {
-    val missing = releaseSigning.filterValues { it.isNullOrEmpty() }.keys
-    require(missing.isEmpty()) { "Incomplete release signing configuration; missing: ${missing.joinToString()}" }
-    require(rootProject.file(releaseSigning.getValue("KITHMOOT_KEYSTORE")!!).isFile) {
-        "KITHMOOT_KEYSTORE must name an existing keystore file"
-    }
-}
-
 val linkBridgeDirectory = layout.buildDirectory.dir("link-bridge")
 val requiredLinkBridgeFiles = listOf(
     "jniLibs/arm64-v8a/liblink_ffi.so",
@@ -42,12 +29,13 @@ android {
 
     defaultConfig {
         applicationId = "dev.forgesworn.kithmoot"
-        // 26 is the floor, not a preference: the protocol module uses
-        // java.util.Base64, which only lands in the platform at API 26.
-        minSdk = 26
+        // The first production APK rotates away from the published preview
+        // certificate. Android 13 is the floor on which the selected v3
+        // lineage semantics are consistent and testable.
+        minSdk = 33
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.5.14"
+        versionCode = 23
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -58,20 +46,11 @@ android {
         }
     }
 
-    if (hasReleaseSigning) {
-        signingConfigs {
-            create("production") {
-                storeFile = rootProject.file(releaseSigning.getValue("KITHMOOT_KEYSTORE")!!)
-                storePassword = releaseSigning.getValue("KITHMOOT_STORE_PASSWORD")
-                keyAlias = releaseSigning.getValue("KITHMOOT_KEY_ALIAS")
-                keyPassword = releaseSigning.getValue("KITHMOOT_KEY_PASSWORD")
-            }
-        }
-    }
-
     buildTypes {
         release {
-            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("production")
+            // Gradle always produces an unsigned release. The release script
+            // applies the owner-selected key and reviewed certificate lineage
+            // with explicit APK Signature Scheme v3 settings.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

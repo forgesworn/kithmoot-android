@@ -1,7 +1,31 @@
 # Android release signing and device acceptance
 
-The public APK channel is a debug-signed preview. Release signing support alone
-does not promote it to a production release.
+The public APK channel is currently a debug-signed preview. Version 0.6.0 is the
+first production-lineage candidate and requires Android 13 or later. Publishing
+it still requires the owner-held key, exact-preview upgrade proof and the
+physical acceptance recorded below.
+
+## 0.6.0 production-lineage candidate
+
+Version code 23 raises the production floor to Android 13 and rotates from the
+published preview certificate with APK Signature Scheme v3. The lineage trusts
+installed data and signature permissions from the preview certificate, while
+refusing shared-UID inheritance, rollback and authenticator privilege. Gradle
+always emits an unsigned release; the release script alone applies the
+owner-selected key and lineage with v1 and v2 signing disabled.
+
+The app keeps the preview's encrypted vaults and AndroidKeyStore entries in
+place. If it finds a preview local-key account, it shows the retained npub and
+requires the same public identity through a NIP-55 signer app or NIP-46 bunker.
+A different account is refused before the stored account is changed. Nothing is
+exported and no room, device, invitation, Link credential, consent, cadence or
+epoch state is made portable.
+
+CI creates disposable old and new keys on Android 13 and 15. It updates the
+same package through the reviewed lineage, proves the UID and production vault
+contents survive, and proves the old signer cannot replace the rotated app.
+Those disposable checks do not substitute for the exact published preview APK,
+the owner-held production key or a physical phone.
 
 ## 0.5.14 successor-room recovery candidate
 
@@ -15,8 +39,8 @@ real sends; the exact pending transition resumes after process death.
 
 The four-repository Vennel composition covers the generated JNI call over an
 ordinary paired Link route, old-message failure, retained cover, Android and
-Bothy restart, and lower-generation refusal. Production signing, preview-data
-migration and the physical checks below remain release gates.
+Bothy restart, and lower-generation refusal. Owner-key signing, exact-preview
+upgrade evidence and the physical checks below remain release gates.
 
 New account sign-in accepts only NIP-55 signer apps and NIP-46 signers. The
 production UI has no raw `nsec` or hex-key entry, and a release build refuses a
@@ -88,54 +112,77 @@ Quiet-room work, paired-device signing, the first live Oathrun connection and
 physical-phone acceptance remain open. Those limits do not change the existing
 chat and call support. This is a debug-signed preview, not a production release.
 
-## Build with the selected release key
+## Create the owner-held signing lineage
 
-Use JDK 21 and the Android SDK described in the README. Keep the keystore outside
-the checkout and back it up privately: future APK updates need the same signing
-identity. Do not reuse the SDK debug keystore or another application's key.
+Use JDK 21 and Android build tools 35.0.0. The owner must create and back up a
+new KithMoot production key outside the checkout before this step. Do not reuse
+an SDK debug key or another application's key, and do not let an unattended
+build invent the lasting production identity.
 
-Supply these environment variables from the host's private credential store:
+Supply these values from the host's private credential store:
 
 | Variable | Value |
 |---|---|
-| `KITHMOOT_KEYSTORE` | Existing keystore path; an absolute path is preferred |
-| `KITHMOOT_STORE_PASSWORD` | Keystore password |
-| `KITHMOOT_KEY_ALIAS` | Signing key alias |
-| `KITHMOOT_KEY_PASSWORD` | Key password |
-| `KITHMOOT_CERT_SHA256` | Independently recorded signing certificate SHA-256 fingerprint |
+| `KITHMOOT_PREVIEW_KEYSTORE` | Retained keystore that signed the published preview |
+| `KITHMOOT_PREVIEW_STORE_PASSWORD` | Preview keystore password |
+| `KITHMOOT_PREVIEW_KEY_ALIAS` | Preview signing-key alias |
+| `KITHMOOT_PREVIEW_KEY_PASSWORD` | Preview key password |
+| `KITHMOOT_PREVIEW_CERT_SHA256` | Independently recorded published-preview certificate fingerprint |
+| `KITHMOOT_KEYSTORE` | Owner-held production keystore path |
+| `KITHMOOT_STORE_PASSWORD` | Production keystore password |
+| `KITHMOOT_KEY_ALIAS` | Production signing-key alias |
+| `KITHMOOT_KEY_PASSWORD` | Production key password |
+| `KITHMOOT_CERT_SHA256` | Independently recorded production certificate fingerprint |
+| `KITHMOOT_LINEAGE` | New output path outside the checkout, ending in `.lineage` |
 | `ANDROID_HOME` | Android SDK path |
 
-Passwords are read from the environment, never command-line arguments or tracked
-files. Do not enable shell tracing, publish environment dumps or use Gradle debug
-logging with signing credentials loaded. `ANDROID_BUILD_TOOLS` can select a
-build-tools directory; the default is `$ANDROID_HOME/build-tools/34.0.0`.
+Then run:
+
+```sh
+bash scripts/create-signing-lineage.sh
+```
+
+The script verifies both certificates before creating anything, refuses to
+overwrite an existing lineage, assigns the five reviewed capabilities, and
+prints the lineage SHA-256. Back up the lineage with the production key and
+record its checksum independently. Passwords reach `keytool` and `apksigner`
+through named environment variables; the scripts disable shell tracing.
+
+## Build with the production key and lineage
+
+Keep the production variables above, and add the independently recorded
+`KITHMOOT_LINEAGE_SHA256`. Run:
 
 ```sh
 bash scripts/build-signed-release.sh
 ```
 
-The script runs protocol/app tests, release lint and the release APK build, then
-checks the actual APK signature against the expected certificate, rejects the
-Android debug certificate and a debuggable manifest, checks the application ID,
-and prints the APK checksum. It does not publish or install anything.
+The script first verifies the lineage checksum. It runs protocol/app tests,
+release lint and the unsigned release build, then signs
+`kithmoot-0.6.0-production.apk` with only the production key and the lineage. It
+requires v3 signing, Android 13 minimum, target SDK 35, version code greater
+than 22, the exact package name and a non-debuggable manifest. It rejects v1,
+v2, the Android debug certificate and any certificate mismatch, then prints
+the APK checksum. It does not publish or install anything.
 
-With no signing variables, ordinary Gradle builds retain the unsigned release
-variant for CI. A partially configured signing environment fails with the names
-of the missing variables. There is no fallback to debug signing.
-
-For a Play distribution, select the upload/app-signing arrangement separately;
-a locally signed APK does not create a Play listing or enrol it in Play App
-Signing. See Android's [signing guide](https://developer.android.com/studio/publish/app-signing)
+Ordinary Gradle builds always retain the unsigned release variant for CI. There
+is no Gradle signing fallback and no production credential in repository CI.
+For Play distribution, choose the upload/app-signing arrangement separately;
+a locally signed APK does not create a listing or enrol it in Play App Signing.
+See Android's [signing guide](https://developer.android.com/studio/publish/app-signing)
 and [APK signature verification](https://developer.android.com/tools/apksigner).
 
 ## Preserve existing installations
 
-A production key differs from the published preview's debug certificate. Android
-will reject it as an in-place update of that preview. Do not uninstall a user's
-preview to bypass this: its saved room access is in app-private encrypted storage
-and there is no export/recovery migration in this release. Test the new signing
-identity on a spare device or unused Android user profile. Settle the preview
-migration and version increment before publishing the first production APK.
+The production certificate differs from the published preview certificate, but
+the reviewed v3 lineage allows an in-place update on Android 13 and later while
+preserving the package UID, app-private files and AndroidKeyStore entries. Never
+uninstall the preview as a migration step. Before publication, install the
+exact public preview on an isolated Android 13-or-later device or emulator,
+create representative data, update it with the exact candidate, and verify the
+retained account and every production vault. Also prove the old preview-signed
+APK is refused after rotation. Record both APK hashes, both certificate hashes,
+the lineage hash, UID, Android version and results.
 
 ## Physical acceptance for the exact candidate
 

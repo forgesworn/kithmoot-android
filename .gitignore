@@ -25,4 +25,5 @@ node_modules/
 *.aab
 *.jks
 *.keystore
+*.lineage
 captures/

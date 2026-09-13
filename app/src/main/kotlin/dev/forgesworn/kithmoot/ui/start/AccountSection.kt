@@ -39,9 +39,10 @@ class AccountActions(
 fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean) {
     var choosing by remember { mutableStateOf(false) }
     val account = state.account
+    val retained = state.retainedAccount
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(if (account != null) "Your Nostr account" else "Keep your rooms with you",
+        Text(if (account != null) "Your Nostr account" else if (retained != null) "Keep your preview account" else "Keep your rooms with you",
             style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         if (account != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -62,9 +63,24 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
             }, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(actions.onSignOut, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
         } else {
-            Text("Sign in as yourself, with your Nostr profile and the public key your agents recognise. " +
-                "Rooms you open are joined as that account. Without it, each room gets its own key on this phone.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (retained != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ProfileAvatar(retained.pubkey, retained.name, retained.profile, Modifier.size(44.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Preview account", style = MaterialTheme.typography.titleMedium)
+                        Text(retained.npub, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.semantics { contentDescription = "Retained public key ${retained.npub}" })
+                    }
+                }
+                Text(
+                    "Your encrypted preview data is still on this phone. Sign in through a signer app or bunker with this same Nostr account to keep using its rooms. A different account is refused and does not replace or delete anything.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text("Sign in as yourself, with your Nostr profile and the public key your agents recognise. " +
+                    "Rooms you open are joined as that account. Without it, each room gets its own key on this phone.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (state.signingIn) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
