@@ -107,15 +107,28 @@ class Nip55Signer(
      */
     private suspend fun viaProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? = withContext(Dispatchers.IO) {
         val uri = Uri.parse("content://$packageName.${type.uppercase()}")
-        runCatching {
+        val response = runCatching {
             context.contentResolver.query(uri, arrayOf(payload, peer ?: "", pubkey), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
+                val rejected = cursor.getColumnIndex("rejected").takeIf { it >= 0 }
+                    ?.let(cursor::getString)?.equals("true", ignoreCase = true) == true
+                if (rejected) return@use ProviderReply.Rejected
                 val result = cursor.getColumnIndex("result").takeIf { it >= 0 }?.let(cursor::getString)
                     ?: cursor.getColumnIndex("signature").takeIf { it >= 0 }?.let(cursor::getString)
                 val event = cursor.getColumnIndex("event").takeIf { it >= 0 }?.let(cursor::getString)
-                if (result == null && event == null) null else result to event
+                if (result == null && event == null) null else ProviderReply.Answer(result, event)
             }
         }.getOrNull()
+        when (response) {
+            is ProviderReply.Answer -> response.result to response.event
+            ProviderReply.Rejected -> throw SignerException("${appLabel()} declined to sign.")
+            null -> null
+        }
+    }
+
+    private sealed interface ProviderReply {
+        data class Answer(val result: String?, val event: String?) : ProviderReply
+        data object Rejected : ProviderReply
     }
 
     private fun appLabel(): String = runCatching {
