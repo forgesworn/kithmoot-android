@@ -104,9 +104,10 @@ fun encodeChatEvent(
     invite: ChatInvite? = null,
     channel: String? = null,
     assignment: NostrEvent? = null,
+    credentialRoomId: String = roomId,
 ): NostrEvent {
     if (assignment != null) {
-        val payload = assignmentPayload(assignment, roomId)
+        val payload = assignmentPayload(assignment, credentialRoomId)
         require(channel == ASSIGNMENT_CHANNEL && payload != null && assignment.pubkey == participant &&
             (payload.device == null || payload.device == Schnorr.publicKeyHex(deviceSecretKey))) { "Invalid assignment envelope" }
         require(listOfNotNull(reaction, reply, thread, replaces, retracts, mentions, invite).isEmpty()) { "An assignment is a single statement" }
@@ -155,6 +156,7 @@ fun decodeChatEvent(
     now: Long,
     policy: RoomPolicy? = null,
     channel: String? = null,
+    credentialRoomId: String = roomId,
 ): ChatMessage? = try {
     val address = deriveChatChannel(roomId,roomKey,channel)
     when {
@@ -174,7 +176,7 @@ fun decodeChatEvent(
             val sentAt = json.getValue("sentAt").jsonPrimitive.long
             val proof = (json["proof"] as? JsonObject)?.let { KindredProof.fromJson(it) }
             val reaction = json["reaction"]?.let(::parseReaction)
-            val check = verifyDeviceCredential(credential, roomId, sentAt)
+            val check = verifyDeviceCredential(credential, credentialRoomId, sentAt)
             // One statement per message, checked on the keys as they arrived:
             // a reaction, an edit, a retraction and an invitation each say one
             // thing about one other message, and a payload carrying two of
@@ -184,7 +186,7 @@ fun decodeChatEvent(
             val conversationKeys = listOf("kind", "attachments", "reply", "thread", "mentions")
             val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment")
             val assignment = (json["assignment"] as? JsonObject)?.let(NostrEvent::fromJson)
-            val assignmentPayload = assignment?.let { assignmentPayload(it, roomId) }
+            val assignmentPayload = assignment?.let { assignmentPayload(it, credentialRoomId) }
             val invite = json["invite"]?.let(::parseInvite)
             val replaces = json["replaces"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
             val retracts = json["retracts"]?.let { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "" }
@@ -211,7 +213,7 @@ fun decodeChatEvent(
                 !check.device.hexEquals(event.pubkey) -> null
                 !check.participant.hexEquals(participant) -> null
                 !device.hexEquals(event.pubkey) -> null
-                policy != null && !evaluateAccess(policy, participant, proof, sentAt, roomId).admitted -> null
+                policy != null && !evaluateAccess(policy, participant, proof, sentAt, credentialRoomId).admitted -> null
                 else -> ChatMessage(
                     id = id,
                     participant = participant,

@@ -193,6 +193,7 @@ fun decodeRosterEvent(
     roomId: String,
     roomKey: ByteArray,
     now: Long,
+    credentialRoomId: String = roomId,
 ): RosterEntry? = try {
     when {
         event.kind != KIND_ROSTER -> null
@@ -219,7 +220,7 @@ fun decodeRosterEvent(
             // room member could republish someone else's presence. Hex
             // identifiers compared case-insensitively throughout - see
             // `vectors/README.md`.
-            val credential = verifyDeviceCredential(entry.credential, roomId, now)
+            val credential = verifyDeviceCredential(entry.credential, credentialRoomId, now)
             // A timestamp beyond clock skew is a pin, not a clock - see
             // [MAX_FUTURE_SKEW_SECONDS]. The entry goes; a claim only costs
             // the claim, because a device with one bad claim is still in the

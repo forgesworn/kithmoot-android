@@ -64,11 +64,11 @@ class CadenceLeaseVaultTest {
     }
 
     private fun plan() = CadenceLeasePlan(
-        "a".repeat(52), ROOM, DEVICE, "22".repeat(16), 1, "11".repeat(16), "{\"v\":1}", 12, 14, 0, 8,
+        "a".repeat(52), ROOM, ROOM, 1, DEVICE, "22".repeat(16), 1, "11".repeat(16), "{\"v\":1}", 12, 14, 0, 8,
     )
 
     private fun receipt(state: String) = CadenceReceipt(
-        "ok", "22".repeat(16), 1, state, 100, 12, 14, 0, emptyList(), emptyList(),
+        "status", "22".repeat(16), 1, state, 100, 12, 14, 0, emptyList(), emptyList(),
     )
 
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {

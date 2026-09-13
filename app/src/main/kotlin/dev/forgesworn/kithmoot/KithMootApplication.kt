@@ -12,6 +12,7 @@ import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
 import dev.forgesworn.kithmoot.relay.LinkConsentVault
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceClient
+import dev.forgesworn.kithmoot.epoch.EpochVault
 
 /**
  * Owns one serialised repository for saved room access across activities.
@@ -35,6 +36,11 @@ class KithMootApplication : Application() {
     /** Counter ownership survives timeouts and restarts in a dedicated encrypted journal. */
     val cadenceLeases: CadenceLeaseVault by lazy {
         CadenceLeaseVault(RollbackResistantRoomStorage(this, "kithmoot.cadence.v1", 1024 * 1024))
+    }
+
+    /** Active and pending room epoch secrets have their own rollback-resistant journal. */
+    val roomEpochs: EpochVault by lazy {
+        EpochVault(RollbackResistantRoomStorage(this, "kithmoot.epoch.v1", 1024 * 1024))
     }
 
     /** One engine owner for the whole process; room consent selects any usable route later. */

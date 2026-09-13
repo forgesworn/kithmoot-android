@@ -27,6 +27,13 @@ invitations, or explicitly join an invitation. Signed updates use the web
 protocol and an encrypted device cache with exact pending-send recovery.
 The existing room labels under Chats remain local organisation.
 
+Authority-pinned saved rooms follow signed successor epochs. The app stores the
+active epoch in a rollback-resistant journal, catches up after missed rekeys,
+moves roster, chat, work, signalling and quiet traffic together, and keeps all
+publication blocked when the authority or a paired Bothy cannot prove a safe
+transition. Removed and closed devices receive terminal states without a
+successor secret.
+
 **It joins rooms.** The protocol layer is checked against the published interop
 vectors; on top of it sit a relay pool, the room state machine, a WebRTC mesh
 and an Android interface. Two emulators have been in the same room as one
@@ -52,20 +59,10 @@ What is *not* here:
   recipient deliberately opens and validates it before joining. The composer
   still sends plain messages: no reply, edit or retract control, and read
   positions are not published. `members` on a room policy is enforced.
-- **A quiet room is read and written at epoch zero only.** The client
-  derives drop keys from the room key it was handed; a quiet room that
-  has moved epoch is, to this client, a room that has moved on, exactly
-  as a plain one is. Starting a quiet conversation is the web client's
-  for now. Relays hand back two days of a quiet room's history; a
-  message waits up to five minutes for its slot.
-- **Cannot follow a room epoch, but says so.** When somebody is removed the
-  room moves to a key this client was not given, and everything would
-  otherwise simply stop - no roster, no chat, no error, which reads as an
-  application that is broken rather than a room that has moved on. It now
-  watches for the authority's rekey, needs no key to do it, and tells the
-  person what happened and to ask for a fresh link. Following the epoch
-  properly is still to do; the rest of the `roomEpoch` vectors are counted
-  and not run.
+- **Android cannot start a quiet room yet.** It can join one, follow its signed
+  successor epochs and hand a bounded cadence to a paired Bothy. Creating the
+  quiet policy remains a web-client action. Relays hand back two days of quiet
+  history; a phone-owned message waits up to five minutes for its slot.
 - No peer assist. An assist offer on somebody's roster entry is read and
   dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.
@@ -172,7 +169,7 @@ public profile relays, and both ends of the npub.
 | The message layer | Replies and threads, edits, retractions, mentions, DM invitations and read positions read and resolved as the reference does (`session/Messages.kt`, `Dm.kt`, `ReadPosition.kt`); native signer-sealed creation and deliberate opening of persistent two-member rooms; a two-member `members` policy enforced at the gate |
 | Kindred access | The `kin > kith > ken > open` tier ladder, proof issuing and verification, and the room gate |
 | TURN credentials | coturn's REST convention: `<expiry>:<name>` with an HMAC-SHA1 password |
-| Dead-drop keys and quiet rooms | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`); room drops and the key table (`protocol/RoomDrop.kt`, `QuietKeys.kt`); and the transport that rides a room's chat in them (`session/QuietTransport.kt`). A room whose policy says `quiet` beside its members list reads and posts in drops from this client, with the counters spent and any message waiting for a slot kept on the device. Two devices per person post; a third reads. This client cannot start a quiet room yet, only join one from its link |
+| Dead-drop keys and quiet rooms | `nostr-deaddrop`'s derivation, written from its README: a pair's ikm as forgesworn-link's rendezvous material, a room's under its own case byte, one key per epoch, sender and counter (`protocol/DeadDrop.kt`); room drops and the key table (`protocol/RoomDrop.kt`, `QuietKeys.kt`); and the transport that rides a room's chat in them (`session/QuietTransport.kt`). A room whose policy says `quiet` beside its members list reads and posts in drops from this client, with the counters spent and any message waiting for a slot kept on the device. Two devices per person post; a third reads. A paired Bothy can take over this device's bounded cadence through the durable ownership flow in [the quiet cadence guide](docs/quiet-cadence.md). This client cannot start a quiet room yet, only join one from its link |
 | Contact cards | The contact card reader, written from the draft: steps 1 to 5 in order, the Link address card inside verified by a strict, cofactorless Ed25519 written out over BigInteger, refresh under the pinned node id (`protocol/ContactCard.kt`, `LinkCard.kt`, `crypto/Ed25519Strict.kt`); and the builder for one's own, a kind 21641 event, ephemeral, signed by whatever holds the identity (`protocol/ContactCardBuilder.kt`). In the app, **Cards** in the room: paste a card and the person's tile says one is held for them, their box details are pinned, but transport relay hints grant no sheltered message lane. A keeper-confirmed message relay can be marked separately. Forgetting a card removes its holder badge and saved details. A card opened as a link is offered at the door and kept only on a press. The book lives in its own vault on the phone (`storage/ContactBook.kt`), never published |
 
 Two behaviours in there are load-bearing and easy to get quietly wrong:

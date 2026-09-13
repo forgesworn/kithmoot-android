@@ -4,6 +4,9 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.KindredProof
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +62,13 @@ fun TestScope.session(
     policy: RoomPolicy? = null,
     proof: KindredProof? = null,
     authority: String? = null,
+    initialEpoch: EpochKeys = EpochKeys(0, room.roomId, room.roomKey),
+    epochSettleMs: Long = 0,
+    epochGate: (suspend (NostrEvent, RekeyNotice) -> EpochGateResult)? = null,
+    onEpochApplied: suspend (RekeyNotice, EpochKeys) -> Unit = { _, _ -> },
+    epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
+    onEpochBlocked: () -> Unit = {},
+    onEpochReady: (EpochKeys) -> Unit = {},
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -70,4 +80,11 @@ fun TestScope.session(
     policy = policy,
     proof = proof,
     authority = authority,
+    initialEpoch = initialEpoch,
+    epochSettleMs = epochSettleMs,
+    epochGate = epochGate,
+    onEpochApplied = onEpochApplied,
+    epochResponder = epochResponder,
+    onEpochBlocked = onEpochBlocked,
+    onEpochReady = onEpochReady,
 )

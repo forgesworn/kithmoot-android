@@ -32,11 +32,17 @@ class FakeRelay {
 
     /** Whether the relay confirms a durable publication. */
     var confirmsPublications: Boolean = true
+    var publicationBlocked: Boolean = false
+        private set
+    val transitionCalls = mutableListOf<String>()
 
     private val subscriptions = mutableListOf<Subscription>()
 
     fun transport(): RoomTransport = object : RoomTransport {
-        override fun publish(event: NostrEvent) = this@FakeRelay.publish(event)
+        override fun publish(event: NostrEvent) {
+            check(!publicationBlocked) { "Room publication is blocked during a secure update" }
+            this@FakeRelay.publish(event)
+        }
 
         override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
             if (confirmsPublications) this@FakeRelay.publish(event)
@@ -48,6 +54,27 @@ class FakeRelay {
             return subscription.events
                 .onSubscription { subscriptions += subscription }
                 .onCompletion { subscriptions -= subscription }
+        }
+
+        override suspend fun beginRekey() {
+            publicationBlocked = true
+            transitionCalls += "begin"
+        }
+
+        override suspend fun rekey(roomKey: ByteArray) {
+            check(publicationBlocked && roomKey.size == 32)
+            transitionCalls += "rekey"
+        }
+
+        override fun completeRekey() {
+            check(publicationBlocked)
+            transitionCalls += "complete"
+            publicationBlocked = false
+        }
+
+        override fun publishRecovery(event: NostrEvent) {
+            require(event.kind in setOf(1462, 20_468, 20_469))
+            this@FakeRelay.publish(event)
         }
     }
 

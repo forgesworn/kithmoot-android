@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -86,6 +87,10 @@ fun RoomScreen(
     work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
     onStartPrivateConversation: (String) -> Unit = {},
+    onRefreshCadence: () -> Unit = {},
+    onStartCadence: () -> Unit = {},
+    onStopCadence: () -> Unit = {},
+    onRetryRoomUpdate: () -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -125,6 +130,7 @@ fun RoomScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header(state, onLeave)
+        state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
         TabRow(selectedTabIndex = if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = !callOpen && !workOpen, onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -134,6 +140,11 @@ fun RoomScreen(
             Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
             })
+        }
+        if (state.movedOn != null) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                RoomUpdatePanel(state.roomUpdate, state.notice, onRetryRoomUpdate)
+            }
         }
 
         if (workOpen) {
@@ -145,7 +156,7 @@ fun RoomScreen(
                 if (state.privateConversation) {
                     Text("Two-person room", Modifier.padding(horizontal = 12.dp, vertical = 14.dp), style = MaterialTheme.typography.labelMedium)
                 } else {
-                    TextButton(onClick = { inviteOpen = true }, enabled = state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
+                    TextButton(onClick = { inviteOpen = true }, enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
                 }
                 TextButton(onClick = onOpenCards) { Text("People") }
                 TextButton(onClick = onAddDevice, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
@@ -190,11 +201,6 @@ fun RoomScreen(
                             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
                         )
                     }
-                    if (state.movedOn != null) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            MovedOnPanel()
-                        }
-                    }
                     if (state.mediaFault != null) {
                         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             FaultPanel(state.mediaFault)
@@ -203,20 +209,61 @@ fun RoomScreen(
                 }
             }
 
-            Controls(
-                state = state,
-                onToggleMic = onToggleMic,
-                onToggleAgentsMayHear = onToggleAgentsMayHear,
-                onToggleCamera = onToggleCamera,
-                onSwitchCamera = onSwitchCamera,
-                onToggleScreenShare = onToggleScreenShare,
-                onOpenChat = { callOpen = false },
-                onAddDevice = onAddDevice,
-                onOpenCards = onOpenCards,
-            )
+            if (state.movedOn == null) {
+                Controls(
+                    state = state,
+                    onToggleMic = onToggleMic,
+                    onToggleAgentsMayHear = onToggleAgentsMayHear,
+                    onToggleCamera = onToggleCamera,
+                    onSwitchCamera = onSwitchCamera,
+                    onToggleScreenShare = onToggleScreenShare,
+                    onOpenChat = { callOpen = false },
+                    onAddDevice = onAddDevice,
+                    onOpenCards = onOpenCards,
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun CadencePanel(
+    cadence: dev.forgesworn.kithmoot.ui.CadenceViewState,
+    onRefresh: () -> Unit,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Quiet schedule · ${cadence.state}", style = MaterialTheme.typography.titleSmall)
+                Text(cadence.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (cadence.startEpoch != null && cadence.endEpoch != null) {
+                    Text(
+                        "${cadenceTime(cadence.startEpoch)} to ${cadenceTime(cadence.endEpoch)} · ${cadence.queueCount} queued · ${cadence.sentCount} sent · ${cadence.failedCount} failed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            when (cadence.state) {
+                "off" -> TextButton(onClick = onStart, enabled = cadence.eligible && !cadence.busy) { Text("Schedule") }
+                "staged", "active" -> TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                else -> TextButton(onClick = onRefresh, enabled = cadence.eligible && !cadence.busy) { Text("Retry") }
+            }
+        }
+        if (cadence.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
+}
+
+private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeInstance(
+    java.text.DateFormat.SHORT,
+    java.text.DateFormat.SHORT,
+).format(java.util.Date(Math.multiplyExact(epoch, 3_600_000L)))
 
 @Composable
 private fun Header(state: RoomState, onLeave: () -> Unit) {
@@ -365,17 +412,23 @@ private fun FaultPanel(message: String) {
     }
 }
 
-/**
- * The room has moved on without this client.
- *
- * Somebody was removed, so the room is now published under a key this client
- * has not got and cannot yet apply. Everything simply stops: no roster, no
- * chat, no error - which is why this panel exists. It says what happened and
- * what to do about it rather than leaving a person to conclude the app is
- * broken.
- */
+/** A visible, retryable or terminal state while ordinary room traffic is blocked. */
 @Composable
-private fun MovedOnPanel() {
+private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
+    val title = when (state) {
+        "removed" -> "You were removed from this room"
+        "closed" -> "This room was closed"
+        "updating" -> "Updating this secure room"
+        "recovery" -> "Room update needs attention"
+        else -> "This room has moved on"
+    }
+    val message = detail ?: when (state) {
+        "removed" -> "This device was not given the successor key and cannot rejoin or publish."
+        "closed" -> "The authority ended this room. This device will not rejoin or publish."
+        "updating" -> "Nothing will be sent under the previous room key while Bothy retires its old schedule."
+        "recovery" -> "Nothing will be sent under the previous room key. Retry when the authority and Bothy are reachable."
+        else -> "The room changed its key and this device cannot safely continue."
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,18 +437,20 @@ private fun MovedOnPanel() {
             .padding(20.dp),
     ) {
         Text(
-            text = "This room has moved on",
+            text = title,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "Somebody was removed, so the room changed its key. This app cannot " +
-                "follow that yet, so you will hear nothing further here. Ask for a fresh " +
-                "link and join again.",
+            text = message,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
+        if (state == "updating" || state == "recovery") {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onRetry) { Text("Retry secure update") }
+        }
     }
 }
 

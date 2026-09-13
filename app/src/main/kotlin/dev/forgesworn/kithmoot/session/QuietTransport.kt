@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.DeadDrop
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.QuietKeys
@@ -57,12 +59,18 @@ class QuietTransport(
     restore: QuietState? = null,
     /** Called whenever a counter is spent or the queue changes, with what to keep. */
     private val onState: (QuietState) -> Unit = {},
+    /** Old-key inner events returned to the conversation when an epoch retires. */
+    private val onRekeyed: (List<NostrEvent>) -> Unit = {},
     /** Start the slot timer. Tests drive [tick] by hand. */
     ticking: Boolean = true,
     /** Where inside each slot this device posts, in seconds from the slot's
      *  start. Drawn fresh per slot by default so posting times carry no fixed
      *  phase a relay could link across circuits. Tests pass `{ 0 }`. */
     private val slotOffset: ((Long) -> Long)? = null,
+    /** Counters delegated durably to a box. A complete device range means the
+     * box owns this phone's cadence for that epoch, so the phone emits no
+     * competing filler or real wrap. */
+    private val reservedCounters: (Long) -> Set<Int> = { emptySet() },
 ) : RoomTransport {
 
     companion object {
@@ -73,6 +81,7 @@ class QuietTransport(
         const val MAX_PENDING: Int = 256
         const val CANNOT_SEND: String = "This device cannot post in a quiet room. Two devices per person can: the one holding your identity and the one it paired. Others read."
         const val TOO_LONG: String = "This message is too long for a quiet room. Every message in a quiet room is padded to one size, and this one does not fit."
+        private val EVENT_ID = Regex("[0-9a-f]{64}")
         const val MEANING: String = "Quiet room. Messages ride the gift-wrap stream as dead drops, one every five minutes at most, and a relay cannot tell whether anything was said, by whom, or when. Being here still shows while you are here, and calls are not quiet."
 
         fun counterRange(slot: Int): IntRange? {
@@ -80,18 +89,30 @@ class QuietTransport(
             val width = DeadDrop.MAX_PER_EPOCH_ROOM / DEVICE_SLOTS
             return (slot * width) until ((slot + 1) * width)
         }
+
+        fun fingerprintFor(roomKey: ByteArray): String {
+            require(roomKey.size == 32)
+            return Digests.sha256(roomKey).toHex()
+        }
     }
 
     /** What survives a restart. */
-    class QuietState(val used: Map<String, QuietKeys.UsedCounters>, val queued: List<NostrEvent>)
+    class QuietState(
+        val used: Map<String, QuietKeys.UsedCounters>,
+        val queued: List<NostrEvent>,
+        val boxPending: Set<String> = emptySet(),
+        val keyFingerprint: String? = null,
+    )
 
     private val member = member.lowercase()
+    private val members = members.map(String::lowercase).distinct()
     private val range = counterRange(slot)
     val canSend: Boolean = range != null && members.any { it.equals(member, ignoreCase = true) }
 
     private val keys = QuietKeys(lookbackEpochs = ((lookbackSeconds + DeadDrop.EPOCH_SECONDS - 1) / DeadDrop.EPOCH_SECONDS).toInt())
     private val lock = Mutex()
     private val queue = ArrayDeque<NostrEvent>()
+    private val boxPending = mutableSetOf<String>()
     private var current: Triple<Long, NostrEvent, NostrEvent?>? = null
     private var lastSlot = -1L
     private var offsetSlot = -1L
@@ -100,15 +121,24 @@ class QuietTransport(
     private val opened = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 512)
     private var broadcast: Job? = null
     private var timer: Job? = null
-    private val ikm = DeadDrop.roomIkm(roomKey)
+    @Volatile private var publicationBlocked = false
+    @Volatile private var keyFingerprint = fingerprintFor(roomKey)
 
     init {
         require(intervalSeconds > 0) { "intervalSeconds must be positive" }
-        keys.set(ikm, members)
+        keys.set(DeadDrop.roomIkm(roomKey), this.members)
         keys.refresh(now())
         if (restore != null) {
+            require(restore.keyFingerprint == null || restore.keyFingerprint == keyFingerprint) {
+                "quiet state belongs to an earlier room epoch"
+            }
             keys.importUsed(restore.used, now())
             for (e in restore.queued) if (e.kind in quietKinds && queue.size < MAX_PENDING) queue.addLast(e)
+            val retainedIds = queue.mapTo(mutableSetOf()) { it.id }
+            require(restore.boxPending.size <= MAX_PENDING && restore.boxPending.all { EVENT_ID.matches(it) && it in retainedIds }) {
+                "invalid box-pending quiet queue"
+            }
+            boxPending += restore.boxPending
         }
         if (ticking) timer = scope.launch {
             var first = true
@@ -132,7 +162,22 @@ class QuietTransport(
         }
     }
 
-    val pending: Int get() = queue.size
+    val pending: Int get() = synchronized(queue) { queue.size }
+
+    /** Exact inner events retained on this device until their delegated box
+     * queue receipt has also been saved. */
+    fun queuedEvents(): List<NostrEvent> = synchronized(queue) { queue.toList() }
+
+    /** Remove a box-confirmed inner event only after the smaller durable state
+     * has been written. A failed write leaves the event available for retry. */
+    fun confirmQueued(eventId: String): Boolean = synchronized(queue) {
+        if (queue.none { it.id == eventId }) return@synchronized false
+        val retained = queue.filterNot { it.id == eventId }
+        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId, keyFingerprint))
+        queue.removeAll { it.id == eventId }
+        boxPending.remove(eventId)
+        true
+    }
 
     fun stop() {
         timer?.cancel(); timer = null
@@ -142,23 +187,81 @@ class QuietTransport(
     override fun describe(): List<String> = inner.describe()
     override fun circleRelays(): Set<String> = inner.circleRelays()
 
+    override suspend fun beginRekey() {
+        publicationBlocked = true
+        inner.beginRekey()
+        lock.withLock { /* wait for an in-flight slot to finish or fail */ }
+    }
+
+    override suspend fun rekey(roomKey: ByteArray) {
+        require(roomKey.size == 32) { "room key must be 32 bytes" }
+        check(publicationBlocked) { "room publication must be blocked before rekey" }
+        val nextFingerprint = fingerprintFor(roomKey)
+        val rejected = lock.withLock {
+            synchronized(queue) {
+                val old = queue.toList()
+                onState(QuietState(emptyMap(), emptyList(), emptySet(), nextFingerprint))
+                queue.clear()
+                boxPending.clear()
+                current = null
+                keys.set(DeadDrop.roomIkm(roomKey), members)
+                keyFingerprint = nextFingerprint
+                old
+            }
+        }
+        inner.rekey(roomKey)
+        if (rejected.isNotEmpty()) onRekeyed(rejected)
+    }
+
+    override fun completeRekey() {
+        check(publicationBlocked) { "room rekey is not in progress" }
+        inner.completeRekey()
+        publicationBlocked = false
+    }
+    override fun publishRecovery(event: NostrEvent) = inner.publishRecovery(event)
+
     /**
      * A quiet kind is queued for the next slot; an event too large for the
      * bucket is refused here, to the caller, not discovered at its slot.
      * Anything else goes straight to the relays.
      */
-    override fun publish(event: NostrEvent) {
+    override fun publish(event: NostrEvent) = retain(event, forBox = false)
+
+    /** Retain a delegated event across process death and keep the phone timer
+     * from taking it after the lease boundary while its box receipt is unknown. */
+    fun retainForBox(event: NostrEvent) = retain(event, forBox = true)
+
+    private fun retain(event: NostrEvent, forBox: Boolean) {
+        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
         synchronized(queue) {
-            check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            if (queue.none { it.id == event.id }) queue.addLast(event)
+            val added = queue.none { it.id == event.id }
+            if (added) check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
+            val marked = forBox && event.id !in boxPending
+            if (added) queue.addLast(event)
+            if (marked) boxPending += event.id
+            if (added || marked) {
+                try {
+                    onState(QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint))
+                } catch (error: Exception) {
+                    if (added) queue.removeAll { it.id == event.id }
+                    if (marked) boxPending.remove(event.id)
+                    throw error
+                }
+            }
         }
-        onState(state())
     }
 
-    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList()) }
+    /** A quiet send is confirmed when its exact inner event is durably queued;
+     * relay delivery happens at the fixed slot and survives a restart. */
+    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+        publish(event)
+        return true
+    }
+
+    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint) }
 
     fun exportState(): QuietState = state()
 
@@ -183,12 +286,20 @@ class QuietTransport(
      * burns no counter. Two ticks never overlap.
      */
     suspend fun tick() {
+        if (publicationBlocked) return
         if (!lock.tryLock()) return
         try {
+            if (publicationBlocked) return
             val t = now()
             val slot = slotIndex(t)
             if (slot <= lastSlot) return
             if (t < slot * intervalSeconds + offsetFor(slot)) return
+            val epoch = DeadDrop.epochIndexAt(t)
+            if (range != null && range.all { it in reservedCounters(epoch) }) {
+                lastSlot = slot
+                current = null
+                return
+            }
             val built = current?.takeIf { it.first == slot } ?: buildForSlot(slot).also { current = it }
             val taken = try {
                 if (inner is RelayPool) inner.publishConfirmed(built.second) else { inner.publish(built.second); true }
@@ -207,7 +318,7 @@ class QuietTransport(
         val t = now()
         keys.refresh(t)
         while (true) {
-            val head = synchronized(queue) { queue.firstOrNull() } ?: break
+            val head = synchronized(queue) { queue.firstOrNull()?.takeUnless { it.id in boxPending } } ?: break
             val key = try { keys.sendKey(member, t, range!!) } catch (_: QuietKeys.EpochExhausted) { break }
             try {
                 return Triple(slot, RoomDrops.createRoomDrop(head, key.publicKey, bucket, t, random), head)

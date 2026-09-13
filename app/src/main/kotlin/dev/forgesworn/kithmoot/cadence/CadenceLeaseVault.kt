@@ -27,6 +27,8 @@ enum class CadenceOwnership(val wire: String) {
 data class CadenceLeasePlan(
     val nodeId: String,
     val room: String,
+    val trafficRoom: String,
+    val roomGeneration: Long,
     val device: String,
     val leaseId: String,
     val generation: Long,
@@ -99,8 +101,12 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
     })
 
     private fun validate(plan: CadenceLeasePlan, now: Long) {
-        require(NODE.matches(plan.nodeId) && HEX.matches(plan.room) && HEX.matches(plan.device)) { "invalid cadence lease scope" }
-        require(ID.matches(plan.leaseId) && ID.matches(plan.requestId) && plan.generation > 0) { "invalid cadence lease identity" }
+        require(NODE.matches(plan.nodeId) && HEX.matches(plan.room) && HEX.matches(plan.trafficRoom) && HEX.matches(plan.device)) {
+            "invalid cadence lease scope"
+        }
+        require(ID.matches(plan.leaseId) && ID.matches(plan.requestId) && plan.generation > 0 && plan.roomGeneration > 0) {
+            "invalid cadence lease identity"
+        }
         require(plan.requestBody.toByteArray(Charsets.UTF_8).size <= CADENCE_MAX_BODY_BYTES) { "cadence lease body is too large" }
         require(plan.startEpoch >= 0 && plan.endEpoch > plan.startEpoch && plan.counterLo >= 0 && plan.counterHi > plan.counterLo && plan.counterHi <= 16 && now >= 0) {
             "invalid cadence lease range"
@@ -133,7 +139,8 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
 
     private fun encode(value: StoredCadenceLease): JsonObject = buildJsonObject {
         val p = value.plan
-        put("nodeId", p.nodeId); put("room", p.room); put("device", p.device); put("leaseId", p.leaseId)
+        put("nodeId", p.nodeId); put("room", p.room); put("trafficRoom", p.trafficRoom); put("roomGeneration", p.roomGeneration)
+        put("device", p.device); put("leaseId", p.leaseId)
         put("generation", p.generation); put("requestId", p.requestId); put("requestBody", p.requestBody)
         put("startEpoch", p.startEpoch); put("endEpoch", p.endEpoch); put("counterLo", p.counterLo); put("counterHi", p.counterHi)
         put("ownership", value.ownership.wire); put("updatedAt", value.updatedAt)
@@ -143,7 +150,8 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
     private fun decode(value: JsonObject): StoredCadenceLease {
         require(value.keys == LEASE_FIELDS)
         val plan = CadenceLeasePlan(
-            value.text("nodeId"), value.text("room"), value.text("device"), value.text("leaseId"), value.number("generation"),
+            value.text("nodeId"), value.text("room"), value.text("trafficRoom"), value.number("roomGeneration"),
+            value.text("device"), value.text("leaseId"), value.number("generation"),
             value.text("requestId"), value.text("requestBody"), value.number("startEpoch"), value.number("endEpoch"),
             value.getValue("counterLo").jsonPrimitive.int, value.getValue("counterHi").jsonPrimitive.int,
         )
@@ -174,7 +182,7 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
     }
 
     private fun validateReceipt(value: CadenceReceipt) {
-        require(value.code.isNotEmpty() && value.code.length <= 64 && ID.matches(value.leaseId) && value.generation > 0)
+        require(value.code in setOf("staged", "queued", "status", "withdrawn", "stopping", "rekeyed") && ID.matches(value.leaseId) && value.generation > 0)
         require(value.state in setOf("staged", "active", "cover", "ended"))
         require(value.serverTime >= 0 && value.startEpoch >= 0 && value.endEpoch > value.startEpoch && value.queueCount in 0..256)
         require(value.sentItemIds.size <= 256 && value.failedItemIds.size <= 256)
@@ -201,7 +209,7 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
         val NODE = Regex("[a-z2-7]{52}")
         val HEX = Regex("[0-9a-f]{64}")
         val ID = Regex("[0-9a-f]{32}")
-        val LEASE_FIELDS = setOf("nodeId", "room", "device", "leaseId", "generation", "requestId", "requestBody", "startEpoch", "endEpoch", "counterLo", "counterHi", "ownership", "updatedAt", "receipt")
+        val LEASE_FIELDS = setOf("nodeId", "room", "trafficRoom", "roomGeneration", "device", "leaseId", "generation", "requestId", "requestBody", "startEpoch", "endEpoch", "counterLo", "counterHi", "ownership", "updatedAt", "receipt")
         val RECEIPT_FIELDS = setOf("code", "leaseId", "generation", "state", "serverTime", "startEpoch", "endEpoch", "queueCount", "sentItemIds", "failedItemIds")
     }
 }

@@ -174,4 +174,99 @@ class QuietTransportTest {
         assertEquals(0, a.pending)
         a.stop()
     }
+
+    @Test
+    fun `confirmed quiet send means its exact inner event was durably queued`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        var storageLocked = false
+        val a = quiet(relay, ada, onState = { if (storageLocked) error("storage locked") else states += it })
+        val message = chat(ada, "kept before the slot")
+        assertTrue(a.publishConfirmed(message))
+        assertEquals(listOf(message.id), states.single().queued.map { it.id })
+        assertEquals(listOf(message.id), a.queuedEvents().map { it.id })
+        storageLocked = true
+        assertFailsWith<IllegalStateException> { a.confirmQueued(message.id) }
+        assertEquals(1, a.pending)
+        storageLocked = false
+        assertTrue(a.confirmQueued(message.id))
+        assertEquals(emptyList<String>(), states.last().queued.map { it.id })
+        assertEquals(0, a.pending)
+        val refusing = quiet(relay, ada, onState = { error("storage locked") })
+        assertFailsWith<IllegalStateException> { refusing.publishConfirmed(chat(ada, "not kept")) }
+        assertEquals(0, refusing.pending)
+        a.stop(); refusing.stop()
+    }
+
+    @Test
+    fun `a box pending message never returns to the phone timer before its receipt is durable`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        var storageLocked = false
+        val a = quiet(relay, ada, onState = { if (storageLocked) error("storage locked") else states += it })
+        val message = chat(ada, "waiting for Bothy's receipt")
+
+        a.retainForBox(message)
+        assertEquals(setOf(message.id), states.single().boxPending)
+        a.tick(); runCurrent()
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(1, a.pending)
+
+        storageLocked = true
+        assertFailsWith<IllegalStateException> { a.confirmQueued(message.id) }
+        assertEquals(setOf(message.id), a.exportState().boxPending)
+        storageLocked = false
+        assertTrue(a.confirmQueued(message.id))
+        assertEquals(emptySet(), states.last().boxPending)
+        assertEquals(0, a.pending)
+        a.stop()
+    }
+
+    @Test
+    fun `rekey rejects every old quiet event and starts the successor with empty counters`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        val rejected = mutableListOf<NostrEvent>()
+        val a = QuietTransport(
+            relay.transport(), room.roomKey, ada.participant, policy.members!!, 0, backgroundScope,
+            intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            onState = { states += it }, onRekeyed = { rejected += it },
+        )
+        val old = chat(ada, "written before the successor")
+        a.publish(old)
+
+        a.beginRekey()
+        assertFailsWith<IllegalStateException> { a.publish(chat(ada, "blocked")) }
+        a.rekey(ByteArray(32) { 22 })
+        assertEquals(listOf(old.id), rejected.map { it.id })
+        assertEquals(0, a.pending)
+        assertTrue(states.last().used.isEmpty())
+        assertTrue(states.last().queued.isEmpty())
+        assertTrue(states.last().boxPending.isEmpty())
+
+        a.completeRekey()
+        a.publish(chat(ada, "written after the successor"))
+        assertEquals(1, a.pending)
+        a.stop()
+    }
+
+    @Test
+    fun `a box owned epoch suppresses the phones real wrap and filler`() = runTest {
+        val relay = FakeRelay()
+        val delegatedEpoch = dev.forgesworn.kithmoot.protocol.DeadDrop.epochIndexAt(clock)
+        val a = QuietTransport(
+            relay.transport(), room.roomKey, ada.participant, policy.members!!, 0, backgroundScope,
+            intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            reservedCounters = { epoch -> if (epoch == delegatedEpoch) (0 until 8).toSet() else emptySet() },
+        )
+        a.publish(chat(ada, "the box will carry this"))
+        a.tick(); runCurrent()
+        assertEquals(0, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(1, a.pending)
+        clock += 3600
+        a.tick(); runCurrent()
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(0, a.pending)
+        a.stop()
+    }
 }
