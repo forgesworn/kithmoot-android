@@ -176,6 +176,20 @@ class QuietTransportTest {
     }
 
     @Test
+    fun `confirmed quiet send means its exact inner event was durably queued`() = runTest {
+        val relay = FakeRelay()
+        val states = mutableListOf<QuietTransport.QuietState>()
+        val a = quiet(relay, ada, onState = { states += it })
+        val message = chat(ada, "kept before the slot")
+        assertTrue(a.publishConfirmed(message))
+        assertEquals(listOf(message.id), states.single().queued.map { it.id })
+        val refusing = quiet(relay, ada, onState = { error("storage locked") })
+        assertFailsWith<IllegalStateException> { refusing.publishConfirmed(chat(ada, "not kept")) }
+        assertEquals(0, refusing.pending)
+        a.stop(); refusing.stop()
+    }
+
+    @Test
     fun `a box owned epoch suppresses the phones real wrap and filler`() = runTest {
         val relay = FakeRelay()
         val delegatedEpoch = dev.forgesworn.kithmoot.protocol.DeadDrop.epochIndexAt(clock)

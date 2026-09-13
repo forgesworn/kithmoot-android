@@ -136,7 +136,7 @@ class QuietTransport(
         }
     }
 
-    val pending: Int get() = queue.size
+    val pending: Int get() = synchronized(queue) { queue.size }
 
     fun stop() {
         timer?.cancel(); timer = null
@@ -155,11 +155,24 @@ class QuietTransport(
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
+        var added = false
         synchronized(queue) {
             check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            if (queue.none { it.id == event.id }) queue.addLast(event)
+            if (queue.none { it.id == event.id }) { queue.addLast(event); added = true }
         }
-        onState(state())
+        if (added) try {
+            onState(state())
+        } catch (error: Exception) {
+            synchronized(queue) { queue.removeAll { it.id == event.id } }
+            throw error
+        }
+    }
+
+    /** A quiet send is confirmed when its exact inner event is durably queued;
+     * relay delivery happens at the fixed slot and survives a restart. */
+    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+        publish(event)
+        return true
     }
 
     private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList()) }

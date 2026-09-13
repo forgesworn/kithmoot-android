@@ -3,6 +3,17 @@
 The public APK channel is a debug-signed preview. Release signing support alone
 does not promote it to a production release.
 
+## 0.5.13 quiet cadence integration candidate
+
+Version code 21 lets a persistent quiet room connected to Bothy schedule a
+bounded cadence hand-off of up to twelve hours for this device. An exact lease
+request survives a lost reply, delegated counters remain unavailable to the
+phone, and stop preserves cover through the original end epoch. The room shows
+the acknowledged schedule and Bothy's queue outcome counts. See
+[the quiet cadence guide](quiet-cadence.md)
+for the ownership model, test evidence and remaining live and physical-device
+gates.
+
 ## 0.5.12 paired Bothy preview candidate
 
 Version code 20 lets a signed-in participant move a private conversation onto

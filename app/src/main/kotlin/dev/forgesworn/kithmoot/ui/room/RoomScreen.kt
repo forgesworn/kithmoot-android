@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -86,6 +87,9 @@ fun RoomScreen(
     work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
     onStartPrivateConversation: (String) -> Unit = {},
+    onRefreshCadence: () -> Unit = {},
+    onStartCadence: () -> Unit = {},
+    onStopCadence: () -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -125,6 +129,7 @@ fun RoomScreen(
             .background(MaterialTheme.colorScheme.background),
     ) {
         Header(state, onLeave)
+        state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
         TabRow(selectedTabIndex = if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = !callOpen && !workOpen, onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -217,6 +222,45 @@ fun RoomScreen(
         }
     }
 }
+
+@Composable
+private fun CadencePanel(
+    cadence: dev.forgesworn.kithmoot.ui.CadenceViewState,
+    onRefresh: () -> Unit,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Quiet schedule · ${cadence.state}", style = MaterialTheme.typography.titleSmall)
+                Text(cadence.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (cadence.startEpoch != null && cadence.endEpoch != null) {
+                    Text(
+                        "${cadenceTime(cadence.startEpoch)} to ${cadenceTime(cadence.endEpoch)} · ${cadence.queueCount} queued · ${cadence.sentCount} sent · ${cadence.failedCount} failed",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            when (cadence.state) {
+                "off" -> TextButton(onClick = onStart, enabled = cadence.eligible && !cadence.busy) { Text("Schedule") }
+                "staged", "active" -> TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                else -> TextButton(onClick = onRefresh, enabled = cadence.eligible && !cadence.busy) { Text("Retry") }
+            }
+        }
+        if (cadence.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
+}
+
+private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeInstance(
+    java.text.DateFormat.SHORT,
+    java.text.DateFormat.SHORT,
+).format(java.util.Date(Math.multiplyExact(epoch, 3_600_000L)))
 
 @Composable
 private fun Header(state: RoomState, onLeave: () -> Unit) {
