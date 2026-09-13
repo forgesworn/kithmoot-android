@@ -1,6 +1,5 @@
 package dev.forgesworn.kithmoot.account
 
-import dev.forgesworn.kithmoot.crypto.toHex
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -24,12 +23,5 @@ class Bech32Test {
         assertNull(publicKeyFrom(npub.dropLast(1) + "q"))
         assertNull(publicKeyFrom("nsec1" + npub.drop(5)))
         assertNull(publicKeyFrom("not a key"))
-    }
-
-    @Test fun `nsec round trips`() {
-        val key = ByteArray(32) { (it * 7 + 1).toByte() }
-        val nsec = Bech32.encode("nsec", key)
-        assertEquals(key.toHex(), secretKeyFrom(nsec)!!.toHex())
-        assertNull(secretKeyFrom(npub))
     }
 }

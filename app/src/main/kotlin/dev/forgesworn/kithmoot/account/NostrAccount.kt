@@ -116,7 +116,7 @@ private class ConnectingSigner(private val inner: BunkerSigner, private val conn
     override suspend fun nip44Decrypt(peer: String, payload: String): String { ready(); return inner.nip44Decrypt(peer, payload) }
 }
 
-/** Brings a saved account's signer back. Pure for a pasted key, an intent away for a signer app, a relay away for a bunker. */
+/** Brings a saved account's signer back through a signer app, a bunker, or a debug-preview legacy record. */
 fun openAccount(
     account: NostrAccount,
     context: android.content.Context,
@@ -124,7 +124,12 @@ fun openAccount(
     scope: kotlinx.coroutines.CoroutineScope,
 ): AccountSession {
     val signer: ParticipantSigner = when (account.method) {
-        "local" -> LocalSigner(requireNotNull(account.secretKey))
+        "local" -> {
+            if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                throw SignerException("This account came from a debug preview's local-key option. Sign in again with a signer app or bunker.")
+            }
+            LocalSigner(requireNotNull(account.secretKey))
+        }
         "nip55" -> Nip55Signer(account.pubkey, requireNotNull(account.signerPackage), context, bridge)
         "bunker" -> {
             val pointer = BunkerPointer.parse(requireNotNull(account.bunkerUri)) ?: throw SignerException("The saved bunker link is not readable.")

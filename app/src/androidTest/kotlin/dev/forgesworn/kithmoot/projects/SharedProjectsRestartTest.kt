@@ -39,7 +39,7 @@ class SharedProjectsRestartTest {
         resetProjectTestVault(app, LocalSigner(ByteArray(32) { 6 }))
         activity.scenario.onActivity {
             model.onRelaysChanged(relay.url)
-            model.signInWithSecretKey("06".repeat(32))
+            model.installLocalTestAccount(ByteArray(32) { 6 })
         }
         ui.await("synthetic account ready") { model.start.value.account?.pubkey == LocalSigner(ByteArray(32) { 6 }).pubkey && model.start.value.projects.ready }
         ui.click("Projects tab"); ui.click("New project"); ui.replace("Project name", "Resume project")
