@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.ui.qr.QrCode
 
 /**
  * The pairing link, and the one sentence that has to land.
@@ -92,6 +93,19 @@ fun AddDeviceSheet(
                 "of your devices. The room sees one of you either way.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
+        )
+
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = "Scan this on your other KithMoot device",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(12.dp))
+        QrCode(
+            text = link,
+            contentDescription = "Device pairing QR code",
+            modifier = Modifier.align(Alignment.CenterHorizontally),
         )
 
         Spacer(Modifier.height(20.dp))
