@@ -149,7 +149,20 @@ Supply these values from the host's private credential store:
 | `KITHMOOT_LINEAGE` | New output path outside the checkout, ending in `.lineage` |
 | `ANDROID_HOME` | Android SDK path |
 
-Then run:
+For the recovered KithMoot preview signer, use the one-command local ceremony:
+
+```sh
+bash scripts/create-kithmoot-production-lineage.sh \
+  /absolute/private/path/kithmoot-preview-debug.keystore \
+  /absolute/private/path/kithmoot-production.p12 \
+  /absolute/private/path/kithmoot-preview-to-production.lineage
+```
+
+It prompts for the preview and production passwords directly in the terminal,
+keeps them off the command line and writes only the lineage output. It pins the
+published 0.5.12 preview certificate and the fixed `androiddebugkey` and
+`kithmoot-production` aliases. For a different reviewed preview signer, supply
+the variables below and run the lower-level command instead:
 
 ```sh
 bash scripts/create-signing-lineage.sh
