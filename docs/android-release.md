@@ -184,9 +184,10 @@ bash scripts/build-kithmoot-production-release.sh \
   /absolute/private/path/kithmoot-preview-to-production.lineage
 ```
 
-It prompts for the production password without placing it in shell history,
-derives and checks the public certificate and lineage hashes, then invokes the
-reviewed builder below. For a different reviewed production signer, keep the
+It downloads and verifies the pinned Link bridge, then prompts for the
+production password without placing it in shell history, derives and checks
+the public certificate and lineage hashes, then invokes the reviewed builder
+below. For a different reviewed production signer, keep the
 production variables above, add the independently recorded
 `KITHMOOT_LINEAGE_SHA256`, and run the lower-level command instead:
 

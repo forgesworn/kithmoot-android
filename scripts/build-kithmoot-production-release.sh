@@ -16,11 +16,19 @@ EOF
 
 [[ $# -eq 2 ]] || usage
 [[ -t 0 && -t 1 ]] || { echo "This build requires an interactive terminal" >&2; exit 2; }
+repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repository"
 keystore="$1"; lineage="$2"
 for path in "$keystore" "$lineage"; do
   [[ "$path" == /* ]] || { echo "Both paths must be absolute" >&2; exit 2; }
   [[ -f "$path" && ! -L "$path" ]] || { echo "Input is not a regular file: $path" >&2; exit 2; }
 done
+
+# This is a generated build input, never a repository source file.  The
+# preparation script pins and verifies the artifact before atomically replacing
+# the generated directory.
+scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
 printf 'Production keystore password: '
 IFS= read -r -s production_password
