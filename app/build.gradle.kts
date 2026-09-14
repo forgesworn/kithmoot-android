@@ -142,6 +142,9 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.mlkit.barcode.scanning)
+    // This is the matching local encoder for capability QR codes. It does not
+    // use a camera, a network service, or a Google service.
+    implementation(libs.zxing.core)
 
     // UniFFI's generated Link Kotlin bindings load liblink_ffi through JNA.
     implementation("net.java.dev.jna:jna:5.14.0@aar")

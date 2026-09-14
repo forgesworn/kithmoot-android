@@ -68,6 +68,7 @@ fun StartScreen(
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     var scanningPairingCode by remember { mutableStateOf(false) }
+    var scanningInvitation by remember { mutableStateOf(false) }
     var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
@@ -278,6 +279,12 @@ fun StartScreen(
                         label = { Text("Invitation link") }, maxLines = 3,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = { if (enabled) onJoin() }))
+                    OutlinedButton(
+                        onClick = { scanningInvitation = true },
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .semantics { contentDescription = "Scan KithMoot invitation QR" },
+                    ) { Text("Scan invitation QR") }
                     OutlinedButton(onJoin, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Join room") }
                     Text("Only share invitations with people you want in the room. Your camera and microphone start off.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -310,6 +317,23 @@ fun StartScreen(
 
     if (siteShown) {
         SiteAddressDialog(state.webAppAddress, onWebAppAddressChanged, onDismiss = { siteShown = false })
+    }
+
+    if (scanningInvitation) {
+        Dialog(onDismissRequest = { scanningInvitation = false }) {
+            Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Scan invitation QR", style = MaterialTheme.typography.titleLarge)
+                    Text("Point at a KithMoot room invitation. Check it, then choose Join room yourself.")
+                    QrScanner(
+                        accept = ::looksLikeKithMootInvitation,
+                        onDecoded = { onJoinUrlChanged(it); scanningInvitation = false },
+                        prompt = "KithMoot needs the camera to scan an invitation QR.",
+                    )
+                    TextButton({ scanningInvitation = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
+                }
+            }
+        }
     }
 
     if (relaysShown) {
@@ -362,4 +386,12 @@ fun StartScreen(
             confirmButton = { TextButton({ resetting = false; onResetStorage() }) { Text("Delete saved rooms") } },
             dismissButton = { TextButton({ resetting = false }) { Text("Keep saved data") } })
     }
+}
+
+/** Keeps camera input narrow; the existing join action still parses the full link. */
+private fun looksLikeKithMootInvitation(value: String): Boolean {
+    val text = value.trim()
+    if (text.length !in 1..8192) return false
+    return text.startsWith("kithmoot:", ignoreCase = true) ||
+        Regex("^https://[^/?#]+/j(?:/|[?#])", RegexOption.IGNORE_CASE).containsMatchIn(text)
 }
