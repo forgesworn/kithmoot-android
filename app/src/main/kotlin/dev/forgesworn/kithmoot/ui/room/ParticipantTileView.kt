@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -52,6 +53,11 @@ fun ParticipantTileView(
     eglBase: EglBase?,
     modifier: Modifier = Modifier,
     onExpandScreen: (TileTrack) -> Unit = {},
+    /** This share's fading drawing, keyed by the advertised share track id -
+     *  see ui/RoomViewModel.kt `RoomState.shareMarks`. Painted over the
+     *  matching screen pane below, including this device's own share
+     *  preview when `tile.isSelf` and somebody else has drawn on it. */
+    shareMarks: Map<String, List<LiveMark>> = emptyMap(),
 ) {
     val speaking = tile.hasMic
     Card(
@@ -98,6 +104,10 @@ fun ParticipantTileView(
                                 fill = meta.role != Roles.SCREEN,
                             )
                             if (meta.role == Roles.SCREEN) {
+                                ShareMarksOverlay(
+                                    marks = shareMarks[meta.trackId] ?: emptyList(),
+                                    modifier = Modifier.fillMaxSize(),
+                                )
                                 androidx.compose.material3.TextButton(onClick = { onExpandScreen(meta) }, modifier = Modifier.align(Alignment.TopStart).background(MaterialTheme.colorScheme.surface)) {
                                     Text("Expand screen share")
                                 }
@@ -133,6 +143,13 @@ fun ParticipantTileView(
                     Chip(
                         icon = Icons.AutoMirrored.Filled.ScreenShare,
                         label = "Sharing",
+                        tone = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (tile.hasScreenAudio) {
+                    Chip(
+                        icon = Icons.AutoMirrored.Filled.VolumeUp,
+                        label = "Sound",
                         tone = MaterialTheme.colorScheme.tertiary,
                     )
                 }

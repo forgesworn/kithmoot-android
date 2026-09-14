@@ -18,6 +18,18 @@ object Roles {
     const val SCREEN: String = "screen"
 
     /**
+     * A screen share's own sound, as a separate track from the picture.
+     *
+     * Matches the web client's `TrackRole` (`src/types.ts`). Heard exactly
+     * like a microphone once negotiated - see `shouldPlayRemoteAudio` in
+     * `media/WebRtcEngine.kt`, which does not distinguish audio roles at
+     * all - and never rendered as a video pane (it is audio-only), so it is
+     * deliberately absent from the `CAMERA`/`SCREEN` filter tiles build
+     * their video panes from.
+     */
+    const val SCREEN_AUDIO: String = "screen-audio"
+
+    /**
      * The roles that at most one of a person's devices may hold.
      *
      * Both are physical facts rather than policy. Two live microphones in the

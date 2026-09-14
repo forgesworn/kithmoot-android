@@ -149,6 +149,26 @@ class TilesTest {
     }
 
     @Test
+    fun `a screen share's own sound is flagged on the tile but never rendered as a pane`() {
+        val alice = tiles(
+            listOf(
+                entry("alice", "laptop", listOf(TrackRef("scr", Roles.SCREEN), TrackRef("scr-a", Roles.SCREEN_AUDIO))),
+            ),
+        ).single()
+
+        assertTrue(alice.hasScreenAudio)
+        assertEquals(1, alice.videos.size)
+        assertEquals(Roles.SCREEN, alice.videos.single().role)
+    }
+
+    @Test
+    fun `no screen-audio track means no flag`() {
+        val alice = tiles(listOf(entry("alice", "laptop", listOf(TrackRef("scr", Roles.SCREEN))))).single()
+
+        assertFalse(alice.hasScreenAudio)
+    }
+
+    @Test
     fun `a shortened key shows both ends`() {
         val key = "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
 
