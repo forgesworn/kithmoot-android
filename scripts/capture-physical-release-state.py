@@ -175,8 +175,8 @@ def validate_channel(
     if lineage is None or production_cert is None:
         raise RuntimeError("production capture requires --lineage and --production-cert-sha256")
     expected = {
-        "versionCode": 23,
-        "versionName": "0.6.0",
+        "versionCode": 24,
+        "versionName": "0.6.1",
         "minSdk": 33,
         "targetSdk": 35,
         "debuggable": False,
