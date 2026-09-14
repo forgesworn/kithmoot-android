@@ -213,6 +213,7 @@ fun RoomScreen(
                             videoFor = { track -> videos["${track.device}|${track.trackId}"] },
                             eglBase = eglBase,
                             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
+                            shareMarks = state.shareMarks,
                             onSetVolume = onSetVolume,
                         )
                     }

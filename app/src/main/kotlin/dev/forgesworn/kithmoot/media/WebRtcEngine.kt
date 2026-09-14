@@ -318,6 +318,30 @@ fun AudioTrack.mute(muted: Boolean) {
     setEnabled(!muted)
 }
 
+/**
+ * Whether one remote device's audio track should be heard on this device
+ * right now.
+ *
+ * Every remote audio track is judged the same way regardless of the role it
+ * was advertised under in the roster: a microphone and a screen share's own
+ * sound (`Roles.SCREEN_AUDIO`) are both just "incoming sound" once
+ * negotiated, and not distinguishing between them here **is** how Android
+ * recognises the `screen-audio` role - the same two rules already silence a
+ * microphone, so they already silence a screen share's audio too.
+ *
+ * - Never one of this participant's own other devices: hearing your own
+ *   microphone, or your own shared tab's sound, played back to you is an
+ *   echo, not another person.
+ * - Only while this local device is the one holding the monitor role
+ *   (`listeningHere`): two of your own devices must not both speak the
+ *   room to you.
+ *
+ * A device that has left the call needs no rule here at all: it is simply
+ * absent from `remoteTracks` once [WebRtcEngine.reconcile] drops it.
+ */
+fun shouldPlayRemoteAudio(device: String, myDevices: Set<String>, listeningHere: Boolean): Boolean =
+    listeningHere && device !in myDevices
+
 /** Convenience for the video path: pause without tearing the capturer down. */
 fun VideoTrack.pause(paused: Boolean) {
     setEnabled(!paused)

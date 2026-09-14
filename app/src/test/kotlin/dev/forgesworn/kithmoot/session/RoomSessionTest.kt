@@ -1,9 +1,11 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.AnnotationPoint
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.MAX_SIGNALS_PER_WINDOW
+import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SIGNAL_MAX_AGE_SECONDS
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
@@ -222,6 +224,113 @@ class RoomSessionTest {
         assertEquals(1, received.size)
         assertEquals(stranger.devicePubkey, received.single().from)
         assertEquals("v=0", received.single().body.sdp)
+    }
+
+    @Test
+    fun `a valid annotation from a device in the roster is delivered, attributed to their participant`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val signals = mutableListOf<UnwrappedSignal>()
+        val marks = mutableListOf<RemoteAnnotation>()
+        backgroundScope.launch { mine.signals.collect { signals += it } }
+        backgroundScope.launch { mine.annotations.collect { marks += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        val stroke = ScreenAnnotation(
+            op = "stroke",
+            shareId = "screen-track",
+            strokeId = "s1",
+            points = listOf(AnnotationPoint(0.1, 0.2), AnnotationPoint(0.8, 0.7)),
+        )
+        theirs.sendSignal(owner.devicePubkey, SignalBody("annotation", room.roomId, annotation = stroke))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(1, marks.size)
+        assertEquals(stranger.participant, marks.single().participant)
+        assertEquals(stranger.devicePubkey, marks.single().device)
+        assertEquals(stroke, marks.single().annotation)
+        // Drawing never falls through to ordinary negotiation traffic.
+        assertTrue(signals.isEmpty())
+    }
+
+    @Test
+    fun `an annotation outside the documented bounds is discarded`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val marks = mutableListOf<RemoteAnnotation>()
+        backgroundScope.launch { mine.annotations.collect { marks += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        // A single-point "stroke" is invalid (2 to 128 points required).
+        val invalid = ScreenAnnotation(
+            op = "stroke",
+            shareId = "screen-track",
+            strokeId = "s1",
+            points = listOf(AnnotationPoint(0.1, 0.2)),
+        )
+        theirs.sendSignal(owner.devicePubkey, SignalBody("annotation", room.roomId, annotation = invalid))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(marks.isEmpty())
+    }
+
+    @Test
+    fun `an annotation from a device that is not in the room is refused`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+
+        val mine = session(room, owner, relay)
+        val marks = mutableListOf<RemoteAnnotation>()
+        backgroundScope.launch { mine.annotations.collect { marks += it } }
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        val outsider = Fixtures.key(90)
+        relay.publish(
+            wrapSignal(
+                body = SignalBody(
+                    "annotation",
+                    room.roomId,
+                    annotation = ScreenAnnotation(
+                        "stroke", "screen-track", "s1",
+                        points = listOf(AnnotationPoint(0.1, 0.2), AnnotationPoint(0.8, 0.7)),
+                    ),
+                ),
+                senderSecretKey = outsider,
+                recipientPubkey = owner.devicePubkey,
+                createdAt = currentTime / 1000,
+            ).wrap,
+        )
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(marks.isEmpty())
     }
 
     @Test

@@ -29,6 +29,10 @@ data class ParticipantTile(
     /** Set when this phone holds a contact card for the person: the name on
      *  it, or an empty string for a card without one. See storage/ContactBook.kt. */
     val cardName: String? = null,
+    /** True when one of this person's devices is carrying their share's own
+     *  sound as a separate track (`Roles.SCREEN_AUDIO`). Audio-only, so it
+     *  never appears in [videos]. */
+    val hasScreenAudio: Boolean = false,
     /** How loud this person is on this device only: 0.0 to 2.0, 1.0 being
      *  untouched. See media/CallVolume.kt. Meaningless for [isSelf]. */
     val callVolume: Float = 1.0f,
@@ -75,6 +79,7 @@ fun buildTiles(
             micDevice = person.micDevice,
             micIsThisDevice = isSelf && person.micDevice == selfDevice,
             cardName = cards[person.participant],
+            hasScreenAudio = person.liveTracks.any { it.role == Roles.SCREEN_AUDIO },
             callVolume = volumes[person.participant] ?: 1.0f,
         )
     }

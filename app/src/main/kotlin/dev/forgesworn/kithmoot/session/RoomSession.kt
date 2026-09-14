@@ -21,6 +21,7 @@ import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.RosterEntry
+import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.SignalGuard
 import dev.forgesworn.kithmoot.protocol.TrackRef
@@ -28,6 +29,7 @@ import dev.forgesworn.kithmoot.protocol.UnwrappedSignal
 import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
+import dev.forgesworn.kithmoot.protocol.isValidScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.unwrapSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.relay.Filter
@@ -88,6 +90,15 @@ data class LocalRoles(
     val micDevice: String? = null,
     val monitorDevice: String? = null,
 )
+
+/**
+ * A screen-share drawing, attributed to the participant it came from -
+ * every device of theirs, and every stroke of theirs however it arrived,
+ * carries the same participant key, so a colour and a name label stay one
+ * person's rather than one wire event's. Mirrors the web client's
+ * `RemoteAnnotation` (`src/mesh.ts`).
+ */
+data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
@@ -245,6 +256,16 @@ class RoomSession(
 
     /** Negotiation traffic, already unwrapped and already checked against the roster. */
     val signals: SharedFlow<UnwrappedSignal> = _signals.asSharedFlow()
+
+    private val _annotations = MutableSharedFlow<RemoteAnnotation>(replay = 0, extraBufferCapacity = 64)
+
+    /**
+     * Temporary screen-share drawing, already unwrapped, checked against the
+     * roster and rate-limited exactly like [signals], and separately
+     * validated against the documented shape - never chat history and never
+     * replayed to a device that was absent. See [onSignalEvent].
+     */
+    val annotations: SharedFlow<RemoteAnnotation> = _annotations.asSharedFlow()
 
     // --- lifecycle -----------------------------------------------------------
 
@@ -573,6 +594,17 @@ class RoomSession(
         // only hears our announce because we answered its own - which means it
         // was already in our roster before it could address us.
         if (sender == null || sender.participant == identity.participant) return
+        if (signal.body.type == "annotation") {
+            // Shape-checked here, after the same roster and rate-limit checks
+            // every other signal passes, and never falls through to ordinary
+            // negotiation: an old reader that does not know this branch
+            // still safely ignores the type in WebRtcEngine.
+            val annotation = signal.body.annotation
+            if (annotation != null && isValidScreenAnnotation(annotation)) {
+                _annotations.tryEmit(RemoteAnnotation(sender.participant, signal.from, annotation))
+            }
+            return
+        }
         _signals.tryEmit(signal)
     }
 

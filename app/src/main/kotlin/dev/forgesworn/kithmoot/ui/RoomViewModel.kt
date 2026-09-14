@@ -85,6 +85,7 @@ import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.SharedPreferencesVolumeStore
 import dev.forgesworn.kithmoot.media.WebRtcEngine
+import dev.forgesworn.kithmoot.media.shouldPlayRemoteAudio
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
 import dev.forgesworn.kithmoot.protocol.InvitationPayload
 import dev.forgesworn.kithmoot.protocol.encodePersistentInvitation
@@ -168,6 +169,10 @@ import dev.forgesworn.kithmoot.session.encodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.encodePairingLink
 import dev.forgesworn.kithmoot.ui.room.ParticipantTile
 import dev.forgesworn.kithmoot.ui.room.buildTiles
+import dev.forgesworn.kithmoot.ui.room.LiveMark
+import dev.forgesworn.kithmoot.ui.room.MarkAuthor
+import dev.forgesworn.kithmoot.ui.room.ShareMarks
+import dev.forgesworn.kithmoot.ui.room.shortId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -285,6 +290,9 @@ data class RoomState(
     val quietCanSend: Boolean = true,
     val cadence: CadenceViewState? = null,
     val tiles: List<ParticipantTile> = emptyList(),
+    /** Fading screen-share drawing, keyed by the advertised share track id
+     *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
+    val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
     /** A two-member room whose invitation must travel sealed through another room. */
     val privateConversation: Boolean = false,
@@ -433,6 +441,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private var session: RoomSession? = null
     private var roomWork: RoomWork? = null
     private var engine: WebRtcEngine? = null
+    /** Screen-share drawing, received over signalling. See session/RoomSession.kt
+     *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
+    private var shareMarks = ShareMarks()
+    private var marksTicker: Job? = null
     private var identity: RoomIdentity? = null
     private var roomSecret: ByteArray? = null
     private var roomInvitation: InvitationPayload? = null
@@ -2136,13 +2148,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     val mine = people.firstOrNull { it.participant == who.participant }
                         ?.devices?.map { it.device }?.toSet() ?: emptySet()
                     val listeningHere = roles.monitorDevice == null || roles.holdsMonitor
+                    // Every remote audio track is judged the same way here
+                    // regardless of its advertised role - a microphone and a
+                    // screen share's own sound are both just "incoming
+                    // sound" once negotiated. See shouldPlayRemoteAudio.
                     // Which participant each device belongs to, so a track
                     // handed over on renegotiation still gets that person's
                     // remembered volume rather than the untouched default.
                     val deviceParticipant = people.flatMap { p -> p.devices.map { it.device to p.participant } }.toMap()
                     remote.mapNotNull { track ->
                         (track.track as? AudioTrack)?.let { audio ->
-                            val play = listeningHere && track.device !in mine
+                            val play = shouldPlayRemoteAudio(track.device, mine, listeningHere)
                             val gain = deviceParticipant[track.device]?.let(callVolume::gainFor) ?: CallVolume.DEFAULT_GAIN
                             Triple(audio, play, gain)
                         }
@@ -2160,6 +2176,38 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     _room.update { it.copy(agentCount = agents.size) }
                     applyAudience(media, agents)
                 }
+            }
+            launch {
+                val annotationScope = this
+                live.annotations.collect { remote ->
+                    val label = live.participants.value
+                        .firstOrNull { it.participant == remote.participant }
+                        ?.devices?.firstNotNullOfOrNull { it.name }
+                        ?: shortId(remote.participant)
+                    shareMarks.remember(remote.annotation, MarkAuthor(remote.participant, label))
+                    pushShareMarks()
+                    ensureMarksTicking(scope = annotationScope)
+                }
+            }
+        }
+    }
+
+    /** Recomputes every share's live marks and publishes them, so a fade in
+     *  progress is visible without waiting for the next stroke to arrive. */
+    private fun pushShareMarks() {
+        val ids = shareMarks.shareIds()
+        _room.update { it.copy(shareMarks = ids.associateWith { id -> shareMarks.alive(id) }) }
+    }
+
+    /** Keeps [pushShareMarks] running while any mark is still fading, and
+     *  stops on its own the moment none are - a fixed timer would either
+     *  tick for ever or need its own separate teardown. */
+    private fun ensureMarksTicking(scope: CoroutineScope) {
+        if (marksTicker?.isActive == true) return
+        marksTicker = scope.launch {
+            while (shareMarks.any()) {
+                delay(100)
+                pushShareMarks()
             }
         }
     }
@@ -2317,6 +2365,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         engine?.stop()
         engine?.dispose()
         engine = null
+        marksTicker?.cancel()
+        marksTicker = null
+        shareMarks = ShareMarks()
         quietTransport?.stop()
         quietTransport = null
         pool?.stop()
