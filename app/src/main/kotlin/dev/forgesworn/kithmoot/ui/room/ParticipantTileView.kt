@@ -25,14 +25,18 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.session.Roles
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
@@ -52,6 +56,7 @@ fun ParticipantTileView(
     eglBase: EglBase?,
     modifier: Modifier = Modifier,
     onExpandScreen: (TileTrack) -> Unit = {},
+    onSetVolume: (String, Float) -> Unit = { _, _ -> },
 ) {
     val speaking = tile.hasMic
     Card(
@@ -155,7 +160,42 @@ fun ParticipantTileView(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (!tile.isSelf) {
+                Spacer(Modifier.height(4.dp))
+                VolumeRow(tile, onSetVolume)
+            }
         }
+    }
+}
+
+/**
+ * How loud this one person is, on this device only - never published, never
+ * seen by anyone else in the room. A level of zero shows the same "silenced
+ * for you" wording the web client uses, so it never reads as if they left.
+ */
+@Composable
+private fun VolumeRow(tile: ParticipantTile, onSetVolume: (String, Float) -> Unit) {
+    val percent = CallVolume.gainToPercent(tile.callVolume)
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (tile.isSilencedForYou) "Silenced for you" else "Volume for you: $percent%",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (tile.isSilencedForYou) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        Slider(
+            value = tile.callVolume,
+            onValueChange = { onSetVolume(tile.participant, it) },
+            valueRange = CallVolume.MIN_GAIN..CallVolume.MAX_GAIN,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "Volume for ${shortId(tile.participant)}, this device only" },
+        )
     }
 }
 

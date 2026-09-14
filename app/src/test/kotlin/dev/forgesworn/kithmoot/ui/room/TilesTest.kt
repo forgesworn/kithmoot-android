@@ -149,6 +149,26 @@ class TilesTest {
     }
 
     @Test
+    fun `a person's remembered call volume lands on their tile, defaulting to untouched`() {
+        val roster = listOf(entry("alice", "laptop"), entry("bob", "b1"))
+
+        val tiles = buildTiles(groupByParticipant(roster), "alice", "laptop", volumes = mapOf("bob" to 0.3f))
+
+        assertEquals(0.3f, tiles.first { it.participant == "bob" }.callVolume)
+        assertEquals(1.0f, tiles.first { it.participant == "alice" }.callVolume)
+    }
+
+    @Test
+    fun `a level of zero silences a person for you, but never yourself`() {
+        val roster = listOf(entry("alice", "laptop"), entry("bob", "b1"))
+
+        val tiles = buildTiles(groupByParticipant(roster), "alice", "laptop", volumes = mapOf("alice" to 0f, "bob" to 0f))
+
+        assertTrue(tiles.first { it.participant == "bob" }.isSilencedForYou)
+        assertFalse(tiles.first { it.participant == "alice" }.isSilencedForYou)
+    }
+
+    @Test
     fun `a shortened key shows both ends`() {
         val key = "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
 

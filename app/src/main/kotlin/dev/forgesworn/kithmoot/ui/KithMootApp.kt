@@ -229,6 +229,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onStopCadence = model::stopCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
                     onOpenCards = { cardsOpen = true },
+                    onSetVolume = model::setCallVolume,
                     onRotateInvitation = model::rotateInvitation,
                     onLeave = model::leave,
                     modifier = Modifier.padding(padding),
