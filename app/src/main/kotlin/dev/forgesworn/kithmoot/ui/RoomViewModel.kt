@@ -587,6 +587,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         stopSharedProjects()
         accountSession?.close()
         accountSession = session
+        // A bunker creates this scope while opening its relay pool, whereas a
+        // local NIP-55 signer has no transport to create one. The public
+        // profile lookup and shared-project recovery need it in both cases.
+        if (accountScope == null) newAccountScope()
         _start.update { it.copy(account = accountView(account), retainedAccount = null, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
         startSharedProjects(session)

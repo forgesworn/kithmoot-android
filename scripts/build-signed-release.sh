@@ -37,7 +37,7 @@ done
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --no-daemon
 unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
 [[ -s "$unsigned" ]] || { echo "Unsigned release APK was not produced" >&2; exit 1; }
-output=app/build/outputs/apk/release/kithmoot-0.6.1-production.apk
+output=app/build/outputs/apk/release/kithmoot-0.6.2-production.apk
 rm -f "$output" "$output.idsig"
 "$build_tools/apksigner" sign \
   --ks "$KITHMOOT_KEYSTORE" \
