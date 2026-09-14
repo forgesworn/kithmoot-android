@@ -48,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -57,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -97,6 +99,17 @@ fun RoomScreen(
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
+
+    // Keep the screen awake while this device is actually on the call, so a
+    // dark timeout does not drop the video or make the mic button hard to
+    // find mid-conversation. Cleared the moment the call ends or this screen
+    // leaves composition, whichever comes first.
+    val view = LocalView.current
+    val onCall = isOnCall(state.micOn, state.cameraOn, state.screenOn)
+    DisposableEffect(view, onCall) {
+        view.keepScreenOn = onCall
+        onDispose { view.keepScreenOn = false }
+    }
     if (inviteOpen) {
         AlertDialog(
             onDismissRequest = { inviteOpen = false },
