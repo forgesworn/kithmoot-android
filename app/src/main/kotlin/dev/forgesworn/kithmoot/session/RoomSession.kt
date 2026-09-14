@@ -32,6 +32,7 @@ import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.isValidScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.unwrapSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
+import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import kotlinx.coroutines.CoroutineScope
@@ -133,7 +134,7 @@ class RoomSession(
     private val timing: SessionTiming = SessionTiming(),
     /** Unix seconds, as the wire format uses. */
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
-    private val random: Random = Random.Default,
+    private val random: Random = SecureTimingRandom(),
     private val policy: RoomPolicy? = null,
     private val proof: KindredProof? = null,
     /**

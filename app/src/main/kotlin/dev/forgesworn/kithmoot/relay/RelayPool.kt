@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -91,7 +92,7 @@ class RelayPool(
     private val scope: CoroutineScope,
     private val policy: RelayPolicy = RelayPolicy(),
     private val now: () -> Long = { System.currentTimeMillis() },
-    private val random: Random = Random.Default,
+    private val random: Random = SecureTimingRandom(),
     /** The relays the client knows to be boxes of the person's own circle, asked
      *  each time so a card added mid-room counts. See storage/ContactBook.kt. */
     private val circle: () -> Set<String> = { emptySet() },
