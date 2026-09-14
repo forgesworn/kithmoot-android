@@ -55,6 +55,7 @@ fun StartScreen(
     onHomeTabChanged: (String) -> Unit = {},
     projects: ProjectActions = ProjectActions(),
 ) {
+    val context = LocalContext.current
     var relaysShown by remember { mutableStateOf(false) }
     var siteShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -68,7 +69,7 @@ fun StartScreen(
     var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
     // on the project the person was last working in.
-    val prefs = LocalContext.current.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
     var projectTab by remember { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
     var renamed by remember { mutableStateOf("") }
     var resetting by remember { mutableStateOf(false) }
@@ -210,6 +211,10 @@ fun StartScreen(
                     text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. If this account created the conversation, KithMoot asks your signer for a 30-day, revocable message grant for the other person's current signed device. Otherwise, the creator must already have issued your grant. KithMoot switches only after Bothy confirms access.")
                         OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
+                        TextButton(
+                            onClick = { clipboardText(context)?.let { pairingCode = it } },
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste Bothy pairing code from clipboard" },
+                        ) { Text("Paste from clipboard") }
                     } },
                     confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Connect and verify") } },
                     dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })

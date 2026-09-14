@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -7,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -113,6 +116,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
     var advanced by remember { mutableStateOf(false) }
     var bunker by remember { mutableStateOf("") }
+    val context = LocalContext.current
     // A bunker URI is often pasted with the IME open. Keep the focused field
     // and its action reachable on short phones instead of letting the sheet be
     // covered by the keyboard.
@@ -143,10 +147,22 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
 
             OutlinedTextField(bunker, { bunker = it }, Modifier.fillMaxWidth(), label = { Text("Bunker link") },
                 placeholder = { Text("bunker://…?relay=wss://…&secret=…") }, maxLines = 3)
+            TextButton(
+                onClick = { clipboardText(context)?.let { bunker = it } },
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste bunker link from clipboard" },
+            ) { Text("Paste from clipboard") }
             OutlinedButton({ done(); actions.onSignInWithBunker(bunker) }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = bunker.isNotBlank()) {
                 Text("Connect to this signer")
             }
             Text("Any NIP-46 signer, a Heartwood included.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+/** Reads a value only after the person explicitly asks to paste it. */
+internal fun clipboardText(context: Context): String? {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+    val clip = clipboard.primaryClip ?: return null
+    if (clip.itemCount == 0) return null
+    return clip.getItemAt(0).coerceToText(context)?.toString()?.trim()?.takeIf { it.isNotBlank() }
 }
