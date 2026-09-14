@@ -86,6 +86,7 @@ fun RoomScreen(
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     onOpenCards: () -> Unit = {},
+    onSetVolume: (String, Float) -> Unit = { _, _ -> },
     work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
     onStartPrivateConversation: (String) -> Unit = {},
@@ -212,6 +213,7 @@ fun RoomScreen(
                             videoFor = { track -> videos["${track.device}|${track.trackId}"] },
                             eglBase = eglBase,
                             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
+                            onSetVolume = onSetVolume,
                         )
                     }
                     if (state.mediaFault != null) {
