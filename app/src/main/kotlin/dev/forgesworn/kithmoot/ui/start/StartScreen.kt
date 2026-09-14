@@ -36,6 +36,7 @@ fun StartScreen(
     onRoomNameChanged: (String) -> Unit,
     onJoinUrlChanged: (String) -> Unit,
     onRelaysChanged: (String) -> Unit,
+    onAnonymousModeChanged: (Boolean) -> Unit,
     onPersistentGroupChanged: (Boolean) -> Unit,
     onStartRoom: () -> Unit,
     onJoin: () -> Unit,
@@ -182,22 +183,22 @@ fun StartScreen(
                                         val me = state.account
                                         if (me != null && me.pubkey == pubkey) (me.profile?.name ?: me.name ?: "you") else shortNpub(pubkey)
                                     }
-                                    Text(listOfNotNull(who?.let { "As $it" }, room.project, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
+                                    Text(listOfNotNull(who?.let { "As $it" }, room.project, if (room.anonymous) "Anonymous carrier" else null, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton({ renaming = room; renamed = room.name }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
                                         TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
-                                        if (room.id in state.linkConnectedRooms) {
+                                        if (!room.anonymous && room.id in state.linkConnectedRooms) {
                                             TextButton({ disconnectingRoom = room }, enabled = enabled && room.account == state.account?.pubkey,
                                                 modifier = Modifier.semantics { contentDescription = "Disconnect Bothy from ${room.name}" }) { Text("Disconnect Bothy") }
-                                        } else TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
+                                        } else if (!room.anonymous) TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
                                             modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
                                         TextButton({ forgetting = room }, enabled = enabled,
                                             modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
                                     }
-                                    if (room.id in state.linkGrantOwnerRooms) {
+                                    if (!room.anonymous && room.id in state.linkGrantOwnerRooms) {
                                         TextButton({ revokingRoom = room }, enabled = enabled,
                                             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Revoke Bothy guest access for ${room.name}" }) {
                                             Text("Revoke guest access")
@@ -267,6 +268,20 @@ fun StartScreen(
                         keyboardActions = KeyboardActions(onGo = { if (enabled) onStartRoom() }))
                     Text("People can join while everyone is away.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Switch(
+                            checked = state.anonymousMode,
+                            onCheckedChange = onAnonymousModeChanged,
+                            enabled = enabled,
+                            modifier = Modifier.semantics { contentDescription = "Anonymous room mode" },
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Anonymous room (Orbot)", style = MaterialTheme.typography.titleSmall)
+                            Text("Onion relays only; a fresh local identity. This room does not use your account, Bothy, profiles, agents or audio/video.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     Button(onStartRoom, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Start a room") }
                     Text("The name is yours to recognise this room on this device.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

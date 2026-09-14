@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
+import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import kotlinx.serialization.json.*
 
 internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
@@ -17,7 +18,9 @@ class RoomRecoveryException(message: String) : Exception(message)
 /** The UI receives labels and identifiers, never the saved capabilities. */
 data class SavedRoomSummary(val id: String, val name: String, val secondary: Boolean, val openedAt: Long, val project: String? = null,
     /** The signed-in account this room was joined as, when it was; such a room opens only while that account is signed in. */
-    val account: String? = null)
+    val account: String? = null,
+    /** This room has a locally-created identity and may use only the Tor carrier. */
+    val anonymous: Boolean = false)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -29,6 +32,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val policy: RoomPolicy? get() = invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
     val relays: List<String> get() = json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
     val authority: String? get() = json["authority"]?.jsonPrimitive?.content
+    /** Old records predate this mode and therefore remain ordinary direct rooms. */
+    val anonymous: Boolean get() = json["anonymous"]?.jsonPrimitive?.boolean ?: false
     val secondary: Boolean get() = identityJson.text("type") == "secondary"
     /** Joined as a signed-in account, whose key is with a signer and not in this store. */
     val viaAccount: Boolean get() = identityJson.text("type") == "account"
@@ -46,7 +51,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
-    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount })
+    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous)
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
     fun identity(now: Long): RoomIdentity {
@@ -150,6 +155,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(openedAt >= 0)
         require(relays.isNotEmpty() && relays.size <= 16)
         require(relays.all { it.startsWith("wss://") || it.startsWith("ws://") })
+        if (anonymous) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList())
         authority?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
         if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
@@ -169,6 +175,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             }
             else -> error("Unknown saved identity")
         }
+        if (anonymous) require(!secondary && !viaAccount) { "Anonymous rooms need a local primary identity." }
         storedHost()
         require(retirements.size <= 128)
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
@@ -176,7 +183,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     companion object {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
-                   name: String, now: Long, host: RoomInvitationHost?, authority: String?): SavedRoom {
+                   name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false): SavedRoom {
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
@@ -185,6 +192,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("relays", JsonArray(relays.map(::JsonPrimitive)))
                 put("name", cleanName(name, id))
                 put("openedAt", now)
+                if (anonymous) put("anonymous", true)
                 authority?.let { put("authority", it) }
                 put("identity", buildJsonObject {
                     put("deviceKey", identity.deviceSecretKey.toHex())

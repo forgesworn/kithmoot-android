@@ -126,6 +126,9 @@ import dev.forgesworn.kithmoot.relay.HybridRelaySockets
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.RelayAuthenticator
 import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
+import dev.forgesworn.kithmoot.relay.RelaySocketFactory
+import dev.forgesworn.kithmoot.relay.OrbotTorRelaySockets
+import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
@@ -227,6 +230,8 @@ data class StartState(
     val webAppAddress: String = WebAppAddress.DEFAULT_ORIGIN,
     val joinUrl: String = "",
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
+    /** A constrained room profile: new local identity, onion relays and Orbot only. */
+    val anonymousMode: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
@@ -280,6 +285,8 @@ data class RoomState(
     val roomId: String = "",
     val name: String = "",
     val joinUrl: String = "",
+    /** This room stays on its constrained Orbot/onion carrier. */
+    val anonymous: Boolean = false,
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
@@ -451,6 +458,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private var roomInvitationHost: RoomInvitationHost? = null
     private var invitationHostJob: Job? = null
     private var relayUrls: List<String> = emptyList()
+    private var anonymousRoom: Boolean = false
     private var opening: Job? = null
 
     /**
@@ -1225,6 +1233,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             var message: String? = null
             try {
                 val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                require(!room.anonymous) { "Bothy is unavailable in an anonymous room." }
                 val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before connecting Bothy.")
                 require(room.viaAccount && room.participant == account.pubkey) { "This saved room is not owned by the signed-in account." }
                 val pairing = BothyPairing.parse(code, epochSeconds())
@@ -1300,6 +1309,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                require(!room.anonymous) { "Bothy is unavailable in an anonymous room." }
                 val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before disconnecting Bothy.")
                 val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
                 val consent = linkConsents.all().singleOrNull {
@@ -1345,6 +1355,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                require(!room.anonymous) { "Bothy is unavailable in an anonymous room." }
                 val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before revoking guest access.")
                 val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
                 val consent = linkConsents.all().singleOrNull {
@@ -1384,13 +1395,27 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun openSaved(saved: SavedRoom) {
         val who = saved.identity(epochSeconds(), accountSigner)
         open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary,
-            saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+            saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
+            anonymous = saved.anonymous)
     }
 
     /** The saved identity for this room if there is one, else the signed-in account, else a key made here for this room. */
     private suspend fun primaryFor(roomId: String, now: Long): RoomIdentity = savedRooms.get(roomId)?.identity(now, accountSigner)
         ?: accountSigner?.let { PrimaryIdentity.createWith(it, roomId, now + CREDENTIAL_TTL_SECONDS, now) }
         ?: PrimaryIdentity.create(roomId, now + CREDENTIAL_TTL_SECONDS, now)
+
+    /** Anonymous rooms never take up an account signer or an existing identity. */
+    private fun localPrimary(roomId: String, now: Long): PrimaryIdentity =
+        PrimaryIdentity.create(roomId, now + CREDENTIAL_TTL_SECONDS, now)
+
+    /** Onion invitations select the constrained carrier automatically; the explicit switch rejects clearnet input. */
+    private fun anonymousFor(relays: List<String>): Boolean {
+        val onionOnly = relays.isNotEmpty() && runCatching {
+            TorOnlyRelayUrls.assertRoomTransport(relays, emptyList())
+        }.isSuccess
+        if (_start.value.anonymousMode) return TorOnlyRelayUrls.assertRoomTransport(relays, emptyList()).let { true }
+        return onionOnly
+    }
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
     private fun enter(block: suspend () -> Unit) {
@@ -1441,6 +1466,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         act { runCatching { synchronized(boxPreferencesGate) { boxDiscovery.disableAll() } }.onFailure { note("Box checks could not be stopped in the saved preferences.") } }
     }
 
+    fun onAnonymousModeChanged(value: Boolean) {
+        _start.update { it.copy(anonymousMode = value, error = null) }
+    }
+
     fun onPersistentGroupChanged(value: Boolean) {
         _start.update { it.copy(persistentGroup = value, error = null) }
     }
@@ -1455,7 +1484,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * application unresponsive.
      */
     fun startRoom() {
-        val relays = parseRelays(_start.value.relays)
+        val anonymous = _start.value.anonymousMode
+        val relays = try {
+            val parsed = parseRelays(_start.value.relays)
+            if (anonymous) TorOnlyRelayUrls.assertRoomTransport(parsed, emptyList()) else parsed
+        } catch (error: IllegalArgumentException) {
+            _start.value = _start.value.copy(error = error.message ?: "Anonymous rooms need onion relays.")
+            return
+        }
         if (relays.isEmpty()) {
             _start.value = _start.value.copy(error = "Name at least one relay.")
             return
@@ -1468,13 +1504,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
             val derived = deriveRoom(secret)
             val at = epochSeconds()
-            val primary = accountSigner?.let { PrimaryIdentity.createWith(it, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at) }
+            val primary = (if (!anonymous) accountSigner?.let { PrimaryIdentity.createWith(it, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at) } else null)
                 ?: PrimaryIdentity.create(
                     roomId = derived.roomId,
                     expiresAt = at + CREDENTIAL_TTL_SECONDS,
                     createdAt = at,
                 )
-            if (persistent) publishGroup(invitationHost, secret, relays)
+            if (persistent) publishGroup(invitationHost, secret, relays, anonymous)
             open(
                 derived = derived,
                 secret = secret,
@@ -1485,6 +1521,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 invitation = invitation,
                 invitationHost = invitationHost,
                 localName = name,
+                anonymous = anonymous,
             )
         }
     }
@@ -1539,12 +1576,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
         val derived = deriveRoom(payload.secret)
         val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
+            _start.value = _start.value.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.")
+            return
+        }
         val at = epochSeconds()
 
         // A pairing link carries a device key and a credential, so this device
         // joins as another of that person's devices rather than as a stranger.
         val pairing = decodePairingLink(url)
         if (pairing != null) {
+            if (anonymous) throw RoomRecoveryException("Anonymous rooms cannot use a paired-device identity.")
             val secondary = SecondaryIdentity.adopt(
                 credential = pairing.credential,
                 deviceSecretKey = pairing.deviceSecretKey,
@@ -1566,12 +1608,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 secondary = true,
                 joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
                 policy = payload.policy,
+                anonymous = anonymous,
             )
             return
         }
 
         savedRooms.get(derived.roomId)?.let { openSaved(it); return }
-        val primary = primaryFor(derived.roomId, at)
+        val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
         open(
             derived,
             payload.secret,
@@ -1580,13 +1623,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             secondary = primary is SecondaryIdentity,
             joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
             policy = payload.policy,
+            anonymous = anonymous,
         )
     }
 
     private suspend fun joinInvitation(url: String, payload: InvitationPayload) {
         val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
+            _start.update { it.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.") }
+            return
+        }
         val admission = try {
-            requestAdmission(payload, relays)
+            requestAdmission(payload, relays, anonymous)
         } catch (e: GroupInvitationException) {
             _start.update { it.copy(busy = false, error = e.message) }
             return
@@ -1615,6 +1663,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 ?.let { openSaved(it); return }
         }
         if (pairing != null) {
+            if (anonymous) {
+                _start.value = _start.value.copy(busy = false, error = "Anonymous rooms cannot use a paired-device identity.")
+                return
+            }
             val secondary = SecondaryIdentity.adopt(
                 credential = pairing.credential,
                 deviceSecretKey = pairing.deviceSecretKey,
@@ -1638,11 +1690,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 invitation = payload,
                 invitationHost = admission.delegate,
                 policy = payload.policy,
+                anonymous = anonymous,
             )
             return
         }
 
-        val primary = primaryFor(derived.roomId, at)
+        val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
         open(
             derived,
             secret,
@@ -1653,13 +1706,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitation = payload,
             invitationHost = admission.delegate,
             policy = payload.policy,
+            anonymous = anonymous,
         )
     }
 
     /** Exchange the bearer for a traffic secret and a bounded responder
      * delegation, without an account or prompt. */
-    private suspend fun requestAdmission(payload: InvitationPayload, relays: List<String>): RoomAdmission? {
-        if (payload.invitation.persistent) return withGroupRelays(relays) { transport ->
+    private suspend fun requestAdmission(payload: InvitationPayload, relays: List<String>, anonymous: Boolean = false): RoomAdmission? {
+        if (payload.invitation.persistent) return withGroupRelays(relays, anonymous) { transport ->
             try {
                 requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1671,7 +1725,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
+        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope)
         val requesterKey = Entropy.bytes(32)
         val request = encodeInvitationRequest(payload.invitation, requesterKey, epochSeconds())
         val invitationId = deriveInvitationId(payload.invitation)
@@ -1730,16 +1784,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun <T> withGroupRelays(relays: List<String>, action: suspend (RelayPool) -> T): T {
+    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, OkHttpRelaySockets(), scope)
+        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope)
         transport.start()
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
 
-    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>) {
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false) {
         try {
-            withGroupRelays(relays) {
+            withGroupRelays(relays, anonymous) {
                 if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds()))) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
@@ -1832,6 +1886,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         policy: dev.forgesworn.kithmoot.protocol.RoomPolicy? = null,
         restoring: SavedRoom? = null,
         localName: String = "",
+        anonymous: Boolean = false,
     ) = gate.withLock {
         if (policy != null && policy.tier != KindredTier.OPEN) {
             _start.value = _start.value.copy(
@@ -1840,13 +1895,24 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             )
             return@withLock
         }
+        val anonymousProfile = restoring?.anonymous ?: anonymous
+        val activeRelays = if (anonymousProfile) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList()) else relays
+        if (anonymousProfile && policy?.quiet == true) {
+            throw RoomRecoveryException("Anonymous rooms do not support quiet-room cadence or Bothy delivery.")
+        }
         val previous = savedRooms.get(derived.roomId)
         if (previous != null && (previous.participant != who.participant || (!previous.secondary && secondary))) {
             throw RoomRecoveryException("This room is saved with a different identity. Forget the saved room first if you want to replace it.")
         }
-        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, relays,
+        if (previous != null && previous.anonymous != anonymousProfile) {
+            throw RoomRecoveryException("This room is already saved with a different network profile.")
+        }
+        if (anonymousProfile && (secondary || who !is PrimaryIdentity || who.participantKeyForStorage() == null)) {
+            throw RoomRecoveryException("Anonymous rooms need a new local primary identity.")
+        }
+        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, activeRelays,
             previous?.name ?: localName, epochSeconds(), invitationHost,
-            previous?.authority ?: invitation?.invitation?.canonicalInviter)
+            previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds())
         savedRooms.save(record)
         var durableEpoch = record.authority?.let {
@@ -1871,18 +1937,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
-        val socketFactory = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute)
+        val socketFactory: RelaySocketFactory = if (anonymousProfile) OrbotTorRelaySockets()
+            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
-            linkConsents.activeRoute(who.participant, record.id, url)?.let {
+            if (!anonymousProfile) linkConsents.activeRoute(who.participant, record.id, url)?.let {
                 accountIdentity?.let { primary -> object : RelayAuthenticator {
                     override val pubkey = primary.participant
                     override suspend fun sign(url: String, challenge: String) = primary.signer.sign(22242, epochSeconds(),
                         listOf(listOf("relay", url), listOf("challenge", challenge)), "")
                 } }
-            }
+            } else null
         }
-        val transport = RelayPool(relays, socketFactory, scope, circle = ::circleRelaySet, authenticators = authenticators)
+        val transport = RelayPool(activeRelays, socketFactory, scope,
+            circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
+            authenticators = authenticators)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
         // wrapper owes the device between visits. The device holding the
         // identity is slot 0, the device it paired slot 1; each draws from its
@@ -1972,7 +2041,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
             initialEpoch = openedEpoch,
-            epochGate = if (record.authority == null) null else { event, notice ->
+            epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
                 withContext(Dispatchers.IO) {
                     cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
                 }
@@ -1982,7 +2051,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
-                session?.let { current -> startMedia(current, scope, who) }
+                if (!anonymousProfile) session?.let { current -> startMedia(current, scope, who) }
             },
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
@@ -1996,14 +2065,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         roomSecret = secret
         roomInvitation = record.invitation
         roomInvitationHost = record.host(epochSeconds())
-        relayUrls = relays
+        relayUrls = activeRelays
+        anonymousRoom = anonymousProfile
 
         _room.value = RoomState(
             roomId = derived.roomId,
             name = record.name,
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
-            relaysTotal = relays.size,
-            lane = laneOfRelays(relays, circleRelaySet()),
+            anonymous = anonymousProfile,
+            relaysTotal = activeRelays.size,
+            lane = if (anonymousProfile) null else laneOfRelays(activeRelays, circleRelaySet()),
             privateConversation = isDmPolicy(policy),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
@@ -2011,9 +2082,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             quiet = quiet != null,
             quietCanSend = quiet?.canSend ?: true,
             cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
-            canAddDevice = who is PrimaryIdentity,
+            canAddDevice = who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
-            canShowCard = who is PrimaryIdentity,
+            canShowCard = who is PrimaryIdentity && !anonymousProfile,
             notice = if (discardedOldQuiet) "Messages retained under the previous room key were marked Conversation rekeyed." else null,
         )
         observeRoomEpoch(live, scope)
@@ -2031,11 +2102,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         _start.update { it.copy(error = null) }
-        refreshContacts()
+        if (!anonymousProfile) refreshContacts()
 
-        val profileTransport = RelayPool((relays + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), scope)
+        val profileTransport = if (anonymousProfile) null else RelayPool((activeRelays + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), scope)
         profilePool = profileTransport
-        scope.launch {
+        if (profileTransport != null) scope.launch {
             _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
                 .distinctUntilChanged().collectLatest { authors ->
                     if (authors.isEmpty()) return@collectLatest
@@ -2055,25 +2126,27 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
         transport.start()
-        profileTransport.start()
+        profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
         if (live.epochState.value !is dev.forgesworn.kithmoot.session.RoomEpochState.Active) return@withLock
-        // Verification, replay and encrypted persistence must not run on the UI thread.
-        val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
-        val liveEpoch=live.epochKeys()
-        val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
-            AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
-            initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
-        roomWork=work
-        scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
-        scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
-        scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
-        scope.launch(Dispatchers.IO) {
-            try {work.open()} catch(cancelled:CancellationException){throw cancelled}
-            catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
+        if (!anonymousProfile) {
+            // Verification, replay and encrypted persistence must not run on the UI thread.
+            val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
+            val liveEpoch=live.epochKeys()
+            val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
+                AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
+                initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
+            roomWork=work
+            scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
+            scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
+            scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
+            scope.launch(Dispatchers.IO) {
+                try {work.open()} catch(cancelled:CancellationException){throw cancelled}
+                catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
+            }
         }
         // This device plays the room's audio unless one of your others takes it
         // over. Claiming rather than assuming is what lets that handover happen.
@@ -2085,7 +2158,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     _room.value = _room.value.copy(
                         tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                         chat = chat,
-                        privateConversationPeers = if (accountSigner != null && !isDmPolicy(policy) && quiet == null) {
+                        privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                             people.map { it.participant }.filter { it != who.participant }
                         } else emptyList(),
                     )
@@ -2115,7 +2188,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        startMedia(live, scope, who)
+        if (!anonymousProfile) startMedia(live, scope, who)
     }
 
     /** Build media only while this exact session is active at one traffic epoch. */
@@ -2338,7 +2411,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
                 live.retryEpoch()
-                if (live.epochState.value is dev.forgesworn.kithmoot.session.RoomEpochState.Active && roomWork == null) {
+                if (!anonymousRoom && live.epochState.value is dev.forgesworn.kithmoot.session.RoomEpochState.Active && roomWork == null) {
                     gate.withLock { if (session === live) closeSession() }
                     val saved = savedRooms.get(record.id) ?: throw RoomRecoveryException("This room is no longer saved on this device")
                     openSaved(saved)
@@ -2386,6 +2459,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         roomInvitationHost = null
         invitationHostJob?.cancel()
         invitationHostJob = null
+        anonymousRoom = false
         sessionScope?.coroutineContext?.get(Job)?.cancel()
         sessionScope = null
     }
@@ -2851,6 +2925,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         val self = _room.value.selfParticipant
         val currentPeers = _room.value.privateConversationPeers
         if (_stage.value != Stage.ROOM || live == null || source == null) return
+        if (anonymousRoom) return note("Private conversations are unavailable in an anonymous room.")
         if (signer == null || signer.pubkey != self) {
             note("Sign in with the room's account before starting a private conversation.")
             return
@@ -3024,6 +3099,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * cannot pass the identity on, which is the point of not giving it the key.
      */
     fun mintPairingLink() = viewModelScope.launch(Dispatchers.Default) {
+        if (anonymousRoom) return@launch note("Paired devices are unavailable in an anonymous room.")
         val primary = identity as? PrimaryIdentity
             ?: return@launch note("Only the device that opened the room can add another device.")
         val secret = roomSecret ?: return@launch
@@ -3079,7 +3155,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)

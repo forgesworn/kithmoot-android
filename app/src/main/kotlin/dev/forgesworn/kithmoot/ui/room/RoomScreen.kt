@@ -145,13 +145,13 @@ fun RoomScreen(
     ) {
         Header(state, onLeave)
         state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
-        TabRow(selectedTabIndex = if (callOpen) 2 else if (workOpen) 1 else 0) {
-            Tab(selected = !callOpen && !workOpen, onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
-            Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
+        TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
+            Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
+            if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
                 Text(if(decisions>0)"Work · $decisions" else "Work")
             })
-            Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
+            if (!state.anonymous) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
             })
         }
@@ -161,18 +161,23 @@ fun RoomScreen(
             }
         }
 
-        if (workOpen) {
+        if (!state.anonymous && workOpen) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
             }
-        } else if (!callOpen) {
+        } else if (state.anonymous || !callOpen) {
+            if (state.anonymous) {
+                Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 if (state.privateConversation) {
                     Text("Two-person room", Modifier.padding(horizontal = 12.dp, vertical = 14.dp), style = MaterialTheme.typography.labelMedium)
                 } else {
                     TextButton(onClick = { inviteOpen = true }, enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
                 }
-                TextButton(onClick = onOpenCards) { Text("People") }
+                if (!state.anonymous) TextButton(onClick = onOpenCards) { Text("People") }
                 TextButton(onClick = onAddDevice, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
             }
             if (state.privateConversationPeers.isNotEmpty()) {
