@@ -81,7 +81,9 @@ import dev.forgesworn.kithmoot.protocol.KIND_CIRCLE_EVENT_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
+import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.media.LocalTrack
+import dev.forgesworn.kithmoot.media.SharedPreferencesVolumeStore
 import dev.forgesworn.kithmoot.media.WebRtcEngine
 import dev.forgesworn.kithmoot.media.shouldPlayRemoteAudio
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
@@ -475,6 +477,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val cadenceLeases: CadenceLeaseVault = (application as KithMootApplication).cadenceLeases
     private val roomEpochs: EpochVault = (application as KithMootApplication).roomEpochs
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    private val callVolume = CallVolume(SharedPreferencesVolumeStore(display))
     private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
 
     /** Save only a valid explicit site choice; signing in holds its own snapshot. */
@@ -2076,7 +2079,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             combine(live.participants, live.chat) { people, chat -> people to chat }
                 .collect { (people, chat) ->
                     _room.value = _room.value.copy(
-                        tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames),
+                        tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                         chat = chat,
                         privateConversationPeers = if (accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                             people.map { it.participant }.filter { it != who.participant }
@@ -2149,10 +2152,23 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     // regardless of its advertised role - a microphone and a
                     // screen share's own sound are both just "incoming
                     // sound" once negotiated. See shouldPlayRemoteAudio.
+                    // Which participant each device belongs to, so a track
+                    // handed over on renegotiation still gets that person's
+                    // remembered volume rather than the untouched default.
+                    val deviceParticipant = people.flatMap { p -> p.devices.map { it.device to p.participant } }.toMap()
                     remote.mapNotNull { track ->
-                        (track.track as? AudioTrack)?.let { it to shouldPlayRemoteAudio(track.device, mine, listeningHere) }
+                        (track.track as? AudioTrack)?.let { audio ->
+                            val play = shouldPlayRemoteAudio(track.device, mine, listeningHere)
+                            val gain = deviceParticipant[track.device]?.let(callVolume::gainFor) ?: CallVolume.DEFAULT_GAIN
+                            Triple(audio, play, gain)
+                        }
                     }
-                }.collect { decisions -> for ((track, play) in decisions) runCatching { track.setEnabled(play) } }
+                }.collect { decisions ->
+                    for ((track, play, gain) in decisions) runCatching {
+                        track.setEnabled(play)
+                        track.setVolume(gain.toDouble())
+                    }
+                }
             }
             launch { media.localMedia.tracks.collect(::onLocalTracks) }
             launch {
@@ -2250,6 +2266,37 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyAudience(media: WebRtcEngine, agents: Set<String>) {
         media.setAudience(mediaAudience(agents, _room.value.agentsMayHear))
+    }
+
+    /** This device's remembered call volume for every one of `people`, for the tiles. */
+    private fun volumesFor(people: List<dev.forgesworn.kithmoot.session.Participant>): Map<String, Float> =
+        people.associate { it.participant to callVolume.gainFor(it.participant) }
+
+    /**
+     * Set how loud `participant` is on this device only, and act on it now.
+     *
+     * Remembered for next time (see media/CallVolume.kt), reflected on their
+     * tile at once, and pushed straight to every one of their live remote
+     * audio tracks - not just the next renegotiation. This is only ever a
+     * multiplier: the room's own rules about which tracks may actually play
+     * (one of a person's own devices, or a device that has left) are decided
+     * in the `remoteTracks` combine in [startMedia] and always win, because a
+     * disabled track renders no audio whatever its gain is set to.
+     */
+    fun setCallVolume(participant: String, gain: Float) {
+        val clamped = CallVolume.clamp(gain)
+        callVolume.setGain(participant, clamped)
+        _room.update { state ->
+            state.copy(tiles = state.tiles.map { if (it.participant == participant) it.copy(callVolume = clamped) else it })
+        }
+        val media = engine ?: return
+        val devices = session?.participants?.value
+            ?.firstOrNull { it.participant == participant }
+            ?.devices?.map { it.device }?.toSet()
+            ?: return
+        for (track in media.remoteTracks.value) {
+            if (track.device in devices) (track.track as? AudioTrack)?.let { runCatching { it.setVolume(clamped.toDouble()) } }
+        }
     }
 
     fun leave() {
@@ -3107,7 +3154,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             state.copy(
                 contacts = rows,
                 lane = if (relayUrls.isEmpty()) state.lane else laneOfRelays(relayUrls, circle),
-                tiles = if (live == null) state.tiles else buildTiles(live.participants.value, state.selfParticipant, state.selfDevice, cardNames),
+                tiles = if (live == null) state.tiles else buildTiles(live.participants.value, state.selfParticipant, state.selfDevice, cardNames, volumesFor(live.participants.value)),
             )
         }
     }
@@ -3153,6 +3200,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun forgetContact(p: String) = act {
         try { contacts.forget(p) } catch (e: RoomStorageException) { return@act note(e.message ?: "Contacts are unavailable.") }
+        // A forgotten contact forgets everything local tied to them, including
+        // how loud this device remembered them being.
+        callVolume.forget(p)
         _room.update { it.copy(cardStatus = null) }
         boxDiscovery.reconcile()
         refreshContacts()

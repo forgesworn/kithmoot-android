@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -278,7 +278,7 @@ def main() -> None:
     lineage = validate_channel(args.channel, apk, args.lineage, args.production_cert_sha256, apksigner)
     evidence: dict[str, object] = {
         "schema": "kithmoot-physical-release-state/v1",
-        "checkedAt": datetime.now(UTC).isoformat(timespec="seconds"),
+        "checkedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "claim": "APK identity and installed physical-device package state only",
         "channel": args.channel,
         "sourceCommit": run(

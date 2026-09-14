@@ -33,11 +33,17 @@ data class ParticipantTile(
      *  sound as a separate track (`Roles.SCREEN_AUDIO`). Audio-only, so it
      *  never appears in [videos]. */
     val hasScreenAudio: Boolean = false,
+    /** How loud this person is on this device only: 0.0 to 2.0, 1.0 being
+     *  untouched. See media/CallVolume.kt. Meaningless for [isSelf]. */
+    val callVolume: Float = 1.0f,
 ) {
     val holdsCard: Boolean get() = cardName != null
     val hasVideo: Boolean get() = videos.isNotEmpty()
     val hasMic: Boolean get() = micDevice != null
     val isSharingScreen: Boolean get() = videos.any { it.role == Roles.SCREEN }
+    /** The web client's own name for a level dragged to zero: still in the
+     *  room, just not heard here. */
+    val isSilencedForYou: Boolean get() = !isSelf && callVolume <= 0f
 }
 
 /**
@@ -54,6 +60,9 @@ fun buildTiles(
     selfDevice: String,
     /** Participants this phone holds a card for, to the name on the card. */
     cards: Map<String, String> = emptyMap(),
+    /** This device's remembered call volume per participant. Missing means
+     *  untouched (1.0). See media/CallVolume.kt. */
+    volumes: Map<String, Float> = emptyMap(),
 ): List<ParticipantTile> = participants
     .map { person ->
         val isSelf = person.participant == selfParticipant
@@ -71,6 +80,7 @@ fun buildTiles(
             micIsThisDevice = isSelf && person.micDevice == selfDevice,
             cardName = cards[person.participant],
             hasScreenAudio = person.liveTracks.any { it.role == Roles.SCREEN_AUDIO },
+            callVolume = volumes[person.participant] ?: 1.0f,
         )
     }
     .sortedWith(compareByDescending<ParticipantTile> { it.isSelf }.thenBy { it.participant })
