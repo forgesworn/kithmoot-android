@@ -176,8 +176,19 @@ through named environment variables; the scripts disable shell tracing.
 
 ## Build with the production key and lineage
 
-Keep the production variables above, and add the independently recorded
-`KITHMOOT_LINEAGE_SHA256`. Run:
+For the recovered KithMoot preview signer, use the local interactive builder:
+
+```sh
+bash scripts/build-kithmoot-production-release.sh \
+  /absolute/private/path/kithmoot-production.p12 \
+  /absolute/private/path/kithmoot-preview-to-production.lineage
+```
+
+It prompts for the production password without placing it in shell history,
+derives and checks the public certificate and lineage hashes, then invokes the
+reviewed builder below. For a different reviewed production signer, keep the
+production variables above, add the independently recorded
+`KITHMOOT_LINEAGE_SHA256`, and run the lower-level command instead:
 
 ```sh
 bash scripts/build-signed-release.sh
