@@ -115,6 +115,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.service)
 
@@ -132,6 +133,15 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.webrtc.android)
     implementation(libs.bouncycastle.provider)
+
+    // QR-first sign-in and Bothy pairing use an on-device decoder. CameraX
+    // supplies the lifecycle-safe preview; ML Kit's bundled model keeps this
+    // path available without a network request or a Google service.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
 
     // UniFFI's generated Link Kotlin bindings load liblink_ffi through JNA.
     implementation("net.java.dev.jna:jna:5.14.0@aar")

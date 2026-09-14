@@ -16,6 +16,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.StartState
+import dev.forgesworn.kithmoot.account.BunkerPointer
+import dev.forgesworn.kithmoot.ui.qr.QrScanner
 import dev.forgesworn.kithmoot.ui.room.ProfileAvatar
 
 /** What the start screen can do about the account. Grouped so the screen's parameter list stays readable. */
@@ -116,6 +118,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
     var advanced by remember { mutableStateOf(false) }
     var bunker by remember { mutableStateOf("") }
+    var scanningBunker by remember { mutableStateOf(false) }
     val context = LocalContext.current
     // A bunker URI is often pasted with the IME open. Keep the focused field
     // and its action reachable on short phones instead of letting the sheet be
@@ -145,12 +148,26 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
             Text("For a Signet that lives in a browser rather than the My Signet app. It opens mysignet.app, you approve there, and it pairs with this app over a relay. That browser tab has to stay open to sign.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-            OutlinedTextField(bunker, { bunker = it }, Modifier.fillMaxWidth(), label = { Text("Bunker link") },
-                placeholder = { Text("bunker://…?relay=wss://…&secret=…") }, maxLines = 3)
-            TextButton(
-                onClick = { clipboardText(context)?.let { bunker = it } },
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste bunker link from clipboard" },
-            ) { Text("Paste from clipboard") }
+            if (scanningBunker) {
+                Text("Point the camera at the bunker QR your signer shows. Nothing is connected until you choose Connect.")
+                QrScanner(
+                    accept = { BunkerPointer.parse(it) != null },
+                    onDecoded = { bunker = it; scanningBunker = false },
+                    prompt = "KithMoot needs the camera to scan your signer's bunker QR.",
+                )
+                TextButton({ scanningBunker = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
+            } else {
+                OutlinedTextField(bunker, { bunker = it }, Modifier.fillMaxWidth(), label = { Text("Bunker link") },
+                    placeholder = { Text("bunker://…?relay=wss://…&secret=…") }, maxLines = 3)
+                OutlinedButton(
+                    onClick = { scanningBunker = true },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Scan bunker QR" },
+                ) { Text("Scan bunker QR") }
+                TextButton(
+                    onClick = { clipboardText(context)?.let { bunker = it } },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste bunker link from clipboard" },
+                ) { Text("Paste from clipboard") }
+            }
             OutlinedButton({ done(); actions.onSignInWithBunker(bunker) }, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = bunker.isNotBlank()) {
                 Text("Connect to this signer")
             }
