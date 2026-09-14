@@ -1,11 +1,18 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.protocol.deriveRoom
+import dev.forgesworn.kithmoot.protocol.encodeJoinUrl
+import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.storage.SavedRoom
 import org.bouncycastle.crypto.digests.SHA3Digest
 import java.net.InetSocketAddress
 import java.net.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TorOnlyRelaySocketsTest {
     private val alphabet = "abcdefghijklmnopqrstuvwxyz234567"
@@ -85,5 +92,29 @@ class TorOnlyRelaySocketsTest {
         val address = proxy.address() as InetSocketAddress
         assertEquals(OrbotTorRelaySockets.ORBOT_PROXY_HOST, address.hostString)
         assertEquals(OrbotTorRelaySockets.ORBOT_HTTP_PROXY_PORT, address.port)
+    }
+
+    @Test fun `anonymous saved rooms retain the constrained profile and reject clearnet relays`() {
+        val secret = Entropy.bytes(32)
+        val derived = deriveRoom(secret)
+        val identity = PrimaryIdentity.create(derived.roomId, 1_800_003_600, 1_800_000_000)
+        val onionRelay = "wss://${onion()}"
+        val saved = SavedRoom.create(
+            secret, identity, encodeJoinUrl("https://kithmoot.example/j/", secret, listOf(onionRelay)),
+            listOf(onionRelay), "Anonymous", 1_800_000_000, null, null, anonymous = true,
+        )
+        assertTrue(saved.anonymous)
+        assertTrue(saved.summary().anonymous)
+
+        assertFailsWith<IllegalArgumentException> {
+            SavedRoom.create(
+                secret, identity, encodeJoinUrl("https://kithmoot.example/j/", secret, listOf("wss://relay.example")),
+                listOf("wss://relay.example"), "Anonymous", 1_800_000_000, null, null, anonymous = true,
+            )
+        }
+        assertFalse(SavedRoom.create(
+            secret, identity, encodeJoinUrl("https://kithmoot.example/j/", secret, listOf("wss://relay.example")),
+            listOf("wss://relay.example"), "Direct", 1_800_000_000, null, null,
+        ).anonymous)
     }
 }

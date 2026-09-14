@@ -142,6 +142,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onRoomNameChanged = model::onRoomNameChanged,
                 onJoinUrlChanged = model::onJoinUrlChanged,
                 onRelaysChanged = model::onRelaysChanged,
+                onAnonymousModeChanged = model::onAnonymousModeChanged,
                 onPersistentGroupChanged = model::onPersistentGroupChanged,
                 onStartRoom = model::startRoom,
                 onJoin = { model.joinFromUrl(startState.joinUrl) },
