@@ -22,11 +22,13 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
 import dev.forgesworn.kithmoot.ui.theme.TextSize
+import dev.forgesworn.kithmoot.ui.qr.QrScanner
 
 @Composable
 fun StartScreen(
@@ -65,6 +67,7 @@ fun StartScreen(
     var filedAs by remember { mutableStateOf("") }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
+    var scanningPairingCode by remember { mutableStateOf(false) }
     var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     // The project tab in view, remembered on the device so the phone opens
@@ -215,9 +218,29 @@ fun StartScreen(
                             onClick = { clipboardText(context)?.let { pairingCode = it } },
                             modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste Bothy pairing code from clipboard" },
                         ) { Text("Paste from clipboard") }
+                        OutlinedButton(
+                            onClick = { scanningPairingCode = true },
+                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Scan Bothy QR" },
+                        ) { Text("Scan Bothy QR") }
                     } },
                     confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Connect and verify") } },
                     dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
+            }
+            if (scanningPairingCode) {
+                Dialog(onDismissRequest = { scanningPairingCode = false }) {
+                    Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Scan Bothy QR", style = MaterialTheme.typography.titleLarge)
+                            Text("Point at the code Bothy is showing. KithMoot will still verify it before changing this room's route.")
+                            QrScanner(
+                                accept = { it.trim().startsWith("bothy:") },
+                                onDecoded = { pairingCode = it; scanningPairingCode = false },
+                                prompt = "KithMoot needs the camera to scan Bothy's pairing QR.",
+                            )
+                            TextButton({ scanningPairingCode = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
+                        }
+                    }
+                }
             }
             disconnectingRoom?.let { room ->
                 AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
