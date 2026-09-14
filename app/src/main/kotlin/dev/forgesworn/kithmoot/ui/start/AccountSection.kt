@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -111,7 +113,11 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
     var advanced by remember { mutableStateOf(false) }
     var bunker by remember { mutableStateOf("") }
-    Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // A bunker URI is often pasted with the IME open. Keep the focused field
+    // and its action reachable on short phones instead of letting the sheet be
+    // covered by the keyboard.
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding()
+        .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Sign in to KithMoot", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         Text("Choose where your key lives. It never leaves your signer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
