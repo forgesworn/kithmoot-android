@@ -155,6 +155,11 @@ class RoomSession(
     private val onEpochReady: (EpochKeys) -> Unit = {},
     /** Present only on the authority device; validates a request and returns its signed answer. */
     private val epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
+    /**
+     * A device-local, encrypted metadata catalogue for the signed-in person's
+     * verified outer events. It is deliberately not a relay operation.
+     */
+    private val onVerifiedOwnEvent: (NostrEvent) -> Unit = {},
 ) {
 
     private val lock = Any()
@@ -446,7 +451,9 @@ class RoomSession(
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id
         // is the event id, so the echo is de-duplicated against this.
-        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let(::ingestChat)
+        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let {
+            if (ingestChat(it)) retainOwnOuterEvent(event, it)
+        }
     }
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
@@ -471,7 +478,7 @@ class RoomSession(
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
-        ingestChat(message)
+        if (ingestChat(message)) retainOwnOuterEvent(event, message)
         return true
     }
 
@@ -494,7 +501,7 @@ class RoomSession(
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
-        ingestChat(message)
+        if (ingestChat(message)) retainOwnOuterEvent(event, message)
         return true
     }
 
@@ -656,19 +663,23 @@ class RoomSession(
      */
     fun sendLane(): Lane? = laneOfRelays(transport.describe(), transport.circleRelays())
 
-    private fun ingestChat(incoming: ChatMessage) {
+    private fun retainOwnOuterEvent(event: NostrEvent, message: ChatMessage) {
+        if (message.participant == identity.participant) onVerifiedOwnEvent(event)
+    }
+
+    private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
         val message = incoming.copy(lane = laneOfRelays(transport.describe(), transport.circleRelays()))
         synchronized(lock) {
             val at = now()
-            if (message.sentAt < at - CHAT_RETENTION_SECONDS) return
-            if (!chatSeen.add(message.id)) return
+            if (message.sentAt < at - CHAT_RETENTION_SECONDS) return false
+            if (!chatSeen.add(message.id)) return false
             val times = chatSenderTimes.getOrPut(message.device) { mutableListOf() }
             times.removeAll { it < at - CHAT_RETENTION_SECONDS }
             if (times.count { kotlin.math.abs(it - message.sentAt) < 60 } >= MAX_CHAT_MESSAGES_PER_MINUTE) {
                 chatSeen.remove(message.id)
-                return
+                return false
             }
             times += message.sentAt
             while (chatSenderTimes.size > timing.chatHistory) {
@@ -680,6 +691,7 @@ class RoomSession(
                 chatSeen.remove(chatLog.removeAt(0).id)
             }
             _chat.value = chatLog.toList()
+            return true
         }
     }
 

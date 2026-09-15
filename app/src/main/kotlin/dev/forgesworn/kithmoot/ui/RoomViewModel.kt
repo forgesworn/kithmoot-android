@@ -122,6 +122,7 @@ import dev.forgesworn.kithmoot.relay.LinkConsent
 import dev.forgesworn.kithmoot.relay.LinkConsentState
 import dev.forgesworn.kithmoot.relay.CircleGrantPlan
 import dev.forgesworn.kithmoot.relay.LinkRelayAddress
+import dev.forgesworn.kithmoot.relay.Nip77Reconciliation
 import dev.forgesworn.kithmoot.relay.HybridRelaySockets
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.RelayAuthenticator
@@ -132,6 +133,8 @@ import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
 import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.KIND_CHAT
+import dev.forgesworn.kithmoot.session.deriveChatChannel
 import dev.forgesworn.kithmoot.session.ChatReaction
 import dev.forgesworn.kithmoot.session.decodePrivateConversationInvite
 import dev.forgesworn.kithmoot.session.dmPolicy
@@ -296,6 +299,8 @@ data class RoomState(
     /** Whether this device may post in the quiet room: two devices per person can, others read. */
     val quietCanSend: Boolean = true,
     val cadence: CadenceViewState? = null,
+    /** A deliberate, IDs-only comparison with the currently connected circle box. */
+    val nip77: Nip77ViewState? = null,
     val tiles: List<ParticipantTile> = emptyList(),
     /** Fading screen-share drawing, keyed by the advertised share track id
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
@@ -367,6 +372,12 @@ data class CadenceViewState(
     val queueCount: Int = 0,
     val sentCount: Int = 0,
     val failedCount: Int = 0,
+)
+
+data class Nip77ViewState(
+    val available: Boolean = false,
+    val busy: Boolean = false,
+    val detail: String = "Connect this account-owned room to its verified Bothy before comparing history.",
 )
 
 /** Relays used when a room is opened here, or when a join URL names none. */
@@ -480,6 +491,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val accounts = (application as KithMootApplication).accounts
     private val contacts = (application as KithMootApplication).contacts
     private val linkConsents = (application as KithMootApplication).linkConsents
+    private val nip77Events = (application as KithMootApplication).nip77Events
     private val linkEngine = (application as KithMootApplication).linkEngine
     private val cadenceClient: CadenceClient = (application as KithMootApplication).cadenceClient
     private val cadenceLeases: CadenceLeaseVault = (application as KithMootApplication).cadenceLeases
@@ -2056,6 +2068,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
             },
+            onVerifiedOwnEvent = if (!anonymousProfile && accountSession?.account?.pubkey == who.participant) {
+                { event: NostrEvent ->
+                    scope.launch(Dispatchers.IO) {
+                        runCatching { nip77Events.record(who.participant, record.id, event) }
+                    }
+                }
+            } else {
+                { _: NostrEvent -> }
+            },
         )
 
         sessionScope = scope
@@ -2067,6 +2088,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         roomInvitationHost = record.host(epochSeconds())
         relayUrls = activeRelays
         anonymousRoom = anonymousProfile
+        val nip77Ready = !anonymousProfile && record.viaAccount && accountSession?.account?.pubkey == who.participant &&
+            activeRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
         _room.value = RoomState(
             roomId = derived.roomId,
@@ -2082,6 +2105,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             quiet = quiet != null,
             quietCanSend = quiet?.canSend ?: true,
             cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
+            nip77 = if (anonymousProfile) null else Nip77ViewState(
+                available = nip77Ready,
+                detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
+                    else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
+            ),
             canAddDevice = who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
             canShowCard = who is PrimaryIdentity && !anonymousProfile,
@@ -2597,6 +2625,63 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshCadence() = cadenceAction { record, who, secondary ->
         refreshCadence(record, who, secondary)
+    }
+
+    /**
+     * One explicit NIP-77 comparison of the current room address. It carries
+     * only event IDs and timestamps. Fetching a box-only event or offering a
+     * phone-only event is deliberately a later, separately authorised action.
+     */
+    fun compareRoomHistoryWithBothy() {
+        val record = savedRoom ?: return
+        val who = identity ?: return
+        val relay = pool ?: return
+        val scope = sessionScope ?: return
+        val state = _room.value.nip77 ?: return
+        if (state.busy) return
+        _room.update { it.copy(nip77 = state.copy(busy = true, detail = "Comparing event IDs with Bothy. No messages move.")) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val account = accountSession?.account ?: error("Sign in as this room's account before comparing history.")
+                require(record.viaAccount && account.pubkey == who.participant) {
+                    "This room is not owned by the signed-in account."
+                }
+                val url = relayUrls.singleOrNull()?.takeIf {
+                    LinkRelayAddress.canonical(it) == it && it in circleRelaySet()
+                } ?: error("Connect this room to one verified Link-carried Bothy before comparing history.")
+                val epoch = session?.epochKeys() ?: error("This room is no longer open.")
+                val address = deriveChatChannel(epoch.id, epoch.key).id
+                val until = epochSeconds()
+                val since = maxOf(0, until - 30L * 24 * 60 * 60)
+                val records = nip77Events.records(account.pubkey, record.id, address, since, until)
+                val result = relay.reconcileNip77(
+                    url = url,
+                    filter = Filter(kinds = listOf(KIND_CHAT), tags = mapOf("#d" to listOf(address)),
+                        since = since, until = until, limit = 127),
+                    records = records,
+                )
+                updateNip77Result(relay, result)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val message = (error as? java.util.concurrent.ExecutionException)?.cause?.message
+                    ?: error.message ?: "Bothy could not compare this room's event IDs."
+                if (pool === relay) _room.update { current ->
+                    current.copy(nip77 = current.nip77?.copy(busy = false, detail = message))
+                }
+            }
+        }
+    }
+
+    private fun updateNip77Result(relay: RelayPool, result: Nip77Reconciliation) {
+        if (pool !== relay) return
+        _room.update { current ->
+            current.copy(nip77 = current.nip77?.copy(
+                busy = false,
+                detail = "Comparison complete: Bothy has " + result.need.size + " IDs this phone has not fetched; " +
+                    "this phone has " + result.have.size + " IDs not offered to Bothy. No messages moved.",
+            ))
+        }
     }
 
     fun startCadence() = cadenceAction { record, who, secondary ->

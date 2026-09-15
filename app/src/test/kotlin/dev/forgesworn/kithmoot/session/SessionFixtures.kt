@@ -69,6 +69,7 @@ fun TestScope.session(
     epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
     onEpochBlocked: () -> Unit = {},
     onEpochReady: (EpochKeys) -> Unit = {},
+    onVerifiedOwnEvent: (NostrEvent) -> Unit = {},
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -87,4 +88,5 @@ fun TestScope.session(
     epochResponder = epochResponder,
     onEpochBlocked = onEpochBlocked,
     onEpochReady = onEpochReady,
+    onVerifiedOwnEvent = onVerifiedOwnEvent,
 )

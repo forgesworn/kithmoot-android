@@ -10,6 +10,7 @@ import dev.forgesworn.kithmoot.relay.LinkTransportVault
 import dev.forgesworn.kithmoot.relay.LinkTransportManager
 import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
 import dev.forgesworn.kithmoot.relay.LinkConsentVault
+import dev.forgesworn.kithmoot.relay.Nip77EventIndex
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.epoch.EpochVault
@@ -32,6 +33,11 @@ class KithMootApplication : Application() {
 
     /** Account-and-room permissions are deliberately separate from Link route credentials. */
     val linkConsents: LinkConsentVault by lazy { LinkConsentVault(EncryptedRoomStorage(this, "kithmoot.link-consent.v1")) }
+
+    /** Outer Nostr-event metadata only, encrypted separately from rooms and accounts. */
+    val nip77Events: Nip77EventIndex by lazy {
+        Nip77EventIndex(EncryptedRoomStorage(this, "kithmoot.nip77-events.v1", 2 * 1024 * 1024))
+    }
 
     /** Counter ownership survives timeouts and restarts in a dedicated encrypted journal. */
     val cadenceLeases: CadenceLeaseVault by lazy {

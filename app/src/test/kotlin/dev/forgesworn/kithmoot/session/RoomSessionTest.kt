@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.MAX_SIGNALS_PER_WINDOW
+import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SIGNAL_MAX_AGE_SECONDS
 import dev.forgesworn.kithmoot.protocol.SignalBody
@@ -162,6 +163,37 @@ class RoomSessionTest {
 
         // Our own copy is shown at once and de-duplicated against the relay's echo.
         assertEquals(1, mine.chat.value.size)
+    }
+
+    @Test
+    fun `only an accepted own chat retains its verified outer event`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+        val retained = mutableListOf<NostrEvent>()
+        val mine = session(room, owner, relay, onVerifiedOwnEvent = retained::add)
+        val theirs = session(room, stranger, relay, seed = 11)
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        theirs.sendChat("Not this account")
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(retained.isEmpty())
+
+        mine.sendChat("A local record")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(1, retained.size)
+        assertEquals(relay.published.last { it.kind == KIND_CHAT }.id, retained.single().id)
+        assertEquals(owner.devicePubkey, retained.single().pubkey)
+        assertEquals(2, theirs.chat.value.size)
     }
 
     @Test
