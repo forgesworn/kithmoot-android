@@ -377,7 +377,19 @@ data class CadenceViewState(
 data class Nip77ViewState(
     val available: Boolean = false,
     val busy: Boolean = false,
+    /** A fetch is offered only after this session's explicit comparison. */
+    val fetchAvailable: Boolean = false,
     val detail: String = "Connect this account-owned room to its verified Bothy before comparing history.",
+)
+
+private data class Nip77FetchPlan(
+    val account: String,
+    val roomId: String,
+    val relayUrl: String,
+    val address: String,
+    val since: Long,
+    val until: Long,
+    val ids: Set<String>,
 )
 
 /** Relays used when a room is opened here, or when a join URL names none. */
@@ -485,6 +497,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val entering = AtomicBoolean(false)
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
+    /** Kept only in memory, discarded on room/account/session changes. */
+    private var nip77FetchPlan: Nip77FetchPlan? = null
 
     // --- the Nostr account ---------------------------------------------------
 
@@ -2482,6 +2496,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         session = null
         identity = null
         savedRoom = null
+        nip77FetchPlan = null
         roomSecret = null
         roomInvitation = null
         roomInvitationHost = null
@@ -2629,8 +2644,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * One explicit NIP-77 comparison of the current room address. It carries
-     * only event IDs and timestamps. Fetching a box-only event or offering a
-     * phone-only event is deliberately a later, separately authorised action.
+     * only event IDs and timestamps. A box-only event can be retrieved only by
+     * the separate button enabled by this comparison; phone-only events are
+     * never offered to the box.
      */
     fun compareRoomHistoryWithBothy() {
         val record = savedRoom ?: return
@@ -2660,7 +2676,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                         since = since, until = until, limit = 127),
                     records = records,
                 )
-                updateNip77Result(relay, result)
+                updateNip77Result(relay, result, Nip77FetchPlan(
+                    account = account.pubkey,
+                    roomId = record.id,
+                    relayUrl = url,
+                    address = address,
+                    since = since,
+                    until = until,
+                    ids = result.need.map { it.toHex() }.toSet(),
+                ))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -2673,14 +2697,80 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun updateNip77Result(relay: RelayPool, result: Nip77Reconciliation) {
+    private fun updateNip77Result(relay: RelayPool, result: Nip77Reconciliation, plan: Nip77FetchPlan) {
         if (pool !== relay) return
+        nip77FetchPlan = plan.takeIf { it.ids.isNotEmpty() }
         _room.update { current ->
             current.copy(nip77 = current.nip77?.copy(
                 busy = false,
+                fetchAvailable = plan.ids.isNotEmpty(),
                 detail = "Comparison complete: Bothy has " + result.need.size + " IDs this phone has not fetched; " +
-                    "this phone has " + result.have.size + " IDs not offered to Bothy. No messages moved.",
+                    "this phone has " + result.have.size + " IDs not offered to Bothy. No messages moved." +
+                    if (plan.ids.isEmpty()) "" else " Fetch is available only for Bothy's listed IDs.",
             ))
+        }
+    }
+
+    /**
+     * Retrieves exactly the current comparison's box-only IDs from that same
+     * Link-authenticated Bothy. Returned outer events still pass the normal
+     * room decryption, credential and replay checks before they reach the UI.
+     */
+    fun fetchComparedHistoryFromBothy() {
+        val plan = nip77FetchPlan ?: return
+        val record = savedRoom ?: return
+        val who = identity ?: return
+        val relay = pool ?: return
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val state = _room.value.nip77 ?: return
+        if (state.busy || !state.fetchAvailable) return
+        _room.update { it.copy(nip77 = state.copy(busy = true, fetchAvailable = false, detail = "Requesting only Bothy's compared event IDs. Each message will still be verified locally.")) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val account = accountSession?.account ?: error("Sign in as this room's account before retrieving history.")
+                require(record.viaAccount && account.pubkey == who.participant && plan.account == account.pubkey && plan.roomId == record.id) {
+                    "This comparison no longer belongs to the signed-in room account."
+                }
+                require(pool === relay && relayUrls.singleOrNull() == plan.relayUrl && plan.relayUrl in circleRelaySet()) {
+                    "This room's verified Bothy changed. Compare IDs again before retrieving anything."
+                }
+                val epoch = live.epochKeys()
+                require(deriveChatChannel(epoch.id, epoch.key).id == plan.address) {
+                    "This room changed its encryption epoch. Compare IDs again before retrieving anything."
+                }
+                val events = relay.fetchNip77Events(
+                    url = plan.relayUrl,
+                    filter = Filter(
+                        ids = plan.ids.sorted(),
+                        kinds = listOf(KIND_CHAT),
+                        tags = mapOf("#d" to listOf(plan.address)),
+                        since = plan.since,
+                        until = plan.until,
+                        limit = plan.ids.size,
+                    ),
+                    ids = plan.ids,
+                )
+                events.forEach(live::onChatEvent)
+                val remaining = plan.ids - events.map(NostrEvent::id).toSet()
+                if (pool === relay && nip77FetchPlan == plan) {
+                    nip77FetchPlan = plan.copy(ids = remaining).takeIf { it.ids.isNotEmpty() }
+                    _room.update { current -> current.copy(nip77 = current.nip77?.copy(
+                        busy = false,
+                        fetchAvailable = remaining.isNotEmpty(),
+                        detail = "Bothy returned ${events.size} compared record(s). They are shown only if normal local decryption and credential checks accept them." +
+                            if (remaining.isEmpty()) "" else " ${remaining.size} compared ID(s) were not returned; compare again before retrying.",
+                    )) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val message = (error as? java.util.concurrent.ExecutionException)?.cause?.message
+                    ?: error.message ?: "Bothy could not retrieve the compared event IDs."
+                if (pool === relay && nip77FetchPlan == plan) _room.update { current ->
+                    current.copy(nip77 = current.nip77?.copy(busy = false, fetchAvailable = true, detail = message))
+                }
+            }
         }
     }
 

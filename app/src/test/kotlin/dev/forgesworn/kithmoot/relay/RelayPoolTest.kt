@@ -150,6 +150,93 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `NIP-77 fetch requests only compared IDs from the authenticated Link box`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 4 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("13".repeat(32))
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("fetch-challenge"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+
+        val returned = LocalSigner(ByteArray(32) { 3 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val operation = async {
+            pool.fetchNip77Events(
+                url,
+                Filter(ids = listOf(returned.id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 20, limit = 1),
+                listOf(returned.id),
+            )
+        }
+        runCurrent()
+        val request = socket.sent.single { it.startsWith("[\"REQ\"") }
+        val subscriptionId = request.substringAfter("[\"REQ\",\"").substringBefore("\"")
+        assertTrue(request.contains(returned.id))
+        assertTrue(socket.sent.none { it.startsWith("[\"NEG-OPEN\"") || it.startsWith("[\"EVENT\"") })
+        socket.deliverEvent(subscriptionId, returned)
+        socket.deliverRaw("[\"EOSE\",\"$subscriptionId\"]")
+        runCurrent()
+
+        assertEquals(listOf(returned.id), operation.await().map(NostrEvent::id))
+        assertTrue(socket.sent.any { it == "[\"CLOSE\",\"$subscriptionId\"]" })
+    }
+
+    @Test
+    fun `NIP-77 fetch refuses an event outside the compared ID set`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 4 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("14".repeat(32))
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("fetch-refusal"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+
+        val expected = LocalSigner(ByteArray(32) { 3 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val extra = LocalSigner(ByteArray(32) { 2 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val operation = async {
+            runCatching {
+                pool.fetchNip77Events(
+                    url,
+                    Filter(ids = listOf(expected.id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 20, limit = 1),
+                    listOf(expected.id),
+                )
+            }
+        }
+        runCurrent()
+        val subscriptionId = socket.requestedSubscriptions().single()
+        socket.deliverEvent(subscriptionId, extra)
+        runCurrent()
+
+        assertTrue(operation.await().exceptionOrNull()?.message?.contains("unexpected") == true)
+        assertTrue(socket.sent.any { it == "[\"CLOSE\",\"$subscriptionId\"]" })
+    }
+
+    @Test
+    fun `NIP-77 fetch refuses an ordinary relay before opening a socket`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = "wss://ordinary.example"
+        val id = "ab".repeat(32)
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { TestAuthenticator(LocalSigner(ByteArray(32) { 6 }), { currentTime }) })
+
+        val failure = runCatching {
+            pool.fetchNip77Events(
+                url,
+                Filter(ids = listOf(id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 2, limit = 1),
+                listOf(id),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(sockets.opened.isEmpty())
+    }
+
+    @Test
     fun `auth refusal blocks reconnect until explicit retry`() = runTest {
         val sockets = FakeSocketFactory()
         val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 8 }), { currentTime })
