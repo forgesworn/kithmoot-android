@@ -92,6 +92,7 @@ fun RoomScreen(
     onStartPrivateConversation: (String) -> Unit = {},
     onRefreshCadence: () -> Unit = {},
     onCompareRoomHistory: () -> Unit = {},
+    onFetchRoomHistory: () -> Unit = {},
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
@@ -146,7 +147,7 @@ fun RoomScreen(
     ) {
         Header(state, onLeave)
         state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
-        state.nip77?.takeIf { state.movedOn == null }?.let { Nip77Panel(it, onCompareRoomHistory) }
+        state.nip77?.takeIf { state.movedOn == null }?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory) }
         TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -250,7 +251,11 @@ fun RoomScreen(
 }
 
 @Composable
-private fun Nip77Panel(state: dev.forgesworn.kithmoot.ui.Nip77ViewState, onCompare: () -> Unit) {
+private fun Nip77Panel(
+    state: dev.forgesworn.kithmoot.ui.Nip77ViewState,
+    onCompare: () -> Unit,
+    onFetch: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -259,6 +264,11 @@ private fun Nip77Panel(state: dev.forgesworn.kithmoot.ui.Nip77ViewState, onCompa
         Text(state.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick = onCompare, enabled = state.available && !state.busy) {
             Text(if (state.busy) "Comparing IDs…" else "Compare with Bothy")
+        }
+        if (state.fetchAvailable) {
+            TextButton(onClick = onFetch, enabled = !state.busy) {
+                Text("Fetch Bothy-only events")
+            }
         }
     }
 }

@@ -197,6 +197,32 @@ class RoomSessionTest {
     }
 
     @Test
+    fun `an accepted own chat echoed from another device retains its verified outer event`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val secondDevice = Fixtures.secondary(room, owner, 30)
+        val retained = mutableListOf<NostrEvent>()
+        val first = session(room, owner, relay, onVerifiedOwnEvent = retained::add)
+        val second = session(room, secondDevice, relay, seed = 11)
+        first.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        second.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        second.sendChat("From my other device")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(1, first.chat.value.size)
+        assertEquals(1, retained.size)
+        assertEquals(relay.published.last { it.kind == KIND_CHAT }.id, retained.single().id)
+        assertEquals(owner.participant, first.chat.value.single().participant)
+    }
+
+    @Test
     fun `an empty chat line is not published`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()

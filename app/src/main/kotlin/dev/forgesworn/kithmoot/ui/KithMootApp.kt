@@ -227,6 +227,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onStartPrivateConversation = model::startPrivateConversation,
                     onRefreshCadence = model::refreshCadence,
                     onCompareRoomHistory = model::compareRoomHistoryWithBothy,
+                    onFetchRoomHistory = model::fetchComparedHistoryFromBothy,
                     onStartCadence = model::startCadence,
                     onStopCadence = model::stopCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,

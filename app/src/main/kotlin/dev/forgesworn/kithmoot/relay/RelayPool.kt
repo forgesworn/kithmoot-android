@@ -105,6 +105,7 @@ class RelayPool(
     private val subscriptions = linkedMapOf<String, PoolSubscription>()
     private val storedQueries = linkedMapOf<String, StoredQuery>()
     private val negentropyQueries = linkedMapOf<String, NegentropyQuery>()
+    private val nip77FetchQueries = linkedMapOf<String, Nip77FetchQuery>()
     private val publications = linkedMapOf<String, Publication>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
@@ -138,6 +139,8 @@ class RelayPool(
             storedQueries.clear()
             negentropyQueries.values.forEach { it.fail("Relays stopped") }
             negentropyQueries.clear()
+            nip77FetchQueries.values.forEach { it.fail("Relays stopped") }
+            nip77FetchQueries.clear()
             publications.values.forEach { it.result.complete(false) }
             publications.clear()
         }
@@ -187,6 +190,43 @@ class RelayPool(
         } finally {
             synchronized(lock) { negentropyQueries.remove(id) }
             link.sendIfOpen(RelayCodec.negCloseFrame(id))
+        }
+    }
+
+    /**
+     * Fetches only IDs disclosed by a completed, person-triggered NIP-77
+     * comparison. This is a normal Nostr request, but it is constrained to the
+     * same authenticated Link route and refuses every unsolicited record.
+     * Callers still have to decrypt and validate returned events before showing
+     * or retaining anything.
+     */
+    suspend fun fetchNip77Events(
+        url: String,
+        filter: Filter,
+        ids: Collection<String>,
+        timeoutMs: Long = 30_000,
+    ): List<NostrEvent> = withTimeout(timeoutMs) {
+        require(timeoutMs in 1..30_000) { "NIP-77 fetches are limited to thirty seconds" }
+        require(LinkRelayAddress.canonical(url) == url) { "NIP-77 fetch requires a canonical Link relay" }
+        require(url in circle()) { "NIP-77 fetch requires a verified circle box" }
+        require(authenticators.forUrl(url) != null) { "NIP-77 fetch requires NIP-42 permission" }
+        val expected = validateNip77FetchFilter(filter, ids)
+        connected.first { url in it }
+        val id = "km-neg-fetch-${nextSubscriptionId.incrementAndGet()}"
+        val query = Nip77FetchQuery(url, filter, expected)
+        val link = synchronized(lock) {
+            val current = links[url] ?: throw IllegalStateException("NIP-77 relay is not started")
+            check(current.isOpen && current.authState == AuthState.READY) { "NIP-77 relay is not authenticated" }
+            check(authenticators.forUrl(url) != null) { "NIP-42 permission was withdrawn" }
+            nip77FetchQueries[id] = query
+            current
+        }
+        try {
+            link.sendIfOpen(RelayCodec.requestFrame(id, listOf(filter)))
+            query.result.await()
+        } finally {
+            synchronized(lock) { nip77FetchQueries.remove(id) }
+            link.sendIfOpen(RelayCodec.closeFrame(id))
         }
     }
 
@@ -288,6 +328,26 @@ class RelayPool(
         Unit
     }
 
+    private fun nip77FetchMessage(url: String, message: RelayMessage) {
+        val query = when (message) {
+            is RelayMessage.Event -> synchronized(lock) { nip77FetchQueries[message.subscriptionId] }
+            is RelayMessage.EndOfStoredEvents -> synchronized(lock) { nip77FetchQueries[message.subscriptionId] }
+            is RelayMessage.Closed -> synchronized(lock) { nip77FetchQueries[message.subscriptionId] }
+            else -> null
+        } ?: return
+        if (query.url != url) return
+        if (!nip77StillPermitted(url)) {
+            query.fail("NIP-77 authority was withdrawn")
+            return
+        }
+        when (message) {
+            is RelayMessage.Event -> query.event(message.event)
+            is RelayMessage.EndOfStoredEvents -> query.end()
+            is RelayMessage.Closed -> query.fail("NIP-77 fetch was interrupted")
+            else -> Unit
+        }
+    }
+
     private fun negentropyMessage(url: String, message: RelayMessage) {
         val query = when (message) {
             is RelayMessage.NegentropyMessage -> synchronized(lock) { negentropyQueries[message.subscriptionId] }
@@ -366,6 +426,7 @@ class RelayPool(
     private fun onLinkClosed(link: RelayLink) {
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
         synchronized(lock) { negentropyQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
+        synchronized(lock) { nip77FetchQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
@@ -453,6 +514,7 @@ class RelayPool(
                     if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link)
                     storedMessage(link.url, message)
                     negentropyMessage(link.url, message)
+                    nip77FetchMessage(link.url, message)
                     when (message) {
                         is RelayMessage.Event -> deliver(message.subscriptionId, message.event)
                         // Everything else is informational. A CLOSED from one
@@ -590,7 +652,63 @@ class RelayPool(
         require(filter.kinds?.size == 1 && filter.limit in 1..Nip77Negentropy.MAX_RECORDS) { "NIP-77 filter is not narrow enough" }
     }
 
+    private fun validateNip77FetchFilter(filter: Filter, ids: Collection<String>): Set<String> {
+        validateNegentropyFilter(filter)
+        val expected = ids.toSet()
+        require(expected.size in 1..Nip77Negentropy.MAX_RECORDS && expected.all(::isCanonicalEventId)) {
+            "NIP-77 fetch IDs are not bounded canonical event IDs"
+        }
+        require(filter.ids?.size == expected.size && filter.ids.toSet() == expected && filter.ids.all(::isCanonicalEventId)) {
+            "NIP-77 fetch filter must name exactly the compared IDs"
+        }
+        require(filter.limit == expected.size) { "NIP-77 fetch limit must equal the compared ID count" }
+        return expected
+    }
+
+    private fun isCanonicalEventId(id: String): Boolean =
+        id.length == 64 && id.all { it in '0'..'9' || it in 'a'..'f' }
+
     private class Pending(val frame: String, val queuedAt: Long)
+
+    /** One exact-ID read from a NIP-77-authorised box, never a general history query. */
+    private class Nip77FetchQuery(
+        val url: String,
+        private val filter: Filter,
+        private val expectedIds: Set<String>,
+    ) {
+        val result = CompletableDeferred<List<NostrEvent>>()
+        private val events = linkedMapOf<String, NostrEvent>()
+
+        @Synchronized fun event(event: NostrEvent) {
+            if (result.isCompleted) return
+            if (!Events.verify(event)) return fail("NIP-77 fetch returned an unverified event")
+            if (event.id !in expectedIds || event.kind !in requireNotNull(filter.kinds)) {
+                return fail("NIP-77 fetch returned an unexpected event")
+            }
+            val since = requireNotNull(filter.since)
+            val until = requireNotNull(filter.until)
+            if (event.createdAt !in since..until || !matchesTags(event, filter.tags)) {
+                return fail("NIP-77 fetch returned an event outside its compared room window")
+            }
+            if (events.putIfAbsent(event.id, event) == null && events.size > expectedIds.size) {
+                fail("NIP-77 fetch exceeded its compared ID limit")
+            }
+        }
+
+        @Synchronized fun end() {
+            if (!result.isCompleted) result.complete(events.values.toList())
+        }
+
+        @Synchronized fun fail(message: String) {
+            result.completeExceptionally(IllegalStateException(message))
+        }
+
+        private fun matchesTags(event: NostrEvent, required: Map<String, List<String>>): Boolean =
+            required.all { (name, values) ->
+                name.length == 2 && name[0] == '#' && values.isNotEmpty() &&
+                    event.tags.any { tag -> tag.size >= 2 && tag[0] == name.substring(1) && tag[1] in values }
+            }
+    }
 
     private class Publication(private val pending: Set<String>) {
         val result = CompletableDeferred<Boolean>()

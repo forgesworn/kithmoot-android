@@ -575,7 +575,7 @@ class RoomSession(
     internal fun onChatEvent(event: NostrEvent) {
         val epoch = epochKeys()
         val message = decodeChatEvent(event, epoch.id, epoch.key, now(), policy, credentialRoomId = room.roomId) ?: return
-        ingestChat(message)
+        if (ingestChat(message)) retainOwnOuterEvent(event, message)
     }
 
     internal fun onSignalEvent(event: NostrEvent) {
