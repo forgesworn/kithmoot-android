@@ -131,13 +131,14 @@ class Nip46ClientTest {
         val client = Nip46Client(bunker.pointer(), Entropy.bytes(32), bunker, this, now = { 1_800_000_000 })
         advanceUntilIdle()
         client.connect()
+        val signer = BunkerSigner(bunker.userPubkey, client)
 
-        assertEquals("encrypted-child", client.provisionRendezvous(7, ByteArray(16) { it.toByte() }, 1_800_000_300))
+        assertEquals("encrypted-child", signer.provisionRendezvous(7, ByteArray(16) { it.toByte() }, 1_800_000_300))
         assertEquals(
             listOf(client.clientPubkey, "7", "AAECAwQFBgcICQoLDA0ODw", "1800000300"),
             bunker.requestParams.last(),
         )
-        client.close()
+        signer.close()
     }
 
     @Test fun `nobody taking up the invitation is a message, not a hang`() = runTest {

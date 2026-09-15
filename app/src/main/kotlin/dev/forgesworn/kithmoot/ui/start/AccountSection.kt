@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.start
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -14,6 +15,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.account.BunkerPointer
@@ -28,10 +30,11 @@ class AccountActions(
     val onSignInWithBunker: (String) -> Unit,
     val onCancelSignIn: () -> Unit,
     val onSignOut: () -> Unit,
+    val onProvisionRendezvous: (Long) -> Unit,
     val onDismissError: () -> Unit,
 ) {
     companion object {
-        val None = AccountActions({}, {}, {}, {}, {}, {}, {})
+        val None = AccountActions({}, {}, {}, {}, {}, {}, {}, {})
     }
 }
 
@@ -47,6 +50,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
     var choosing by remember { mutableStateOf(false) }
     val account = state.account
     val retained = state.retainedAccount
+    var rendezvousIndex by remember(account?.pubkey) { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (account != null) "Your Nostr account" else if (retained != null) "Keep your preview account" else "Keep your rooms with you",
@@ -68,6 +72,35 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
                 "bunker" -> "Signing through your remote signer. Rooms you open are joined as this account; the first signature in a room needs your signer to be reachable."
                 else -> "Signing with a key kept in this app's encrypted vault. Rooms you open are joined as this account."
             }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (account.method == "bunker") {
+                HorizontalDivider()
+                Text("Vennel rendezvous", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Ask a compatible Heartwood bunker to provision its root-derived rendezvous child to this phone. Choose the person's current index exactly; KithMoot never sees the child in account, room or contact storage.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                state.rendezvous?.activeIndex?.let { active ->
+                    Text("This phone currently holds index $active. Enter an owner-selected index to rotate it.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedTextField(
+                    value = rendezvousIndex,
+                    onValueChange = { rendezvousIndex = it.filter(Char::isDigit).take(10) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Rendezvous index") },
+                    placeholder = { Text("Owner-selected current index") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                val requestedIndex = rendezvousIndex.toLongOrNull()?.takeIf { it in 0..0xffffffffL }
+                val rendezvousBusy = state.rendezvous?.busy == true
+                Button(
+                    onClick = { requestedIndex?.let(actions.onProvisionRendezvous) },
+                    enabled = enabled && !rendezvousBusy && requestedIndex != null,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text(if (rendezvousBusy) "Waiting for Heartwood…" else "Ask Heartwood to provision this phone") }
+                state.rendezvous?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
             OutlinedButton(actions.onSignOut, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
         } else {
             if (retained != null) {

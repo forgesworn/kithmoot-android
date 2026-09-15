@@ -233,6 +233,15 @@ class BunkerSigner(
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String = client.nip44Encrypt(peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String): String = client.nip44Decrypt(peer, payload)
 
+    /**
+     * Narrow Heartwood-only operation.  This deliberately is not part of
+     * [ParticipantSigner]: an ordinary account signer must never acquire a
+     * generic derived-key export surface just because KithMoot can receive a
+     * Vennel rendezvous child from a compatible bunker.
+     */
+    suspend fun provisionRendezvous(index: Long, nonce: ByteArray, expiresAt: Long): String =
+        client.provisionRendezvous(index, nonce, expiresAt)
+
     override fun close() { client.close(); onClose() }
 }
 
