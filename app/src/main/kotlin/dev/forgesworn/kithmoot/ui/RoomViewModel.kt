@@ -507,6 +507,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     // --- the Nostr account ---------------------------------------------------
 
     private val accounts = (application as KithMootApplication).accounts
+    private val rendezvous = (application as KithMootApplication).rendezvous
     private val contacts = (application as KithMootApplication).contacts
     private val linkConsents = (application as KithMootApplication).linkConsents
     private val nip77Events = (application as KithMootApplication).nip77Events
@@ -934,6 +935,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
                 signedOutAccount?.let { account ->
+                    try { rendezvous.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                     try { nip77Events.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                     try { nip77Offers.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                 }

@@ -34,4 +34,23 @@ class RendezvousProvisioningTest {
         assertEquals("fields", reason(record.replace("{\"v\":1,\"p\":\"$identity\",\"d\":", "{\"p\":\"$identity\",\"v\":1,\"d\":")))
         assertEquals("scalar", reason(record.replace("\"k\":\"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA\"", "\"k\":\"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA=\"")))
     }
+
+    @Test fun `checks public response wrapper before opening its ciphertext`() {
+        // serde_json may serialise Heartwood's outer response map in key
+        // order; the public envelope is deliberately shape-checked, not
+        // transport-order-sensitive.  The encrypted inner record is canonical.
+        val envelope = """{"c":"test-ciphertext","d":"$device","e":1793577900,"i":7,"n":"AAECAwQFBgcICQoLDA0ODw","p":"$identity","rz":"5f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486","u":"rendezvous","v":1}"""
+        val result = readRendezvousProvisionEnvelope(envelope, expect)
+
+        assertTrue(result is RendezvousProvisionEnvelopeResult.Accepted)
+        assertEquals("test-ciphertext", (result as RendezvousProvisionEnvelopeResult.Accepted).envelope.ciphertext)
+        assertEquals(
+            "device",
+            (readRendezvousProvisionEnvelope(envelope.replace(device, "bb".repeat(32)), expect) as RendezvousProvisionEnvelopeResult.Refused).reason,
+        )
+        assertEquals(
+            "fields",
+            (readRendezvousProvisionEnvelope(envelope.replace("\"c\":\"test-ciphertext\"", "\"x\":\"test-ciphertext\""), expect) as RendezvousProvisionEnvelopeResult.Refused).reason,
+        )
+    }
 }

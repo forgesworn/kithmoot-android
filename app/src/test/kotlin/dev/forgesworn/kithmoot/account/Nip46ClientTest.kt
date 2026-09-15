@@ -37,6 +37,7 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
     val signerPubkey = Schnorr.publicKeyHex(signerKey)
     val events = MutableSharedFlow<NostrEvent>(extraBufferCapacity = 64)
     val methods = ArrayList<String>()
+    val requestParams = ArrayList<List<String>>()
     var connectedClient: String? = null
 
     override fun describe(): List<String> = listOf("wss://fake")
@@ -51,6 +52,7 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
         val method = request["method"]!!.jsonPrimitive.content
         val params = request["params"]!!.jsonArray.map { it.jsonPrimitive.content }
         methods += method
+        requestParams += params
         val (result, error) = when {
             refuse -> null to "not today"
             method == "connect" -> if (params.getOrNull(1) == (secret ?: "")) { connectedClient = event.pubkey; "ack" to null } else null to "bad secret"
@@ -62,6 +64,7 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
                     unsigned["tags"]!!.jsonArray.map { tag -> tag.jsonArray.map { it.jsonPrimitive.content } }, unsigned["content"]!!.jsonPrimitive.content)
                 signed.toJson().toString() to null
             }
+            method == "heartwood_provision_rendezvous" -> "encrypted-child" to null
             else -> null to "unsupported"
         }
         val body = buildJsonObject {
@@ -120,6 +123,20 @@ class Nip46ClientTest {
         val client = Nip46Client(pointer, clientKey, bunker, this, now = { 1_800_000_000 })
         advanceUntilIdle()
         assertEquals(bunker.userPubkey, client.getPublicKey())
+        client.close()
+    }
+
+    @Test fun `rendezvous provisioning binds this NIP-46 client key nonce index and expiry`() = runTest {
+        val bunker = FakeBunker("open-sesame")
+        val client = Nip46Client(bunker.pointer(), Entropy.bytes(32), bunker, this, now = { 1_800_000_000 })
+        advanceUntilIdle()
+        client.connect()
+
+        assertEquals("encrypted-child", client.provisionRendezvous(7, ByteArray(16) { it.toByte() }, 1_800_000_300))
+        assertEquals(
+            listOf(client.clientPubkey, "7", "AAECAwQFBgcICQoLDA0ODw", "1800000300"),
+            bunker.requestParams.last(),
+        )
         client.close()
     }
 
