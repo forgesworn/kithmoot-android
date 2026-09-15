@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -53,6 +54,16 @@ class RelayCodecTest {
         assertIs<RelayMessage.EndOfStoredEvents>(RelayCodec.parse("""["EOSE","sub-1"]"""))
         assertIs<RelayMessage.Closed>(RelayCodec.parse("""["CLOSED","sub-1","rate-limited"]"""))
         assertIs<RelayMessage.Notice>(RelayCodec.parse("""["NOTICE","slow down"]"""))
+    }
+
+    @Test fun `NIP-77 frames use bounded lowercase hex`() {
+        val open = RelayCodec.negOpenFrame("neg-1", Filter(kinds = listOf(1), since = 1, until = 2, limit = 1), byteArrayOf(0x61))
+        assertEquals("""["NEG-OPEN","neg-1",{"kinds":[1],"since":1,"until":2,"limit":1},"61"]""", open)
+        val message = assertIs<RelayMessage.NegentropyMessage>(RelayCodec.parse("""["NEG-MSG","neg-1","6100000200"]"""))
+        assertContentEquals(byteArrayOf(0x61, 0, 0, 2, 0), message.payload)
+        assertIs<RelayMessage.NegentropyError>(RelayCodec.parse("""["NEG-ERR","neg-1","blocked: narrow it"]"""))
+        assertIs<RelayMessage.Unknown>(RelayCodec.parse("""["NEG-MSG","neg-1","61FF"]"""))
+        assertIs<RelayMessage.Unknown>(RelayCodec.parse("""["NEG-MSG","neg-1","6"]"""))
     }
 
     @Test
