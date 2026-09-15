@@ -156,6 +156,9 @@ import dev.forgesworn.kithmoot.protocol.CadenceLeaseOptions
 import dev.forgesworn.kithmoot.protocol.CadenceScope
 import dev.forgesworn.kithmoot.protocol.DeadDrop
 import dev.forgesworn.kithmoot.protocol.QuietKeys
+import dev.forgesworn.kithmoot.protocol.RENDEZVOUS_PROVISION_MAX_SECONDS
+import dev.forgesworn.kithmoot.protocol.RendezvousProvisionExpect
+import dev.forgesworn.kithmoot.account.RendezvousVaultResult
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -226,6 +229,13 @@ data class AccountView(
     val shownName: String get() = profile?.name ?: name ?: short
 }
 
+/** Public state only; the child scalar is never part of Compose state. */
+data class RendezvousView(
+    val activeIndex: Long? = null,
+    val busy: Boolean = false,
+    val message: String? = null,
+)
+
 data class StartState(
     val homeTab: String = "chats",
     val projects: ProjectAccountSnapshot = ProjectAccountSnapshot(),
@@ -249,6 +259,8 @@ data class StartState(
     val linkGrantOwnerRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
     val account: AccountView? = null,
+    /** Present only for a NIP-46 account whose device-held recipient key may receive a Vennel child. */
+    val rendezvous: RendezvousView? = null,
     /** A release build retained this debug-preview identity and needs the same account from an external signer. */
     val retainedAccount: AccountView? = null,
     /** A sign-in is under way: the signer app is up, the bunker is being reached, or Signet has the browser. */
@@ -631,7 +643,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         // local NIP-55 signer has no transport to create one. The public
         // profile lookup and shared-project recovery need it in both cases.
         if (accountScope == null) newAccountScope()
-        _start.update { it.copy(account = accountView(account), retainedAccount = null, signingIn = false, signInError = null) }
+        _start.update { it.copy(account = accountView(account), rendezvous = rendezvousView(account), retainedAccount = null, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
         startSharedProjects(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
@@ -645,6 +657,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         },
         name = account.displayName,
     )
+
+    private fun rendezvousView(account: NostrAccount): RendezvousView? {
+        val clientKey = account.clientSecretKey ?: return null
+        val device = runCatching { Schnorr.publicKeyHex(clientKey) }.getOrNull() ?: return null
+        val active = runCatching { rendezvous.active(account.pubkey, device) }.getOrNull()
+        return RendezvousView(activeIndex = active?.receipt?.index)
+    }
 
     private suspend fun saveAndAdopt(session: AccountSession, account: NostrAccount) {
         accountStoreGate.withLock {
@@ -941,7 +960,69 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 retainedLegacyAccount = null
             }
-            _start.update { it.copy(account = null, retainedAccount = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+            _start.update { it.copy(account = null, rendezvous = null, retainedAccount = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+        }
+    }
+
+    /**
+     * Start one explicit person-device ceremony. The index is deliberately
+     * supplied by the owner: this phone cannot infer the person's active root
+     * index from its own local vault. Heartwood still requires an exact
+     * physical approval for the request it sees over the relay.
+     */
+    fun provisionRendezvous(index: Long) {
+        if (_stage.value != Stage.START || _start.value.signingIn || _start.value.busy) return
+        if (index !in 0..0xffffffffL) {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Choose a rendezvous index from 0 to 4294967295.")) }
+            return
+        }
+        val session = accountSession ?: run {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Sign in to the Heartwood bunker first.")) }
+            return
+        }
+        val account = session.account
+        val signer = session.signer as? BunkerSigner ?: run {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Rendezvous setup needs a compatible Heartwood bunker connection.")) }
+            return
+        }
+        val clientKey = account.clientSecretKey ?: run {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "This bunker connection has no retained device key.")) }
+            return
+        }
+        val device = runCatching { Schnorr.publicKeyHex(clientKey) }.getOrElse {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "This bunker device key is invalid.")) }
+            return
+        }
+        val nonce = Entropy.bytes(16)
+        // Leave 120 seconds for ordinary clock skew and the owner's physical
+        // approval, while staying below Heartwood's hard ten-minute ceiling.
+        val expiresAt = epochSeconds() + RENDEZVOUS_PROVISION_MAX_SECONDS - 120
+        _start.update { it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = true, message = "Approve this exact device and index on Heartwood now…")) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = signer.provisionRendezvous(index, nonce, expiresAt)
+                val result = accountGate.withLock {
+                    if (accountSession !== session) throw SignerException("The signed-in account changed before the rendezvous child arrived.")
+                    rendezvous.accept(response, RendezvousProvisionExpect(account.pubkey, device, nonce, epochSeconds()), clientKey)
+                }
+                when (result) {
+                    is RendezvousVaultResult.Accepted -> _start.update {
+                        it.copy(rendezvous = RendezvousView(activeIndex = result.receipt.index, message = "Rendezvous child for index ${result.receipt.index} is protected on this phone."))
+                    }
+                    is RendezvousVaultResult.Refused -> _start.update {
+                        it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = false, message = "Heartwood's response was refused: ${result.reason}. Nothing was stored."))
+                    }
+                }
+            } catch (error: Exception) {
+                _start.update {
+                    it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = false, message = when (error) {
+                        is SignerException -> error.message ?: "Heartwood refused the rendezvous request."
+                        else -> "Rendezvous setup did not complete. Nothing was stored."
+                    }))
+                }
+            } finally {
+                nonce.fill(0)
+            }
         }
     }
 
