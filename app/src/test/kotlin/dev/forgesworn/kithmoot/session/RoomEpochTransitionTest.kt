@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.decodeRekeyEvent
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.encodeRekeyEvent
+import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
+import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
@@ -81,6 +83,49 @@ class RoomEpochTransitionTest {
         assertTrue(relay.publicationBlocked)
         assertFailsWith<IllegalStateException> { live.sendChat("must wait") }
         assertEquals(current.id, live.epochKeys().id)
+    }
+
+    @Test fun `a delayed presence reply is discarded while a secure update blocks traffic`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val remote = Fixtures.primary(stable, 3, 4)
+        val relay = FakeRelay()
+        val live = session(
+            stable,
+            identity,
+            relay,
+            authority = authority,
+            timing = Fixtures.QUIET.copy(announceJitterMs = 1_000),
+            epochGate = { _, _ -> EpochGateResult.PENDING },
+        )
+        live.join()
+        val before = relay.countFrom(identity.devicePubkey, KIND_ROSTER)
+        relay.publish(
+            encodeRosterEvent(
+                RosterEntry(remote.participant, remote.devicePubkey, remote.credential, updatedAt = 0),
+                stable.roomId,
+                stable.roomKey,
+                remote.deviceSecretKey,
+            ),
+        )
+        runCurrent()
+        val current = deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 }))
+        relay.publish(
+            encodeRekeyEvent(
+                stable.roomId,
+                authoritySecret,
+                current,
+                RoomEpoch(1, ByteArray(32) { 45 }),
+                listOf(identity.devicePubkey),
+                emptyList(),
+                1,
+            ),
+        )
+        runCurrent()
+        assertTrue(relay.publicationBlocked)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(before, relay.countFrom(identity.devicePubkey, KIND_ROSTER))
     }
 
     @Test fun `a committed removal is terminal and never reveals or enters the successor`() = runTest {
