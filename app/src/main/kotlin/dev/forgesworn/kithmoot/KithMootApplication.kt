@@ -11,6 +11,7 @@ import dev.forgesworn.kithmoot.relay.LinkTransportManager
 import dev.forgesworn.kithmoot.relay.ReflectiveLinkTransportRuntime
 import dev.forgesworn.kithmoot.relay.LinkConsentVault
 import dev.forgesworn.kithmoot.relay.Nip77EventIndex
+import dev.forgesworn.kithmoot.relay.Nip77OfferArchive
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.epoch.EpochVault
@@ -37,6 +38,11 @@ class KithMootApplication : Application() {
     /** Outer Nostr-event metadata only, encrypted separately from rooms and accounts. */
     val nip77Events: Nip77EventIndex by lazy {
         Nip77EventIndex(EncryptedRoomStorage(this, "kithmoot.nip77-events.v1", 2 * 1024 * 1024))
+    }
+
+    /** Encrypted outer events retained only for a later explicit NIP-77 custody offer. */
+    val nip77Offers: Nip77OfferArchive by lazy {
+        Nip77OfferArchive(EncryptedRoomStorage(this, "kithmoot.nip77-offers.v1", 2 * 1024 * 1024))
     }
 
     /** Counter ownership survives timeouts and restarts in a dedicated encrypted journal. */
