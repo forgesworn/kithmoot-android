@@ -306,12 +306,12 @@ class RoomSession(
                 transport.completeRekey()
                 transportBlocked = false
             }
-            publicationAllowed = true
+            synchronized(lock) { publicationAllowed = true }
         }
         jobs += scope.launch {
             while (true) {
                 delay(timing.heartbeatIntervalMs)
-                if (publicationAllowed) announce()
+                announceIfPublishing()
             }
         }
         jobs += scope.launch {
@@ -320,7 +320,7 @@ class RoomSession(
                 sweep()
             }
         }
-        if (publicationAllowed) announce()
+        announceIfPublishing()
         if (resumedTransition) onEpochReady(epochKeys())
     }
 
@@ -376,8 +376,26 @@ class RoomSession(
      *  an answer or a farewell rather than an arrival; `left` marks the
      *  farewell itself. */
     fun announce(reply: Boolean = false, left: Boolean = false) {
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
-        publishAnnouncement(reply, left)
+        synchronized(lock) {
+            check(publicationAllowed) { "Room publication is blocked during a secure update" }
+            publishAnnouncement(reply, left)
+        }
+    }
+
+    /**
+     * Background presence is best-effort. A secure epoch transition may close
+     * the publication gate after a heartbeat or delayed reply has been queued;
+     * in that case the stale presence entry must be dropped, not crash the app
+     * or race traffic onto the predecessor epoch. The shared lock makes closing
+     * the gate and publishing one of these entries mutually exclusive.
+     * Deliberate caller actions still use [announce] and keep its fail-closed
+     * behaviour.
+     */
+    private fun announceIfPublishing(reply: Boolean = false) {
+        synchronized(lock) {
+            if (!joined || !publicationAllowed) return
+            publishAnnouncement(reply, left = false)
+        }
     }
 
     private fun publishAnnouncement(reply: Boolean, left: Boolean) {
@@ -630,7 +648,7 @@ class RoomSession(
             if (responseJob?.isActive == true) return
             responseJob = scope.launch {
                 delay(random.nextLong(timing.announceJitterMs + 1))
-                announce(reply = true)
+                announceIfPublishing(reply = true)
             }
         }
     }
@@ -894,8 +912,10 @@ class RoomSession(
     }
 
     private suspend fun blockForRekey() {
-        publicationAllowed = false
-        responseJob?.cancel()
+        synchronized(lock) {
+            publicationAllowed = false
+            responseJob?.cancel()
+        }
         if (!transportBlocked) {
             onEpochBlocked()
             transport.beginRekey()
@@ -924,8 +944,8 @@ class RoomSession(
             startTrafficJobs()
             transport.completeRekey()
             transportBlocked = false
-            publicationAllowed = true
-            announce(reply = true)
+            synchronized(lock) { publicationAllowed = true }
+            announceIfPublishing(reply = true)
             onEpochReady(next)
         }
     }
