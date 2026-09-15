@@ -28,6 +28,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.net.URI
 import java.net.URLDecoder
+import java.util.Base64
 
 /** NIP-46 requests and responses travel as this kind, encrypted to the other side. */
 const val KIND_NOSTR_CONNECT: Int = 24133
@@ -160,6 +161,21 @@ class Nip46Client(
 
     suspend fun nip44Encrypt(peer: String, plaintext: String): String = request("nip44_encrypt", listOf(peer, plaintext))
     suspend fun nip44Decrypt(peer: String, payload: String): String = request("nip44_decrypt", listOf(peer, payload))
+
+    /**
+     * Ask a capable Heartwood signer to provision its literal `rendezvous`
+     * child directly to this phone's NIP-46 client key.  The response remains
+     * ciphertext until [RendezvousVault] validates and opens it locally.
+     */
+    suspend fun provisionRendezvous(index: Long, nonce: ByteArray, expiresAt: Long): String {
+        require(index in 0..0xffffffffL) { "Rendezvous index is out of range" }
+        require(nonce.size == 16) { "Rendezvous nonce must be 16 bytes" }
+        require(expiresAt > 0) { "Rendezvous expiry is invalid" }
+        return request(
+            "heartwood_provision_rendezvous",
+            listOf(clientPubkey, index.toString(), Base64.getUrlEncoder().withoutPadding().encodeToString(nonce), expiresAt.toString()),
+        )
+    }
 
     fun close() {
         listener.cancel()

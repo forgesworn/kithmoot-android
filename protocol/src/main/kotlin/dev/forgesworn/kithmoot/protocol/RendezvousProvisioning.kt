@@ -26,6 +26,22 @@ sealed class RendezvousProvisionResult {
     data class Refused(val reason: String) : RendezvousProvisionResult()
 }
 
+/**
+ * The public wrapper returned by Heartwood's narrowly-scoped NIP-46
+ * operation.  `ciphertext` is encrypted to `device` using `rendezvous`, so a
+ * caller must check these bindings before deriving the NIP-44 conversation
+ * key to open it.
+ */
+data class RendezvousProvisionEnvelope(
+    val rendezvousPubkey: String,
+    val ciphertext: String,
+)
+
+sealed class RendezvousProvisionEnvelopeResult {
+    data class Accepted(val envelope: RendezvousProvisionEnvelope) : RendezvousProvisionEnvelopeResult()
+    data class Refused(val reason: String) : RendezvousProvisionEnvelopeResult()
+}
+
 data class RendezvousProvisionExpect(
     val identity: String,
     val device: String,
@@ -34,6 +50,7 @@ data class RendezvousProvisionExpect(
 )
 
 private val provisionFields = listOf("v", "p", "d", "rz", "u", "i", "n", "e", "k")
+private val envelopeFields = listOf("v", "p", "d", "rz", "u", "i", "n", "e", "c")
 private val lowerHex64 = Regex("^[0-9a-f]{64}$")
 private val base64Url = Regex("^[A-Za-z0-9_-]+$")
 
@@ -70,6 +87,43 @@ fun readRendezvousProvision(text: String, expect: RendezvousProvisionExpect): Re
         return RendezvousProvisionResult.Refused("rendezvous key")
     }
     return RendezvousProvisionResult.Accepted(RendezvousProvision(index, expiresAt, scalar))
+}
+
+/**
+ * Verify the public NIP-46 response wrapper before trying to decrypt its
+ * ciphertext.  The inner record is still checked by [readRendezvousProvision]
+ * before anything reaches a device vault.
+ */
+fun readRendezvousProvisionEnvelope(
+    text: String,
+    expect: RendezvousProvisionExpect,
+): RendezvousProvisionEnvelopeResult {
+    if (text.length > 8192) return RendezvousProvisionEnvelopeResult.Refused("size")
+    val body = runCatching { Json.parseToJsonElement(text) as? JsonObject }.getOrNull()
+        ?: return RendezvousProvisionEnvelopeResult.Refused("json")
+    // Unlike the inner record, the NIP-46 result is a public JSON wrapper
+    // built by the signer.  Its members need not retain a transport-specific
+    // order, but it must contain precisely this bounded shape.
+    if (body.keys != envelopeFields.toSet()) return RendezvousProvisionEnvelopeResult.Refused("fields")
+    if (body.long("v") != 1L) return RendezvousProvisionEnvelopeResult.Refused("version")
+    val identity = body.text("p") ?: return RendezvousProvisionEnvelopeResult.Refused("pubkey")
+    val device = body.text("d") ?: return RendezvousProvisionEnvelopeResult.Refused("pubkey")
+    val rendezvous = body.text("rz") ?: return RendezvousProvisionEnvelopeResult.Refused("pubkey")
+    if (!lowerHex64.matches(identity) || !lowerHex64.matches(device) || !lowerHex64.matches(rendezvous)) {
+        return RendezvousProvisionEnvelopeResult.Refused("pubkey")
+    }
+    if (body.text("u") != RENDEZVOUS_PURPOSE) return RendezvousProvisionEnvelopeResult.Refused("purpose")
+    val index = body.long("i") ?: return RendezvousProvisionEnvelopeResult.Refused("index")
+    if (index !in 0..0xffffffffL) return RendezvousProvisionEnvelopeResult.Refused("index")
+    val expiresAt = body.long("e") ?: return RendezvousProvisionEnvelopeResult.Refused("expired")
+    if (expiresAt <= expect.now) return RendezvousProvisionEnvelopeResult.Refused("expired")
+    if (expiresAt - expect.now > RENDEZVOUS_PROVISION_MAX_SECONDS) return RendezvousProvisionEnvelopeResult.Refused("expiry window")
+    val nonce = body.text("n")?.let(::decodeBase64Url) ?: return RendezvousProvisionEnvelopeResult.Refused("nonce")
+    if (nonce.size != 16 || !nonce.contentEquals(expect.nonce)) return RendezvousProvisionEnvelopeResult.Refused("nonce")
+    if (identity != expect.identity) return RendezvousProvisionEnvelopeResult.Refused("identity")
+    if (device != expect.device) return RendezvousProvisionEnvelopeResult.Refused("device")
+    val ciphertext = body.text("c")?.takeIf { it.isNotBlank() } ?: return RendezvousProvisionEnvelopeResult.Refused("ciphertext")
+    return RendezvousProvisionEnvelopeResult.Accepted(RendezvousProvisionEnvelope(rendezvous, ciphertext))
 }
 
 private fun JsonObject.text(name: String): String? =
