@@ -1,11 +1,26 @@
 # Android release signing and device acceptance
 
-The public APK channel is currently a debug-signed preview. Version 0.6.2 is the
+The public APK channel is currently a debug-signed preview. Version 0.6.3 is the
 current production-lineage candidate and requires Android 13 or later. Publishing
 it still requires the owner-held key, exact-preview upgrade proof and the
 physical acceptance recorded below.
 
-## 0.6.2 production-lineage candidate
+## 0.6.3 rendezvous-provisioning candidate
+
+Version code 26 is the first candidate above the already-installed 0.6.2
+production-lineage artifact. It carries the explicit, Bunker-only rendezvous
+provision ceremony and its dedicated Keystore-backed recipient vault. It must
+be signed with the same owner-held production key and preview-to-production
+lineage, then accepted in place on a physical Android 13-or-later device before
+any public publication. A successful build is not approval to install or
+publish it.
+
+The reviewed signer script obtains its output filename from the unsigned APK's
+validated version metadata (currently `kithmoot-0.6.3-production.apk`) and
+refuses a version code at or below 25. This prevents a future candidate from
+silently reusing the pre-rendezvous update slot.
+
+## 0.6.2 production-lineage candidate (historical)
 
 Version code 25 raises the production floor to Android 13 and rotates from the
 published preview certificate with APK Signature Scheme v3. The lineage trusts
@@ -196,10 +211,10 @@ bash scripts/build-signed-release.sh
 ```
 
 The script first verifies the lineage checksum. It runs protocol/app tests,
-release lint and the unsigned release build, then signs
-`kithmoot-0.6.2-production.apk` with only the production key and the lineage. It
-requires v3 signing, Android 13 minimum, target SDK 35, version code greater
-than 22, the exact package name and a non-debuggable manifest. It rejects v1,
+release lint and the unsigned release build, then signs the versioned production
+APK with only the production key and the lineage. It requires v3 signing,
+Android 13 minimum, target SDK 35, version code greater than 25, the exact
+package name and a non-debuggable manifest. It rejects v1,
 v2, the Android debug certificate and any certificate mismatch, then prints
 the APK checksum. It does not publish or install anything.
 
@@ -244,7 +259,7 @@ python3 scripts/capture-physical-release-state.py \
 
 python3 scripts/capture-physical-release-state.py \
   --channel production \
-  --apk app/build/outputs/apk/release/kithmoot-0.6.2-production.apk \
+  --apk app/build/outputs/apk/release/kithmoot-0.6.3-production.apk \
   --lineage /absolute/private/path/preview-to-production.lineage \
   --production-cert-sha256 "$KITHMOOT_CERT_SHA256" \
   --out /private/evidence/physical-after.json
