@@ -93,6 +93,7 @@ fun RoomScreen(
     onRefreshCadence: () -> Unit = {},
     onCompareRoomHistory: () -> Unit = {},
     onFetchRoomHistory: () -> Unit = {},
+    onOfferRoomHistory: () -> Unit = {},
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
@@ -147,7 +148,7 @@ fun RoomScreen(
     ) {
         Header(state, onLeave)
         state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
-        state.nip77?.takeIf { state.movedOn == null }?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory) }
+        state.nip77?.takeIf { state.movedOn == null }?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
         TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -255,6 +256,7 @@ private fun Nip77Panel(
     state: dev.forgesworn.kithmoot.ui.Nip77ViewState,
     onCompare: () -> Unit,
     onFetch: () -> Unit,
+    onOffer: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -268,6 +270,11 @@ private fun Nip77Panel(
         if (state.fetchAvailable) {
             TextButton(onClick = onFetch, enabled = !state.busy) {
                 Text("Fetch Bothy-only events")
+            }
+        }
+        if (state.offerAvailable) {
+            TextButton(onClick = onOffer, enabled = !state.busy) {
+                Text("Offer phone-only events to Bothy")
             }
         }
     }

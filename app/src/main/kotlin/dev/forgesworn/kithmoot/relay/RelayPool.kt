@@ -106,6 +106,7 @@ class RelayPool(
     private val storedQueries = linkedMapOf<String, StoredQuery>()
     private val negentropyQueries = linkedMapOf<String, NegentropyQuery>()
     private val nip77FetchQueries = linkedMapOf<String, Nip77FetchQuery>()
+    private val nip77OfferPublications = linkedMapOf<String, Nip77OfferPublication>()
     private val publications = linkedMapOf<String, Publication>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
@@ -230,6 +231,42 @@ class RelayPool(
         }
     }
 
+    /**
+     * Publishes exact, already-compared phone-only room events to one current
+     * Link/NIP-42-authorised Bothy. This never uses the ordinary fan-out
+     * outbox: a custody offer is explicit, bounded and cannot become a public
+     * relay retry.
+     */
+    suspend fun offerNip77Events(
+        url: String,
+        filter: Filter,
+        events: Collection<NostrEvent>,
+        timeoutMs: Long = 30_000,
+    ): Int = withTimeout(timeoutMs) {
+        require(timeoutMs in 1..30_000) { "NIP-77 offers are limited to thirty seconds" }
+        require(LinkRelayAddress.canonical(url) == url) { "NIP-77 offer requires a canonical Link relay" }
+        require(url in circle()) { "NIP-77 offer requires a verified circle box" }
+        require(authenticators.forUrl(url) != null) { "NIP-77 offer requires NIP-42 permission" }
+        val expected = validateNip77OfferEvents(filter, events)
+        connected.first { url in it }
+        val publication = Nip77OfferPublication(url, expected)
+        val link = synchronized(lock) {
+            val current = links[url] ?: throw IllegalStateException("NIP-77 relay is not started")
+            check(current.isOpen && current.authState == AuthState.READY) { "NIP-77 relay is not authenticated" }
+            check(authenticators.forUrl(url) != null) { "NIP-42 permission was withdrawn" }
+            expected.forEach { id -> nip77OfferPublications[id] = publication }
+            current
+        }
+        try {
+            check(nip77StillPermitted(url)) { "NIP-77 authority was withdrawn" }
+            events.sortedBy(NostrEvent::id).forEach { link.sendIfOpen(RelayCodec.publishFrame(it)) }
+            publication.result.await()
+            expected.size
+        } finally {
+            synchronized(lock) { expected.forEach { id -> nip77OfferPublications.remove(id, publication) } }
+        }
+    }
+
     /** A refused sheltered route remains inert until a person deliberately retries it. */
     fun retryAuthentication(url: String): Boolean = synchronized(lock) {
         val link = links[url] ?: return@synchronized false
@@ -322,7 +359,13 @@ class RelayPool(
             is RelayMessage.Event -> storedQueries[message.subscriptionId]?.event(url, message.event)
             is RelayMessage.EndOfStoredEvents -> storedQueries[message.subscriptionId]?.end(url)
             is RelayMessage.Closed -> storedQueries[message.subscriptionId]?.failed(url)
-            is RelayMessage.Ok -> publications[message.eventId]?.acknowledge(url, message.accepted)
+            is RelayMessage.Ok -> {
+                publications[message.eventId]?.acknowledge(url, message.accepted)
+                nip77OfferPublications[message.eventId]?.let { offer ->
+                    if (nip77StillPermitted(url)) offer.acknowledge(url, message.eventId, message.accepted)
+                    else offer.fail("NIP-77 authority was withdrawn")
+                }
+            }
             else -> Unit
         }
         Unit
@@ -427,6 +470,7 @@ class RelayPool(
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
         synchronized(lock) { negentropyQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         synchronized(lock) { nip77FetchQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
+        synchronized(lock) { nip77OfferPublications.values.filter { it.url == link.url }.toSet().forEach { it.fail("NIP-77 relay closed") } }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
@@ -665,6 +709,23 @@ class RelayPool(
         return expected
     }
 
+    private fun validateNip77OfferEvents(filter: Filter, events: Collection<NostrEvent>): Set<String> {
+        val expected = validateNip77FetchFilter(filter, events.map(NostrEvent::id))
+        require(events.size == expected.size && events.map(NostrEvent::id).toSet() == expected) {
+            "NIP-77 offer events must have unique compared IDs"
+        }
+        val since = requireNotNull(filter.since)
+        val until = requireNotNull(filter.until)
+        require(events.all { event ->
+            Events.verify(event) && event.kind in requireNotNull(filter.kinds) &&
+                event.createdAt in since..until && filter.tags.all { (name, values) ->
+                    name.length == 2 && name[0] == '#' && values.isNotEmpty() &&
+                        event.tags.any { tag -> tag.size >= 2 && tag[0] == name.substring(1) && tag[1] in values }
+                }
+        }) { "NIP-77 offer contains an event outside its compared room window" }
+        return expected
+    }
+
     private fun isCanonicalEventId(id: String): Boolean =
         id.length == 64 && id.all { it in '0'..'9' || it in 'a'..'f' }
 
@@ -708,6 +769,23 @@ class RelayPool(
                 name.length == 2 && name[0] == '#' && values.isNotEmpty() &&
                     event.tags.any { tag -> tag.size >= 2 && tag[0] == name.substring(1) && tag[1] in values }
             }
+    }
+
+    /** One exact-ID offer to one box. Any refusal or authority loss fails all IDs. */
+    private class Nip77OfferPublication(val url: String, expected: Set<String>) {
+        val result = CompletableDeferred<Unit>()
+        private val pending = expected.toMutableSet()
+
+        @Synchronized fun acknowledge(from: String, id: String, accepted: Boolean) {
+            if (result.isCompleted || from != url || id !in pending) return
+            if (!accepted) return fail("NIP-77 box refused a custody offer")
+            pending.remove(id)
+            if (pending.isEmpty()) result.complete(Unit)
+        }
+
+        @Synchronized fun fail(message: String) {
+            result.completeExceptionally(IllegalStateException(message))
+        }
     }
 
     private class Publication(private val pending: Set<String>) {

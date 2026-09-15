@@ -237,6 +237,78 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `NIP-77 custody offer refuses an ordinary relay before opening a socket`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = "wss://ordinary.example"
+        val event = LocalSigner(ByteArray(32) { 3 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { TestAuthenticator(LocalSigner(ByteArray(32) { 6 }), { currentTime }) })
+
+        val failure = runCatching {
+            pool.offerNip77Events(
+                url,
+                Filter(ids = listOf(event.id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 20, limit = 1),
+                listOf(event),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(sockets.opened.isEmpty())
+    }
+
+    @Test
+    fun `NIP-77 custody offer publishes only compared IDs to the authenticated Link box`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 4 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("15".repeat(32))
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("offer-challenge"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+
+        val event = LocalSigner(ByteArray(32) { 3 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val operation = async {
+            pool.offerNip77Events(
+                url,
+                Filter(ids = listOf(event.id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 20, limit = 1),
+                listOf(event),
+            )
+        }
+        runCurrent()
+        assertEquals(listOf(event.id), socket.publishedFrames().map { NostrEvent.fromJson(Json.parseToJsonElement(it.substringAfter("[\"EVENT\",").dropLast(1)).jsonObject).id })
+        socket.deliverOk(event.id, true); runCurrent()
+
+        assertEquals(1, operation.await())
+        assertTrue(socket.sent.none { it.startsWith("[\"REQ\"") || it.startsWith("[\"NEG-") })
+    }
+
+    @Test
+    fun `NIP-77 custody offer fails when authority is withdrawn before Bothy acknowledges`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 4 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("16".repeat(32))
+        var circle = setOf(url)
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { circle },
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("offer-withdraw"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+        val event = LocalSigner(ByteArray(32) { 3 }).sign(1460, 10, listOf(listOf("d", "room")), "opaque")
+        val operation = async { runCatching {
+            pool.offerNip77Events(url, Filter(ids = listOf(event.id), kinds = listOf(1460), tags = mapOf("#d" to listOf("room")), since = 1, until = 20, limit = 1), listOf(event))
+        } }
+        runCurrent()
+        circle = emptySet()
+        socket.deliverOk(event.id, true); runCurrent()
+        assertTrue(operation.await().exceptionOrNull()?.message?.contains("withdrawn") == true)
+    }
+
+    @Test
     fun `auth refusal blocks reconnect until explicit retry`() = runTest {
         val sockets = FakeSocketFactory()
         val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 8 }), { currentTime })
