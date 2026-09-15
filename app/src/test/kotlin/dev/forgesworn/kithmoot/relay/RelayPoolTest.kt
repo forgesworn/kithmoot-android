@@ -4,7 +4,9 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.support.FakeSocketFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
@@ -78,6 +80,73 @@ class RelayPoolTest {
 
         assertEquals(setOf(url), pool.connected.value)
         assertEquals(1, socket.publishedFrames().size)
+    }
+
+    @Test
+    fun `NIP-77 is Link and NIP-42 gated, returns IDs only, then closes`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 7 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("11".repeat(32))
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { requested -> auth.takeIf { requested == url } })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("negentropy-challenge"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+
+        val result = async {
+            pool.reconcileNip77(url, Filter(kinds = listOf(1), since = 1, until = 2, limit = 1), emptyList())
+        }
+        runCurrent()
+        val open = socket.sent.single { it.startsWith("[\"NEG-OPEN\"") }
+        val subscriptionId = open.substringAfter("[\"NEG-OPEN\",\"").substringBefore("\"")
+        assertTrue(socket.publishedFrames().isEmpty(), "reconciliation must not publish events")
+        socket.deliverRaw("[\"NEG-MSG\",\"$subscriptionId\",\"6100000201${"bb".repeat(32)}\"]")
+        runCurrent()
+
+        assertEquals(listOf("bb".repeat(32)), result.await().need.map { id -> id.joinToString("") { "%02x".format(it.toInt() and 0xff) } })
+        assertTrue(socket.sent.any { it == "[\"NEG-CLOSE\",\"$subscriptionId\"]" })
+        assertTrue(socket.sent.none { it.startsWith("[\"REQ\"") || it.startsWith("[\"EVENT\"") })
+    }
+
+    @Test
+    fun `NIP-77 refuses an ordinary relay before opening a socket`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = "wss://ordinary.example"
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { setOf(url) },
+            authenticators = RelayAuthenticatorProvider { TestAuthenticator(LocalSigner(ByteArray(32) { 6 }), { currentTime }) })
+        val failure = runCatching {
+            pool.reconcileNip77(url, Filter(kinds = listOf(1), since = 1, until = 2, limit = 1), emptyList())
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(sockets.opened.isEmpty())
+    }
+
+    @Test
+    fun `NIP-77 stops when its circle authority is withdrawn mid-session`() = runTest {
+        supervisorScope {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 5 }), { currentTime })
+        val url = LinkRelayAddress.canonicalForNode("12".repeat(32))
+        var circle = setOf(url)
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1), circle = { circle },
+            authenticators = RelayAuthenticatorProvider { auth })
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single()
+        socket.open(); socket.deliverAuth("withdraw-challenge"); runCurrent()
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+        val operation = async { pool.reconcileNip77(url, Filter(kinds = listOf(1), since = 1, until = 2, limit = 1), emptyList()) }
+        runCurrent()
+        val id = socket.sent.single { it.startsWith("[\"NEG-OPEN\"") }.substringAfter("[\"NEG-OPEN\",\"").substringBefore("\"")
+        circle = emptySet()
+        socket.deliverRaw("[\"NEG-MSG\",\"$id\",\"6100000200\"]")
+        runCurrent()
+        val error = runCatching { operation.await() }.exceptionOrNull()
+        assertTrue(error?.message?.contains("withdrawn") == true)
+        assertTrue(socket.sent.any { it == "[\"NEG-CLOSE\",\"$id\"]" })
+        }
     }
 
     @Test

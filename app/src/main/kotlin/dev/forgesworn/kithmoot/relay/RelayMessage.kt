@@ -19,6 +19,8 @@ sealed interface RelayMessage {
     data class Ok(val eventId: String, val accepted: Boolean, val message: String) : RelayMessage
     data class Closed(val subscriptionId: String, val message: String) : RelayMessage
     data class Notice(val message: String) : RelayMessage
+    data class NegentropyMessage(val subscriptionId: String, val payload: ByteArray) : RelayMessage
+    data class NegentropyError(val subscriptionId: String, val message: String) : RelayMessage
 
     /** Not an error. Relays add frames, and a client that trips over one is broken. */
     data class Unknown(val raw: String) : RelayMessage
@@ -53,6 +55,19 @@ object RelayCodec {
         add(event.toJson())
     }.toString()
 
+    /** `NEG-OPEN` is reachable only through RelayPool's Link/NIP-42 gate. */
+    fun negOpenFrame(subscriptionId: String, filter: Filter, initial: ByteArray): String = buildJsonArray {
+        add(JsonPrimitive("NEG-OPEN")); add(JsonPrimitive(subscriptionId)); add(filter.toJson()); add(JsonPrimitive(initial.hex()))
+    }.toString()
+
+    fun negMessageFrame(subscriptionId: String, payload: ByteArray): String = buildJsonArray {
+        add(JsonPrimitive("NEG-MSG")); add(JsonPrimitive(subscriptionId)); add(JsonPrimitive(payload.hex()))
+    }.toString()
+
+    fun negCloseFrame(subscriptionId: String): String = buildJsonArray {
+        add(JsonPrimitive("NEG-CLOSE")); add(JsonPrimitive(subscriptionId))
+    }.toString()
+
     /**
      * Parses one frame. **Never throws**: a relay is an untrusted stranger, and
      * one malformed frame must not be able to tear down the socket that carries
@@ -84,9 +99,27 @@ object RelayCodec {
 
             "NOTICE" -> RelayMessage.Notice(frame.getOrNull(1)?.jsonPrimitive?.content.orEmpty())
 
+            "NEG-MSG" -> frame.getOrNull(1)?.jsonPrimitive?.content?.let { id ->
+                frame.getOrNull(2)?.jsonPrimitive?.content?.let { payload -> parseNegMessage(id, payload) }
+            } ?: RelayMessage.Unknown(raw)
+
+            "NEG-ERR" -> frame.getOrNull(1)?.jsonPrimitive?.content?.takeIf(::validSubscriptionId)
+                ?.let { RelayMessage.NegentropyError(it, frame.getOrNull(2)?.jsonPrimitive?.content.orEmpty()) }
+                ?: RelayMessage.Unknown(raw)
+
             else -> RelayMessage.Unknown(raw)
         }
     } catch (_: Exception) {
         RelayMessage.Unknown(raw)
     }
+
+    private fun parseNegMessage(subscriptionId: String, encoded: String): RelayMessage.NegentropyMessage? {
+        if (!validSubscriptionId(subscriptionId) || encoded.length !in 2..(Nip77Negentropy.MAX_MESSAGE_BYTES * 2) ||
+            encoded.length % 2 != 0 || !encoded.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        val payload = ByteArray(encoded.length / 2) { index -> encoded.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
+        return RelayMessage.NegentropyMessage(subscriptionId, payload)
+    }
+
+    private fun validSubscriptionId(value: String) = value.toByteArray(Charsets.UTF_8).size in 1..64 && value.none(Char::isISOControl)
+    private fun ByteArray.hex() = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

@@ -104,6 +104,7 @@ class RelayPool(
     private val links = mutableMapOf<String, RelayLink>()
     private val subscriptions = linkedMapOf<String, PoolSubscription>()
     private val storedQueries = linkedMapOf<String, StoredQuery>()
+    private val negentropyQueries = linkedMapOf<String, NegentropyQuery>()
     private val publications = linkedMapOf<String, Publication>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
@@ -135,6 +136,8 @@ class RelayPool(
             subscriptions.clear()
             storedQueries.values.forEach { it.result.completeExceptionally(IllegalStateException("Relays stopped")) }
             storedQueries.clear()
+            negentropyQueries.values.forEach { it.fail("Relays stopped") }
+            negentropyQueries.clear()
             publications.values.forEach { it.result.complete(false) }
             publications.clear()
         }
@@ -149,6 +152,43 @@ class RelayPool(
     override fun describe(): List<String> = urls.toList()
 
     override fun circleRelays(): Set<String> = circle()
+
+    /**
+     * Compare a small local index with one verified circle box. This accepts
+     * only a canonical Link route which has completed this pool's NIP-42
+     * handshake. The result contains IDs only: event fetch and custody are
+     * deliberately separate operations.
+     */
+    suspend fun reconcileNip77(
+        url: String,
+        filter: Filter,
+        records: Collection<Nip77Record>,
+        timeoutMs: Long = 60_000,
+    ): Nip77Reconciliation = withTimeout(timeoutMs) {
+        require(timeoutMs in 1..60_000) { "NIP-77 sessions are limited to one minute" }
+        require(LinkRelayAddress.canonical(url) == url) { "NIP-77 requires a canonical Link relay" }
+        require(url in circle()) { "NIP-77 requires a verified circle box" }
+        require(authenticators.forUrl(url) != null) { "NIP-77 requires NIP-42 permission" }
+        validateNegentropyFilter(filter)
+        val codec = Nip77Negentropy(records)
+        connected.first { url in it }
+        val id = "km-neg-${nextSubscriptionId.incrementAndGet()}"
+        val query = NegentropyQuery(url, codec)
+        val link = synchronized(lock) {
+            val current = links[url] ?: throw IllegalStateException("NIP-77 relay is not started")
+            check(current.isOpen && current.authState == AuthState.READY) { "NIP-77 relay is not authenticated" }
+            check(authenticators.forUrl(url) != null) { "NIP-42 permission was withdrawn" }
+            negentropyQueries[id] = query
+            current
+        }
+        try {
+            link.sendIfOpen(RelayCodec.negOpenFrame(id, filter, codec.initiate()))
+            query.result.await()
+        } finally {
+            synchronized(lock) { negentropyQueries.remove(id) }
+            link.sendIfOpen(RelayCodec.negCloseFrame(id))
+        }
+    }
 
     /** A refused sheltered route remains inert until a person deliberately retries it. */
     fun retryAuthentication(url: String): Boolean = synchronized(lock) {
@@ -248,6 +288,30 @@ class RelayPool(
         Unit
     }
 
+    private fun negentropyMessage(url: String, message: RelayMessage) {
+        val query = when (message) {
+            is RelayMessage.NegentropyMessage -> synchronized(lock) { negentropyQueries[message.subscriptionId] }
+            is RelayMessage.NegentropyError -> synchronized(lock) { negentropyQueries[message.subscriptionId] }
+            else -> null
+        } ?: return
+        if (query.url != url) return
+        if (!nip77StillPermitted(url)) {
+            query.fail("NIP-77 authority was withdrawn")
+            return
+        }
+        when (message) {
+            is RelayMessage.NegentropyMessage -> query.accept(message.payload)?.let { outbound ->
+                synchronized(lock) { links[url] }?.sendIfOpen(RelayCodec.negMessageFrame(message.subscriptionId, outbound))
+            }
+            is RelayMessage.NegentropyError -> query.fail("NIP-77 relay refused the query: ${message.message}")
+            else -> Unit
+        }
+    }
+
+    private fun nip77StillPermitted(url: String): Boolean = url in circle() && authenticators.forUrl(url) != null && synchronized(lock) {
+        links[url]?.let { it.isOpen && it.authState == AuthState.READY } == true
+    }
+
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
         val subscription = PoolSubscription(id, filters)
@@ -301,6 +365,7 @@ class RelayPool(
 
     private fun onLinkClosed(link: RelayLink) {
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
+        synchronized(lock) { negentropyQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
@@ -387,6 +452,7 @@ class RelayPool(
                     if (message is RelayMessage.Auth) beginAuthentication(link, message.challenge)
                     if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link)
                     storedMessage(link.url, message)
+                    negentropyMessage(link.url, message)
                     when (message) {
                         is RelayMessage.Event -> deliver(message.subscriptionId, message.event)
                         // Everything else is informational. A CLOSED from one
@@ -485,6 +551,44 @@ class RelayPool(
     }
 
     private enum class AuthState { CLOSED, AWAITING_CHALLENGE, SIGNING, AWAITING_OK, READY, BLOCKED }
+
+    private class NegentropyQuery(val url: String, private val codec: Nip77Negentropy) {
+        val result = CompletableDeferred<Nip77Reconciliation>()
+        private val have = linkedMapOf<String, ByteArray>()
+        private val need = linkedMapOf<String, ByteArray>()
+        private var rounds = 1
+
+        @Synchronized fun accept(payload: ByteArray): ByteArray? = try {
+            val step = codec.reconcile(payload)
+            step.have.forEach { have.putIfAbsent(it.toHex(), it.copyOf()) }
+            step.need.forEach { need.putIfAbsent(it.toHex(), it.copyOf()) }
+            val next = step.nextMessage
+            when {
+                next == null -> {
+                    result.complete(Nip77Reconciliation(have.values.map(ByteArray::copyOf), need.values.map(ByteArray::copyOf), null))
+                    null
+                }
+                ++rounds > 16 -> {
+                    fail("NIP-77 round limit reached")
+                    null
+                }
+                else -> next
+            }
+        } catch (error: Exception) {
+            fail(error.message ?: "invalid NIP-77 relay message")
+            null
+        }
+
+        @Synchronized fun fail(message: String) { result.completeExceptionally(IllegalStateException(message)) }
+        private fun ByteArray.toHex() = joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun validateNegentropyFilter(filter: Filter) {
+        val since = requireNotNull(filter.since) { "NIP-77 requires a bounded history window" }
+        val until = requireNotNull(filter.until) { "NIP-77 requires a bounded history window" }
+        require(since >= 0 && until >= since && until - since <= 30L * 24 * 60 * 60) { "NIP-77 history window is invalid" }
+        require(filter.kinds?.size == 1 && filter.limit in 1..Nip77Negentropy.MAX_RECORDS) { "NIP-77 filter is not narrow enough" }
+    }
 
     private class Pending(val frame: String, val queuedAt: Long)
 
