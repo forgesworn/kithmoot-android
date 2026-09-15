@@ -37,7 +37,12 @@ done
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --no-daemon
 unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
 [[ -s "$unsigned" ]] || { echo "Unsigned release APK was not produced" >&2; exit 1; }
-output=app/build/outputs/apk/release/kithmoot-0.6.2-production.apk
+unsigned_badging="$("$build_tools/aapt" dump badging "$unsigned")"
+version_name="$(printf '%s\n' "$unsigned_badging" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p")"
+version_code="$(printf '%s\n' "$unsigned_badging" | sed -n "s/^package:.*versionCode='\([0-9][0-9]*\)'.*/\1/p")"
+[[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Production versionName must be a numeric release version" >&2; exit 1; }
+[[ "$version_code" =~ ^[0-9]+$ && "$version_code" -gt 25 ]] || { echo "Production versionCode must be greater than established 0.6.2 code 25" >&2; exit 1; }
+output="app/build/outputs/apk/release/kithmoot-${version_name}-production.apk"
 rm -f "$output" "$output.idsig"
 "$build_tools/apksigner" sign \
   --ks "$KITHMOOT_KEYSTORE" \
@@ -67,8 +72,9 @@ fi
 
 badging="$("$build_tools/aapt" dump badging "$output")"
 printf '%s\n' "$badging" | grep -q "^package: name='dev.forgesworn.kithmoot'" || { echo "Unexpected application ID" >&2; exit 1; }
-version_code="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([0-9][0-9]*\)'.*/\1/p")"
-[[ "$version_code" =~ ^[0-9]+$ && "$version_code" -gt 22 ]] || { echo "Production versionCode must be greater than preview version 22" >&2; exit 1; }
+signed_version_name="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p")"
+signed_version_code="$(printf '%s\n' "$badging" | sed -n "s/^package:.*versionCode='\([0-9][0-9]*\)'.*/\1/p")"
+[[ "$signed_version_name" == "$version_name" && "$signed_version_code" == "$version_code" ]] || { echo "Signed APK version changed from its unsigned input" >&2; exit 1; }
 printf '%s\n' "$badging" | grep -q "^sdkVersion:'33'" || { echo "Production minSdk must be 33" >&2; exit 1; }
 printf '%s\n' "$badging" | grep -q "^targetSdkVersion:'35'" || { echo "Production targetSdk must be 35" >&2; exit 1; }
 if printf '%s\n' "$badging" | grep -q '^application-debuggable'; then
