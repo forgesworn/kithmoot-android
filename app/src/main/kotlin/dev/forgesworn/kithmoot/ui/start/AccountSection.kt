@@ -150,6 +150,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
 @Composable
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
     var advanced by remember { mutableStateOf(false) }
+    var remoteSigner by remember { mutableStateOf(false) }
     var bunker by remember { mutableStateOf("") }
     var scanningBunker by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -173,16 +174,16 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
         Text("A signer app keeps your key on this phone and answers with one tap, even offline.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-        TextButton({ advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
-        if (advanced) {
-            OutlinedButton({ done(); actions.onSignInWithSignet() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text("Signet in a browser")
-            }
-            Text("For a Signet that lives in a browser rather than the My Signet app. It opens mysignet.app, you approve there, and it pairs with this app over a relay. That browser tab has to stay open to sign.",
+        OutlinedButton(
+            onClick = { remoteSigner = !remoteSigner },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .semantics { contentDescription = "Use remote signer Bunker" },
+        ) { Text(if (remoteSigner) "Hide remote signer" else "Use remote signer (Bunker)") }
+        if (remoteSigner) {
+            Text("Scan or paste the Bunker link your signer gives you. Nothing is connected until you choose Connect.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
             if (scanningBunker) {
-                Text("Point the camera at the bunker QR your signer shows. Nothing is connected until you choose Connect.")
+                Text("Point the camera at the bunker QR your signer shows.")
                 QrScanner(
                     accept = { BunkerPointer.parse(it) != null },
                     onDecoded = { bunker = it; scanningBunker = false },
@@ -205,6 +206,15 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
                 Text("Connect to this signer")
             }
             Text("Any NIP-46 signer, a Heartwood included.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        TextButton({ advanced = !advanced }) { Text(if (advanced) "Hide advanced" else "Advanced") }
+        if (advanced) {
+            OutlinedButton({ done(); actions.onSignInWithSignet() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("Signet in a browser")
+            }
+            Text("For a Signet that lives in a browser rather than the My Signet app. It opens mysignet.app, you approve there, and it pairs with this app over a relay. That browser tab has to stay open to sign.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
