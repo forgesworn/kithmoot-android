@@ -42,6 +42,18 @@ class PersistentGroupUiTest {
         ui.home()
     }
 
+    private fun chooseRelay(url: String) {
+        var previous = emptyList<String>()
+        activity.scenario.onActivity { previous = ViewModelProvider(it)[RoomViewModel::class.java].accountRelayChoices().map { relay -> relay.url } }
+        ui.click("Sign in")
+        ui.click("Relays")
+        previous.forEach { ui.click("Remove relay $it") }
+        ui.replace("Add relay URL", url)
+        ui.click("Add relay")
+        ui.click("Save relay choices")
+        ui.click("Done")
+    }
+
     private fun webLink(server: StoredGroupRelay): String {
         val invitation = decodeInvitationUrl(fixture.getValue("url").jsonPrimitive.content)!!.invitation
         return encodeInvitationUrl("https://kithmoot.forgesworn.dev/j/", invitation, listOf(server.url))
@@ -50,9 +62,7 @@ class PersistentGroupUiTest {
     @Test fun a_create_and_join_web_group() {
         val server = StoredGroupRelay().also { relay = it }
         reset()
-        ui.click("Relay settings")
-        ui.replace("Relays, one per line", server.url)
-        ui.click("Done")
+        chooseRelay(server.url)
         ui.replace("Room name (optional)", "Native persistent group")
         ui.click("Start a room")
         ui.room()
@@ -119,9 +129,7 @@ class PersistentGroupUiTest {
     @Test fun d_shared_work_survives_initial_epoch_and_real_room_entry() {
         val server = StoredGroupRelay().also { relay = it }
         reset()
-        ui.click("Relay settings")
-        ui.replace("Relays, one per line", server.url)
-        ui.click("Done")
+        chooseRelay(server.url)
         ui.replace("Room name (optional)", "Shared work entry")
         ui.click("Start a room")
         ui.room()
@@ -168,9 +176,7 @@ class PersistentGroupUiTest {
     @Test fun c_refused_publication_and_retired_web_link_stay_outside_room() {
         val server = StoredGroupRelay().also { relay = it; it.rejectPublications = true }
         reset()
-        ui.click("Relay settings")
-        ui.replace("Relays, one per line", server.url)
-        ui.click("Done")
+        chooseRelay(server.url)
         ui.click("Start a room")
         ui.await("publication rejection") { ui.hasText("The relays refused this group invitation. Try again or choose another relay.") }
         assertTrue(app.savedRooms.list().isEmpty())
