@@ -132,7 +132,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 dev.forgesworn.kithmoot.ui.start.AccountMenu(startState, model.accountRelayChoices(), stage == Stage.ROOM,
                     dev.forgesworn.kithmoot.ui.start.AccountActions(
                         model::refreshSigners, model::signInWithSignerApp, model::signInWithSignet,
-                        model::signInWithBunker, model::cancelSignIn, model::signOut, model::dismissSignInError),
+                        model::signInWithBunker, model::cancelSignIn, model::signOut, model::provisionRendezvous, model::dismissSignInError),
                     dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
                         loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
                         saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,

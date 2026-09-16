@@ -92,3 +92,5 @@ done
 run_tests project-restart-prepare 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#a_prepare_pending
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests project-restart-recover 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#b_recover_exact_pending -e requireRestart true
+
+run_tests chat-notifications 2 -e class dev.forgesworn.kithmoot.notifications.ChatNotificationsTest
