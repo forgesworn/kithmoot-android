@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.session.ChatMessage
@@ -16,7 +17,11 @@ class ChatNotificationsTest {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
     @Before fun setup() {
         Assume.assumeTrue("Disposable emulator only", Build.HARDWARE in setOf("ranchu", "goldfish"))
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS").close()
+        val grant = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
+        // Closing the pipe immediately can terminate pm before permission is granted.
+        ParcelFileDescriptor.AutoCloseInputStream(grant).use { it.readBytes() }
+        assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS))
         notices = ChatNotifications(context)
         notices.save(ChatNoticeSettings(enabled = true))
         notices.begin("a".repeat(64), "Private room", "self", 100)
