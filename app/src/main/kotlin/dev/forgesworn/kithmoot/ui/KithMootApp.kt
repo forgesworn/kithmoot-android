@@ -18,6 +18,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,9 +53,19 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
     val roomState by model.room.collectAsState()
     val videos by model.videos.collectAsState()
 
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle, model) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
+            model.notificationForeground(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        }
+        lifecycle.addObserver(observer)
+        model.notificationForeground(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false) }
+    }
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
     val roomUiState = rememberSaveableStateHolder()
+    var searchOpen by remember { mutableStateOf(false) }
     var cardsOpen by remember { mutableStateOf(false) }
     var expandedScreen by remember { mutableStateOf<dev.forgesworn.kithmoot.ui.room.SharedScreen?>(null) }
 
@@ -103,7 +114,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
         }
     }
 
-    LaunchedEffect(stage) { if (stage != Stage.ROOM) expandedScreen = null }
+    LaunchedEffect(stage) { if (stage != Stage.ROOM) { expandedScreen = null; searchOpen = false } }
     val expanded = expandedScreen
     if (expanded != null && stage == Stage.ROOM) {
         val tile = roomState.tiles.find { it.participant == expanded.participant }
@@ -117,8 +128,28 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
         return
     }
 
+    val accountMenu: @Composable () -> Unit = {
+                dev.forgesworn.kithmoot.ui.start.AccountMenu(startState, model.accountRelayChoices(), stage == Stage.ROOM,
+                    dev.forgesworn.kithmoot.ui.start.AccountActions(
+                        model::refreshSigners, model::signInWithSignerApp, model::signInWithSignet,
+                        model::signInWithBunker, model::cancelSignIn, model::signOut, model::dismissSignInError),
+                    dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
+                        loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
+                        saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
+                        retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
+                        circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
+                    ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
+                    notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications) })
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        topBar = {
+            if (stage != Stage.ROOM) TopAppBar(
+                title = { Text("KithMoot", style = MaterialTheme.typography.titleLarge) },
+                actions = { accountMenu() },
+            )
+        },
         containerColor = MaterialTheme.colorScheme.background,
         // Insets are handled per screen: the room's header runs under the status
         // bar and its control bar under the navigation bar, which a scaffold-wide
@@ -160,6 +191,12 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onWebAppAddressChanged = model::onWebAppAddressChanged,
                 onResetStorage = model::resetSavedRooms,
                 onHomeTabChanged = model::showHomeTab,
+                accountRooms = dev.forgesworn.kithmoot.ui.start.AccountRoomActions(
+                    refresh = model::refreshRoomBookmarks,
+                    open = model::openAccountRoom,
+                    remove = model::removeAccountRoom,
+                    importRooms = model::importAccountRooms,
+                ),
                 projects = dev.forgesworn.kithmoot.ui.start.ProjectActions(
                     refresh = model::refreshSharedProjects,
                     retry = model::retryProjectSends,
@@ -184,6 +221,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
             Stage.ROOM -> roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
                     state = roomState,
+                    accountMenu = accountMenu,
                     videos = videos,
                     eglBase = model.eglBase,
                     onToggleMic = {
@@ -234,7 +272,12 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onStopCadence = model::stopCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
                     onOpenCards = { cardsOpen = true },
+                    onSearch = { searchOpen = !searchOpen },
+                    onProfilesEnabled = model::setProfilesEnabled,
                     onSetVolume = model::setCallVolume,
+                    onListenHere = model::listenOnThisDevice,
+                    onLeaveCall = model::leaveCall,
+                    onJoinCall = model::joinCall,
                     onRotateInvitation = model::rotateInvitation,
                     onLeave = model::leave,
                     modifier = Modifier.padding(padding),
@@ -242,6 +285,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     chat = {
                         ChatPane(
                             messages = roomState.chat,
+                            onReadingChanged = model::notificationReading,
                             selfParticipant = roomState.selfParticipant,
                             onSend = model::sendChat,
                             onReact = model::react,
@@ -257,6 +301,8 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                             sendError = roomState.chatSendError,
                             modifier = Modifier.fillMaxSize(),
                             showTitle = false,
+                            searchOpen = searchOpen,
+                            onCloseSearch = { searchOpen = false },
                         )
                     },
                 )

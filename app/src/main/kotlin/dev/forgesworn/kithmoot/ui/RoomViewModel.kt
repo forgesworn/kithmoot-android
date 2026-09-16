@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.session.AvailableAssignmentAction
 import dev.forgesworn.kithmoot.storage.AssignmentVault
 
 import dev.forgesworn.kithmoot.protocol.CardResult
+import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
 import dev.forgesworn.kithmoot.protocol.ContactCards
 import dev.forgesworn.kithmoot.protocol.Lane
@@ -22,6 +23,16 @@ import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
 import android.app.Application
 import android.content.Intent
 import dev.forgesworn.kithmoot.account.AccountSession
+import dev.forgesworn.kithmoot.account.ProfileMetadata
+import dev.forgesworn.kithmoot.account.checkedSignedEvent
+import dev.forgesworn.kithmoot.relay.RelayChoice
+import dev.forgesworn.kithmoot.relay.RelaySelection
+import dev.forgesworn.kithmoot.relay.RelayHealth
+import dev.forgesworn.kithmoot.relay.combinedRelayHealth
+import dev.forgesworn.kithmoot.account.AccountRoom
+import dev.forgesworn.kithmoot.account.RoomBookmarks
+import dev.forgesworn.kithmoot.account.RoomBookmarkSnapshot
+import dev.forgesworn.kithmoot.storage.RoomBookmarkVault
 import dev.forgesworn.kithmoot.account.SharedProjects
 import dev.forgesworn.kithmoot.account.ProjectAccountSnapshot
 import dev.forgesworn.kithmoot.account.ProjectRoomChoice
@@ -238,12 +249,22 @@ data class RendezvousView(
 
 data class StartState(
     val homeTab: String = "chats",
+    val roomBookmarks: RoomBookmarkSnapshot = RoomBookmarkSnapshot(),
+    val roomSyncBusy: Boolean = false,
+    val roomSyncError: String? = null,
     val projects: ProjectAccountSnapshot = ProjectAccountSnapshot(),
     val projectsBusy: Boolean = false,
     val projectError: String? = null,
     val webAppAddress: String = WebAppAddress.DEFAULT_ORIGIN,
     val joinUrl: String = "",
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
+    val relayChoices: List<RelayChoice> = emptyList(),
+    val relayHealth: Map<String, RelayHealth> = emptyMap(),
+    val profileMetadata: JsonObject? = null,
+    val profileBaseId: String? = null,
+    val profileBaseAt: Long = 0,
+    val profileBusy: Boolean = false,
+    val profileMessage: String? = null,
     /** A constrained room profile: new local identity, onion relays and Orbot only. */
     val anonymousMode: Boolean = false,
     val busy: Boolean = false,
@@ -298,6 +319,7 @@ data class ContactRow(
 )
 
 data class RoomState(
+    val notificationChatRequest: Int = 0,
     val roomId: String = "",
     val name: String = "",
     val joinUrl: String = "",
@@ -328,6 +350,10 @@ data class RoomState(
     val profiles: Map<String, PublicProfile> = emptyMap(),
     val selfParticipant: String = "",
     val selfDevice: String = "",
+    val mediaConnections: Map<String, String> = emptyMap(),
+    val listeningHere: Boolean = true,
+    val callActive: Boolean = true,
+    val callChanging: Boolean = false,
     val micOn: Boolean = false,
     val cameraOn: Boolean = false,
     val screenOn: Boolean = false,
@@ -409,7 +435,7 @@ private data class Nip77ReconciliationPlan(
 )
 
 /** Relays used when a room is opened here, or when a join URL names none. */
-val DEFAULT_RELAYS: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")
+val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net")
 
 /**
  * Where a kind-0 profile is looked for, beyond the room's own relays.
@@ -464,6 +490,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _room = MutableStateFlow(RoomState())
     val room: StateFlow<RoomState> = _room.asStateFlow()
+    val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
+    fun notificationReading(reading: Boolean) { notifications.reading = reading; notifications.refresh() }
+    fun notificationForeground(foreground: Boolean) { notifications.foreground = foreground; notifications.refresh() }
+    fun openNotificationRoom(id: String) {
+        if (!Regex("[a-f0-9]{64}").matches(id)) return
+        if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
+            _room.update { it.copy(notificationChatRequest = it.notificationChatRequest + 1) }
+        } else if (_stage.value == Stage.START && _start.value.savedRooms.any { it.id == id }) reopenRoom(id)
+    }
+
 
     /**
      * Every renderable video track, keyed `device|trackId`.
@@ -567,6 +603,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private var sharedProjects: SharedProjects? = null
     private var projectsScope: CoroutineScope? = null
     private var projectsLifecycle: Job? = null
+    private var pendingProfile: NostrEvent? = null
+    private var pendingRelayList: NostrEvent? = null
+    private val relayHealthGate = Any()
+    private val relayHealthSources = mutableMapOf<String, Map<String, RelayHealth>>()
+    private fun reportRelayHealth(source: String, health: Map<String, RelayHealth>) = synchronized(relayHealthGate) {
+        relayHealthSources[source] = health
+        _start.update { it.copy(relayHealth = combinedRelayHealth(relayHealthSources.values)) }
+    }
+    private var roomBookmarks: RoomBookmarks? = null
+    private var roomBookmarkScope: CoroutineScope? = null
+    private var roomBookmarkLifecycle: Job? = null
+    private val roomBookmarkEditing = Mutex()
     private val projectEditing = AtomicBoolean(false)
     private var accountScope: CoroutineScope? = null
     private val accountGate = Mutex()
@@ -586,6 +634,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
     init {
+        viewModelScope.launch {
+            room.collect { value ->
+                notifications.onCall = value.callActive && (value.micOn || value.cameraOn || value.screenOn || value.mediaConnections.values.any { it == "connected" || it == "completed" })
+                notifications.refresh()
+            }
+        }
         refreshSavedRooms()
         restoreAccount()
         viewModelScope.launch {
@@ -636,9 +690,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
+        stopRoomBookmarks()
         stopSharedProjects()
         accountSession?.close()
         accountSession = session
+        pendingProfile = null
+        pendingRelayList = null
+        synchronized(relayHealthGate) { relayHealthSources.clear() }
+        val accountRelays = display.getString("relayChoices.${session.signer.pubkey}", null)
+            ?.let { runCatching { RelaySelection.decode(it) }.getOrNull() }
+        _start.update { it.copy(relayChoices = accountRelays.orEmpty(), profileMetadata = null, profileMessage = null, profileBusy = false,
+            relays = accountRelays?.filter { choice -> choice.read || choice.write }?.joinToString("\n") { choice -> choice.url } ?: it.relays) }
         // A bunker creates this scope while opening its relay pool, whereas a
         // local NIP-55 signer has no transport to create one. The public
         // profile lookup and shared-project recovery need it in both cases.
@@ -646,6 +708,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _start.update { it.copy(account = accountView(account), rendezvous = rendezvousView(account), retainedAccount = null, signingIn = false, signInError = null) }
         lookUpAccountProfile(account.pubkey)
         startSharedProjects(session)
+        startRoomBookmarks(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
     }
 
@@ -682,11 +745,120 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun stopRoomBookmarks() {
+        roomBookmarkScope?.cancel()
+        roomBookmarkLifecycle?.join()
+        roomBookmarks?.close()
+        roomBookmarks = null; roomBookmarkScope = null; roomBookmarkLifecycle = null
+        reportRelayHealth("rooms", emptyMap())
+        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(), roomSyncBusy = false, roomSyncError = null, relayHealth = emptyMap()) }
+    }
+
+    private fun startRoomBookmarks(account: AccountSession) {
+        if (!account.signer.canEncrypt) {
+            _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Your signer needs private-data support to sync chats and rooms.")) }; return
+        }
+        val relays = try { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        catch (_: Exception) { _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Check Relay settings, then retry room sync.")) }; return }
+        val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
+        val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
+        val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope)
+        roomBookmarks = bookmarks; roomBookmarkScope = scope
+        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
+        roomBookmarkLifecycle = scope.launch {
+            pool.start()
+            val healthObserver = launch { pool.health.collect { value -> if (roomBookmarks === bookmarks) reportRelayHealth("rooms", value) } }
+            val observer = launch { bookmarks.state.collect { value ->
+                if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = value) }
+            } }
+            try { bookmarks.open(); kotlinx.coroutines.awaitCancellation() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = bookmarks.state.value) } }
+            finally { withContext(NonCancellable) { bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel() } }
+        }
+    }
+
+    fun refreshRoomBookmarks() { viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+        val account = accountSession ?: return@withLock
+        stopRoomBookmarks(); startRoomBookmarks(account)
+        val bookmarks = roomBookmarks ?: return@withLock
+        roomBookmarkScope?.launch {
+            bookmarks.state.first { it.ready || it.error != null }
+            if (bookmarks.state.value.ready) bookmarks.retry()
+        }
+    } } }
+
+    private fun changeRoomBookmarks(action: suspend (RoomBookmarks) -> Unit) {
+        val bookmarks = roomBookmarks ?: return
+        val scope = roomBookmarkScope ?: return
+        scope.launch { roomBookmarkEditing.withLock {
+            if (roomBookmarks !== bookmarks) return@withLock
+            _start.update { it.copy(roomSyncBusy = true, roomSyncError = null) }
+            try { action(bookmarks) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (roomBookmarks === bookmarks) _start.update {
+                it.copy(roomSyncError = "This room change could not be synced. Your rooms on this phone have been kept. Check your signer and retry.")
+            } }
+            finally { if (roomBookmarks === bookmarks) _start.update { it.copy(roomSyncBusy = false) } }
+        } }
+    }
+
+    private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
+        if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
+        return try { RoomBookmarks.validateLink(room.joinUrl, room.id)
+            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt)
+        } catch (_: Exception) { null }
+    }
+
+    fun importAccountRooms() = changeRoomBookmarks { bookmarks ->
+        for (summary in savedRooms.list()) {
+            val saved = savedRooms.get(summary.id) ?: continue
+            accountBookmark(saved, bookmarks.identity)?.let { bookmarks.save(it) }
+        }
+    }
+
+    fun removeAccountRoom(roomId: String) = changeRoomBookmarks { it.remove(roomId) }
+
+    /** The account record is only a locator. Verify admission before saving or opening any room. */
+    fun openAccountRoom(room: AccountRoom) = enter {
+        val bookmarks = roomBookmarks ?: throw RoomRecoveryException("Sign in to open this conversation.")
+        val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this conversation.")
+        fun checkSelection() {
+            check(roomBookmarks === bookmarks && accountSigner === actor && bookmarks.identity == actor.pubkey) { "The signed-in account changed." }
+            check(bookmarks.state.value.rooms.any { it.roomId == room.roomId && it.link == room.link }) { "This conversation changed. Choose it again." }
+        }
+        checkSelection(); RoomBookmarks.validateLink(room.link, room.roomId)
+        val saved = savedRooms.get(room.roomId)
+        if (saved != null) {
+            check(saved.participant == actor.pubkey) { "This room is saved under another identity. Open it with that identity first." }
+            val who = saved.identity(epochSeconds(), actor); checkSelection()
+            open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary, saved.joinUrl,
+                saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+        } else {
+            val invitation = decodeInvitationUrl(room.link)
+            val legacy = if (invitation == null) decodeJoinUrl(room.link) else null
+            val relays = (invitation?.relays ?: legacy!!.relays).ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+            check(!anonymousFor(relays)) { "Anonymous rooms stay on their original device." }
+            val admission = invitation?.let { requestAdmission(it, relays) ?: throw RoomRecoveryException("Access could not be restored. Keep another member online and try again.") }
+            val secret = admission?.secret ?: legacy!!.secret
+            val derived = deriveRoom(secret)
+            try { check(derived.roomId == room.roomId) { "This invitation admitted a different room." }; checkSelection() }
+            catch (e: Exception) { secret.fill(0); throw e }
+            val at = epochSeconds()
+            val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
+            checkSelection()
+            val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
+            open(derived, secret, relays, who, false, localUrl, invitation, admission?.delegate,
+                invitation?.policy ?: legacy?.policy, localName = room.label)
+        }
+    }
+
     private suspend fun stopSharedProjects() {
         projectsScope?.cancel()
         projectsLifecycle?.join()
         sharedProjects?.close()
         sharedProjects = null; projectsScope = null; projectsLifecycle = null
+        reportRelayHealth("projects", emptyMap())
     }
 
     private fun startSharedProjects(account: AccountSession) {
@@ -697,19 +869,20 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         catch (_: Exception) { _start.update { it.copy(projects = ProjectAccountSnapshot(error = "Check your relay settings, then sync projects again.")) }; return }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         projectsScope = scope
-        val pool = RelayPool(relays, OkHttpRelaySockets(), scope)
+        val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
         val directory = SharedProjects(account.signer, pool, ProjectVault(getApplication(), account.signer.pubkey), scope)
         sharedProjects = directory
         _start.update { it.copy(projects = ProjectAccountSnapshot(syncing = true), projectError = null) }
         projectsLifecycle = scope.launch {
             pool.start()
+            val healthObserver = launch { pool.health.collect { value -> if (sharedProjects === directory) reportRelayHealth("projects", value) } }
             val observer = launch { directory.state.collect { value ->
                 if (sharedProjects === directory) _start.update { it.copy(projects = value) }
             } }
             try { directory.open(); kotlinx.coroutines.awaitCancellation() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (sharedProjects === directory) _start.update { it.copy(projects = directory.state.value) } }
-            finally { directory.close(); pool.stop(); observer.cancel() }
+            finally { withContext(NonCancellable) { directory.close(); pool.stop(); observer.cancel(); healthObserver.cancel() } }
         }
     }
 
@@ -789,7 +962,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private fun lookUpAccountProfile(pubkey: String) {
         val scope = accountScope ?: return
         scope.launch {
-            val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope)
+            val profileRelays = accountRelayChoices().filter { it.read }.map { it.url }
+            val pool = RelayPool(profileRelays, OkHttpRelaySockets(), scope, writeRelays = emptySet())
             pool.start()
             try {
                 kotlinx.coroutines.withTimeoutOrNull(10_000) {
@@ -798,7 +972,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                         _start.update { state ->
                             val account = state.account?.takeIf { it.pubkey == pubkey } ?: return@update state
                             val old = account.profile
-                            if (old != null && old.createdAt >= profile.createdAt) state else state.copy(account = account.copy(profile = profile))
+                            if (old != null && (old.createdAt > profile.createdAt || old.createdAt == profile.createdAt && old.eventId <= profile.eventId)) state else state.copy(account = account.copy(profile = profile))
                         }
                     }
                 }
@@ -927,15 +1101,26 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Synthetic local accounts exist only for installed debug-test fixtures. */
-    internal fun installLocalTestAccount(key: ByteArray) {
+    internal fun installLocalTestAccount(key: ByteArray, emulateExternalSigner: Boolean = false) {
         check(getApplication<Application>().applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             "Local test accounts are unavailable in release builds"
         }
         require(key.size == 32) { "A test key is 32 bytes" }
         signIn {
-            val signer = LocalSigner(key)
+            val local = LocalSigner(key)
+            val signer: ParticipantSigner = if (emulateExternalSigner) object : ParticipantSigner by local {} else local
             val account = NostrAccount(signer.pubkey, "local", secretKey = key, signedInAt = epochSeconds())
             AccountSession(account, signer) to account
+        }
+    }
+
+    fun signOutFromAccountMenu() {
+        if (_stage.value == Stage.START) { signOut(); return }
+        viewModelScope.launch {
+            leave()
+            stage.first { it == Stage.START }
+            start.first { !it.busy }
+            signOut()
         }
     }
 
@@ -945,9 +1130,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             var signedOutAccount: String? = null
             accountStoreGate.withLock {
                 accountGate.withLock {
+                    stopRoomBookmarks()
                     stopSharedProjects()
                     signedOutAccount = accountSession?.account?.pubkey
                     accountSession?.close()
+                    synchronized(relayHealthGate) { relayHealthSources.clear(); _start.update { it.copy(relayHealth = emptyMap()) } }
                     accountSession = null
                     accountScope?.cancel()
                     accountScope = null
@@ -1579,11 +1766,124 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onRelaysChanged(value: String) {
         boxRelayRevision.incrementAndGet()
-        _start.value = _start.value.copy(relays = value, error = null)
+        _start.value = _start.value.copy(relays = value, relayChoices = emptyList(), error = null)
         // Keep the last valid network choice across process restarts. Partial
         // text being edited is not a replacement for working relay settings.
         if (runCatching { parseRelays(value) }.isSuccess) display.edit().putString("relaySettings", value).apply()
         act { runCatching { synchronized(boxPreferencesGate) { boxDiscovery.disableAll() } }.onFailure { note("Box checks could not be stopped in the saved preferences.") } }
+    }
+
+    fun accountRelayChoices(): List<RelayChoice> = _start.value.relayChoices.ifEmpty {
+        runCatching { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }.map { RelayChoice(it) } }
+            .getOrDefault(DEFAULT_RELAYS.map { RelayChoice(it) })
+    }
+
+    private fun selectedReadRelays(urls: List<String>): Set<String> = urls.filter { url ->
+        accountRelayChoices().firstOrNull { it.url.removeSuffix("/") == url.removeSuffix("/") }?.read != false
+    }.toSet()
+    private fun selectedWriteRelays(urls: List<String>): Set<String> = urls.filter { url ->
+        accountRelayChoices().firstOrNull { it.url.removeSuffix("/") == url.removeSuffix("/") }?.write != false
+    }.toSet()
+
+    fun saveAccountRelays(choices: List<RelayChoice>): String? {
+        if (_stage.value != Stage.START || _start.value.busy || _start.value.signingIn) return "Leave the room before changing relay connections."
+        val clean = try { RelaySelection.validate(choices) } catch (e: Exception) { return e.message ?: "Check the relay addresses." }
+        val key = accountSigner?.pubkey?.let { "relayChoices.$it" } ?: "relayChoices.visitor"
+        val relays = clean.filter { it.read || it.write }.joinToString("\n") { it.url }
+        if (!display.edit().putString(key, RelaySelection.encode(clean)).putString("relaySettings", relays).commit()) return "Relay settings could not be saved."
+        _start.update { it.copy(relays = relays, relayChoices = clean, relayHealth = emptyMap()) }
+        boxRelayRevision.incrementAndGet()
+        refreshRoomBookmarks(); refreshSharedProjects()
+        return null
+    }
+
+    private suspend fun <T> withAccountRelayPool(actor: ParticipantSigner, action: suspend (RelayPool) -> T): T {
+        val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
+        val urls = accountRelayChoices().filter { it.read || it.write }.map { it.url }
+        val pool = RelayPool(urls, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(urls), writeRelays = selectedWriteRelays(urls))
+        pool.start()
+        val observer = scope.launch { pool.health.collect { health ->
+            if (accountSigner === actor) reportRelayHealth("profile", health)
+        } }
+        try { return action(pool) } finally { observer.cancel(); pool.stop()
+            if (accountSigner === actor) reportRelayHealth("profile", pool.health.value) }
+    }
+
+    /** Read current signed metadata before offering an editor, so unknown fields survive. */
+    fun loadEditableProfile() {
+        val actor = accountSigner ?: return
+        if (_start.value.profileBusy) return
+        _start.update { it.copy(profileBusy = true, profileMessage = null, profileMetadata = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val event = withAccountRelayPool(actor) { pool -> ProfileMetadata.latest(
+                    pool.queryStored(listOf(Filter(kinds = listOf(0), authors = listOf(actor.pubkey), limit = 1))), actor.pubkey, epochSeconds()) }
+                if (accountSigner !== actor) return@launch
+                val known = _start.value.account?.profile
+                check(known == null || event != null && (event.createdAt > known.createdAt || event.createdAt == known.createdAt && event.id <= known.eventId)) {
+                    "The relays did not return the current profile. Retry before editing."
+                }
+                val metadata = event?.let { kotlinx.serialization.json.Json.parseToJsonElement(it.content).jsonObject } ?: JsonObject(emptyMap())
+                _start.update { it.copy(profileMetadata = metadata, profileBaseId = event?.id, profileBaseAt = event?.createdAt ?: 0) }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = "Could not load your current profile. Check the read relays and retry before editing.") } }
+            finally { if (accountSigner === actor) _start.update { it.copy(profileBusy = false) } }
+        }
+    }
+
+    fun publishProfile(values: Map<String, String>) {
+        val actor = accountSigner ?: return
+        val base = _start.value.profileMetadata ?: return
+        if (_start.value.profileBusy) return
+        val content = try { ProfileMetadata.edit(base, values).toString() }
+        catch (e: Exception) { _start.update { it.copy(profileMessage = e.message ?: "Check the profile fields.") }; return }
+        val baseId = _start.value.profileBaseId
+        val baseAt = _start.value.profileBaseAt
+        _start.update { it.copy(profileBusy = true, profileMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                withAccountRelayPool(actor) { pool ->
+                    val previousPending = pendingProfile?.takeIf { it.pubkey == actor.pubkey && it.content == content }
+                    val current = ProfileMetadata.latest(pool.queryStored(listOf(Filter(kinds = listOf(0), authors = listOf(actor.pubkey), limit = 1))), actor.pubkey, epochSeconds())
+                    check(current?.id == baseId || previousPending != null && current?.id == previousPending.id) { "Your profile changed on another device. Reload it before publishing." }
+                    check(accountSigner === actor) { "The account changed." }
+                    val at = maxOf(epochSeconds(), baseAt + 1)
+                    val event = previousPending ?: checkedSignedEvent(actor.sign(0, at, emptyList(), content), actor.pubkey, 0, at, emptyList(), content)
+                    check(accountSigner === actor) { "The account changed." }
+                    pendingProfile = event
+                    check(pool.publishConfirmed(event)) { "No write relay accepted the profile. Retry to send the same signed update." }
+                    if (accountSigner !== actor) return@withAccountRelayPool
+                    pendingProfile = null
+                    val profile = decodePublicProfile(event, setOf(actor.pubkey), epochSeconds())
+                    _start.update { it.copy(profileMetadata = kotlinx.serialization.json.Json.parseToJsonElement(content).jsonObject,
+                        profileBaseId = event.id, profileBaseAt = event.createdAt, account = it.account?.copy(profile = profile),
+                        profileMessage = "Profile accepted by a write relay. Other clients may take time to refresh.") }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = e.message ?: "Profile publication was not confirmed. Check your signer and write relays, then retry.") } }
+            finally { if (accountSigner === actor) _start.update { it.copy(profileBusy = false) } }
+        }
+    }
+
+    fun publishAccountRelayList() {
+        val actor = accountSigner ?: return
+        if (_start.value.profileBusy) return
+        val tags = try { RelaySelection.tags(accountRelayChoices()) } catch (_: Exception) { return }
+        _start.update { it.copy(profileBusy = true, profileMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try { withAccountRelayPool(actor) { pool ->
+                val latest = pool.queryStored(listOf(Filter(kinds = listOf(10002), authors = listOf(actor.pubkey), limit = 1)))
+                    .filter { it.kind == 10002 && it.pubkey == actor.pubkey && it.createdAt <= epochSeconds() + 60 && Events.verify(it) }
+                    .maxOfOrNull { it.createdAt } ?: 0
+                val at = maxOf(epochSeconds(), latest + 1)
+                val event = pendingRelayList?.takeIf { it.pubkey == actor.pubkey && it.tags == tags }
+                    ?: checkedSignedEvent(actor.sign(10002, at, tags, ""), actor.pubkey, 10002, at, tags, "")
+                check(accountSigner === actor); pendingRelayList = event; check(pool.publishConfirmed(event))
+                if (accountSigner === actor) { pendingRelayList = null; _start.update { it.copy(profileMessage = "Public relay list accepted by a write relay.") } }
+            } } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = "Relay-list publication was not confirmed. Check your signer and write relays.") } }
+            finally { if (accountSigner === actor) _start.update { it.copy(profileBusy = false) } }
+        }
     }
 
     fun onAnonymousModeChanged(value: Boolean) {
@@ -1845,7 +2145,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope)
+        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
+            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         val requesterKey = Entropy.bytes(32)
         val request = encodeInvitationRequest(payload.invitation, requesterKey, epochSeconds())
         val invitationId = deriveInvitationId(payload.invitation)
@@ -1906,7 +2208,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope)
+        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
+            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         transport.start()
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
@@ -1963,10 +2267,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                         if (roomInvitation?.invitation == host.invitation) {
                             roomInvitationHost = null
                             savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
-                            _room.value = _room.value.copy(
+                            _room.update { it.copy(
                                 canRotateInvitation = false,
                                 notice = "This invitation was retired by its creator. The live room is unchanged.",
-                            )
+                            ) }
                         }
                     }
                     return@collect
@@ -2053,6 +2357,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
+        roomBookmarks?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
+            changeRoomBookmarks { it.save(bookmark) }
+        } }
         closeSession()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
@@ -2070,6 +2377,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             } else null
         }
         val transport = RelayPool(activeRelays, socketFactory, scope,
+            readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays),
+            writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays),
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
             authenticators = authenticators)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
@@ -2210,6 +2519,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             relaysTotal = activeRelays.size,
             lane = if (anonymousProfile) null else laneOfRelays(activeRelays, circleRelaySet()),
             privateConversation = isDmPolicy(policy),
+            profilesEnabled = !anonymousProfile && display.getBoolean("publicProfiles", true),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
@@ -2291,16 +2601,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         // over. Claiming rather than assuming is what lets that handover happen.
         live.claim(Roles.MONITOR)
 
+        notifications.begin(record.id, record.name, who.participant, epochSeconds())
         scope.launch {
             combine(live.participants, live.chat) { people, chat -> people to chat }
                 .collect { (people, chat) ->
-                    _room.value = _room.value.copy(
+                    notifications.accept(chat)
+                    _room.update { it.copy(
                         tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                         chat = chat,
                         privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                             people.map { it.participant }.filter { it != who.participant }
                         } else emptyList(),
-                    )
+                    ) }
                 }
         }
         scope.launch {
@@ -2336,7 +2648,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         opening?.cancel()
         opening = scope.launch {
             val built = withContext(Dispatchers.Default) { runCatching {
-                WebRtcEngine(getApplication(), live, this@launch, iceServers())
+                WebRtcEngine(getApplication(), live, this@launch, dev.forgesworn.kithmoot.media.CallIceServers.resolve())
             } }
             val media = built.getOrElse { failure ->
                 _room.update { it.copy(
@@ -2345,11 +2657,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 ) }
                 return@launch
             }
-            if (session !== live) { media.dispose(); return@launch }
-            engine = media
-            media.localMedia.onScreenShareStopped = { stopScreenShare() }
-            media.localMedia.onCameraLost = { cameraLost() }
-            media.start()
+            synchronized(mediaControlLock) {
+                if (session !== live) { media.dispose(); return@launch }
+                engine = media
+                media.localMedia.onScreenShareStopped = { stopScreenShare() }
+                media.localMedia.onCameraLost = { cameraLost() }
+                media.setCallActive(_room.value.callActive)
+                media.start()
+            }
+            launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
 
             launch {
                 combine(media.remoteTracks, media.localMedia.tracks) { remote, local ->
@@ -2360,10 +2676,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }.collect { _videos.value = it }
             }
             launch {
+                combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
+                    val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
+                    _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
+                    local.any { it.role == Roles.MIC } || (listeningHere && remote.any { it.track is AudioTrack })
+                }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
+            }
+            launch {
                 combine(media.remoteTracks, live.participants, live.localRoles) { remote, people, roles ->
                     val mine = people.firstOrNull { it.participant == who.participant }
                         ?.devices?.map { it.device }?.toSet() ?: emptySet()
-                    val listeningHere = roles.monitorDevice == null || roles.holdsMonitor
+                    val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     // Every remote audio track is judged the same way here
                     // regardless of its advertised role - a microphone and a
                     // screen share's own sound are both just "incoming
@@ -2475,7 +2798,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * when its connection is opened.
      */
     fun setAgentsMayHear(on: Boolean) {
-        _room.value = _room.value.copy(agentsMayHear = on)
+        _room.update { it.copy(agentsMayHear = on) }
         val media = engine ?: return
         applyAudience(media, session?.agentDevices?.value ?: emptySet())
     }
@@ -2590,6 +2913,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         profilePool?.stop()
         profilePool = null
         pool = null
+        notifications.end()
         session = null
         identity = null
         savedRoom = null
@@ -2611,8 +2935,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Runs a control off the main thread. Every one of them ends in a signature. */
+    private val mediaControlLock = Any()
+
     private fun act(block: () -> Unit) {
-        viewModelScope.launch(Dispatchers.Default) { block() }
+        viewModelScope.launch(Dispatchers.Default) { synchronized(mediaControlLock) { block() } }
     }
 
     fun submitWork(assignment:String?,operation:kotlinx.serialization.json.JsonObject,head:String?) {
@@ -2648,7 +2974,39 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- controls ------------------------------------------------------------
 
+    fun leaveCall() {
+        val live = session ?: return
+        if (!_room.value.callActive || _room.value.callChanging) return
+        _room.update { it.copy(callActive = false, callChanging = true) }
+        act {
+            if (session !== live) return@act
+            try {
+                engine?.setCallActive(false)
+                ScreenShareService.stop(getApplication())
+                // Local hang-up must complete even during a relay outage or rekey.
+                runCatching { live.release(Roles.MIC) }
+                runCatching { live.release(Roles.MONITOR) }
+                _videos.value = emptyMap()
+            } finally {
+                if (session === live) _room.update { it.copy(callChanging = false, micOn = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+            }
+        }
+    }
+
+    fun joinCall() = act {
+        if (_room.value.callChanging || _room.value.callActive) return@act
+        val media = engine ?: return@act note("Audio and video are still starting. Try again shortly.")
+        val live = session ?: return@act
+        _room.update { it.copy(callActive = true) }
+        media.setCallActive(true)
+        live.claim(Roles.MONITOR)
+    }
+
+    fun listenOnThisDevice() { if (_room.value.callActive) session?.claim(Roles.MONITOR) }
+
+
     fun toggleMicrophone() = act {
+        if (!_room.value.callActive) return@act
         val media = engine?.localMedia ?: return@act note("No microphone on this device.")
         val live = session ?: return@act
         if (_room.value.micOn) {
@@ -2668,6 +3026,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleCamera() = act {
+        if (!_room.value.callActive) return@act
         val media = engine?.localMedia ?: return@act note("No camera on this device.")
         if (_room.value.cameraOn) {
             media.stopCamera()
@@ -2704,6 +3063,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * and the failure is a `SecurityException` rather than a null.
      */
     fun startScreenShare(permission: Intent) {
+        if (!_room.value.callActive) return
         val media = engine?.localMedia ?: return note("Screen sharing needs the media stack.")
         val scope = sessionScope ?: return
         scope.launch {
@@ -2713,7 +3073,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 ScreenShareService.stop(getApplication())
                 return@launch note("Android would not start the screen-sharing notification.")
             }
-            val started = withContext(Dispatchers.Default) { runCatching { media.startScreenShare(permission) } }
+            val started = withContext(Dispatchers.Default) { synchronized(mediaControlLock) { runCatching {
+                check(_room.value.callActive && engine?.localMedia === media) { "The call has ended." }
+                media.startScreenShare(permission)
+            } } }
             if (started.getOrNull() == null) {
                 ScreenShareService.stop(getApplication())
                 note("Screen sharing did not start: " + (started.exceptionOrNull()?.message ?: "the capture was refused"))
@@ -2731,6 +3094,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setProfilesEnabled(enabled: Boolean) {
+        if (anonymousRoom && enabled) return
+        display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
     }
@@ -3456,7 +3821,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: SignerException) {
             return@launch note(e.message ?: "Your signer did not sign the pairing.")
         }
-        _room.value = _room.value.copy(
+        _room.update { it.copy(
             pairingLink = roomInvitation?.let { invitation ->
                 encodeInvitationPairingLink(
                     base = selectedWebApp.joinBase,
@@ -3473,11 +3838,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     deviceSecretKey = deviceKey,
                     credential = credential,
                 ),
-        )
+        ) }
     }
 
     fun dismissPairingLink() {
-        _room.value = _room.value.copy(pairingLink = null)
+        _room.update { it.copy(pairingLink = null) }
     }
 
     /** Replace the public admission capability without moving the live room. */
@@ -3530,21 +3895,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun showNotice(message: String) = note(message)
 
     fun dismissNotice() {
-        _room.value = _room.value.copy(notice = null)
+        _room.update { it.copy(notice = null) }
     }
 
     // --- internals -----------------------------------------------------------
 
     private fun onLocalTracks(tracks: List<LocalTrack>) {
-        _room.value = _room.value.copy(
+        _room.update { it.copy(
             micOn = tracks.any { it.role == Roles.MIC },
             cameraOn = tracks.any { it.role == Roles.CAMERA },
             screenOn = tracks.any { it.role == Roles.SCREEN },
-        )
+        ) }
     }
 
     private fun note(message: String) {
-        _room.value = _room.value.copy(notice = message)
+        _room.update { it.copy(notice = message) }
     }
 
     // --- contact cards -------------------------------------------------------
@@ -3682,9 +4047,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.update { it.copy(myCard = null) }
     }
 
-    private fun iceServers(): List<PeerConnection.IceServer> = listOf(
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-    )
+
 }
 
 internal fun key(device: String, trackId: String): String = "$device|$trackId"

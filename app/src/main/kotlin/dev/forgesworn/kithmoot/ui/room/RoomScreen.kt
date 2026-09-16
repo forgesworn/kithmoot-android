@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +26,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.StopScreenShare
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
@@ -70,6 +82,7 @@ import org.webrtc.VideoTrack
  * Conversation is the default room surface. Opening the call view reveals
  * media controls without changing capture or agent-listening permissions.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomScreen(
     state: RoomState,
@@ -97,11 +110,21 @@ fun RoomScreen(
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
+    accountMenu: @Composable () -> Unit = {},
+    onSearch: () -> Unit = {},
+    onProfilesEnabled: (Boolean) -> Unit = {},
+    onListenHere: () -> Unit = {},
+    onLeaveCall: () -> Unit = {},
+    onJoinCall: () -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
+        if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
+    }
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
 
     // Keep the screen awake while this device is actually on the call, so a
@@ -109,7 +132,7 @@ fun RoomScreen(
     // find mid-conversation. Cleared the moment the call ends or this screen
     // leaves composition, whichever comes first.
     val view = LocalView.current
-    val onCall = isOnCall(state.micOn, state.cameraOn, state.screenOn)
+    val onCall = state.callActive && (isOnCall(state.micOn, state.cameraOn, state.screenOn) || state.mediaConnections.values.any { it == "connected" || it == "completed" })
     DisposableEffect(view, onCall) {
         view.keepScreenOn = onCall
         onDispose { view.keepScreenOn = false }
@@ -141,14 +164,48 @@ fun RoomScreen(
             confirmButton = { TextButton(onClick = { privateOpen = false }, enabled = !state.privateConversationBusy) { Text("Cancel") } },
         )
     }
+    if (detailsOpen) {
+        ModalBottomSheet(onDismissRequest = { detailsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Room details", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = { detailsOpen = false }) { Text("Done") }
+            }
+            Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
+                Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
+                if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
+                if (state.secondary) Text("You are here as another of your own devices.")
+                if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here.")
+                if (!state.privateConversation) TextButton(onClick = { detailsOpen = false; inviteOpen = true },
+                    enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite people") }
+                if (!state.anonymous) TextButton(onClick = { detailsOpen = false; onOpenCards() }) { Text("People") }
+                TextButton(onClick = { detailsOpen = false; onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
+                if (state.privateConversationPeers.isNotEmpty()) TextButton(onClick = { detailsOpen = false; privateOpen = true }, enabled = !state.privateConversationBusy) { Text("Start a private conversation") }
+                if (!state.anonymous) {
+                    HorizontalDivider()
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(state.profilesEnabled, onProfilesEnabled)
+                        Text("Show public profiles")
+                    }
+                    Text("Profile lookups share participant keys with room relays and fetch pictures from their hosts. Names and pictures are self-reported.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
+                    HorizontalDivider()
+                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
+                    state.nip77?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
+                }
+                TextButton(onClick = { detailsOpen = false; onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Header(state, onLeave)
-        state.cadence?.takeIf { state.movedOn == null }?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
-        state.nip77?.takeIf { state.movedOn == null }?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
+        Header(state, onLeave, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
         TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -156,8 +213,22 @@ fun RoomScreen(
                 Text(if(decisions>0)"Work · $decisions" else "Work")
             })
             if (!state.anonymous) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
-                Text(if (state.micOn || state.cameraOn || state.screenOn) "Call · live" else "Call")
+                Text(if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call · live" else "Call")
             })
+        }
+        if (!state.anonymous && (state.callActive || callOpen || state.callChanging)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (state.callChanging) "Leaving call…" else if (state.callActive) "On call" else "Call ended on this phone", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Button(
+                    onClick = { if (state.callActive) { onLeaveCall(); callOpen = false; workOpen = false } else onJoinCall() },
+                    enabled = !state.callChanging,
+                    colors = if (state.callActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    if (state.callActive) { Icon(Icons.Filled.CallEnd, null); Spacer(Modifier.width(8.dp)) }
+                    Text(if (state.callActive) "Leave call" else "Join call")
+                }
+            }
         }
         if (state.movedOn != null) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
@@ -170,35 +241,15 @@ fun RoomScreen(
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
             }
         } else if (state.anonymous || !callOpen) {
-            if (state.anonymous) {
-                Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here.",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                if (state.privateConversation) {
-                    Text("Two-person room", Modifier.padding(horizontal = 12.dp, vertical = 14.dp), style = MaterialTheme.typography.labelMedium)
-                } else {
-                    TextButton(onClick = { inviteOpen = true }, enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite") }
-                }
-                if (!state.anonymous) TextButton(onClick = onOpenCards) { Text("People") }
-                TextButton(onClick = onAddDevice, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
-            }
-            if (state.privateConversationPeers.isNotEmpty()) {
-                TextButton(
-                    onClick = { privateOpen = true },
-                    enabled = !state.privateConversationBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Start a private conversation") }
-            }
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
             }
         } else {
 
-            Box(Modifier.weight(1f)) {
-                LazyVerticalGrid(
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (!state.callActive) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
+                else LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 300.dp),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -224,6 +275,9 @@ fun RoomScreen(
                             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
                             shareMarks = state.shareMarks,
                             onSetVolume = onSetVolume,
+                            profile = state.profiles[tile.participant].takeIf { state.profilesEnabled },
+                            selfDevice = state.selfDevice,
+                            connectionStates = state.mediaConnections,
                         )
                     }
                     if (state.mediaFault != null) {
@@ -234,7 +288,12 @@ fun RoomScreen(
                 }
             }
 
-            if (state.movedOn == null) {
+            if (state.callActive) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (state.listeningHere) "Listening on this phone" else "Call audio is on another of your devices",
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onListenHere) { Text("Listen here") }
+            }
+            if (state.movedOn == null && state.callActive) {
                 Controls(
                     state = state,
                     onToggleMic = onToggleMic,
@@ -320,70 +379,23 @@ private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeI
 ).format(java.util.Date(Math.multiplyExact(epoch, 3_600_000L)))
 
 @Composable
-private fun Header(state: RoomState, onLeave: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = state.name.ifBlank { "Room ${shortId(state.roomId)}" },
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = relayLine(state),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (state.relaysUp == 0) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (state.relaysUp > 0) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                    ),
-            )
-            Spacer(Modifier.width(16.dp))
-            // Leave sits here rather than in the control bar. Hanging up is not
-            // a media toggle and does not want to be a thumb's width from one.
-            Surface(
-                onClick = onLeave,
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Filled.CallEnd, contentDescription = null, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Leave", style = MaterialTheme.typography.labelMedium)
+private fun Header(state: RoomState, onLeave: () -> Unit, onDetails: () -> Unit, onSearch: () -> Unit, accountMenu: @Composable () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onLeave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Leave room") }
+            Column(Modifier.weight(1f).clickable(onClickLabel = "Room details", onClick = onDetails).padding(vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.name.ifBlank { "Room" }, Modifier.weight(1f, fill = false), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    Icon(Icons.Filled.ExpandMore, "Room details", Modifier.size(18.dp))
                 }
+                Text(if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
+                    style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                    color = if (state.relaysUp == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-        if (state.secondary) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "You are here as another of your own devices.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.secondary,
-            )
+            IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search messages") }
+            accountMenu()
         }
     }
 }

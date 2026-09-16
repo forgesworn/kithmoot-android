@@ -1,15 +1,22 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.EmojiEmotions
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
@@ -21,6 +28,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
+import dev.forgesworn.kithmoot.account.shortNpub
+import dev.forgesworn.kithmoot.account.npubOf
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -31,7 +41,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatPane(
     messages: List<ChatMessage>,
@@ -53,12 +63,24 @@ fun ChatPane(
     sending: Boolean = false,
     sendError: String? = null,
     showTitle: Boolean = true,
+    searchOpen: Boolean = false,
+    onCloseSearch: () -> Unit = {},
+    onReadingChanged: (Boolean) -> Unit = {},
 ) {
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
-    var profileSettings by remember { mutableStateOf(false) }
+    var privacyOpen by remember { mutableStateOf(false) }
+    var localSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var reactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    val searching = searchOpen || localSearchOpen
+    LaunchedEffect(searching) { if (!searching) query = "" }
     val listState = rememberLazyListState()
+    val readingCallback by rememberUpdatedState(onReadingChanged)
+    LaunchedEffect(listState, searching) {
+        snapshotFlow { !searching && !listState.canScrollForward }.collect { readingCallback(it) }
+    }
+    DisposableEffect(Unit) { onDispose { readingCallback(false) } }
     var lastMessageId by rememberSaveable { mutableStateOf<String?>(null) }
     // The log as a person reads it: the latest edit's words on each message,
     // a retracted one shown as such, replies under the message they answer.
@@ -96,7 +118,7 @@ fun ChatPane(
         }
     }
     fun send() {
-        if (draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
+        if (canSend && !sending && draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
     }
     Column(modifier.fillMaxWidth().imePadding()) {
         if (privateInvitations.isNotEmpty()) {
@@ -124,63 +146,77 @@ fun ChatPane(
                 }
             }
         }
-        if (showTitle) Text("Chat", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.headlineSmall)
-        // Which lane the next message will take and what that lane delivers,
-        // before anyone sends. Worked out from the room's relays, never claimed.
-        if (lane != null) Text("${lane.chip} · ${lane.meaning}", Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "${lane.label} lane. ${lane.meaning}" },
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // The lane says where the bytes went; this says what they give away.
-        if (quiet) Text("◌ quiet · " + QuietTransport.MEANING + if (quietCanSend) "" else " " + QuietTransport.CANNOT_SEND,
-            Modifier.padding(horizontal = 20.dp).semantics { contentDescription = "Quiet room. " + QuietTransport.MEANING },
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Encrypted to the room. Search covers loaded messages on this device.", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            label = { Text("Search messages or people") }, singleLine = true,
-            trailingIcon = { if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("Clear") } })
-        TextButton(onClick = { profileSettings = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
-            Text("Profile pictures: ${if (profilesEnabled) "on" else "off"}")
+        if (showTitle) Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Chat", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            IconButton(onClick = { localSearchOpen = !localSearchOpen }) { Icon(Icons.Filled.Search, "Search messages") }
+        }
+        Row(Modifier.fillMaxWidth().clickable(onClick = { privacyOpen = true }).padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(6.dp))
+            Text("Encrypted" + when (lane) { Lane.PUBLIC -> " · public relays"; Lane.SHELTERED -> " · circle relays"; Lane.DIRECT -> " · direct"; null -> " · checking connection" } + if (quiet) " · quiet" else "",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (lane?.meaning ?: "Transport unknown.") })
+        }
+        if (quiet && !quietCanSend) Text(QuietTransport.CANNOT_SEND, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+        if (searching) {
+            OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                label = { Text("Search messages or people") }, singleLine = true,
+                trailingIcon = {
+                    if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("Clear") }
+                    else IconButton(onClick = { localSearchOpen = false; onCloseSearch() }) { Icon(Icons.Filled.Close, "Close search") }
+                })
+            Text("Searches messages loaded on this device", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         }
         Box(Modifier.weight(1f)) {
             if (visible.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
-            LazyColumn(state = listState, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(visible, key = { it.first.original.id }) { (r, nested) ->
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(visible, key = { _, row -> row.first.original.id }) { index, (r, nested) ->
                     val message = r.shown
+                    val mine = message.participant == selfParticipant
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
-                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp)
-                        .then(if (addressed) Modifier.background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)) else Modifier)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ProfileAvatar(message.participant, message.name, profiles[message.participant], Modifier.size(32.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                val name = if (message.participant == selfParticipant) "You" else message.name ?: profiles[message.participant]?.name
-                                Text(listOfNotNull(name, shortId(message.participant)).joinToString(" · "), style = MaterialTheme.typography.labelMedium)
-                                Text(messageTime(message.sentAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val previous = visible.getOrNull(index - 1)?.first?.shown
+                    val senderHeader = previous == null || previous.participant != message.participant || message.sentAt - previous.sentAt > 300 || messageDate(previous.sentAt) != messageDate(message.sentAt)
+                    if (index == 0 || messageDate(visible[index - 1].first.shown.sentAt) != messageDate(message.sentAt)) {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Text(messageDate(message.sentAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp),
+                        horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+                        Surface(shape = RoundedCornerShape(16.dp),
+                            color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                            modifier = Modifier.widthIn(max = 320.dp).combinedClickable(
+                                onClick = { reactionTarget = r.original }, onClickLabel = "Message details and reactions",
+                                onLongClick = { reactionTarget = r.original }, onLongClickLabel = "React to message",
+                            )) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                if (!mine && senderHeader) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (profilesEnabled) ProfileAvatar(message.participant, message.name, profiles[message.participant], Modifier.size(24.dp))
+                                    Text(message.name ?: profiles[message.participant]?.name ?: shortNpub(message.participant),
+                                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text(if (r.retracted) "Message retracted" else message.body, style = MaterialTheme.typography.bodyLarge,
+                                    color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
+                                    if (r.edited && !r.retracted) "edited" else null, if (nested || r.orphan) "reply" else null)
+                                Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        if (r.retracted) {
-                            Text("Message retracted", Modifier.padding(top = 4.dp).semantics { contentDescription = "Message retracted by its author. Devices that received it keep their copy." },
-                                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Text(message.body, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyLarge)
-                        }
-                        val chips = listOfNotNull(
-                            // The lane it travelled: glyph and word, so it reads without colour.
-                            r.original.lane?.chip,
-                            if (r.edited && !r.retracted) "edited" else null,
-                            if (r.orphan) "in a thread" else null,
-                            if (nested && r.reply != null && r.thread != null && r.reply != r.thread) "replying to ${shortId(r.reply.participant)}" else null,
-                        )
-                        if (chips.isNotEmpty()) Text(chips.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (r.retracted) return@Column
-                        val updates = reactionUpdates(messages, r.original)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            REACTION_EMOJIS.forEach { emoji ->
-                                val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
-                                if (emoji in listOf("👍", "❤️", "🤦") || active.isNotEmpty()) {
-                                    val mine = active.any { it.participant == selfParticipant }
-                                    FilterChip(selected = mine, onClick = { onReact(r.original, emoji) }, enabled = canSend,
-                                        label = { Text(emoji + if (active.isEmpty()) "" else " ${active.size}") },
-                                        modifier = Modifier.semantics { contentDescription = "${if (mine) "Remove" else "Add"} $emoji reaction, ${active.size}" })
+                        if (!r.retracted) {
+                            val updates = reactionUpdates(messages, r.original)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                REACTION_EMOJIS.forEach { emoji ->
+                                    val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
+                                    if (active.isNotEmpty()) {
+                                        val selected = active.any { it.participant == selfParticipant }
+                                        FilterChip(selected = selected, onClick = { onReact(r.original, emoji) }, enabled = canSend,
+                                            label = { Text("$emoji ${active.size}") },
+                                            modifier = Modifier.semantics { contentDescription = "${if (selected) "Remove" else "Add"} $emoji reaction, ${active.size}" })
+                                    }
                                 }
                             }
                         }
@@ -188,25 +224,50 @@ fun ChatPane(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend && !sending,
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
+                shape = RoundedCornerShape(24.dp),
+                leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
             IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
-        if (sending) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        if (sending) Text("Waiting for relay confirmation…", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        TextButton(onClick = { emojiOpen = true }, enabled = canSend, modifier = Modifier.padding(horizontal = 8.dp)) { Text("😊 Emoji") }
     }
     if (emojiOpen) EmojiDialog(onDismiss = { emojiOpen = false }) { emoji ->
         val start = draft.selection.min; val end = draft.selection.max
         val text = draft.text.replaceRange(start, end, emoji)
         if (text.length <= MAX_CHAT_TEXT_LENGTH) { draft = TextFieldValue(text, TextRange(start + emoji.length)); emojiOpen = false }
     }
-    if (profileSettings) AlertDialog(onDismissRequest = { profileSettings = false }, title = { Text("Public profile pictures") },
-        text = { Column {
-            Text("Look up public Nostr profiles for this visit. Room relays will see participant keys, and picture hosts will see image requests. Names and pictures are self-reported. A new room identity may have no public profile.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Look up public profiles") }
-        } }, confirmButton = { TextButton(onClick = { profileSettings = false }) { Text("Done") } })
+    if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Messages are encrypted to the room.")
+            Text(lane?.meaning ?: "The transport for the next message is not yet known.")
+            if (quiet) Text(QuietTransport.MEANING)
+            Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
+            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Show public profiles") }
+        } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
+    reactionTarget?.let { target ->
+        val resolvedTarget = resolved.stream.flatMap { listOf(it) + it.replies }.find { it.original.id == target.id }
+        AlertDialog(onDismissRequest = { reactionTarget = null }, title = { Text("Message") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (target.participant == selfParticipant) "You" else target.name ?: profiles[target.participant]?.name ?: "Participant", style = MaterialTheme.typography.titleSmall)
+                Text(npubOf(target.participant), style = MaterialTheme.typography.bodySmall)
+                Text(messageTime(target.sentAt), style = MaterialTheme.typography.bodySmall)
+                target.lane?.let { Text(it.meaning, style = MaterialTheme.typography.bodySmall) }
+                if (canSend && resolvedTarget?.retracted != true) FlowRow {
+                    REACTION_EMOJIS.forEach { emoji ->
+                        val active = reactionUpdates(messages, target).filter { it.reaction!!.emoji == emoji && it.reaction.active }
+                        val selected = active.any { it.participant == selfParticipant }
+                        TextButton(onClick = { onReact(target, emoji); reactionTarget = null },
+                            modifier = Modifier.semantics { contentDescription = "${if (selected) "Remove" else "Add"} $emoji reaction, ${active.size}" }) { Text(emoji) }
+                    }
+                }
+            }
+        }, confirmButton = { TextButton(onClick = { reactionTarget = null }) { Text("Done") } })
+    }
 }
 
 private val EMOJIS = listOf("👍" to "thumbs up yes like", "❤️" to "heart love", "🤦" to "facepalm head against wall", "😂" to "laugh tears joy", "😊" to "smile happy", "🎉" to "party celebration", "👀" to "eyes", "🙏" to "thanks please", "😢" to "sad cry", "🤯" to "mind blown", "🙄" to "eye roll", "😅" to "sweat smile", "🔥" to "fire", "👏" to "clap applause", "💯" to "hundred", "✅" to "done check", "❌" to "cross no", "🤔" to "thinking", "👋" to "wave hello", "🤗" to "hug", "😍" to "heart eyes", "😡" to "angry", "💔" to "broken heart", "🍻" to "cheers", "☕" to "coffee", "🚀" to "rocket", "💪" to "muscle", "🤞" to "fingers crossed")
@@ -228,3 +289,6 @@ private fun EmojiDialog(onDismiss: () -> Unit, choose: (String) -> Unit) {
 }
 
 internal fun messageTime(seconds: Long): String = SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
+
+private fun messageDate(seconds: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(seconds * 1000))
+private fun messageClock(seconds: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(seconds * 1000))

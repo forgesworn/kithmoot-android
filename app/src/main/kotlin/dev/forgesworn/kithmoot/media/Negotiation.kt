@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.crypto.normaliseHex
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -16,20 +17,35 @@ object SignalType {
 /** A session description, in the two fields the wire carries. */
 data class SdpData(val type: String, val sdp: String)
 
-/**
- * A trickled candidate.
- *
- * The wire carries **only the candidate string** - there is no `sdpMid` and no
- * `sdpMLineIndex` anywhere in the signal body, and the vectors pin it that way.
- * That is workable only because every peer connection here is negotiated with
- * max-bundle and required rtcp-mux, so there is exactly one transport and every
- * candidate belongs to it. If the wire format ever grows a second transport,
- * this is the first thing that breaks.
- */
-data class IceCandidateData(val candidate: String) {
-    /** The m-line a candidate is attached to locally. Always the bundled one. */
-    val sdpMLineIndex: Int get() = 0
-    val sdpMid: String get() = ""
+/** Browser-compatible RTCIceCandidateInit, carried as JSON inside SignalBody.candidate. */
+data class IceCandidateData(
+    val candidate: String,
+    val sdpMid: String? = null,
+    val sdpMLineIndex: Int = 0,
+    val usernameFragment: String? = null,
+) {
+    fun toWire(): String = buildJsonObject {
+        put("candidate", candidate)
+        put("sdpMid", sdpMid?.let(::JsonPrimitive) ?: JsonNull)
+        put("sdpMLineIndex", sdpMLineIndex)
+        usernameFragment?.let { put("usernameFragment", it) }
+    }.toString()
+
+    companion object {
+        fun fromWire(wire: String): IceCandidateData? = runCatching {
+            require(wire.length <= 16_384)
+            // Earlier Android builds sent a bare candidate; continue accepting those.
+            if (wire.startsWith("candidate:")) return@runCatching IceCandidateData(wire)
+            val value = Json.parseToJsonElement(wire).jsonObject
+            val candidate = value.getValue("candidate").jsonPrimitive.also { require(it.isString) }.content
+            require(candidate.startsWith("candidate:"))
+            val mid = value["sdpMid"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.also { require(it.isString) }?.content
+            val index = value["sdpMLineIndex"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.int ?: if (mid != null) -1 else error("Missing ICE media section")
+            require(index >= 0 || mid != null)
+            val fragment = value["usernameFragment"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.also { require(it.isString) }?.content
+            IceCandidateData(candidate, mid, index, fragment)
+        }.getOrNull()
+    }
 }
 
 /**
@@ -162,7 +178,7 @@ class PeerLink(
     }
 
     suspend fun onLocalCandidate(candidate: IceCandidateData) {
-        send(SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.candidate))
+        send(SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire()))
     }
 
     /** One inbound signal from the remote device. Queued behind whatever this
@@ -170,7 +186,7 @@ class PeerLink(
     suspend fun onRemoteSignal(type: String, sdp: String?, candidate: String?) = operations.withLock {
         when (type) {
             SignalType.OFFER, SignalType.ANSWER -> if (sdp != null) onRemoteDescription(SdpData(type, sdp))
-            SignalType.ICE -> if (candidate != null) onRemoteCandidate(IceCandidateData(candidate))
+            SignalType.ICE -> if (candidate != null) IceCandidateData.fromWire(candidate)?.let { onRemoteCandidate(it) }
             else -> Unit
         }
     }

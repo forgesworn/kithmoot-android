@@ -112,8 +112,10 @@ class SharedProjectsUiTest {
         ui.home()
         ui.click("Chats tab")
         ui.await("Chats selected after the refused admission") { model.start.value.homeTab == "chats" && !model.start.value.busy }
+        ui.click("Options for Build room")
         ui.click("Forget Build room")
-        ui.click("Forget room")
+        ui.await("local removal confirmation rendered") { ui.hasText("Remove Build room from this phone?") }
+        ui.click("Remove from this phone")
         ui.await("explicit local identity removal") { model.start.value.savedRooms.isEmpty() }
         ui.click("Projects tab"); ui.click("Open Build room in Kithmoot"); ui.room()
         assertEquals(saved.id, model.room.value.roomId)

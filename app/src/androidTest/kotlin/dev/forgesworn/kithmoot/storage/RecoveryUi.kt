@@ -13,11 +13,11 @@ import org.junit.Assert.assertTrue
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
-internal class RecoveryUi {
+internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
-    fun await(description: String, predicate: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 60_000
+    fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (!predicate()) {
             if (SystemClock.uptimeMillis() >= deadline) {
                 throw AssertionError("Timed out waiting for $description. Visible UI:\n" + nodes().mapNotNull {
@@ -68,7 +68,7 @@ internal class RecoveryUi {
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) SystemClock.sleep(120)
             find()?.let { return it }
-            runCatching { onView(isRoot()).perform(swipeDown()) }
+            if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeDown()) }
             SystemClock.sleep(120)
         }
         repeat(12) {
@@ -76,7 +76,7 @@ internal class RecoveryUi {
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) SystemClock.sleep(120)
             find()?.let { return it }
-            runCatching { onView(isRoot()).perform(swipeUp()) }
+            if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeUp()) }
             SystemClock.sleep(120)
         }
         var found: T? = null
@@ -118,5 +118,5 @@ internal class RecoveryUi {
         await("home to finish loading") { hasText("KithMoot") && !hasDescription("Loading rooms") }
     }
 
-    fun room() = await("room controls") { hasText("Leave") }
+    fun room() = await("room controls") { hasText("Leave") || hasDescription("Leave") }
 }

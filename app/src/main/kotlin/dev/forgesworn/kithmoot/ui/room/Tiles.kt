@@ -36,6 +36,7 @@ data class ParticipantTile(
     /** How loud this person is on this device only: 0.0 to 2.0, 1.0 being
      *  untouched. See media/CallVolume.kt. Meaningless for [isSelf]. */
     val callVolume: Float = 1.0f,
+    val name: String? = null,
 ) {
     val holdsCard: Boolean get() = cardName != null
     val hasVideo: Boolean get() = videos.isNotEmpty()
@@ -79,6 +80,7 @@ fun buildTiles(
             micDevice = person.micDevice,
             micIsThisDevice = isSelf && person.micDevice == selfDevice,
             cardName = cards[person.participant],
+            name = person.devices.firstNotNullOfOrNull { it.name?.takeIf(String::isNotBlank) },
             hasScreenAudio = person.liveTracks.any { it.role == Roles.SCREEN_AUDIO },
             callVolume = volumes[person.participant] ?: 1.0f,
         )

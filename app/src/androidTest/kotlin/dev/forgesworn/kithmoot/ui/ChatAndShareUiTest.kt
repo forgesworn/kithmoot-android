@@ -77,11 +77,12 @@ class ChatAndShareUiTest {
                     }
                 }
                 ui.onNodeWithText("Bring the blue toolbox").assertIsDisplayed()
+                ui.onNodeWithContentDescription("Search messages").performClick()
                 ui.onNodeWithText("Search messages or people").performTextInput("absent")
                 ui.onNodeWithText("No matching messages.").assertIsDisplayed()
                 ui.onNodeWithText("Clear").performClick()
                 ui.onNodeWithText("Say something").performTextInput("Hello ")
-                ui.onNodeWithText("😊 Emoji").performClick()
+                ui.onNodeWithContentDescription("Emoji").performClick()
                 ui.onNodeWithText("Search emoji").performTextInput("facepalm")
                 ui.onNodeWithContentDescription("🤦 facepalm head against wall").performClick()
                 ui.onNodeWithContentDescription("Send").performClick()
@@ -89,7 +90,8 @@ class ChatAndShareUiTest {
                 ui.onNodeWithText("Hello 🤦").assertIsDisplayed()
                 // React to the message just sent. The older message may leave
                 // the viewport while chat finishes following the new message.
-                ui.onAllNodesWithContentDescription("Add ❤️ reaction, 0").onLast().performClick()
+                ui.onNodeWithText("Hello 🤦").performTouchInput { longClick() }
+                ui.onNodeWithContentDescription("Add ❤️ reaction, 0").performClick()
                 ui.onNodeWithContentDescription("Remove ❤️ reaction, 1").assertExists().performClick()
                 assertEquals(false, messages.last().reaction?.active)
                 screenshot("chat")

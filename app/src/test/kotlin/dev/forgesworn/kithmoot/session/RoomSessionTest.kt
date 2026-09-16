@@ -71,6 +71,9 @@ class RoomSessionTest {
         advanceTimeBy(2_000)
         runCurrent()
 
+        assertEquals(setOf(phone.devicePubkey), laptopSession.remoteDevices.value)
+        assertEquals(setOf(owner.devicePubkey), phoneSession.remoteDevices.value)
+
         laptopSession.claim(Roles.MIC)
         advanceTimeBy(2_000)
         runCurrent()
@@ -533,7 +536,7 @@ class RoomSessionTest {
     }
 
     @Test
-    fun `a signal from our own other device is refused`() = runTest {
+    fun `a signal from our own other device negotiates its camera`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
         val owner = Fixtures.primary(room, 1, 2)
@@ -554,8 +557,8 @@ class RoomSessionTest {
         advanceTimeBy(1_000)
         runCurrent()
 
-        // One PeerConnection per remote device, never to your own.
-        assertEquals(0, received.size)
+        // Own sibling cameras need a real offer too.
+        assertEquals(1, received.size)
     }
 
     @Test

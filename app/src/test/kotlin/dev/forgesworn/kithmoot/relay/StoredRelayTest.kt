@@ -51,6 +51,21 @@ class StoredRelayTest {
         }
     }
 
+    @Test fun `authentication refusal identifies the failing relay even when another relay completes`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one", "wss://two"), sockets, backgroundScope)
+        pool.start(); runCurrent(); sockets.openAll()
+        val result = async { runCatching { pool.queryStored(listOf(Filter(kinds = listOf(1059)))) } }
+        runCurrent()
+        val id = sockets.opened.first().requestedSubscriptions().single()
+        sockets.opened[0].deliverRaw("""["EOSE","$id"]""")
+        sockets.opened[1].deliverRaw("""["CLOSED","$id","ERROR: auth-required: requested filter requires authentication"]""")
+        val failure = assertIs<RelayHistoryException>(result.await().exceptionOrNull())
+        assertEquals("wss://two", failure.relay)
+        assertTrue(failure.authenticationRequired)
+        pool.stop()
+    }
+
     @Test fun `publication requires the matching OK and can succeed after another relay rejects`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(listOf("wss://one", "wss://two"), sockets, backgroundScope)

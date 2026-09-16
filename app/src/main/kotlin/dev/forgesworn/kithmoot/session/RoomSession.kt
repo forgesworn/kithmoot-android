@@ -216,10 +216,8 @@ class RoomSession(
     private val _remoteDevices = MutableStateFlow<Set<String>>(emptySet())
 
     /**
-     * Every device we should hold a peer connection to: all the devices in the
-     * roster belonging to somebody who is not us. Our own other devices are
-     * excluded - connecting a laptop to its owner's phone would burn bandwidth
-     * to send a person their own face.
+     * Connect every other device, including our own paired cameras. Audio
+     * monitoring separately excludes our own participant to prevent feedback.
      */
     val remoteDevices: StateFlow<Set<String>> = _remoteDevices.asStateFlow()
 
@@ -614,12 +612,9 @@ class RoomSession(
         if (!signalGuard.admitEvent("inner:${signal.id}") || !signalGuard.admitSender(signal.from, at)) return
 
         val sender = synchronized(lock) { roster[signal.from] }
-        // Signals from devices we cannot see in the roster are refused, and so
-        // are signals from our own other devices. There is no race in the first
-        // check: a device only learns our pubkey by hearing our announce, and it
-        // only hears our announce because we answered its own - which means it
-        // was already in our roster before it could address us.
-        if (sender == null || sender.participant == identity.participant) return
+        // The roster authenticates sibling devices too. Only our exact local
+        // device is excluded; paired cameras need ordinary negotiation.
+        if (sender == null || signal.from == identity.devicePubkey) return
         if (signal.body.type == "annotation") {
             // Shape-checked here, after the same roster and rate-limit checks
             // every other signal passes, and never falls through to ordinary
@@ -717,7 +712,7 @@ class RoomSession(
         val snapshot = synchronized(lock) { roster.values.toList() }
         val grouped = groupByParticipant(snapshot)
         _participants.value = grouped
-        val remote = snapshot.filter { it.participant != identity.participant }
+        val remote = snapshot.filter { it.device != identity.devicePubkey }
         _remoteDevices.value = remote.map { it.device }.toSet()
         val agentParticipants = grouped.filter { it.agent }.map { it.participant }.toSet()
         _agentDevices.value = remote.filter { it.participant in agentParticipants }.map { it.device }.toSet()

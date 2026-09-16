@@ -44,6 +44,11 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions) {
             (state.projectError ?: state.projects.error)?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
+            if (state.projects.error != null && !state.projects.ready) {
+                OutlinedButton(actions.refresh, enabled = !state.projects.syncing && !state.projectsBusy && !state.busy) {
+                    Text("Retry project sync")
+                }
+            }
             if (state.projects.pendingSends > 0) {
                 Text("${state.projects.pendingSends} project updates waiting to send", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 OutlinedButton(actions.retry, enabled = enabled) { Text("Retry project updates") }

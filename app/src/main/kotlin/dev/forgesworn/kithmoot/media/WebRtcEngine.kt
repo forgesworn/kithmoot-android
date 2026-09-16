@@ -1,15 +1,20 @@
 package dev.forgesworn.kithmoot.media
 
 import android.content.Context
+import android.util.Log
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.session.RoomSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.webrtc.AudioTrack
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -26,9 +31,7 @@ import org.webrtc.VideoTrack
 import org.webrtc.audio.JavaAudioDeviceModule
 
 /** A remote track, with the device that published it. */
-data class RemoteTrack(val device: String, val track: MediaStreamTrack) {
-    val trackId: String get() = track.id()
-}
+data class RemoteTrack(val device: String, val track: MediaStreamTrack, val trackId: String = track.id())
 
 /**
  * The media half of a room: one peer connection per remote **device**.
@@ -58,6 +61,7 @@ class WebRtcEngine(
      */
     private val audioDevice: JavaAudioDeviceModule
     val localMedia: LocalMedia
+    val audioRouting = CallAudioRouting(context)
 
     /**
      * Guards [links].
@@ -85,6 +89,8 @@ class WebRtcEngine(
     private var audience: (String) -> Boolean = { true }
 
     private val _remoteTracks = MutableStateFlow<List<RemoteTrack>>(emptyList())
+    private val _connections = MutableStateFlow<Map<String, String>>(emptyMap())
+    val connections: StateFlow<Map<String, String>> = _connections.asStateFlow()
 
     /** Every track arriving from every remote device, keyed by the device that sent it. */
     val remoteTracks: StateFlow<List<RemoteTrack>> = _remoteTracks.asStateFlow()
@@ -106,6 +112,14 @@ class WebRtcEngine(
         localMedia = LocalMedia(context.applicationContext, factory, eglBase)
     }
 
+    @Volatile var callActive: Boolean = true
+        private set
+
+    fun setCallActive(active: Boolean) {
+        synchronized(lock) { callActive = active }
+        if (active) reconcile(session.remoteDevices.value) else stop()
+    }
+
     fun start() {
         // The set of devices to connect to is derived from the roster, so a
         // device that joins, leaves or lapses is reconciled here rather than
@@ -113,20 +127,30 @@ class WebRtcEngine(
         scope.launch { session.remoteDevices.collect { reconcile(it) } }
         scope.launch {
             session.signals.collect { signal ->
-                linkFor(signal.from)?.onRemoteSignal(
-                    type = signal.body.type,
-                    sdp = signal.body.sdp,
-                    candidate = signal.body.candidate,
-                )
+                try {
+                    linkFor(signal.from)?.onRemoteSignal(signal.body.type, signal.body.sdp, signal.body.candidate)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    // One failed negotiation must not cancel every other device's media collectors.
+                    _connections.update { it + (signal.from to "failed") }
+                }
             }
         }
         scope.launch { localMedia.tracks.collect { onLocalTracksChanged(it) } }
+        scope.launch {
+            while (isActive) {
+                delay(10_000)
+                synchronized(lock) { links.values.forEach { it.reportMediaProgress() } }
+            }
+        }
     }
 
     /** Tears down every connection and every capturer. */
     fun stop() {
+        synchronized(lock) { callActive = false }
         closeLinks()
         localMedia.releaseAll()
+        audioRouting.close()
     }
 
     /**
@@ -139,6 +163,7 @@ class WebRtcEngine(
     fun dispose() {
         closeLinks()
         localMedia.releaseAll()
+        audioRouting.close()
         runCatching { factory.dispose() }
         runCatching { audioDevice.release() }
         runCatching { eglBase.release() }
@@ -152,13 +177,16 @@ class WebRtcEngine(
         }
         for (link in closing) runCatching { link.close() }
         _remoteTracks.value = emptyList()
+        _connections.value = emptyMap()
     }
 
     private fun reconcile(devices: Set<String>) = synchronized(lock) {
+        if (!callActive) return@synchronized
         for (device in devices - links.keys) links[device] = openLink(device)
         for (device in links.keys - devices) {
             links.remove(device)?.close()
-            _remoteTracks.value = _remoteTracks.value.filterNot { it.device == device }
+            _connections.update { it - device }
+            _remoteTracks.update { current -> current.filterNot { it.device == device } }
         }
     }
 
@@ -177,6 +205,7 @@ class WebRtcEngine(
             enableImplicitRollback = false
         }
 
+        _connections.update { it + (device to "connecting") }
         val managed = ManagedLink(device)
         val connection = factory.createPeerConnection(configuration, managed.observer)
             ?: throw IllegalStateException("could not create a peer connection to $device")
@@ -221,14 +250,21 @@ class WebRtcEngine(
      */
     private inner class ManagedLink(private val device: String) {
 
+        @Volatile private var closed = false
         private var connection: PeerConnection? = null
         private val senders = mutableMapOf<String, RtpSender>()
+        private val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
         lateinit var link: PeerLink
             private set
 
         val observer = object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
-            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) = Unit
+            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
+            }
+            override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
+                if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
+            }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) = Unit
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) = Unit
@@ -237,22 +273,28 @@ class WebRtcEngine(
             override fun onDataChannel(channel: org.webrtc.DataChannel?) = Unit
 
             override fun onIceCandidate(candidate: IceCandidate?) {
-                val sdp = candidate?.sdp ?: return
-                scope.launch { link.onLocalCandidate(IceCandidateData(sdp)) }
+                val value = candidate ?: return
+                scope.launch { link.onLocalCandidate(IceCandidateData(value.sdp, value.sdpMid, value.sdpMLineIndex)) }
             }
 
             override fun onRenegotiationNeeded() {
-                scope.launch { runCatching { link.onNegotiationNeeded() } }
+                scope.launch {
+                    try { link.onNegotiationNeeded() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { if (!closed) _connections.update { it + (device to "failed") } }
+                }
             }
 
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
                 val track = receiver?.track() ?: return
-                _remoteTracks.value = _remoteTracks.value + RemoteTrack(device, track)
+                received[track.id()] = track
+                _remoteTracks.update { current -> current.filterNot { it.device == device && it.track.id() == track.id() } + RemoteTrack(device, track) }
             }
 
             override fun onRemoveTrack(receiver: RtpReceiver?) {
                 val id = receiver?.track()?.id() ?: return
-                _remoteTracks.value = _remoteTracks.value.filterNot { it.device == device && it.trackId == id }
+                received.remove(id)
+                _remoteTracks.update { current -> current.filterNot { it.device == device && it.track.id() == id } }
             }
 
             override fun onTrack(transceiver: RtpTransceiver?) = Unit
@@ -263,7 +305,7 @@ class WebRtcEngine(
             link = PeerLink(
                 localDevice = session.identity.devicePubkey,
                 remoteDevice = device,
-                connection = WebRtcPeerConnection(connection),
+                connection = WebRtcPeerConnection(connection, ::refreshRemoteTracks),
                 roomId = session.room.roomId,
                 send = { envelope ->
                     session.sendSignal(
@@ -277,6 +319,29 @@ class WebRtcEngine(
                     )
                 },
             )
+        }
+
+        fun reportMediaProgress() {
+            if (closed) return
+            connection?.getStats { report ->
+                if (closed) return@getStats
+                val incoming = report.statsMap.values.filter { it.type == "inbound-rtp" }
+                val summary = incoming.joinToString("; ") {
+                    "${it.members["kind"] ?: it.members["mediaType"]}: packets=${it.members["packetsReceived"] ?: 0}, frames=${it.members["framesDecoded"] ?: 0}"
+                }
+                // No SDP, network addresses, credentials or message contents.
+                val videos = _remoteTracks.value.count { it.device == device && it.track is VideoTrack }
+                Log.i("KithMootMedia", "peer=${device.take(8)} state=${_connections.value[device]} videoTracks=$videos $summary")
+            }
+        }
+
+        private fun refreshRemoteTracks() {
+            if (closed) return
+            val pc = connection ?: return
+            val bindings = remoteTracksFor(device, pc, received.values.toList())
+            _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
+            val aliases = bindings.count { it.trackId != it.track.id() }
+            Log.i("KithMootMedia", "peer=${device.take(8)} negotiatedTracks=${bindings.size} receiverAliases=$aliases")
         }
 
         fun addLocalTrack(track: LocalTrack) {
@@ -299,7 +364,9 @@ class WebRtcEngine(
         }
 
         fun close() {
+            closed = true
             senders.clear()
+            received.clear()
             if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }
             connection = null
         }
