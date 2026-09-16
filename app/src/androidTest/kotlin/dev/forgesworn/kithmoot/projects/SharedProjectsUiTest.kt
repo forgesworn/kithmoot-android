@@ -82,7 +82,7 @@ class SharedProjectsUiTest {
         ui.click("Chats tab"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
-        ui.click("Leave"); ui.home(); ui.click("Projects tab")
+        ui.click("Leave room"); ui.home(); ui.click("Projects tab")
         create("Kithmoot", member, agent, room = true)
         create("Bothy", other, agent)
         create("Research", member, secondAgent)
@@ -123,7 +123,7 @@ class SharedProjectsUiTest {
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         assertEquals(member.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("project-room-admission.png")
-        ui.click("Leave"); ui.home()
+        ui.click("Leave room"); ui.home()
         assertEquals("projects", model.start.value.homeTab)
 
         // A signed directory may name a room id that its invitation does not actually admit.

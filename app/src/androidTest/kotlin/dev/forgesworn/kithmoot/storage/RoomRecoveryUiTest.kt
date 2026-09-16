@@ -31,7 +31,7 @@ class RoomRecoveryUiTest {
         ui.room()
         val before = app.savedRooms.list().single()
         val identity = app.savedRooms.get(before.id)!!.identity(System.currentTimeMillis() / 1000)
-        ui.click("Leave")
+        ui.click("Leave room")
         ui.home()
         ui.click("Weekend workshop")
         ui.room()
@@ -43,7 +43,7 @@ class RoomRecoveryUiTest {
             assertFalse(state.cameraOn)
             assertTrue(state.canRotateInvitation)
         }
-        ui.click("Leave")
+        ui.click("Leave room")
         ui.home()
         ui.click("Options for Weekend workshop")
         ui.click("Rename Weekend workshop")

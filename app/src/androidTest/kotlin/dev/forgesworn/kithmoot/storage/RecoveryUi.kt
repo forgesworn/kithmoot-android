@@ -118,5 +118,5 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         await("home to finish loading") { hasText("KithMoot") && !hasDescription("Loading rooms") }
     }
 
-    fun room() = await("room controls") { hasText("Leave") || hasDescription("Leave") }
+    fun room() = await("room controls") { hasDescription("Leave room") }
 }

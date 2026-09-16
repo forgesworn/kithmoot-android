@@ -69,7 +69,7 @@ class SiteAddressUiTest {
             ready
         }
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].dismissPairingLink() }
-        ui.click("Leave")
+        ui.click("Leave room")
         ui.home()
         activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
     }
