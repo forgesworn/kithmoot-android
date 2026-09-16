@@ -1,0 +1,28 @@
+{
+  "room": {
+    "roomId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "link": "https://example.test/j/#eyJ2IjozLCJqIjoiQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSSIsImgiOiIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiciI6WyJ3c3M6Ly9yZWxheS5leGFtcGxlIl0sImkiOltdLCJhIjp7InRpZXIiOiJvcGVuIiwibWVtYmVycyI6WyIxYjg0YzU1NjdiMTI2NDQwOTk1ZDNlZDVhYWJhMDU2NWQ3MWUxODM0NjA0ODE5ZmY5YzE3ZjVlOWQ1ZGQwNzhmIiwiNTMxZmU2MDY4MTM0NTAzZDI3MjMxMzMyMjdjODY3YWM4ZmE2YzgzYzUzN2U5YTQ0YzNjNWJkYmRjYjFmZTMzNyJdfX0",
+    "name": "Browser private chat",
+    "openedAt": 1789000000,
+    "readAt": 123,
+    "keep": true
+  },
+  "event": {
+    "kind": 30078,
+    "created_at": 1789000000,
+    "tags": [
+      [
+        "d",
+        "kithmoot.rooms.v1.d98ab450-d64e-4f8e-a646-6ad80bab1eb9"
+      ],
+      [
+        "l",
+        "kithmoot.rooms.v1"
+      ]
+    ],
+    "content": "AuS2HYpzFVkTKnh+iqgnFUK2r6lcaiSs/Gulakp1AIBy6RCnF097ghDeKlVnXcAj7iQ4RUEaiGWsn/ICmkNRhaXswF4SCxWo+4cQMEcZZ6p2E6V3uZBBDAw6Y2dTEdf0OMhgGnb9aM343xgNN6upaT2QvmQytDxykASy32exklA83sOsJvEdxM3cg4JGyLr03pLsCPvN3177v2TM9qwAzvSruIgUesTVCKpa/EMs4qU1eTx9/mdHtAmJ6GIOyZrvvSyTQ3wJGpDnhJj0jOhvJ/U1nW+bP/akWHoq6hReD+8g0SBZqT0jjdluPZFQIKCnks6bhb/wX+UpBD08PiQ82ndq/XQiXkTS5fajG5/VDyaDLmo8/GlxpeTy+JSXWLEqUYLKhE4UMb1W4VyLQ2wcg5ctf3sAVTIB9Kt8RLdlsO89nAyp/NNopYcQ/FU956dF8eu2efd3miIsn8kYfoQwHSE+XSK3cBx0klfGbG4VV3eVWwCUeUA7PNtHpQ2lJvzVr772AdHNlSO6tSHy/O8/+lnxGnR2P0KDlcn9QB3cGQJzNh6OmF8O7kq07fiXu29ryA80e4c1gMqb3/i5F/V0ccK1LIQ/kA4OhsyRBmTqnpPYzGE8k8iJuBEzUo2eUvDl1k7p3+zofCNMEBPi5XU+mtaZh8jud/Q69NDuaCDdafrCT1JOhTYgtcvwhyMRcBt/WNHVI7xKKG92kKG1n690y21CbxPglLSMTQYdJ4ix7fzKJAUfx6qeuuPwBPBjttZhkAvORinqLAWME4mJBFthMjDuzVkI1zcM4ko9m1BLVzoht4IEK3ut4KZIM0LUX8E1z7mr1kIKmkTqsJ3gy/vCQC7mrcPcGhhN1vlsCoPI1zV7v+7gzk6xwqqogboinR27UixoJbGnr8vL2q/eucc6HUp/gvhHqImafVy7Id6yBn3XMcvJOX0N8bJxzF7JZOgZdw/X9tQe7j1i/xJnzOQSLwkAR+cPNnZAIjjL3qMdzwsntwpqU20/MFU7W/sn/qx9EhNncyqfbQAjkQNOmneqvJsTfWwfdbeqHxfJHx1SiveEUeIhjsYjU0mG/VwTBvabhBOa8VbJuCs2IfTpyJimgn2G3g==",
+    "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "id": "0a275ea03dcd9a464c7fe8721f25751abfe1b8cf505f4eb6b88466f2964901de",
+    "sig": "7987f15299d29b3cfd1d0131f1c68eef936b30d02e20917b0cc4abfa70d1771488981eb75b3e12deaacfbc0e1d2eb7fb646d948b5ff33007cb7c1af87f9e37eb"
+  }
+}

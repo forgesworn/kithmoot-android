@@ -57,9 +57,9 @@ fun StartScreen(
     onWebAppAddressChanged: (String) -> Boolean = { false },
     onHomeTabChanged: (String) -> Unit = {},
     projects: ProjectActions = ProjectActions(),
+    accountRooms: AccountRoomActions = AccountRoomActions(),
 ) {
     val context = LocalContext.current
-    var relaysShown by remember { mutableStateOf(false) }
     var siteShown by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
@@ -81,16 +81,10 @@ fun StartScreen(
     val enabled = !state.busy && !state.loadingRooms && !state.storageError
 
     Box(modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().systemBarsPadding().imePadding()
+        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().navigationBarsPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Image(painterResource(R.drawable.brand_artwork), contentDescription = null,
-                        modifier = Modifier.size(80.dp).clip(RoundedCornerShape(18.dp)))
-                    Text("KithMoot", style = MaterialTheme.typography.displaySmall)
-                }
                 Text(if (state.savedRooms.isEmpty()) "Make room for a conversation." else "Pick up the conversation.",
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -142,9 +136,17 @@ fun StartScreen(
             }
             if (state.homeTab == "projects") ProjectsPanel(state, projects)
             else {
+            if (state.account != null) {
+                val accountSaved = state.savedRooms.filter { it.account == state.account.pubkey }
+                AccountRoomsPanel(state.roomBookmarks, accountSaved.map { it.id }.toSet(),
+                    accountSaved.count { saved -> state.roomBookmarks.rooms.none { it.roomId == saved.id } },
+                    enabled && !state.roomSyncBusy, accountRooms)
+                state.roomSyncError?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            }
             if (state.savedRooms.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Your rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                    Text("On this phone", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                     Text("Saved on this device. Reopen as the same person.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
                         label = { Text("Find a saved room") },
@@ -171,41 +173,26 @@ fun StartScreen(
                     if (found.isEmpty()) Text(if (tab.isEmpty()) "No rooms match your search." else "No rooms in this project match.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     for (room in found) {
                         key(room.id) {
-                            OutlinedCard(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp)) {
-                                    TextButton({ onReopen(room.id) }, enabled = enabled,
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                        Text(room.name, style = MaterialTheme.typography.titleMedium)
-                                    }
-                                    // Whose room this is: the signed-in account's name when it is
-                                    // that account, otherwise both ends of the npub it was joined as.
-                                    val who = room.account?.let { pubkey ->
-                                        val me = state.account
-                                        if (me != null && me.pubkey == pubkey) (me.profile?.name ?: me.name ?: "you") else shortNpub(pubkey)
-                                    }
-                                    Text(listOfNotNull(who?.let { "As $it" }, room.project, if (room.anonymous) "Anonymous carrier" else null, if (room.secondary) "Paired device" else "Main device").joinToString(" · "),
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        TextButton({ renaming = room; renamed = room.name }, enabled = enabled,
-                                            modifier = Modifier.semantics { contentDescription = "Rename ${room.name}" }) { Text("Rename") }
-                                        TextButton({ filing = room; filedAs = room.project.orEmpty() }, enabled = enabled,
-                                            modifier = Modifier.semantics { contentDescription = "Project for ${room.name}" }) { Text("Project") }
-                                        if (!room.anonymous && room.id in state.linkConnectedRooms) {
-                                            TextButton({ disconnectingRoom = room }, enabled = enabled && room.account == state.account?.pubkey,
-                                                modifier = Modifier.semantics { contentDescription = "Disconnect Bothy from ${room.name}" }) { Text("Disconnect Bothy") }
-                                        } else if (!room.anonymous) TextButton({ pairingRoom = room; pairingCode = "" }, enabled = enabled && room.account == state.account?.pubkey,
-                                            modifier = Modifier.semantics { contentDescription = "Connect Bothy to ${room.name}" }) { Text("Connect Bothy") }
-                                        TextButton({ forgetting = room }, enabled = enabled,
-                                            modifier = Modifier.semantics { contentDescription = "Forget ${room.name}" }) { Text("Forget") }
-                                    }
-                                    if (!room.anonymous && room.id in state.linkGrantOwnerRooms) {
-                                        TextButton({ revokingRoom = room }, enabled = enabled,
-                                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Revoke Bothy guest access for ${room.name}" }) {
-                                            Text("Revoke guest access")
-                                        }
-                                    }
-                                }
+                            val who = room.account?.let { pubkey ->
+                                val me = state.account
+                                if (me != null && me.pubkey == pubkey) (me.profile?.name ?: me.name ?: "you") else shortNpub(pubkey)
                             }
+                            val detail = listOfNotNull(who?.let { "As $it" }, room.project,
+                                if (room.anonymous) "Anonymous carrier" else null,
+                                if (room.secondary) "Paired device" else null).joinToString(" · ").ifEmpty { "Saved on this phone" }
+                            ConversationRow(room.name, detail, enabled, { onReopen(room.id) }, buildList {
+                                add(ConversationAction("Rename", "Rename ${room.name}") { renaming = room; renamed = room.name })
+                                add(ConversationAction("Project", "Project for ${room.name}") { filing = room; filedAs = room.project.orEmpty() })
+                                if (!room.anonymous && room.account == state.account?.pubkey) {
+                                    if (room.id in state.linkConnectedRooms) {
+                                        add(ConversationAction("Disconnect Bothy", "Disconnect Bothy from ${room.name}") { disconnectingRoom = room })
+                                    } else add(ConversationAction("Connect Bothy", "Connect Bothy to ${room.name}") { pairingRoom = room; pairingCode = "" })
+                                }
+                                if (!room.anonymous && room.id in state.linkGrantOwnerRooms) {
+                                    add(ConversationAction("Revoke guest access", "Revoke Bothy guest access for ${room.name}", true) { revokingRoom = room })
+                                }
+                                add(ConversationAction("Remove from this phone", "Forget ${room.name}", true) { forgetting = room })
+                            })
                         }
                     }
                 }
@@ -306,7 +293,6 @@ fun StartScreen(
                 }
             }
             }
-            AccountSection(state, account, enabled)
             // Text size: one tap, remembered, applied everywhere. Above the
             // relay settings because it is the one everybody may want.
             val textSetting = LocalTextSizeSetting.current
@@ -322,7 +308,6 @@ fun StartScreen(
                     }
                 }
             }
-            TextButton({ relaysShown = true }, enabled = enabled) { Text("Relay settings") }
             TextButton({ siteShown = true }, enabled = enabled && !state.signingIn) { Text("Site settings") }
             Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
                 "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
@@ -351,25 +336,11 @@ fun StartScreen(
         }
     }
 
-    if (relaysShown) {
-        AlertDialog(onDismissRequest = { relaysShown = false }, title = { Text("Relay settings") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(state.relays, onRelaysChanged, Modifier.fillMaxWidth(), enabled = enabled,
-                        label = { Text("Relays, one per line") }, minLines = 2, maxLines = 5)
-                    Text("Used for new rooms and the next project sync. Saved rooms keep their own relays.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(state.circleBoxes, onCircleBoxesChanged, Modifier.fillMaxWidth().semantics { contentDescription = "Boxes of my circle" }, enabled = enabled,
-                        label = { Text("Boxes of my circle") }, minLines = 2, maxLines = 5)
-                    Text("Relays your circle's box answers on, one per line, as its keeper named them to you. A message that goes only to these shows as sheltered. A contact card alone does not confirm a message relay.", style = MaterialTheme.typography.bodySmall)
-                }
-            }, confirmButton = { TextButton({ relaysShown = false }) { Text("Done") } })
-    }
-
     forgetting?.let { room ->
-        AlertDialog(onDismissRequest = { forgetting = null }, title = { Text("Forget ${room.name}?") },
+        AlertDialog(onDismissRequest = { forgetting = null }, title = { Text("Remove ${room.name} from this phone?") },
             text = { Text("Remove this room and your identity for it from this device. Creator controls saved here will be lost. " +
-                "You will need an invitation or pairing link to return. Other members keep the room.") },
-            confirmButton = { TextButton({ forgetting = null; onForget(room.id) }) { Text("Forget room") } },
+                "Your synced account bookmark and other members are unaffected. Returning needs a working saved invitation or pairing link.") },
+            confirmButton = { TextButton({ forgetting = null; onForget(room.id) }) { Text("Remove from this phone") } },
             dismissButton = { TextButton({ forgetting = null }) { Text("Keep room") } })
     }
     filing?.let { room ->

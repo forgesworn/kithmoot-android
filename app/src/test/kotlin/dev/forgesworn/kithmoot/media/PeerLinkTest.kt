@@ -211,7 +211,24 @@ class PeerLinkTest {
         assertEquals(SignalType.ICE, sent.type)
         assertEquals(high, sent.toDevice)
         assertEquals(roomId, sent.roomId)
-        assertEquals("candidate:9 1 udp 1 10.0.0.9 9 typ host", sent.candidate)
+        assertEquals(IceCandidateData("candidate:9 1 udp 1 10.0.0.9 9 typ host"), IceCandidateData.fromWire(sent.candidate!!))
+    }
+
+    @Test fun `browser JSON candidate keeps its media section after early buffering`() = runTest {
+        val connection = FakePeerConnection()
+        val peer = link(low, high, connection, Recorder())
+        peer.onRemoteSignal(SignalType.ICE, null, """{"candidate":"candidate:7 1 udp 123 192.0.2.1 1234 typ host","sdpMid":"video","sdpMLineIndex":1,"usernameFragment":"browser"}""")
+        peer.onRemoteSignal(SignalType.OFFER, "remote-offer", null)
+        assertEquals(IceCandidateData("candidate:7 1 udp 123 192.0.2.1 1234 typ host", "video", 1, "browser"), connection.addedCandidates.single())
+    }
+
+    @Test fun `malformed browser candidates do not stop later signalling`() = runTest {
+        val connection = FakePeerConnection()
+        val peer = link(low, high, connection, Recorder())
+        listOf("{", "{}", "null", "{\"candidate\":true}").forEach { peer.onRemoteSignal(SignalType.ICE, null, it) }
+        peer.onRemoteSignal(SignalType.OFFER, "remote-offer", null)
+        peer.onRemoteSignal(SignalType.ICE, null, IceCandidateData("candidate:1 1 udp 1 192.0.2.1 1234 typ host", "0", 0).toWire())
+        assertEquals(1, connection.addedCandidates.size)
     }
 
     @Test

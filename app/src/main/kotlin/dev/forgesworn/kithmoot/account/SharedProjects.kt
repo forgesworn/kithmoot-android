@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.RelayHistoryException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -143,7 +144,17 @@ class SharedProjects(
             gate.withLock { live(); ready = fatal == null && collector?.isActive == true; syncing = false
                 if (ready) networkError = null; emit() }
         } catch (e: Exception) {
-            gate.withLock { ready = false; syncing = false; networkError = "Projects could not finish syncing. Try again."; emit() }
+            gate.withLock {
+                ready = false; syncing = false
+                networkError = when (e) {
+                    is RelayHistoryException -> if (e.authenticationRequired)
+                        "${e.relay} requires authentication to read projects. Account sync cannot authenticate here yet. Change this relay in Relay settings, then tap Retry project sync."
+                    else "${e.relay} refused project history. Check Relay settings, then tap Retry project sync."
+                    is SignerException -> "Your signer did not authorise opening projects. Check the signer's connection and decryption permissions, then tap Retry project sync."
+                    else -> "Projects could not finish syncing. Check your connection and Relay settings, then tap Retry project sync."
+                }
+                emit()
+            }
             if (e is CancellationException) throw e
         }
     }

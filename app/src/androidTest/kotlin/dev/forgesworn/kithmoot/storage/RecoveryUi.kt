@@ -13,11 +13,11 @@ import org.junit.Assert.assertTrue
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
-internal class RecoveryUi {
+internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
-    fun await(description: String, predicate: () -> Boolean) {
-        val deadline = SystemClock.uptimeMillis() + 60_000
+    fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (!predicate()) {
             if (SystemClock.uptimeMillis() >= deadline) {
                 throw AssertionError("Timed out waiting for $description. Visible UI:\n" + nodes().mapNotNull {
@@ -68,7 +68,7 @@ internal class RecoveryUi {
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) SystemClock.sleep(120)
             find()?.let { return it }
-            runCatching { onView(isRoot()).perform(swipeDown()) }
+            if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeDown()) }
             SystemClock.sleep(120)
         }
         repeat(12) {
@@ -76,7 +76,7 @@ internal class RecoveryUi {
             val scroll = scrollContainer() ?: return@repeat
             if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) SystemClock.sleep(120)
             find()?.let { return it }
-            runCatching { onView(isRoot()).perform(swipeUp()) }
+            if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeUp()) }
             SystemClock.sleep(120)
         }
         var found: T? = null
@@ -94,9 +94,12 @@ internal class RecoveryUi {
         // later enabled state, particularly with animations disabled in CI.
         reveal { button(text) }
         await("$text to become enabled") { button(text)?.isEnabled == true }
-        val target = requireNotNull(button(text)) { "$text disappeared before the click" }
-        assertTrue("$text must be enabled", target.isEnabled)
-        assertTrue("$text must accept a click", target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        // Removing a row can replace Compose's accessibility node between
+        // lookup and dispatch. Re-query only when Android refused the click.
+        await("$text to accept a click") {
+            val target = button(text)
+            target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
     }
 
     fun replace(label: String, value: String) {
@@ -118,5 +121,5 @@ internal class RecoveryUi {
         await("home to finish loading") { hasText("KithMoot") && !hasDescription("Loading rooms") }
     }
 
-    fun room() = await("room controls") { hasText("Leave") }
+    fun room() = await("room controls") { hasDescription("Leave room") }
 }

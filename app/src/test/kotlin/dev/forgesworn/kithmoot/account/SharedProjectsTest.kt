@@ -31,9 +31,11 @@ class SharedProjectsTest {
         val incoming = MutableSharedFlow<NostrEvent>(extraBufferCapacity = 64)
         val history = mutableListOf<NostrEvent>(); val sent = mutableListOf<NostrEvent>(); val filters = mutableListOf<List<Filter>>()
         var fail = false; var failQuery = false; var beforeSend: suspend () -> Unit = {}
+        var queryFailure: Exception? = null
         override fun publish(event: NostrEvent) = error("Project publication requires an acknowledgement")
         override fun subscribe(filters: List<Filter>): Flow<NostrEvent> { this.filters.add(filters); return incoming }
         override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> {
+            queryFailure?.let { throw it }
             if (failQuery) throw IOException("synthetic missing EOSE"); return history.toList()
         }
         override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
@@ -134,6 +136,42 @@ class SharedProjectsTest {
         assertFailsWith<IllegalStateException> { log.create(definition(), "create-before-history") }
         assertTrue(net.sent.isEmpty()); net.failQuery = false; log.refresh(); assertTrue(log.state.value.ready)
         log.create(definition(), "create-after-history-01"); runCurrent(); assertEquals(1, log.state.value.projects.size); log.close()
+    }
+
+    @Test fun authenticationFailureExplainsRecoveryAndPreservesExistingProjects() = runTest {
+        val net = Network(); val store = Store(); val log = open(store, net); log.open()
+        log.create(definition(), "create-before-auth-refusal"); runCurrent()
+        net.queryFailure = RelayHistoryException("wss://relay.damus.io", true)
+        log.refresh()
+        assertFalse(log.state.value.ready)
+        assertFalse(log.state.value.syncing)
+        assertEquals(1, log.state.value.projects.size)
+        assertContains(log.state.value.error!!, "wss://relay.damus.io requires authentication")
+        assertContains(log.state.value.error!!, "Retry project sync")
+        net.queryFailure = null; log.refresh()
+        assertTrue(log.state.value.ready); assertNull(log.state.value.error)
+        assertEquals(1, log.state.value.projects.size)
+        log.close()
+    }
+
+    @Test fun signerRefusalIsReportedAsAnAuthorisationProblemAndCanBeRetried() = runTest {
+        val net = Network(); val sender = open(Store(), net); sender.open()
+        sender.create(definition(), "create-before-signer-refusal"); runCurrent(); sender.close()
+        var refused = true
+        val signer = object : ParticipantSigner by owner {
+            override suspend fun nip44Decrypt(peer: String, payload: String): String {
+                if (refused) throw SignerException("Cambium declined to sign.")
+                return owner.nip44Decrypt(peer, payload)
+            }
+        }
+        val store = Store(); val phone = open(store, net, signer); phone.open()
+        assertFalse(phone.state.value.ready)
+        assertContains(phone.state.value.error!!, "decryption permissions")
+        assertNull(store.bytes)
+        refused = false; phone.refresh()
+        assertTrue(phone.state.value.ready); assertNull(phone.state.value.error)
+        assertEquals("Private Kithmoot", phone.state.value.projects.single().name)
+        phone.close()
     }
 
     @Test fun closingWhileAnExternalSignerIsWaitingPreventsSavingAndPublication() = runTest {

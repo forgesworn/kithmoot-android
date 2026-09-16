@@ -31,7 +31,7 @@ class RoomRecoveryUiTest {
         ui.room()
         val before = app.savedRooms.list().single()
         val identity = app.savedRooms.get(before.id)!!.identity(System.currentTimeMillis() / 1000)
-        ui.click("Leave")
+        ui.click("Leave room")
         ui.home()
         ui.click("Weekend workshop")
         ui.room()
@@ -43,17 +43,21 @@ class RoomRecoveryUiTest {
             assertFalse(state.cameraOn)
             assertTrue(state.canRotateInvitation)
         }
-        ui.click("Leave")
+        ui.click("Leave room")
         ui.home()
+        ui.click("Options for Weekend workshop")
         ui.click("Rename Weekend workshop")
         ui.replace("Room name", "Garden group")
         ui.click("Save name")
         ui.await("saved local name") { app.savedRooms.list().single().name == "Garden group" }
+        ui.click("Options for Garden group")
         ui.click("Forget Garden group")
         ui.click("Keep room")
         assertEquals(1, app.savedRooms.list().size)
+        ui.click("Options for Garden group")
         ui.click("Forget Garden group")
-        ui.click("Forget room")
+        ui.await("local removal confirmation rendered") { ui.hasText("Remove Garden group from this phone?") }
+        ui.click("Remove from this phone")
         ui.await("explicit room deletion") { app.savedRooms.list().isEmpty() }
         ui.home()
 

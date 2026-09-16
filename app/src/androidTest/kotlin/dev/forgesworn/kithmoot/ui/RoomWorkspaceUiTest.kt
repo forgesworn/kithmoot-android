@@ -1,5 +1,10 @@
 package dev.forgesworn.kithmoot.ui
 
+import androidx.compose.runtime.*
+import androidx.compose.material3.*
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertTrue
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
@@ -26,8 +31,16 @@ class RoomWorkspaceUiTest {
     @Test fun chat_is_primary_and_draft_survives_call_controls() {
         var mediaRequests = 0
         var sent = ""
-        val state = RoomState(roomId = "01".repeat(32), selfParticipant = "02".repeat(32), name = "Workshop")
-        val messages = (1..40).map { ChatMessage("message-$it", "03".repeat(32), "04".repeat(32), "Update $it", 1800000000L + it, "Rowan") }
+        var searchOpen by mutableStateOf(false)
+        val state = RoomState(roomId = "01".repeat(32), selfParticipant = "02".repeat(32), name = "Workshop", relaysUp = 2, relaysTotal = 2, privateConversation = true, nip77 = Nip77ViewState())
+        val latest = listOf("Morning! Have you had a chance to try the room on your phone?", "Yes, the messages came through.",
+            "Great. I have added the notes to the project too.", "I will read them before our call.", "Shall we catch up at half past?", "Sounds good 👍")
+        val messages = (1..40).map {
+            val mine = it > 34 && it % 2 == 0
+            ChatMessage("message-$it", if (mine) state.selfParticipant else "03".repeat(32), "04".repeat(32),
+                if (it > 34) latest[it - 35] else "Update $it", 1800000000L + it * 90, if (mine) "Alex" else "Rowan",
+                lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC)
+        }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -38,12 +51,23 @@ class RoomWorkspaceUiTest {
                             onToggleCamera = { mediaRequests++ }, onSwitchCamera = {},
                             onToggleScreenShare = { mediaRequests++ }, onAddDevice = {},
                             onRotateInvitation = {}, onLeave = {},
-                            chat = { ChatPane(messages, state.selfParticipant, { sent = it }, Modifier.fillMaxSize(), showTitle = false) },
+                            onSearch = { searchOpen = !searchOpen },
+                            accountMenu = { IconButton(onClick = {}) { dev.forgesworn.kithmoot.ui.room.ProfileAvatar(state.selfParticipant, "Alex", null, Modifier.size(36.dp)) } },
+                            chat = { ChatPane(messages, state.selfParticipant, { sent = it }, Modifier.fillMaxSize(), showTitle = false, lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, searchOpen = searchOpen, onCloseSearch = { searchOpen = false }) },
                         )
                     }
                 }
             }
+            ui.onNodeWithText("Private history check").assertDoesNotExist()
+            ui.onNodeWithText("Search messages or people").assertDoesNotExist()
+            val viewport = ui.onNode(hasScrollAction()).fetchSemanticsNode().boundsInRoot
+            val screen = ui.onRoot().fetchSemanticsNode().boundsInRoot
+            assertTrue("Conversation should occupy most of the room screen", viewport.height > screen.height * 0.60f)
+            ui.onNodeWithContentDescription("Room details").performClick()
+            ui.onNodeWithText("Private history check").assertIsDisplayed()
+            ui.onNodeWithText("Done").performClick()
             ui.onNodeWithText("Say something").assertIsDisplayed().performTextInput("Keep this thought while I check the call")
+            ui.onNodeWithContentDescription("Search messages").performClick()
             ui.onNodeWithText("Search messages or people").performTextInput("release")
             ui.onNodeWithText("Call").performClick()
             ui.onNodeWithText("Say something").assertDoesNotExist()
@@ -63,6 +87,8 @@ class RoomWorkspaceUiTest {
             ui.onNodeWithText("Call").performClick()
             ui.onNode(hasText("Chat") and hasClickAction()).performClick()
             ui.onNodeWithText("Update 5").assertIsDisplayed()
+            ui.onNodeWithContentDescription("Close search").performClick()
+            ui.onNode(hasScrollAction()).performScrollToNode(hasText("Sounds good 👍"))
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val image = instrumentation.uiAutomation.takeScreenshot()
             val file = File(instrumentation.targetContext.getExternalFilesDir("ui-proof"), "room-workspace.png")

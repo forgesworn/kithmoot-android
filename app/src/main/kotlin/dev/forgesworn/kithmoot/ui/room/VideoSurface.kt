@@ -24,12 +24,19 @@ fun VideoSurface(
     modifier: Modifier = Modifier,
     mirror: Boolean = false,
     fill: Boolean = true,
+    onFirstFrame: () -> Unit = {},
 ) {
     val renderer = rememberRenderer(eglBase, mirror, fill)
 
+    val firstFrame = androidx.compose.runtime.rememberUpdatedState(onFirstFrame)
     DisposableEffect(track, renderer) {
-        runCatching { track.addSink(renderer) }
-        onDispose { runCatching { track.removeSink(renderer) } }
+        val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+        val sink = org.webrtc.VideoSink { frame ->
+            renderer.onFrame(frame)
+            if (reported.compareAndSet(false, true)) firstFrame.value()
+        }
+        runCatching { track.addSink(sink) }
+        onDispose { runCatching { track.removeSink(sink) } }
     }
 
     AndroidView(factory = { renderer }, modifier = modifier)

@@ -82,7 +82,7 @@ class SharedProjectsUiTest {
         ui.click("Chats tab"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
-        ui.click("Leave"); ui.home(); ui.click("Projects tab")
+        ui.click("Leave room"); ui.home(); ui.click("Projects tab")
         create("Kithmoot", member, agent, room = true)
         create("Bothy", other, agent)
         create("Research", member, secondAgent)
@@ -112,8 +112,10 @@ class SharedProjectsUiTest {
         ui.home()
         ui.click("Chats tab")
         ui.await("Chats selected after the refused admission") { model.start.value.homeTab == "chats" && !model.start.value.busy }
+        ui.click("Options for Build room")
         ui.click("Forget Build room")
-        ui.click("Forget room")
+        ui.await("local removal confirmation rendered") { ui.hasText("Remove Build room from this phone?") }
+        ui.click("Remove from this phone")
         ui.await("explicit local identity removal") { model.start.value.savedRooms.isEmpty() }
         ui.click("Projects tab"); ui.click("Open Build room in Kithmoot"); ui.room()
         assertEquals(saved.id, model.room.value.roomId)
@@ -121,7 +123,7 @@ class SharedProjectsUiTest {
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         assertEquals(member.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("project-room-admission.png")
-        ui.click("Leave"); ui.home()
+        ui.click("Leave room"); ui.home()
         assertEquals("projects", model.start.value.homeTab)
 
         // A signed directory may name a room id that its invitation does not actually admit.

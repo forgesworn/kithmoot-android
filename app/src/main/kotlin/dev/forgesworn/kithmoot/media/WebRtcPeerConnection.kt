@@ -17,7 +17,7 @@ import kotlin.coroutines.resumeWithException
  * who gives way in a collision, what to do with a candidate that arrived early -
  * lives in [PeerLink], where it can be tested without any of this.
  */
-class WebRtcPeerConnection(private val connection: PeerConnection) : PeerConnectionHandle {
+class WebRtcPeerConnection(private val connection: PeerConnection, private val onRemoteApplied: () -> Unit = {}) : PeerConnectionHandle {
 
     override fun signalingState(): SignalingState = when (connection.signalingState()) {
         PeerConnection.SignalingState.STABLE -> SignalingState.STABLE
@@ -37,6 +37,7 @@ class WebRtcPeerConnection(private val connection: PeerConnection) : PeerConnect
     override suspend fun setRemoteDescription(sdp: SdpData) {
         val description = SessionDescription(SessionDescription.Type.fromCanonicalForm(sdp.type), sdp.sdp)
         awaitSet { observer -> connection.setRemoteDescription(observer, description) }
+        onRemoteApplied()
     }
 
     override suspend fun rollbackLocalDescription() {
@@ -45,9 +46,8 @@ class WebRtcPeerConnection(private val connection: PeerConnection) : PeerConnect
     }
 
     override suspend fun addIceCandidate(candidate: IceCandidateData) {
-        // sdpMid is empty and the m-line index is zero because the wire carries
-        // only the candidate string. Every connection here is negotiated
-        // max-bundle, so there is one transport and this is it.
+        // Preserve the browser's media-section identifiers, including nonzero
+        // indices when audio, camera and screen sharing negotiate together.
         val added = connection.addIceCandidate(
             IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.candidate),
         )

@@ -148,7 +148,7 @@ class SecondaryDeviceTest {
     }
 
     @Test
-    fun `a device never opens a connection to its owner's other devices`() = runTest {
+    fun `every device connects to its owner's other cameras and the other person`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
         val owner = Fixtures.primary(room, 1, 2)
@@ -168,9 +168,8 @@ class SecondaryDeviceTest {
         advanceTimeBy(5_000)
         runCurrent()
 
-        // Sending a person their own face across the room and back is bandwidth
-        // spent on nothing.
-        assertEquals(setOf(stranger.devicePubkey), laptopSession.remoteDevices.value)
-        assertEquals(setOf(stranger.devicePubkey), phoneSession.remoteDevices.value)
+        // Sibling cameras are visible locally as well as to the other person.
+        assertEquals(setOf(stranger.devicePubkey, phone.devicePubkey), laptopSession.remoteDevices.value)
+        assertEquals(setOf(stranger.devicePubkey, owner.devicePubkey), phoneSession.remoteDevices.value)
     }
 }

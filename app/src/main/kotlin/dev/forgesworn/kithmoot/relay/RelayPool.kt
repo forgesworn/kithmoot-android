@@ -23,6 +23,10 @@ import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
+/** Preserve the failing endpoint without displaying arbitrary relay-supplied text. */
+class RelayHistoryException(val relay: String, val authenticationRequired: Boolean) :
+    IllegalStateException("Stored relay query was refused by $relay")
+
 /**
  * What a room needs from the outside world: somewhere to put events, and a way
  * to be told about them.
@@ -98,6 +102,8 @@ class RelayPool(
     private val circle: () -> Set<String> = { emptySet() },
     /** Opt-in NIP-42 authority. A missing entry keeps the relay public. */
     private val authenticators: RelayAuthenticatorProvider = RelayAuthenticatorProvider { null },
+    private val readRelays: Set<String> = urls.toSet(),
+    private val writeRelays: Set<String> = urls.toSet(),
 ) : RoomTransport {
 
     private val lock = Any()
@@ -108,11 +114,21 @@ class RelayPool(
     private val nip77FetchQueries = linkedMapOf<String, Nip77FetchQuery>()
     private val nip77OfferPublications = linkedMapOf<String, Nip77OfferPublication>()
     private val publications = linkedMapOf<String, Publication>()
+    private val attemptedWrites = linkedSetOf<String>()
+    private fun trackWrite(event: NostrEvent) = synchronized(lock) {
+        attemptedWrites.add(event.id)
+        while (attemptedWrites.size > 512) attemptedWrites.remove(attemptedWrites.first())
+    }
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
     @Volatile private var publicationBlocked = false
 
     private val _connected = MutableStateFlow<Set<String>>(emptySet())
+    private val _health = MutableStateFlow(urls.associateWith { RelayHealth() })
+    val health: StateFlow<Map<String, RelayHealth>> = _health.asStateFlow()
+    private fun health(url: String, change: (RelayHealth) -> RelayHealth) = synchronized(lock) {
+        _health.value = _health.value + (url to change(_health.value[url] ?: RelayHealth()))
+    }
 
     /** Which relays are up right now. The interface shows this; a room with one relay left still works. */
     val connected: StateFlow<Set<String>> = _connected.asStateFlow()
@@ -124,7 +140,7 @@ class RelayPool(
         synchronized(lock) {
             if (started) return
             started = true
-            for (url in urls) links[url] = RelayLink(url).also { it.job = launchLink(it) }
+            for (url in urls.filter { it in readRelays || it in writeRelays }) links[url] = RelayLink(url).also { it.job = launchLink(it) }
         }
     }
 
@@ -151,6 +167,7 @@ class RelayPool(
             runCatching { link.socket?.close() }
         }
         _connected.value = emptySet()
+        urls.forEach { url -> health(url) { it.copy(connection = "Not connected") } }
     }
 
     override fun describe(): List<String> = urls.toList()
@@ -279,28 +296,32 @@ class RelayPool(
 
     override fun publish(event: NostrEvent) {
         check(!publicationBlocked) { "Room publication is blocked during a secure update" }
+        trackWrite(event)
         val frame = RelayCodec.publishFrame(event)
         val targets: List<RelayLink>
-        synchronized(lock) { targets = links.values.toList() }
+        synchronized(lock) { targets = links.values.filter { it.url in writeRelays } }
         for (link in targets) link.sendOrQueue(frame)
     }
 
     override fun publishRecovery(event: NostrEvent) {
         require(event.kind in setOf(1462, 20_468, 20_469)) { "event is not room recovery control" }
+        trackWrite(event)
         val frame = RelayCodec.publishFrame(event)
-        val targets = synchronized(lock) { links.values.toList() }
+        val targets = synchronized(lock) { links.values.filter { it.url in writeRelays } }
         targets.forEach { it.sendOrQueue(frame) }
     }
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
     override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
         check(!publicationBlocked) { "Room publication is blocked during a secure update" }
-        connected.first { it.isNotEmpty() }
+        trackWrite(event)
+        check(writeRelays.isNotEmpty()) { "No write relay is selected" }
+        connected.first { connected -> connected.any { it in writeRelays } }
         val publication: Publication
         val targets: List<RelayLink>
         synchronized(lock) {
             check(!publicationBlocked) { "Room publication is blocked during a secure update" }
-            targets = links.values.filter { it.isOpen }
+            targets = links.values.filter { it.isOpen && it.url in writeRelays }
             check(targets.isNotEmpty()) { "No relay is connected" }
             check(event.id !in publications) { "Event publication is already pending" }
             publication = Publication(targets.map { it.url }.toSet())
@@ -309,7 +330,10 @@ class RelayPool(
         try {
             targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
             publication.result.await()
-        } finally { synchronized(lock) { publications.remove(event.id) } }
+        } finally { synchronized(lock) {
+            if (!publication.result.isCompleted) targets.forEach { target -> health(target.url) { it.copy(write = "No acknowledgement") } }
+            publications.remove(event.id)
+        } }
     }
 
     override suspend fun beginRekey() {
@@ -335,12 +359,13 @@ class RelayPool(
     /** A complete snapshot from the currently connected relays. Disconnection, CLOSED,
      * overflow or missing EOSE fails the query; partial events never become admission. */
     override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> = withTimeout(timeoutMs) {
-        connected.first { it.isNotEmpty() }
+        check(readRelays.isNotEmpty()) { "No read relay is selected" }
+        connected.first { connected -> connected.any { it in readRelays } }
         val id = "km-stored-${nextSubscriptionId.incrementAndGet()}"
         val query: StoredQuery
         val targets: List<RelayLink>
         synchronized(lock) {
-            targets = links.values.filter { it.isOpen }
+            targets = links.values.filter { it.isOpen && it.url in readRelays }
             check(targets.isNotEmpty()) { "No relay is connected" }
             query = StoredQuery(targets.map { it.url }.toSet())
             storedQueries[id] = query
@@ -358,7 +383,7 @@ class RelayPool(
         when (message) {
             is RelayMessage.Event -> storedQueries[message.subscriptionId]?.event(url, message.event)
             is RelayMessage.EndOfStoredEvents -> storedQueries[message.subscriptionId]?.end(url)
-            is RelayMessage.Closed -> storedQueries[message.subscriptionId]?.failed(url)
+            is RelayMessage.Closed -> storedQueries[message.subscriptionId]?.refused(url, message.message)
             is RelayMessage.Ok -> {
                 publications[message.eventId]?.acknowledge(url, message.accepted)
                 nip77OfferPublications[message.eventId]?.let { offer ->
@@ -432,7 +457,7 @@ class RelayPool(
         val targets: List<RelayLink>
         synchronized(lock) {
             subscriptions[subscription.id] = subscription
-            targets = links.values.toList()
+            targets = links.values.filter { it.url in readRelays }
         }
         // A REQ is not queued if the relay is down: on reconnect every live
         // subscription is re-sent wholesale, so queueing it here would only
@@ -445,7 +470,7 @@ class RelayPool(
         val targets: List<RelayLink>
         synchronized(lock) {
             subscriptions.remove(subscription.id)
-            targets = links.values.toList()
+            targets = links.values.filter { it.url in readRelays }
         }
         for (link in targets) link.sendIfOpen(frame)
     }
@@ -461,8 +486,9 @@ class RelayPool(
         // Subscriptions do not survive a dropped socket, so re-send every live
         // REQ before anything else. Skipping this is how a client silently goes
         // deaf after a relay restart while still looking connected.
-        for (subscription in live) link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters))
-        link.flushOutbox(now())
+        if (link.url in readRelays) for (subscription in live) link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters))
+        if (link.url in writeRelays) link.flushOutbox(now())
+        health(link.url) { it.copy(connection = "Connected") }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
@@ -537,6 +563,7 @@ class RelayPool(
     private fun launchLink(link: RelayLink): Job = scope.launch {
         var attempt = 0
         while (isActive) {
+            health(link.url) { it.copy(connection = if (attempt == 0) "Connecting" else "Reconnecting") }
             val closed = CompletableDeferred<String>()
             link.closed = closed
             var connectedAt: Long? = null
@@ -560,7 +587,11 @@ class RelayPool(
                     negentropyMessage(link.url, message)
                     nip77FetchMessage(link.url, message)
                     when (message) {
-                        is RelayMessage.Event -> deliver(message.subscriptionId, message.event)
+                        is RelayMessage.Event -> if (link.url in readRelays) deliver(message.subscriptionId, message.event)
+                        is RelayMessage.EndOfStoredEvents -> health(link.url) { it.copy(read = "History read confirmed") }
+                        is RelayMessage.Closed -> health(link.url) { it.copy(read = if (message.message.contains("auth-required")) "Authentication required" else "Read refused") }
+                        is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else "Write refused") }
+                        is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
                         // Everything else is informational. A CLOSED from one
                         // relay does not end the subscription: the others are
                         // still carrying it.
@@ -575,12 +606,14 @@ class RelayPool(
                     link.socket = null
                     if (link.authState != AuthState.BLOCKED) link.authState = AuthState.CLOSED
                     onLinkClosed(link)
+                    health(link.url) { it.copy(connection = "Disconnected; retrying") }
                     closed.complete(reason)
                 }
             }
 
             val socket = runCatching { sockets.open(link.url, listener) }.getOrNull()
             if (socket == null) {
+                health(link.url) { it.copy(connection = "Connection failed; retrying") }
                 closed.complete("could not open")
             } else {
                 link.socket = socket
@@ -619,6 +652,8 @@ class RelayPool(
         private val outbox = ArrayDeque<Pending>()
 
         fun sendIfOpen(frame: String) {
+            if (frame.startsWith("[\"EVENT\",") && url !in writeRelays) return
+            if ((frame.startsWith("[\"REQ\",") || frame.startsWith("[\"NEG-OPEN\",") || frame.startsWith("[\"NEG-MSG\",")) && url !in readRelays) return
             val socket = socket ?: return
             runCatching { socket.send(frame) }
         }
@@ -630,6 +665,7 @@ class RelayPool(
          * without this, the very first announce of every session is lost.
          */
         fun sendOrQueue(frame: String) {
+            if (url !in writeRelays) return
             val socket = socket
             if (socket != null && isOpen) {
                 runCatching { socket.send(frame) }
@@ -818,6 +854,10 @@ class RelayPool(
         }
         fun failed(url: String) {
             if (url in targets && url !in ended) result.completeExceptionally(IllegalStateException("Stored relay query was interrupted"))
+        }
+        fun refused(url: String, reason: String) {
+            if (url in targets && url !in ended) result.completeExceptionally(
+                RelayHistoryException(url, reason.contains("auth-required:", ignoreCase = true)))
         }
     }
 

@@ -28,7 +28,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import dev.forgesworn.kithmoot.account.npubOf
+import dev.forgesworn.kithmoot.account.shortNpub
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,8 +69,16 @@ fun ParticipantTileView(
      *  preview when `tile.isSelf` and somebody else has drawn on it. */
     shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     onSetVolume: (String, Float) -> Unit = { _, _ -> },
+    profile: PublicProfile? = null,
+    selfDevice: String = "",
+    connectionStates: Map<String, String> = emptyMap(),
 ) {
     val speaking = tile.hasMic
+    val name = profile?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name ?: shortNpub(tile.participant)
+    var identityOpen by remember { mutableStateOf(false) }
+    if (identityOpen) AlertDialog(onDismissRequest = { identityOpen = false }, title = { Text(name) },
+        text = { SelectionContainer { Text(npubOf(tile.participant)) } },
+        confirmButton = { TextButton({ identityOpen = false }) { Text("Done") } })
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -91,23 +105,26 @@ fun ParticipantTileView(
                 .aspectRatio(16f / 10f)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            val panes = tile.videos.mapNotNull { track -> videoFor(track)?.let { track to it } }
+            val panes = tile.videos.map { meta -> meta to videoFor(meta) }
             if (panes.isEmpty() || eglBase == null) {
-                Placeholder(tile)
+                Placeholder(tile, name, profile, if (tile.hasVideo) "Connecting video…" else "Camera off")
             } else {
                 Row(Modifier.fillMaxSize()) {
                     panes.forEachIndexed { index, (meta, track) ->
                         if (index > 0) Spacer(Modifier.width(2.dp))
                         Box(Modifier.weight(1f).fillMaxSize()) {
-                            VideoSurface(
+                            var receivedFrame by remember(meta.device, meta.trackId, track) { mutableStateOf(false) }
+                            if (track != null) VideoSurface(
                                 track = track,
                                 eglBase = eglBase,
                                 modifier = Modifier.fillMaxSize(),
-                                mirror = tile.isSelf && meta.role == Roles.CAMERA,
+                                mirror = tile.isSelf && meta.device == selfDevice && meta.role == Roles.CAMERA,
+                                onFirstFrame = { receivedFrame = true },
                                 // A shared screen is fitted, not cropped: the
                                 // edges of a slide are usually where the point is.
                                 fill = meta.role != Roles.SCREEN,
                             )
+                            if (!receivedFrame) Placeholder(tile, name, profile, if (connectionStates[meta.device] in setOf("failed", "closed")) "Video connection failed" else "Connecting video…")
                             if (meta.role == Roles.SCREEN) {
                                 ShareMarksOverlay(
                                     marks = shareMarks[meta.trackId] ?: emptyList(),
@@ -117,7 +134,7 @@ fun ParticipantTileView(
                                     Text("Expand screen share")
                                 }
                             } else if (panes.size > 1) {
-                                PaneLabel("Camera", Modifier.align(Alignment.TopStart))
+                                PaneLabel(if (tile.isSelf) { if (meta.device == selfDevice) "This phone" else "Your other camera" } else "Camera", Modifier.align(Alignment.TopStart))
                             }
                         }
                     }
@@ -126,18 +143,21 @@ fun ParticipantTileView(
         }
 
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Text(
-                text = if (tile.isSelf) "You" else shortId(tile.participant),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            Row(Modifier.fillMaxWidth().clickable { identityOpen = true }, verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ProfileAvatar(tile.participant, name, profile, Modifier.size(40.dp))
+                Column {
+                    Text(if (tile.isSelf) "You" else name, style = MaterialTheme.typography.titleMedium)
+                    Text(shortNpub(tile.participant), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 MicChip(tile)
-                if (tile.deviceCount > 1) {
+                if (tile.isSelf && tile.deviceCount > 1) {
                     Chip(
                         icon = Icons.Filled.Devices,
                         label = "${tile.deviceCount} devices",
@@ -172,7 +192,7 @@ fun ParticipantTileView(
             if (tile.isSelf && tile.deviceCount > 1) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Both devices are in. You're one person to everyone else.",
+                    text = "Your ${tile.deviceCount} devices are in. You're one person to everyone else.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -272,44 +292,12 @@ private fun PaneLabel(text: String, modifier: Modifier = Modifier) {
 
 /** What a person looks like before their camera is on, or when they never turn it on. */
 @Composable
-private fun Placeholder(tile: ParticipantTile) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun Placeholder(tile: ParticipantTile, name: String, profile: PublicProfile?, status: String = "Camera off") {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(96.dp)
-                    .clip(RoundedCornerShape(48.dp))
-                    .background(avatarColour(tile.participant)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = initials(tile),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                )
-            }
+            ProfileAvatar(tile.participant, name, profile, Modifier.size(72.dp))
             Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Camera off",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}
-
-private fun initials(tile: ParticipantTile): String =
-    if (tile.isSelf) "YOU" else tile.participant.take(2).uppercase()
-
-/**
- * A colour for a person, derived from their key.
- *
- * Lightness is fixed low enough that white text on it always clears 4.5:1, so
- * the hue can be anything the key hashes to without the label going grey on
- * grey.
- */
-private fun avatarColour(pubkey: String): Color {
-    val hue = (pubkey.hashCode().toLong() and 0xFFFF).toFloat() / 0xFFFF * 360f
-    return Color.hsl(hue, 0.5f, 0.32f)
 }

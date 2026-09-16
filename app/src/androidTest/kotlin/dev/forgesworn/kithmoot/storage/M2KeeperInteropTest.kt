@@ -34,6 +34,6 @@ class M2KeeperInteropTest {
         ui.click("Chat")
         ui.await("encrypted reply from the previous-release keeper") { ui.hasText("Previous keeper to M2 Android") }
         ui.click("Close sheet")
-        ui.click("Leave")
+        ui.click("Leave room")
     }
 }

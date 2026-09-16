@@ -19,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.forgesworn.kithmoot.account.Nip55Bridge
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
     /** The browser coming back from Signet with a sign-in. */
     private val signetReturn = MutableStateFlow<String?>(null)
     private val pictureInPicture = MutableStateFlow(false)
+    private val notificationRoom = MutableStateFlow<String?>(null)
 
     /**
      * Signer intents, one at a time. A NIP-55 signer app is another activity
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
         signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
         setContent {
@@ -77,6 +80,8 @@ class MainActivity : ComponentActivity() {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model: RoomViewModel = viewModel()
                 model.signerBridge = signerBridge
+                val noticeRoom by notificationRoom.collectAsState()
+                LaunchedEffect(noticeRoom) { noticeRoom?.let { model.start.first { state -> !state.loadingRooms }; model.openNotificationRoom(it); notificationRoom.value = null } }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
@@ -114,6 +119,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
+            notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
+        }
         signetFrom(intent)?.let { signetReturn.value = it; return }
         linkFrom(intent)?.let { incoming.value = it }
     }

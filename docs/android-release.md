@@ -1,9 +1,10 @@
 # Android release signing and device acceptance
 
-The public APK channel is currently a debug-signed preview. Version 0.6.3 is the
-current production-lineage candidate and requires Android 13 or later. Publishing
-it still requires the owner-held key, exact-preview upgrade proof and the
-physical acceptance recorded below.
+The public website currently offers production-signed 0.6.2 (25), Android 13 or later. Version 0.6.4 (27) reconciles the account-room sync, profile/relay settings, call interoperability and notification work with the rendezvous and remote-signer changes already on main. It requires the same owner-held signing key. Signing, publication and physical acceptance are recorded separately.
+
+## 0.6.4 account rooms and notifications
+
+The release adds account room bookmarks, editable public profiles and selectable read/write relays, joined-room notifications with a Zen bell, and private-room call controls. Message alerts require an active room connection; closed-app push and alerts from other rooms are not implemented. Preview text is opt-in and notification sounds are suppressed during calls.
 
 ## 0.6.3 rendezvous-provisioning candidate
 
@@ -16,7 +17,7 @@ any public publication. A successful build is not approval to install or
 publish it.
 
 The reviewed signer script obtains its output filename from the unsigned APK's
-validated version metadata (currently `kithmoot-0.6.3-production.apk`) and
+validated version metadata (`kithmoot-0.6.4-production.apk` for this release) and
 refuses a version code at or below 25. This prevents a future candidate from
 silently reusing the pre-rendezvous update slot.
 

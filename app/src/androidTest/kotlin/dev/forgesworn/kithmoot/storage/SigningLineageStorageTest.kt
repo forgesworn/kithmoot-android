@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.storage
 import android.content.Context
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -65,6 +66,8 @@ class SigningLineageVerifyTest {
 
     @Test fun release_shows_the_retained_preview_identity_without_deleting_it() {
         ActivityScenario.launch(MainActivity::class.java).use {
+            ui.onNodeWithText("Sign in").performClick()
+            ui.onNodeWithText("Sign in with Nostr").performClick()
             ui.waitUntil(10_000) {
                 runCatching { ui.onNodeWithText("Keep your preview account").fetchSemanticsNode() }.isSuccess
             }
