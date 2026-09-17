@@ -12,6 +12,19 @@ object SignalType {
 
     /** A trickled candidate. Named `ice` on the wire, not `candidate`. */
     const val ICE: String = "ice"
+
+    /** Profile 2, section 2.2. A bare cumulative acknowledgement, carrying
+     *  nothing but the channel's identity and how far it has received. */
+    const val ACK: String = "ack"
+
+    /** Profile 2. "My current generation is this", sent when a signal from an
+     *  older generation arrives. Rate limited to one per two seconds per pair. */
+    const val SYNC: String = "sync"
+
+    /** Profile 2, section 3.4. What the sender is receiving from the
+     *  recipient, per slot. Only ever reports a single dead slot on an
+     *  otherwise healthy transport, which RTCP cannot express. */
+    const val HEALTH: String = "health"
 }
 
 /** A session description, in the two fields the wire carries. */
@@ -277,11 +290,40 @@ class PeerLink(
     }
 }
 
-/** One outbound signal: what to send, and which device to send it to. */
+/**
+ * One outbound signal: what to send, and which device to send it to.
+ *
+ * The fields below [candidate] are profile 2 (call reliability spec section
+ * 2.2). They are declared in the order `SignalBody.toJson` writes them - `first`
+ * before `seq` - so that the mapping onto the wire stays a field-for-field
+ * transcription and the two clients' bytes match.
+ */
 data class SignalEnvelope(
     val toDevice: String,
     val type: String,
     val roomId: String,
     val sdp: String? = null,
     val candidate: String? = null,
+    /** The pair generation this signal belongs to. */
+    val gen: Long? = null,
+    /** The sender's connection instance id, fresh per peer connection. */
+    val conn: String? = null,
+    /** The connection the sender believes it is addressing. */
+    val peerConn: String? = null,
+    /** First seq covered by a batched `ice`. */
+    val first: Long? = null,
+    /** Per [conn], from 1, gapless. On an offer, answer or ice. */
+    val seq: Long? = null,
+    /** Batched candidates. [candidate] stays on the wire for profile-1 peers. */
+    val candidates: List<String>? = null,
+    /** Highest contiguous seq received from [peerConn]. */
+    val ack: Long? = null,
+    /** Seq of the offer an answer answers. */
+    val re: Long? = null,
+    /** This offer carries an ICE restart inside the current generation. */
+    val restart: Boolean? = null,
+    /** A generation-opening offer's map from transceiver mid to slot role. */
+    val slots: Map<String, String>? = null,
+    /** On a `health` signal: what the sender is receiving, per role. */
+    val rx: Map<String, String>? = null,
 )

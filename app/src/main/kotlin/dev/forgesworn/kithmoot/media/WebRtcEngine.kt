@@ -254,6 +254,37 @@ class WebRtcEngine(
     private fun tracksFor(device: String, tracks: List<LocalTrack> = localMedia.tracks.value): List<LocalTrack> =
         if (runCatching { audience(device) }.getOrDefault(false)) tracks else emptyList()
 
+    /**
+     * The one place an outbound signal becomes a wire body.
+     *
+     * Field for field, in the order `SignalBody.toJson` writes them, so that
+     * whatever puts an envelope together - the negotiation machine, or the
+     * reliable channel retransmitting one - reaches the relay as the same bytes
+     * the web client would have sent.
+     */
+    private suspend fun sendEnvelope(envelope: SignalEnvelope) {
+        session.sendSignal(
+            toDevice = envelope.toDevice,
+            body = SignalBody(
+                type = envelope.type,
+                roomId = envelope.roomId,
+                sdp = envelope.sdp,
+                candidate = envelope.candidate,
+                gen = envelope.gen,
+                conn = envelope.conn,
+                peerConn = envelope.peerConn,
+                seq = envelope.seq,
+                first = envelope.first,
+                candidates = envelope.candidates,
+                ack = envelope.ack,
+                re = envelope.re,
+                restart = envelope.restart,
+                slots = envelope.slots,
+                rx = envelope.rx,
+            ),
+        )
+    }
+
     private suspend fun onLocalTracksChanged(tracks: List<LocalTrack>) {
         // Tell the room what we are publishing, so a receiver can map an
         // incoming WebRTC track back to the role we said it was for.
@@ -337,17 +368,7 @@ class WebRtcEngine(
                 remoteDevice = device,
                 connection = WebRtcPeerConnection(connection, ::refreshRemoteTracks),
                 roomId = session.room.roomId,
-                send = { envelope ->
-                    session.sendSignal(
-                        toDevice = envelope.toDevice,
-                        body = SignalBody(
-                            type = envelope.type,
-                            roomId = envelope.roomId,
-                            sdp = envelope.sdp,
-                            candidate = envelope.candidate,
-                        ),
-                    )
-                },
+                send = ::sendEnvelope,
             )
         }
 
