@@ -96,6 +96,8 @@ import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.SharedPreferencesVolumeStore
 import dev.forgesworn.kithmoot.media.WebRtcEngine
+import dev.forgesworn.kithmoot.media.resolveRemoteByRole
+import dev.forgesworn.kithmoot.media.roleKey
 import dev.forgesworn.kithmoot.media.shouldPlayRemoteAudio
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
 import dev.forgesworn.kithmoot.protocol.InvitationPayload
@@ -435,7 +437,11 @@ private data class Nip77ReconciliationPlan(
 )
 
 /** Relays used when a room is opened here, or when a join URL names none. */
-val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net")
+// A publish succeeds when any writable relay acknowledges it (see
+// NostrRelayPool), so a third default relay only adds redundancy - it is not
+// a single point either client depends on. Matches the web client's default
+// list (`src/agent.ts` `DEFAULT_RELAYS`).
+val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net", "wss://relay.trotters.cc")
 
 /**
  * Where a kind-0 profile is looked for, beyond the room's own relays.
@@ -502,12 +508,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
 
     /**
-     * Every renderable video track, keyed `device|trackId`.
+     * Every renderable video track, keyed `device|role`.
      *
      * Kept apart from [RoomState] on purpose. Tracks arrive and vanish on
      * WebRTC's own threads at a rate that has nothing to do with the roster, and
      * folding them into the room state would rebuild every tile each time a
      * keyframe-worth of plumbing changed.
+     *
+     * Role, not the WebRTC track id, because a receiver's track id never
+     * matches the sender's once a slot is swapped with `replaceTrack`, and a
+     * renegotiation mints a fresh one regardless (H5, call reliability spec).
      */
     private val _videos = MutableStateFlow<Map<String, VideoTrack>>(emptyMap())
     val videos: StateFlow<Map<String, VideoTrack>> = _videos.asStateFlow()
@@ -2668,10 +2678,31 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
 
             launch {
-                combine(media.remoteTracks, media.localMedia.tracks) { remote, local ->
+                combine(media.remoteTracks, media.localMedia.tracks, live.participants) { remote, local, people ->
+                    // Role, not the WebRTC track id, is the tile's identity:
+                    // a receiver's track id never matches the sender's once a
+                    // slot is swapped, and a renegotiation mints a fresh one
+                    // regardless. The roster's advertised trackId->role
+                    // mapping is what ties a live receiver back to the slot
+                    // it fills. See resolveRemoteByRole and H5 in the call
+                    // reliability spec.
+                    val roleForTrackId: (String, String) -> String? = { device, trackId ->
+                        people.firstNotNullOfOrNull { participant ->
+                            participant.tracks.firstOrNull { it.device == device && it.trackId == trackId }?.role
+                        }
+                    }
                     buildMap {
-                        for (track in remote) (track.track as? VideoTrack)?.let { put(key(track.device, track.trackId), it) }
-                        for (track in local) (track.track as? VideoTrack)?.let { put(key(who.devicePubkey, track.trackId), it) }
+                        putAll(
+                            resolveRemoteByRole(
+                                remote = remote.filter { it.track is VideoTrack },
+                                device = { it.device },
+                                trackId = { it.trackId },
+                                receiving = { it.receiving },
+                                roleForTrackId = roleForTrackId,
+                                valueFor = { it.track as VideoTrack },
+                            ),
+                        )
+                        for (track in local) (track.track as? VideoTrack)?.let { put(roleKey(who.devicePubkey, track.role), it) }
                     }
                 }.collect { _videos.value = it }
             }
@@ -2695,7 +2726,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     // handed over on renegotiation still gets that person's
                     // remembered volume rather than the untouched default.
                     val deviceParticipant = people.flatMap { p -> p.devices.map { it.device to p.participant } }.toMap()
-                    remote.mapNotNull { track ->
+                    // A receiver whose transceiver is not actually receiving
+                    // is the stale-muted-receiver shape H5 describes: it must
+                    // not keep playing over the live one.
+                    remote.filter { it.receiving }.mapNotNull { track ->
                         (track.track as? AudioTrack)?.let { audio ->
                             val play = shouldPlayRemoteAudio(track.device, mine, listeningHere)
                             val gain = deviceParticipant[track.device]?.let(callVolume::gainFor) ?: CallVolume.DEFAULT_GAIN
@@ -4049,8 +4083,6 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
 
 }
-
-internal fun key(device: String, trackId: String): String = "$device|$trackId"
 
 internal fun epochSeconds(): Long = System.currentTimeMillis() / 1000
 

@@ -92,6 +92,28 @@ data class RosterEntry(
      * every entry that is not one, so the wire stays byte-identical.
      */
     val left: Boolean = false,
+    /**
+     * This device speaks fixed slots, reliable signalling and pair health
+     * (`docs/protocol.md` "Profile 2 additions"). Absent means profile 1.
+     * Only the exact number `2` counts - anything else is treated as absent.
+     */
+    val callProfile: Int? = null,
+    /**
+     * Page-session id: 8 lower-case hex, random per page session. Lets a
+     * reader tell a second tab of the same device key apart from an
+     * overwrite of the first (H3, `docs/protocol.md`). Absent means unknown,
+     * treated as today.
+     */
+    val sid: String? = null,
+    /**
+     * "This device is on a call, since when" (web `RosterEntry.call`,
+     * `CallMembership`: `{ id, since }`). Unrelated to the profile-2 call
+     * reliability work this client is otherwise catching up on - it shipped
+     * on the web side the same day - so it is carried opaquely rather than
+     * modelled: preserved byte for byte on the way through, never read or
+     * acted on here.
+     */
+    val call: JsonObject? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("participant", participant)
@@ -120,6 +142,9 @@ data class RosterEntry(
         if (reply) put("reply", true)
         if (agent) put("agent", true)
         if (left) put("left", true)
+        if (callProfile != null) put("callProfile", callProfile)
+        if (sid != null) put("sid", sid)
+        if (call != null) put("call", call)
     }
 
     companion object {
@@ -145,6 +170,16 @@ data class RosterEntry(
             // is a person.
             agent = json["agent"].isHonestTrue(),
             left = json["left"].isHonestTrue(),
+            // Only the exact number 2 is the profile claim - anything else
+            // (a string, a float, a future 3) is treated as absent rather
+            // than guessed at.
+            callProfile = (json["callProfile"] as? JsonPrimitive)
+                ?.takeIf { !it.isString }
+                ?.content
+                ?.toIntOrNull()
+                ?.takeIf { it == 2 },
+            sid = (json["sid"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+            call = json["call"] as? JsonObject,
         )
 
         /** A JSON `true` and nothing else: not `"true"`, not `1`, not `"yes"`. */

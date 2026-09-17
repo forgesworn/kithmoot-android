@@ -97,6 +97,7 @@ class RosterEventVectorsTest(private val name: String, private val vector: JsonO
         /** Every roster field this client reads and writes. */
         private val MODELLED = setOf(
             "participant", "device", "credential", "name", "tracks", "claims", "updatedAt", "proof", "agent", "reply", "left",
+            "callProfile", "sid", "call",
         )
 
         /**
@@ -112,6 +113,7 @@ class RosterEventVectorsTest(private val name: String, private val vector: JsonO
          * not implemented on Android at all - it consumes forwarders and
          * cannot act as one - so carrying the offer would advertise a
          * capability that does not exist here.
+         *
          */
         private val NOT_MODELLED_YET = setOf("assist")
 

@@ -32,7 +32,16 @@ internal fun remoteTrackIds(sdp: String): Map<String, String> {
     return result
 }
 
-/** The negotiated mid identifies the source even when libwebrtc keeps an old receiver ID. */
+/**
+ * The negotiated mid identifies the source even when libwebrtc keeps an old
+ * receiver ID.
+ *
+ * Also carries `receiving`: false when `currentDirection` is not actually
+ * receiving (`sendonly`, `inactive`, `stopped` or null) - the stale-muted-
+ * receiver shape H5 describes, where the far end has moved this slot on and
+ * the transceiver already says so even though the receiver and its track
+ * linger. See `RemoteTrack` and `resolveRemoteByRole`.
+ */
 internal fun remoteTracksFor(device: String, connection: org.webrtc.PeerConnection, received: List<org.webrtc.MediaStreamTrack>): List<RemoteTrack> {
     val ids = remoteTrackIds(connection.remoteDescription?.description ?: return emptyList())
     return connection.transceivers.mapNotNull { transceiver ->
@@ -41,6 +50,9 @@ internal fun remoteTracksFor(device: String, connection: org.webrtc.PeerConnecti
         // getTransceivers disposes its previous Java wrappers on every read.
         // UI sinks must keep the separately owned onAddTrack object instead.
         val track = received.firstOrNull { it.id() == receiverId } ?: return@mapNotNull null
-        RemoteTrack(device, track, advertised)
+        val direction = transceiver.currentDirection
+        val receiving = direction == org.webrtc.RtpTransceiver.RtpTransceiverDirection.SEND_RECV ||
+            direction == org.webrtc.RtpTransceiver.RtpTransceiverDirection.RECV_ONLY
+        RemoteTrack(device = device, track = track, trackId = advertised, mid = transceiver.mid, receiving = receiving)
     }
 }

@@ -31,7 +31,26 @@ import org.webrtc.VideoTrack
 import org.webrtc.audio.JavaAudioDeviceModule
 
 /** A remote track, with the device that published it. */
-data class RemoteTrack(val device: String, val track: MediaStreamTrack, val trackId: String = track.id())
+data class RemoteTrack(
+    val device: String,
+    val track: MediaStreamTrack,
+    /** The track id as the far end advertised it in its own SDP `a=msid`,
+     *  recovered per mid by `remoteTrackIds` - a receiver's own `track.id()`
+     *  can differ from the sender's once libwebrtc reuses a receiver across a
+     *  renegotiation. Defaults to the receiver's own id for a track built
+     *  outside that path. */
+    val trackId: String = track.id(),
+    /** The transceiver's mid, when known. Agrees on both ends of a pair in
+     *  every Unified Plan implementation, unlike the track id. */
+    val mid: String? = null,
+    /** True when the owning transceiver's `currentDirection` is actually
+     *  receiving (`sendrecv` or `recvonly`). False is the stale-muted-receiver
+     *  shape H5 describes: the far end has moved this slot on and the
+     *  transceiver already says so, even though the receiver and its track
+     *  linger. Defaults true so a track discovered by an older path (still
+     *  possible during the transition) is not silently dropped. */
+    val receiving: Boolean = true,
+)
 
 /**
  * The media half of a room: one peer connection per remote **device**.
@@ -258,6 +277,11 @@ class WebRtcEngine(
             private set
 
         val observer = object : PeerConnection.Observer {
+            // currentDirection settling is driven by WebRtcPeerConnection's
+            // `onRemoteApplied` hook below, which fires right after
+            // setRemoteDescription - earlier and more precisely than waiting
+            // for `stable`, which the answerer's own offer application never
+            // reaches until it has answered. See refreshRemoteTracks.
             override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
@@ -285,19 +309,25 @@ class WebRtcEngine(
                 }
             }
 
+            // Only feeds `received` - the disposal-safe store `refreshRemoteTracks`
+            // reads from, see its own doc - never writes `_remoteTracks`
+            // directly, so every write goes through the one place that also
+            // knows mid and currentDirection.
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
                 val track = receiver?.track() ?: return
                 received[track.id()] = track
-                _remoteTracks.update { current -> current.filterNot { it.device == device && it.track.id() == track.id() } + RemoteTrack(device, track) }
+                refreshRemoteTracks()
             }
 
             override fun onRemoveTrack(receiver: RtpReceiver?) {
                 val id = receiver?.track()?.id() ?: return
                 received.remove(id)
-                _remoteTracks.update { current -> current.filterNot { it.device == device && it.track.id() == id } }
+                refreshRemoteTracks()
             }
 
-            override fun onTrack(transceiver: RtpTransceiver?) = Unit
+            // Unified Plan fires this once a transceiver's receiver has a
+            // track to hand over.
+            override fun onTrack(transceiver: RtpTransceiver?) = refreshRemoteTracks()
         }
 
         fun attach(connection: PeerConnection) {
@@ -335,13 +365,32 @@ class WebRtcEngine(
             }
         }
 
+        /**
+         * Rebuilds this device's entries in [_remoteTracks] from the
+         * connection's negotiated transceivers, resolved through
+         * [remoteTracksFor].
+         *
+         * Two fixes to the same root problem (H5, call reliability spec
+         * section 4) layered together here: [remoteTracksFor] recovers each
+         * transceiver's sender-advertised track id by parsing the negotiated
+         * SDP - a receiver's own `track.id()` can differ from the far end's
+         * once libwebrtc reuses a receiver across a renegotiation - and reads
+         * the actual [MediaStreamTrack] out of [received] rather than off a
+         * fresh `connection.transceivers` snapshot, because `getTransceivers()`
+         * disposes the Java wrapper objects a previous call returned. On top
+         * of that, mid and `currentDirection`: a transceiver that is not
+         * actually receiving is the stale-muted-receiver shape H5 describes -
+         * the far end has moved this slot on and the transceiver already
+         * says so, even though the receiver and its track linger.
+         */
         private fun refreshRemoteTracks() {
             if (closed) return
             val pc = connection ?: return
             val bindings = remoteTracksFor(device, pc, received.values.toList())
             _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
             val aliases = bindings.count { it.trackId != it.track.id() }
-            Log.i("KithMootMedia", "peer=${device.take(8)} negotiatedTracks=${bindings.size} receiverAliases=$aliases")
+            val videos = bindings.count { it.track is VideoTrack }
+            Log.i("KithMootMedia", "peer=${device.take(8)} negotiatedTracks=${bindings.size} receiverAliases=$aliases videoTracks=$videos")
         }
 
         fun addLocalTrack(track: LocalTrack) {

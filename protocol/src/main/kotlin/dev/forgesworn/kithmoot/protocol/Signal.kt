@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 /** The signalling event, before it is wrapped. Never published as-is. */
@@ -110,6 +111,13 @@ fun isValidScreenAnnotation(annotation: ScreenAnnotation?): Boolean {
  * room. An annotation carries no such secret, but rides the same wrap
  * because that path is already encrypted, live and addressed to every room
  * device.
+ *
+ * The fields below `annotation` are profile 2 (`docs/protocol.md` "Profile 2
+ * additions", web `src/signal.ts`): fixed media slots, reliable signalling
+ * with generations, and per-pair health. All additive and optional, so an
+ * old reader's JSON parse ignores them and this reader tolerates their
+ * absence. This client does not yet SEND any of them - decoding only needs
+ * to be correct and tolerant, per the Android work order.
  */
 data class SignalBody(
     val type: String,
@@ -117,6 +125,28 @@ data class SignalBody(
     val sdp: String? = null,
     val candidate: String? = null,
     val annotation: ScreenAnnotation? = null,
+    /** The pair generation this signal belongs to. Monotonic per pair, never reused. */
+    val gen: Long? = null,
+    /** The sender's connection instance id, fresh per `RTCPeerConnection`. 16 lower-case hex. */
+    val conn: String? = null,
+    /** The connection the sender believes it is addressing, when known. 16 lower-case hex. */
+    val peerConn: String? = null,
+    /** Per `conn`, from 1, gapless. On an offer, answer or ice. */
+    val seq: Long? = null,
+    /** First seq covered by a batched `ice` signal. */
+    val first: Long? = null,
+    /** Batched ICE candidates for a batched `ice` signal. `candidate` stays on the wire for profile-1 peers. */
+    val candidates: List<String>? = null,
+    /** Highest contiguous seq received from `peerConn`, piggybacked wherever possible. */
+    val ack: Long? = null,
+    /** Seq of the offer an `answer` answers. */
+    val re: Long? = null,
+    /** This offer carries an ICE restart inside the current generation. */
+    val restart: Boolean? = null,
+    /** A generation-opening offer's slot map: transceiver mid to the role it carries. */
+    val slots: Map<String, String>? = null,
+    /** On a `health` signal: what the sender is receiving from the recipient, per slot. */
+    val rx: Map<String, String>? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("type", type)
@@ -124,6 +154,17 @@ data class SignalBody(
         if (sdp != null) put("sdp", sdp)
         if (candidate != null) put("candidate", candidate)
         if (annotation != null) put("annotation", annotation.toJson())
+        if (gen != null) put("gen", gen)
+        if (conn != null) put("conn", conn)
+        if (peerConn != null) put("peerConn", peerConn)
+        if (first != null) put("first", first)
+        if (seq != null) put("seq", seq)
+        if (candidates != null) put("candidates", buildJsonArray { for (c in candidates) add(JsonPrimitive(c)) })
+        if (ack != null) put("ack", ack)
+        if (re != null) put("re", re)
+        if (restart != null) put("restart", restart)
+        if (slots != null) put("slots", buildJsonObject { for ((mid, role) in slots) put(mid, role) })
+        if (rx != null) put("rx", buildJsonObject { for ((role, state) in rx) put(role, state) })
     }
 
     companion object {
@@ -133,6 +174,17 @@ data class SignalBody(
             sdp = json["sdp"]?.jsonPrimitive?.content,
             candidate = json["candidate"]?.jsonPrimitive?.content,
             annotation = (json["annotation"] as? JsonObject)?.let { ScreenAnnotation.fromJson(it) },
+            gen = json["gen"]?.jsonPrimitive?.long,
+            conn = json["conn"]?.jsonPrimitive?.content,
+            peerConn = json["peerConn"]?.jsonPrimitive?.content,
+            seq = json["seq"]?.jsonPrimitive?.long,
+            first = json["first"]?.jsonPrimitive?.long,
+            candidates = (json["candidates"] as? JsonArray)?.map { it.jsonPrimitive.content },
+            ack = json["ack"]?.jsonPrimitive?.long,
+            re = json["re"]?.jsonPrimitive?.long,
+            restart = (json["restart"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toBooleanStrictOrNull(),
+            slots = (json["slots"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content },
+            rx = (json["rx"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content },
         )
     }
 }

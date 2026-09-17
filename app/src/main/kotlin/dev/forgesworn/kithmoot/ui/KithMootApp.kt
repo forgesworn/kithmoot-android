@@ -120,7 +120,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
         val tile = roomState.tiles.find { it.participant == expanded.participant }
         val meta = tile?.videos?.find { it.device == expanded.device && it.role == dev.forgesworn.kithmoot.session.Roles.SCREEN }
         dev.forgesworn.kithmoot.ui.room.ScreenShareViewer(
-            track = meta?.let { videos["${it.device}|${it.trackId}"] }, eglBase = model.eglBase,
+            track = meta?.let { videos["${it.device}|${it.role}"] }, eglBase = model.eglBase,
             title = if (tile?.isSelf == true) "Your screen" else "${dev.forgesworn.kithmoot.ui.room.shortId(expanded.participant)}’s screen",
             inPictureInPicture = inPictureInPicture, onPopOut = onPopOut,
             onClose = { expandedScreen = null },
