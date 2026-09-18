@@ -195,7 +195,9 @@ import dev.forgesworn.kithmoot.session.decodePairingLink
 import dev.forgesworn.kithmoot.session.encodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.encodePairingLink
 import dev.forgesworn.kithmoot.ui.room.ParticipantTile
+import dev.forgesworn.kithmoot.ui.room.MicrophoneAction
 import dev.forgesworn.kithmoot.ui.room.buildTiles
+import dev.forgesworn.kithmoot.ui.room.microphoneAction
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
@@ -2825,7 +2827,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         engine?.dispose()
         engine = null
         _videos.value = emptyMap()
-        _room.update { it.copy(micOn = false, cameraOn = false, screenOn = false, agentCount = 0) }
+        _room.update { it.copy(micOn = false, micMuted = false, cameraOn = false, screenOn = false, agentCount = 0) }
     }
 
     private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
@@ -3054,7 +3056,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { live.release(Roles.MONITOR) }
                 _videos.value = emptyMap()
             } finally {
-                if (session === live) _room.update { it.copy(callChanging = false, micOn = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                if (session === live) _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
             }
         }
     }
@@ -3071,34 +3073,46 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun listenOnThisDevice() { if (_room.value.callActive) session?.claim(Roles.MONITOR) }
 
 
+    /**
+     * The mic button's one action, three states.
+     *
+     * No microphone here yet -> start one. A live microphone -> mute it,
+     * keeping it running. A live, muted microphone -> unmute it. Matches the
+     * web client: muting never releases the microphone, only leaving the call
+     * does (see [leaveCall]). Release stays a distinct, deliberate act - see
+     * [setMicrophoneMuted] - this is only the button's own cycle through it.
+     */
     fun toggleMicrophone() = act {
         if (!_room.value.callActive) return@act
         val media = engine?.localMedia ?: return@act note("No microphone on this device.")
         val live = session ?: return@act
-        if (_room.value.micOn) {
-            media.stopMicrophone()
-            live.release(Roles.MIC)
-        } else {
-            // The claim goes first, and not for tidiness: the moment a track
-            // appears the roster is republished, and a device that published a
-            // microphone it had not yet claimed would see one of its own others
-            // still holding the role and shut itself straight back off.
-            live.claim(Roles.MIC)
-            if (media.startMicrophone() == null) {
-                live.release(Roles.MIC)
-                return@act note("The microphone would not start.")
+        when (microphoneAction(_room.value.micOn, _room.value.micMuted)) {
+            MicrophoneAction.Start -> {
+                // The claim goes first, and not for tidiness: the moment a track
+                // appears the roster is republished, and a device that published a
+                // microphone it had not yet claimed would see one of its own others
+                // still holding the role and shut itself straight back off.
+                live.claim(Roles.MIC)
+                if (media.startMicrophone() == null) {
+                    live.release(Roles.MIC)
+                    note("The microphone would not start.")
+                }
             }
+            MicrophoneAction.Mute -> media.setMicrophoneMuted(true)
+            MicrophoneAction.Unmute -> media.setMicrophoneMuted(false)
         }
     }
 
     /**
      * Silence this device's microphone without letting go of it.
      *
-     * Deliberately not the same act as [toggleMicrophone], which releases the
-     * microphone outright and takes this device out of the conversation. Mute
-     * keeps the track live and advertises `muted` on the roster, so the room
-     * can show who is quiet, and so the slot carrying it keeps progressing for
-     * the health ladder to measure.
+     * Deliberately not the same act as [toggleMicrophone] releasing the
+     * microphone outright: [toggleMicrophone] never releases it either now,
+     * it only mutes and unmutes. This is the lower-level primitive both it
+     * and any other caller mute through. Mute keeps the track live and
+     * advertises `muted` on the roster, so the room can show who is quiet,
+     * and so the slot carrying it keeps progressing for the health ladder to
+     * measure.
      */
     fun setMicrophoneMuted(muted: Boolean) = act {
         if (!_room.value.callActive) return@act
