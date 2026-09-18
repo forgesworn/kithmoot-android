@@ -357,6 +357,14 @@ data class RoomState(
     val callActive: Boolean = true,
     val callChanging: Boolean = false,
     val micOn: Boolean = false,
+    /**
+     * This device's microphone is running but silenced at the source.
+     *
+     * Different from [micOn] being false, which means there is no microphone
+     * here at all: a muted device is still in the conversation, and the room is
+     * told so on the roster rather than left to guess from an absent track.
+     */
+    val micMuted: Boolean = false,
     val cameraOn: Boolean = false,
     val screenOn: Boolean = false,
     /** True when this device took up a pairing link rather than opening the room. */
@@ -3060,6 +3068,21 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Silence this device's microphone without letting go of it.
+     *
+     * Deliberately not the same act as [toggleMicrophone], which releases the
+     * microphone outright and takes this device out of the conversation. Mute
+     * keeps the track live and advertises `muted` on the roster, so the room
+     * can show who is quiet, and so the slot carrying it keeps progressing for
+     * the health ladder to measure.
+     */
+    fun setMicrophoneMuted(muted: Boolean) = act {
+        if (!_room.value.callActive) return@act
+        val media = engine?.localMedia ?: return@act
+        if (!media.setMicrophoneMuted(muted)) note("There is no microphone running to mute.")
+    }
+
     fun toggleCamera() = act {
         if (!_room.value.callActive) return@act
         val media = engine?.localMedia ?: return@act note("No camera on this device.")
@@ -3938,6 +3961,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private fun onLocalTracks(tracks: List<LocalTrack>) {
         _room.update { it.copy(
             micOn = tracks.any { it.role == Roles.MIC },
+            micMuted = tracks.any { it.role == Roles.MIC && it.muted },
             cameraOn = tracks.any { it.role == Roles.CAMERA },
             screenOn = tracks.any { it.role == Roles.SCREEN },
         ) }

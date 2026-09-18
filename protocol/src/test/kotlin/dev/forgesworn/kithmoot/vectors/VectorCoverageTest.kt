@@ -24,7 +24,7 @@ class VectorCoverageTest {
             "channelDerivation" to 3,
             "joinUrl" to 10,
             "deviceCredential" to 4,
-            "rosterEvent" to 14,
+            "rosterEvent" to 16,
             "signalWrap" to 10,
             "signalCompatibility" to 12,
             "memberPass" to 11,
@@ -51,7 +51,7 @@ class VectorCoverageTest {
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 197, expectedSizes.values.sum())
+        assertEquals("total vectors", 199, expectedSizes.values.sum())
     }
 
     @Test

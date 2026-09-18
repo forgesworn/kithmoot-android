@@ -25,7 +25,22 @@ import org.webrtc.VideoTrack
 import java.util.UUID
 
 /** One track this device is publishing, and what it is for. */
-data class LocalTrack(val track: MediaStreamTrack, val role: String) {
+data class LocalTrack(
+    val track: MediaStreamTrack,
+    val role: String,
+    /**
+     * This device silenced the track at the source: `setEnabled(false)`, not a
+     * listener's own volume choice.
+     *
+     * It travels on the roster so the room can show who is muted without
+     * guessing from an absent track - a device with everything switched off
+     * looks exactly like a device that is muted, and only one of them is still
+     * in the conversation. Mute is deliberately not the same act as releasing
+     * the microphone: the track stays live, so the slot carrying it keeps
+     * progressing and the health ladder has something to measure.
+     */
+    val muted: Boolean = false,
+) {
     val trackId: String get() = track.id()
 }
 
@@ -113,6 +128,9 @@ class LocalMedia(
         val track = factory.createAudioTrack(trackId(Roles.MIC), source)
         audioSource = source
         audioTrack = track
+        // A microphone that has just been started is not muted, whatever the
+        // last one was.
+        micMuted = false
         publish()
         return track
     }
@@ -218,9 +236,34 @@ class LocalMedia(
         stopMicrophone()
     }
 
+    /**
+     * Silence or unsilence this device's microphone without releasing it.
+     *
+     * Returns false when there is no microphone running to mute. The track
+     * stays attached and advertised, which is what tells the room the person is
+     * still here and quiet rather than gone - and, on a profile-2 pair, what
+     * keeps the slot carrying it alive for the health ladder to measure.
+     */
+    @Synchronized
+    fun setMicrophoneMuted(muted: Boolean): Boolean {
+        val track = audioTrack ?: return false
+        if (micMuted == muted) return true
+        micMuted = muted
+        runCatching { track.setEnabled(!muted) }
+        // Republished at once, so the roster says so on this mute rather than
+        // on the next thing that happens to change.
+        publish()
+        return true
+    }
+
+    /** Whether this device's microphone is silenced at the source. */
+    @get:Synchronized
+    var micMuted: Boolean = false
+        private set
+
     private fun publish() {
         _tracks.value = buildList {
-            audioTrack?.let { add(LocalTrack(it, Roles.MIC)) }
+            audioTrack?.let { add(LocalTrack(it, Roles.MIC, muted = micMuted)) }
             cameraTrack?.let { add(LocalTrack(it, Roles.CAMERA)) }
             screenTrack?.let { add(LocalTrack(it, Roles.SCREEN)) }
         }

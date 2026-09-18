@@ -806,6 +806,229 @@
         }
       },
       {
+        "name": "muted-mic-track",
+        "kind": "positive",
+        "note": "A roster entry whose mic advert carries `muted: true`: this device turned its own microphone off, distinct from and additive to a listener's own volume choice, which is never on the wire. Only the exact literal `true` counts - docs/protocol.md's 'muted' paragraph. A reader that has never heard of the field decodes this event unchanged on everything it does model.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              },
+              {
+                "trackId": "m1",
+                "role": "mic",
+                "muted": true
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "1eaa24fcd9b9f635ffb32317ee1fb7d53415449adc4ec9cc3d6f2ab09c84a56a",
+          "auxRandHex": "0e44931146d4d2f056dbfba0dbb6f9af147688857bf38ccd994380b52c8d7db5"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Ah6qJPzZufY1/7MjF+4ft9U0FUSa3E7JzD1vKrCchKVqergVv67einaleBlzf7/u0fUBR8q/6wEAqQr9N787BXETsHsOa3uQ5f0kVPpfqk4rsoZPIOs8wk/o8/3E2eNwIj0sRD3XtxNEmAVii2i0BOrYdWDbaSAJI7wJUBriqGKZaYTQYnxiM1qnvlnxmeMvJ+ey9+9TVrlPQJM/lr6ZqO5j14aNVpeXghrWfbAx85oCQvIyDtu81cpmAgzsW2CUzX8EtzJXg50letrX27chGdWz7GjtEcT7v7pTcaLKqCMbCc81An7OSUlQgwvecKjUI0gPGFFPHjB6BWs4mDsAMt3GKiJqOVnAZCPYBXJYsackoSKgeFQJe5UUaclaiJvcyRu/CeQM9dv9t57hwBKSczc6uL+MFwSom9/EFowy1IHmoOklfgHMsZ7QFlC0AK8q/W2os9JgMIv1Car4iCPVuypBd8FML+xw3ln+e/BgiMfdyS3dC1JzvaGiOWf9cK/Pm6NiiGZLNXRIJFK0ta1zrUEZ/AtxlonZB2PCIsoZ9t8axkNXUzTNCKtDsP5jr4xW3ObMicpam2sJyK/AA2wGvUzqr5Chw+nFtvanXDKzUd79hviQLSW9eNjw116yHP/h5+JtZ025JYRM+xvTlOGdkdDe9t0kf9o9M10RHeOYOusexbe4FiJ3hjPuP5KU/iNfFlJRWiyDtznZUB1EzlBRMxNxoBG1OTxwlkTW6IyoSF35Dk0dS6N6wZsFpXDfF5OtqRVcMDY9IWUjHoTqFZi1coyxWQjSF/sDCw+6QmMUljyJchHYUCDCgb6GHvxQmhnbmRGJG4DFHAEhcsf3zrLvWs/ndjCrtNZkvXVn1N1FmQZh/PGD9kgidaoLub+K1Eb5oG5hqzG5j5KZFuPgYKumq+XGC1OBGhumaJxJg/bMfy3TbfnxdbuzFYeW2eq7rHyxTn2Vms6wYE4k6lWOSHKCanFamVogzrxHFTxOxF/X+iS/vqG6r4+7J84uJBqt4jer4Hk3o6rbJ/7jjdKJcncT5ZlnMwO1wAxiB1PL0pJzK5u/J5iP7gexCa2cvZ/FVfT2pSG7tR44FkFBb+ta1Ck4i+UHgnOyJPu/bzUfE048b8ct62s16ZJcGzi0Bf/7i1Te/fX4wOMPDgZYq9DydAdXfew8780mf8KJ/2NOIdtMb+p+rV9mjZ9CjHvNRoYWjTnIDzAheG+oH40PZCv5AAiODCYxFqMMo9wB57L13rGLuedMLOERitARa/4hfOgMxaPOGqHS",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "1cae8b8107ae97934c0a8b8eb040fb49575d7bbdcc5db22e1c1098f5bfc0f578",
+            "sig": "a4a21da98b8aa172fd4ac57a0cd7dc9433d0c0452c162270f590369c139f263d12c5f54d5dacdbb8f2ed03b4d4c405afcbbfc6c49696fe71bda93e7281d584c9"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              },
+              {
+                "trackId": "m1",
+                "role": "mic",
+                "muted": true
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "muted-false-drops-to-absent",
+        "kind": "negative",
+        "note": "A mic advert with `muted: false` on the wire: only the literal `true` is the mute claim, so this is not one, and the field is dropped - the advert decodes as `{ trackId, role }` with no `muted` key at all, the same as an advert that never carried the field.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "m1",
+                "role": "mic",
+                "muted": false
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "9406fdcfcad70246dac5fa8450ee6b049343489d45ecbcab06a83ef1f863f50b",
+          "auxRandHex": "a948b084e7a23e6608bbdef6743cc63726cb08a2fef5f3517f08cca06abac9f3"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "ApQG/c/K1wJG2sX6hFDuawSTQ0idRey8qwaoPvH4Y/ULI2EY/8+NNgWvDvTcJL1A8BOyYhiNyyirnKTb0tdvxTCjvYAHYh3BHN2wjSiiNN82TaftYKW6GRkBJM1LKTFwdKNwm+ciShYQWlra8frvgqNJzLc95RpcfiCrA0+o5dq2FszyQHgxMimyY90SlaG0lPqw71ZhU7hd47l0MqCdbZfXApKHyoyWDw7nRdpBvSMtqTNmyxRu4CrjaIpn9+8GSNaik/OoK6njvYknkGc7dsfIiLpi70sWcg8eUQCiBA+Mpl3b3UHnmpWYUS5woR7Ctq2NuhQcnsXNXoEeM630/zXx8/qL4YhXYzWTxhZiV0WZFWzrHALJsDtHjaUa6U6zyN0bhMLhAiWIb+YQIvVjWlPSX0tZRNisiqvSaANz/jMTJ0MKJxamCeCB9NWNOwm4rng6lu7b4trUrkXdpop8Iy4x7WlPM1ocEeuvwAmT+fBYQSpuIplMmGuBd7UpILVflfiCKwRgoPJlLbPs7wqa2xqYe0ucawH/F487WlRlmXYV/OM61oEX5COqTdMxf7vQJpLuP0qaRb/HJDgtVAkFnlB+SVDYCM4X5bgNURtuxxVBdlz0L5ScATt928/RSDcaQ5T7SbogBY7p2jOpHeUkh6mfOH4Y8uTtlAwsn4ZqPwnmBCUcuesQUPRFRYB80gCs1fELtyvry715MQfg0QEff/X8TD4TWSCNnWvf6j5u2tP3i1v97JXFv9JV5Zti+3ZeilG26d5yBfcCDKaThJwuvhOvlTb8xgmz8LQ1J2R7tapnjEhiluyqTU5jmGsgAMhFQEOF0cCbmgQkDlDQV/AYgyuwbm8N4fIoRkAFX5Jg8dSyxLvbc/zjkykP0Qaz9I6WxJHnXsmyJw0+JZW0K1/GQWq1yHafM+hKtANobdOLWxwF/xTyWWPNSQDMe4oRiJVO4vIBD2Pv1jCCDZl796p7LFhg8elsiJ6L0bya29KMR4sq1LZbMVfKCx3sKgxMqlJC7Af4Sw6mkPUkQ34Kn1uxxzf56bwGriHPDqrZ1gMy4uDcOR9642ocd8lLvhwnsFB+W6dDg3oSAj35FkcLYthMJKG7jnt7irwlUKJCr4tLI4dUU2lSBVpFRX1aJbLEQMK/oDYKWTcgq9tJ79miZGXNUglrxdXuBLNQzdGaBMYAVzMRXgwSVqG2sV6opXyGuf2gMRPFGfQsibaLKoVXldQzQK1l21kdqhVo8ToEcpRgSVVvo5oEXACjlTQcUiOW5PibBTBK",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "4cddb82ebb42d5cddc32438c77d96572b1492b59c545df02abee67fb4f3456ce",
+            "sig": "16a8b8b3520a8fcf44eb8f3b31d5675f0bd58bbbce9e55ad4673e1b424831c6814992b82e7114bf47fdc29393ea2e04fba19ca3aa9c5c9fa07d0e018593fded9"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "m1",
+                "role": "mic"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
         "name": "wrong-room-key",
         "kind": "negative",
         "note": "The same event, decrypted with room 2's key instead of the room it was actually published to - NIP-44 decryption fails its MAC check and the decoder must return null, not throw.",

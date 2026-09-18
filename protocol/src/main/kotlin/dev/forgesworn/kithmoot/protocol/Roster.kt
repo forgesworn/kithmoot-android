@@ -32,7 +32,26 @@ const val KIND_ROSTER: Int = 20461
 const val MAX_FUTURE_SKEW_SECONDS: Long = 60
 
 /** One published media track, attributed to a participant rather than a device. */
-data class TrackRef(val trackId: String, val role: String)
+data class TrackRef(
+    val trackId: String,
+    val role: String,
+    /**
+     * The device muted this track itself: `track.enabled = false` at the
+     * source, not a listener's own volume choice.
+     *
+     * Only the literal `true` is the claim - ask `muted == true`, never
+     * `muted != null`. Null is absence, which is what an unmuted advert
+     * carries, so the wire stays byte-identical for a client that has never
+     * heard of the field.
+     *
+     * `false` exists as a distinct value only because another implementation
+     * may write it, and this type has to be able to carry a published entry
+     * back out unchanged. [decodeRosterEvent] drops it to null on the way in,
+     * so nothing downstream ever sees it. Mirrors the web client's
+     * `TrackAdvert.muted`.
+     */
+    val muted: Boolean? = null,
+)
 
 /**
  * One device's presence in a room, carrying the credential that proves it may
@@ -132,6 +151,7 @@ data class RosterEntry(
                         buildJsonObject {
                             put("trackId", track.trackId)
                             put("role", track.role)
+                            track.muted?.let { put("muted", it) }
                         },
                     )
                 }
@@ -158,6 +178,13 @@ data class RosterEntry(
                 TrackRef(
                     trackId = track.getValue("trackId").jsonPrimitive.content,
                     role = track.getValue("role").jsonPrimitive.content,
+                    // Preserved as written, so a published entry re-encodes
+                    // to the same bytes. It is `decodeRosterEvent` that
+                    // decides a non-`true` value is not a mute claim.
+                    muted = (track["muted"] as? JsonPrimitive)
+                        ?.takeIf { !it.isString }
+                        ?.content
+                        ?.toBooleanStrictOrNull(),
                 )
             },
             claims = (json["claims"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.long }.orEmpty(),
@@ -183,7 +210,7 @@ data class RosterEntry(
         )
 
         /** A JSON `true` and nothing else: not `"true"`, not `1`, not `"yes"`. */
-        private fun JsonElement?.isHonestTrue(): Boolean =
+        internal fun JsonElement?.isHonestTrue(): Boolean =
             this is JsonPrimitive && !isString && content == "true"
     }
 }
@@ -250,6 +277,12 @@ fun decodeRosterEvent(
             val entry = decoded.copy(
                 device = decoded.device.normaliseHex(),
                 participant = decoded.participant.normaliseHex(),
+                // Only the literal `true` is a mute claim, for the same reason
+                // only an honest `true` is a farewell: it decides what the room
+                // shows about a person, so a looser client's `false` is not one
+                // and is dropped here rather than carried around as a value
+                // that means the same as absence.
+                tracks = decoded.tracks.map { if (it.muted == true) it else it.copy(muted = null) },
             )
             // The device that signed must be the device the entry names, or a
             // room member could republish someone else's presence. Hex

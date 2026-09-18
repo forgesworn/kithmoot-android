@@ -385,7 +385,13 @@ class WebRtcEngine(
     private suspend fun onLocalTracksChanged(tracks: List<LocalTrack>) {
         // Tell the room what we are publishing, so a receiver can map an
         // incoming WebRTC track back to the role we said it was for.
-        session.setTracks(tracks.map { TrackRef(it.trackId, it.role) })
+        // `muted` rides along: the room needs to tell somebody who is quiet
+        // from somebody who has gone, and an absent track cannot say which.
+        // `muted` rides along, and only when it is true: the room needs to tell
+        // somebody who is quiet from somebody who has gone, and an absent track
+        // cannot say which. An unmuted advert carries nothing, so the wire is
+        // byte-identical for everyone who never mutes.
+        session.setTracks(tracks.map { TrackRef(it.trackId, it.role, if (it.muted) true else null) })
         synchronized(lock) {
             for ((device, link) in links) link.syncLocalTracks(tracksFor(device, tracks))
         }
