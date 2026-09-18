@@ -105,11 +105,21 @@ data class CallView(
 /**
  * The calls in progress in a room, best first.
  *
- * "Best" is the one with the most people on it, and between two of equal size
- * the older. That ordering is the whole of how a room with two calls started
- * at the same moment collapses back to one: every client picks the head of
- * this list when it joins, so joiners pile onto the same call and the other
- * empties as its people leave. Mirrors `Session.calls()` in `src/session.ts`.
+ * The head of this list is what every client joins, so every client has to
+ * compute the same head from the same roster or a room with two accidental
+ * calls never collapses back to one. The comparator, exactly:
+ *
+ *  1. number of participants, DESCENDING - the bigger call wins;
+ *  2. then `since`, ASCENDING - of two equal calls, the older wins;
+ *  3. then `id`, ASCENDING, as a plain lower-case hex string comparison.
+ *
+ * Step 3 is the one the web client does not have yet. `Session.calls()` in
+ * `src/session.ts` falls back to the insertion order of its map, which is the
+ * order presence happened to arrive in on that device - so two clients with
+ * the same roster can disagree about which of two exactly-tied calls to join,
+ * and split the room permanently. The ids are unique by construction, so
+ * ordering on them is total and the tie cannot survive. The web side is to
+ * adopt the same third step.
  */
 fun callsOf(people: Collection<Participant>): List<CallView> {
     val byId = LinkedHashMap<String, CallView>()

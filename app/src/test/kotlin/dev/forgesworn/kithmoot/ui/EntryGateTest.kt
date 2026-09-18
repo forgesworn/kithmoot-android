@@ -2,13 +2,16 @@ package dev.forgesworn.kithmoot.ui
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -65,29 +68,52 @@ class EntryGateTest {
     }
 
     @Test
-    fun `only one of several waiters gets the gate at a time`() = runTest {
-        val gate = EntryGate()
-        assertTrue(gate.tryAcquire())
+    fun `a release landing in the same instant as the timeout never loses the gate`() = runTest {
+        // The hazard is a timeout firing between the flip and the return. The
+        // waiter would report a refusal while holding the gate, and every room
+        // tap for the rest of the process would then wait thirty seconds on a
+        // holder that does not exist.
+        repeat(20) { attempt ->
+            val gate = EntryGate()
+            assertTrue(gate.tryAcquire())
+            val tap = async { gate.awaitAcquire(timeoutMs = 1_000) }
+            launch {
+                delay(1_000)
+                gate.release()
+            }
+            advanceUntilIdle()
+            val taken = tap.await()
+            // Whatever the race decided, the answer and the gate agree.
+            assertEquals(taken, gate.held.value, "attempt $attempt reported $taken with held=${gate.held.value}")
+        }
+    }
 
+    @Test
+    fun `the gate serialises work that actually suspends`() = runTest {
+        val gate = EntryGate()
         var inside = 0
         var overlapped = false
-        repeat(3) {
+        val order = mutableListOf<Int>()
+
+        repeat(3) { n ->
             launch {
-                if (gate.awaitAcquire(timeoutMs = 60_000)) {
-                    inside += 1
-                    if (inside > 1) overlapped = true
-                    inside -= 1
-                    gate.release()
-                }
+                if (!gate.awaitAcquire(timeoutMs = 60_000)) return@launch
+                inside += 1
+                if (inside > 1) overlapped = true
+                // A real critical section: the whole point of the gate is that
+                // it holds across suspensions - a room teardown is nothing but
+                // suspensions - and a check that never suspends proves nothing.
+                delay(1_000)
+                order += n
+                inside -= 1
+                gate.release()
             }
         }
-        runCurrent()
-        gate.release()
-        advanceTimeBy(1_000)
-        runCurrent()
+        advanceUntilIdle()
 
         assertFalse(overlapped, "the gate is what stops two rooms opening at once")
-        assertEquals(false, gate.held.value)
+        assertEquals(3, order.size, "every waiter is served, none dropped")
+        assertFalse(gate.held.value)
     }
 
     @Test
@@ -95,5 +121,39 @@ class EntryGateTest {
         val gate = EntryGate()
         gate.release()
         assertTrue(gate.tryAcquire())
+    }
+}
+
+/**
+ * The tap that is waiting is the last one, not the first.
+ *
+ * Somebody who taps a room, thinks better of it and taps another is asking
+ * for the second one. Keeping the first and refusing the second opens the
+ * room they decided against, which is worse than the silence it replaced.
+ */
+class LatestRequestTest {
+
+    @Test
+    fun `the first offer owns the waiting`() {
+        val slot = LatestRequest<String>()
+        assertTrue(slot.offer("standup"), "somebody has to start the wait")
+        assertEquals("standup", slot.waiting)
+    }
+
+    @Test
+    fun `a later offer replaces the one waiting and does not start a second wait`() {
+        val slot = LatestRequest<String>()
+        slot.offer("standup")
+        assertFalse(slot.offer("retro"), "one waiter, not two")
+        assertEquals("retro", slot.waiting, "the room they actually want")
+    }
+
+    @Test
+    fun `taking empties the slot so a later tap starts a fresh wait`() {
+        val slot = LatestRequest<String>()
+        slot.offer("standup")
+        assertEquals("standup", slot.take())
+        assertNull(slot.take())
+        assertTrue(slot.offer("retro"))
     }
 }

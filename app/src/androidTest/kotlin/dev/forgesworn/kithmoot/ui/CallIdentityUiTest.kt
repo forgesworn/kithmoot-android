@@ -57,13 +57,22 @@ class CallIdentityUiTest {
     }
     @Test fun leaveCallIsReachableFromCallAndChatWithoutLeavingTheRoom() {
         var left = 0; var joined = 0; var roomLeft = 0
-        var state by mutableStateOf(RoomState(roomId = "77".repeat(32), selfParticipant = "11".repeat(32), name = "Call controls", micOn = true))
+        // On the call and declared, with somebody else's device on it too, so
+        // leaving offers to rejoin rather than to start a fresh one. "On the
+        // call" is membership now, never "the engine is running" - see
+        // ui/room/CallStance.kt.
+        var state by mutableStateOf(
+            RoomState(
+                roomId = "77".repeat(32), selfParticipant = "11".repeat(32), name = "Call controls",
+                micOn = true, onCall = true, callOtherDevices = 1,
+            ),
+        )
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent { KithMootTheme {
                 RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, { roomLeft++ },
                     modifier = Modifier.fillMaxSize(), chat = { Text("Chat is still here") },
-                    onLeaveCall = { left++; state = state.copy(callActive = false, micOn = false) },
-                    onJoinCall = { joined++; state = state.copy(callActive = true) })
+                    onLeaveCall = { left++; state = state.copy(onCall = false, mediaRunning = false, micOn = false) },
+                    onJoinCall = { joined++; state = state.copy(onCall = true, mediaRunning = true) })
             } } }
             ui.onNodeWithText("Leave call").assertIsDisplayed()
             ui.onNodeWithText("Call", useUnmergedTree = true).performClick()

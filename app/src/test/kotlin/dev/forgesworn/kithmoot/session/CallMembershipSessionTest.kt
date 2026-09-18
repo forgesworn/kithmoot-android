@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -147,5 +148,52 @@ class CallMembershipSessionTest {
         assertEquals(OTHER, calls.first().id)
         assertEquals(2, calls.first().participants.size)
         assertEquals(1_000, calls.first().since, "since is the earliest join, not the latest")
+    }
+
+    @Test
+    fun `publishing tracks is not declaring a call`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val alice = session(room, Fixtures.primary(room, 1, 2), relay)
+        val bob = session(room, Fixtures.primary(room, 3, 4), relay, seed = 11)
+        alice.join(); bob.join()
+        advanceTimeBy(2_000); runCurrent()
+
+        alice.setTracks(listOf(TrackRef("t1", Roles.MIC)))
+        advanceTimeBy(500); runCurrent()
+
+        // Having media running, or even sending some, is not membership.
+        // Android read its own engine as "on the call" and so offered its
+        // owner nothing but Leave, while every other client in the room
+        // correctly said there was no call to join. A track is a track.
+        assertNull(alice.currentCall())
+        assertTrue(bob.calls().isEmpty(), "a track is not a call anybody can join")
+
+        alice.setCall(CallMembership(CALL, since = 1_000))
+        advanceTimeBy(500); runCurrent()
+        assertEquals(CALL, bob.calls().single().id, "declaring is what makes it one")
+    }
+
+    @Test
+    fun `a track arriving behind a leave does not re-declare the call`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val alice = session(room, Fixtures.primary(room, 1, 2), relay)
+        val bob = session(room, Fixtures.primary(room, 3, 4), relay, seed = 11)
+        alice.join(); bob.join()
+        advanceTimeBy(2_000); runCurrent()
+        alice.setTracks(listOf(TrackRef("t1", Roles.MIC)))
+        alice.setCall(CallMembership(CALL, since = 1_000))
+        advanceTimeBy(500); runCurrent()
+
+        // Leaving is local media down, then membership cleared - in that
+        // order, so nothing is left advertising tracks for a call it has just
+        // said it is not on.
+        alice.setTracks(emptyList())
+        alice.setCall(null)
+        advanceTimeBy(500); runCurrent()
+
+        assertNull(alice.currentCall())
+        assertTrue(bob.calls().isEmpty(), "a leave that leaves a ghost call behind it is not a leave")
     }
 }

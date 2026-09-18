@@ -139,7 +139,14 @@ fun RoomScreen(
     // find mid-conversation. Cleared the moment the call ends or this screen
     // leaves composition, whichever comes first.
     val view = LocalView.current
-    val onCall = state.callActive && (isOnCall(state.micOn, state.cameraOn, state.screenOn) || state.mediaConnections.values.any { it == "connected" || it == "completed" })
+    val onCall = inACall(
+        onCall = state.onCall,
+        mediaRunning = state.mediaRunning,
+        micOn = state.micOn,
+        cameraOn = state.cameraOn,
+        screenOn = state.screenOn,
+        connected = state.mediaConnections.values.any { it == "connected" || it == "completed" },
+    )
     DisposableEffect(view, onCall) {
         view.keepScreenOn = onCall
         onDispose { view.keepScreenOn = false }
@@ -248,11 +255,11 @@ fun RoomScreen(
         // - from what OTHER devices say, never from the roster's count of
         // calls - so "Start call" and "Join call" mean the same thing on both.
         val stance = callStance(
-            mineOn = state.callActive,
+            mineOn = state.onCall,
             otherDevicesOn = state.callOtherDevices,
             leaving = state.callChanging,
         )
-        if (!state.anonymous && (state.callActive || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        if (!state.anonymous && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -265,12 +272,12 @@ fun RoomScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(
-                    onClick = { if (state.callActive) { onLeaveCall(); callOpen = false; workOpen = false } else onJoinCall() },
+                    onClick = { if (state.onCall) { onLeaveCall(); callOpen = false; workOpen = false } else onJoinCall() },
                     enabled = !state.callChanging && !state.callJoinPending,
-                    colors = if (state.callActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
+                    colors = if (state.onCall) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    if (state.callActive) { Icon(Icons.Filled.CallEnd, null); Spacer(Modifier.width(8.dp)) }
+                    if (state.onCall) { Icon(Icons.Filled.CallEnd, null); Spacer(Modifier.width(8.dp)) }
                     Text(callStanceLabel(stance))
                 }
             }
@@ -293,7 +300,7 @@ fun RoomScreen(
         } else {
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (!state.callActive) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
+                if (!state.mediaRunning) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
                 else LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 300.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -333,12 +340,12 @@ fun RoomScreen(
                 }
             }
 
-            if (state.callActive) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (state.mediaRunning) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (state.listeningHere) "Listening on this phone" else "Call audio is on another of your devices",
                     Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onListenHere) { Text("Listen here") }
             }
-            if (state.movedOn == null && state.callActive) {
+            if (state.movedOn == null && state.mediaRunning) {
                 Controls(
                     state = state,
                     onToggleMic = onToggleMic,
