@@ -18,6 +18,12 @@ activityCompose = "1.9.3"
 lifecycle = "2.8.7"
 cameraX = "1.4.1"
 mlkitBarcode = "17.3.0"
+# MediaPipe Tasks Vision, for the selfie segmentation that puts a sea behind
+# somebody instead of their room. Apache 2.0, the same licence as the bundled
+# model in app/src/main/assets/models. Pinned: the run of releases after this
+# one moves the native libraries between artifacts, and the APK size of this
+# feature is a thing worth keeping still.
+mediapipeTasksVision = "0.10.26.1"
 zxingCore = "3.5.3"
 composeBom = "2024.12.01"
 coroutines = "1.9.0"
@@ -62,6 +68,7 @@ androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", 
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
+mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipeTasksVision" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
 espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
