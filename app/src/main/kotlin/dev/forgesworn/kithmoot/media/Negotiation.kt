@@ -97,6 +97,17 @@ const val REMEMBERED_SHAPES: Int = 4
  */
 val OFFER_RETRY_MS: List<Long> = listOf(2_000L, 5_000L, 10_000L) + List(30) { 10_000L }
 
+/**
+ * How many disagreements one connection will repair before it stops.
+ *
+ * [REMEMBERED_SHAPES] alone is not a bound on repairs: a far end cycling more
+ * shapes than the memory holds comes round again to one that has been evicted,
+ * and earns another. Six is more renegotiations than a working call has, and a
+ * far end that has needed seven is not converging - the answer to that is a
+ * rebuild, which the health ladder owns, not an eighth offer.
+ */
+const val MAX_REPAIRS: Int = 6
+
 /** The subset of `RTCSignalingState` the negotiation machine reasons about. */
 enum class SignalingState { STABLE, HAVE_LOCAL_OFFER, HAVE_REMOTE_OFFER, HAVE_LOCAL_PRANSWER, HAVE_REMOTE_PRANSWER, CLOSED }
 
@@ -378,6 +389,11 @@ class PeerLink(
     /** Disagreements noticed and renegotiated. Expected to be zero on a pair
      *  whose two ends both keep up. */
     var disagreementsRepaired: Int = 0
+        private set
+
+    /** This connection has spent [MAX_REPAIRS] and will not offer again to
+     *  repair. Diagnostics: a pair that reaches this wants rebuilding. */
+    var repairsExhausted: Boolean = false
         private set
 
     // --- fixed media slots, profile 2 ---------------------------------------
@@ -962,8 +978,7 @@ class PeerLink(
             // answer or a repeated offer, which is what stops two fixed clients
             // repairing at each other for ever.
             if (repeatedOffer && previousAnswerShape != null && previousAnswerShape != shape) {
-                disagreementsRepaired++
-                repairOwed = true
+                repairNeeded()
             }
         }
 
@@ -988,11 +1003,12 @@ class PeerLink(
             return
         }
         // Remembered before the repair rather than after it, so a second copy
-        // of the same disagreement costs nothing: at most one renegotiation per
-        // distinct answer this connection has ever been handed.
+        // of the same disagreement costs nothing. That is not by itself a bound
+        // on repairs - the memory is [REMEMBERED_SHAPES] deep, and a far end
+        // cycling more shapes than that comes round again to an evicted one -
+        // so [MAX_REPAIRS] is what actually stops this.
         remember(remoteAnswerShapes, shape)
-        disagreementsRepaired++
-        repairOwed = true
+        repairNeeded()
         repairIfOwed()
     }
 
@@ -1012,6 +1028,22 @@ class PeerLink(
         if (SdpShape.of(description.sdp) != (appliedOfferShape ?: return null)) return null
         val current = connection.localMedia() ?: return null
         return if (current == sentAnswerMedia) stored else null
+    }
+
+    /**
+     * A disagreement, and the one offer it earns - up to a point.
+     *
+     * Past [MAX_REPAIRS] this connection stops offering. Repairing for ever
+     * against a far end that never converges is an offer storm dressed up as a
+     * fix, and the honest escalation from there is a rebuild.
+     */
+    private fun repairNeeded() {
+        if (disagreementsRepaired >= MAX_REPAIRS) {
+            repairsExhausted = true
+            return
+        }
+        disagreementsRepaired++
+        repairOwed = true
     }
 
     /**

@@ -527,6 +527,38 @@ class NegotiationDisagreementTest {
         assertTrue(here.closed)
     }
 
+    @Test
+    fun `a far end that never converges stops earning repairs`() = runTest {
+        // The shape memory is four deep, so it is not by itself a bound: a far
+        // end cycling more shapes than that comes round to an evicted one and
+        // earns another repair. Something has to stop, and offering for ever at
+        // a client that never settles is an offer storm dressed up as a fix.
+        val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire)
+
+        repeat(30) { n -> deliver(android, wire, answer(strangeAnswer(n))) }
+
+        assertTrue(android.repairsExhausted)
+        assertEquals(MAX_REPAIRS, android.disagreementsRepaired)
+        assertEquals(MAX_REPAIRS, wire.count(SignalType.OFFER), "and not one offer more")
+        assertNull(wire.label)
+    }
+
+    /** An answer of a shape this connection has never seen, every time. */
+    private fun strangeAnswer(n: Int): String = buildString {
+        append("v=0\r\n")
+        append("o=- 4611731400430051336 $n IN IP4 127.0.0.1\r\n")
+        append("s=-\r\n")
+        append("t=0 0\r\n")
+        append("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n")
+        append("c=IN IP4 0.0.0.0\r\n")
+        append("a=mid:0\r\n")
+        append("a=ice-ufrag:uf$n\r\n")
+        append("a=ice-pwd:pw$n\r\n")
+        append("a=sendrecv\r\n")
+    }
+
     // -- the invariant: a repair is an offer, and offers do not echo ---------
 
     @OptIn(ExperimentalCoroutinesApi::class)
