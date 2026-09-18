@@ -176,6 +176,18 @@ class WebRtcEngine(
                 synchronized(lock) { links.values.forEach { it.reportMediaProgress() } }
             }
         }
+        // One statistics sample per profile-2 pair every two seconds, which is
+        // the whole input to the health ladder. Whether packets are moving is
+        // the only honest evidence that a direction is alive: a connection can
+        // be `connected`, the signalling quiet, every object healthy, and one
+        // direction carrying nothing at all.
+        scope.launch {
+            while (isActive) {
+                delay(HEALTH_SAMPLE_MS)
+                val sampling = synchronized(lock) { links.values.filter { it.profileTwo } }
+                for (link in sampling) runCatching { link.sampleHealth() }
+            }
+        }
     }
 
     /** Tears down every connection and every capturer. */
@@ -225,7 +237,47 @@ class WebRtcEngine(
 
     private fun linkFor(device: String): PeerLink? = synchronized(lock) { links[device]?.link }
 
-    private fun openLink(device: String): ManagedLink {
+    /**
+     * Throw a pair's connection away and open another.
+     *
+     * The only repair for a pair whose two ends disagree about which connection
+     * they are on (H2), and the ladder's step once an ICE restart has not
+     * brought media back. `open` is false when the rebuild was caused by an
+     * offer the far end is still retransmitting: the new link answers that,
+     * rather than opening a generation of its own and glaring with it.
+     */
+    private fun rebuildLink(device: String, gen: Long, open: Boolean) {
+        synchronized(lock) {
+            if (!callActive || device !in links) return
+            links.remove(device)?.let { runCatching { it.close() } }
+            links[device] = openLink(device, gen, open)
+        }
+        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+    }
+
+    /**
+     * The far end is not speaking profile 2 after all. Start the pair again as
+     * profile 1.
+     *
+     * Section 2.3 calls this a downgrade, and it is what a far end reloading
+     * into an older build looks like. The connection goes because everything on
+     * it was addressed to a session the far end no longer has.
+     */
+    private fun reopenAsProfileOne(device: String) {
+        synchronized(lock) {
+            if (!callActive || device !in links) return
+            links.remove(device)?.let { runCatching { it.close() } }
+            links[device] = openLink(device, profileTwo = false)
+        }
+        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+    }
+
+    private fun openLink(
+        device: String,
+        gen: Long = 0,
+        openGeneration: Boolean = true,
+        profileTwo: Boolean = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value,
+    ): ManagedLink {
         val configuration = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             // Max-bundle with required rtcp-mux means one transport for the
@@ -240,11 +292,10 @@ class WebRtcEngine(
 
         _connections.update { it + (device to "connecting") }
         // A pair is profile 2 only when both ends say so: this build behind its
-        // own switch, the far end in its roster entry. Either side silent and
-        // the pair keeps the add-and-remove path it has always had, which is
-        // what every client before this one speaks.
-        val profileTwo = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value
-        val managed = ManagedLink(device, profileTwo)
+        // own switch, the far end in its roster entry (the default above).
+        // Either side silent and the pair keeps the add-and-remove path it has
+        // always had, which is what every client before this one speaks.
+        val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration)
         val connection = factory.createPeerConnection(configuration, managed.observer)
             ?: throw IllegalStateException("could not create a peer connection to \$device")
         managed.attach(connection)
@@ -349,8 +400,22 @@ class WebRtcEngine(
         /** Whether this pair speaks fixed media slots. Decided once, at open,
          *  from both ends' roster entries; a pair never changes profile
          *  without the connection being rebuilt. */
-        private val profileTwo: Boolean,
+        val profileTwo: Boolean,
+        /** The generation this connection opens at, if it opens one. */
+        private val generation: Long = 1,
+        /**
+         * Whether this side opens the generation at all.
+         *
+         * False when the rebuild was caused by an offer the far end is still
+         * retransmitting: this connection answers that one rather than opening
+         * a generation of its own and glaring with it.
+         */
+        private val openGeneration: Boolean = true,
     ) {
+
+        /** This pair's ladder. Fed one sample every two seconds; owns no timer
+         *  and no connection of its own. */
+        private val health = PairHealth()
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
@@ -369,8 +434,20 @@ class WebRtcEngine(
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
             }
+            /**
+             * The transport's own verdict, which used to be recorded and
+             * otherwise ignored.
+             *
+             * It is one of the ladder's two inputs: a connection that says it
+             * is `disconnected` for six seconds has told us something the
+             * statistics would take longer to, and `connected` restarts every
+             * grace, because nothing was ever going to arrive before it.
+             */
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
-                if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
+                if (closed || state == null) return
+                val name = state.name.lowercase()
+                _connections.update { it + (device to name) }
+                if (profileTwo) health.onConnectionState(name, System.currentTimeMillis())
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) = Unit
@@ -422,6 +499,17 @@ class WebRtcEngine(
                 roomId = session.room.roomId,
                 send = ::sendEnvelope,
                 callProfile = if (profileTwo) CALL_PROFILE_2 else 1,
+                scope = scope,
+                onRebuild = { generation, open -> rebuildLink(device, generation, open) },
+                onDowngrade = {
+                    // The far end reloaded into a build that does not speak
+                    // this profile. Everything from here would be addressed to
+                    // a connection it no longer has, so the pair starts again
+                    // as profile 1 - which its roster entry will now say, and
+                    // which is the path every client before this work speaks.
+                    reopenAsProfileOne(device)
+                },
+                onHealthSignal = { rx -> carry(health.onHealth(rx, System.currentTimeMillis())) },
             )
             // Amendment A1: exactly one side creates the four transceivers, and
             // the impolite side is the one, because politeness is a total order
@@ -429,12 +517,54 @@ class WebRtcEngine(
             // an empty connection and answers what arrives, so it never has
             // four m-lines of its own to give up in a glare. There is no
             // negotiation about who negotiates.
-            if (profileTwo && !link.polite) {
+            if (profileTwo && openGeneration && !link.polite) {
                 scope.launch {
                     try {
-                        link.openSlots(tracksFor(device).map { it.slot() })
+                        link.openSlots(
+                            tracks = tracksFor(device).map { it.slot() },
+                            // The ladder already chose the number; only a
+                            // first open has none to carry.
+                            gen = generation,
+                        )
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { if (!closed) _connections.update { it + (device to "failed") } }
+                }
+            }
+        }
+
+        /**
+         * One sample of this pair's health, and whatever it decided.
+         *
+         * A slot nobody is sending on is not a slot that has failed, so the
+         * roster's adverts say which of the four are expected to carry
+         * anything.
+         */
+        suspend fun sampleHealth() {
+            if (closed || !::link.isInitialized) return
+            val slots = link.slotMap ?: return
+            val live = session.participants.value
+                .asSequence()
+                .flatMap { it.tracks.asSequence() }
+                .filter { it.device == device }
+                .map { it.role }
+                .toSet()
+            val progress = runCatching { link.stats() }.getOrDefault(emptyList())
+            carry(health.sample(System.currentTimeMillis(), slots, live, progress))
+        }
+
+        /** Carry out what the ladder decided. */
+        private suspend fun carry(actions: List<HealthAction>) {
+            for (action in actions) {
+                if (closed) return
+                when (action) {
+                    // One dead slot on a transport that is plainly fine. The
+                    // far end puts the track back; every other slot on this
+                    // connection carries on undisturbed.
+                    is HealthAction.ReportDead -> link.reportHealth(action.roles.associateWith { "dead" })
+                    is HealthAction.RefreshSlot -> link.refreshSlot(action.role)
+                    HealthAction.RestartIce -> link.restartIce()
+                    HealthAction.Rebuild ->
+                        rebuildLink(device, nextGeneration(link.generation, link.lastRemoteGeneration), open = true)
                 }
             }
         }
@@ -537,6 +667,15 @@ class WebRtcEngine(
  * roster catches up.
  */
 internal const val STREAM_ID: String = "kithmoot"
+
+/**
+ * How often a profile-2 pair's statistics are read.
+ *
+ * Two seconds is the spec's, and it is the sampling interval every threshold in
+ * section 3.4 is expressed against: a six second silence is three samples, not
+ * a stopwatch.
+ */
+internal const val HEALTH_SAMPLE_MS: Long = 2_000
 
 /** Dispatcher the engine's own work runs on. WebRTC callbacks arrive on their own threads. */
 internal val MediaDispatcher = Dispatchers.Default

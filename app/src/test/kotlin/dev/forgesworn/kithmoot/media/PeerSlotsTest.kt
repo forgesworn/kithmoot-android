@@ -3,6 +3,8 @@ package dev.forgesworn.kithmoot.media
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.support.FakePeerConnection
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,6 +23,7 @@ import kotlin.test.assertTrue
  * media change on a profile-2 pair produces no offer, no answer and no new
  * m-line, so there is nothing for a relay to lose.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class PeerSlotsTest {
 
     private val room = "cc".repeat(32)
@@ -37,12 +40,20 @@ class PeerSlotsTest {
     }
 
     /** The impolite side, which is the one that opens a generation. */
-    private fun opener(connection: FakePeerConnection, recorder: Recorder) =
-        PeerLink(high, low, connection, room, recorder::send, callProfile = CALL_PROFILE_2)
+    private fun TestScope.opener(connection: FakePeerConnection, recorder: Recorder) = PeerLink(
+        high, low, connection, room, recorder::send,
+        callProfile = CALL_PROFILE_2,
+        scope = backgroundScope,
+        newConnectionId = { "1111111111111111" },
+    )
 
     /** The polite side, which creates nothing of its own and answers. */
-    private fun answerer(connection: FakePeerConnection, recorder: Recorder) =
-        PeerLink(low, high, connection, room, recorder::send, callProfile = CALL_PROFILE_2)
+    private fun TestScope.answerer(connection: FakePeerConnection, recorder: Recorder) = PeerLink(
+        low, high, connection, room, recorder::send,
+        callProfile = CALL_PROFILE_2,
+        scope = backgroundScope,
+        newConnectionId = { "2222222222222222" },
+    )
 
     private fun track(role: String) = SlotTrack(role, "track-$role")
 

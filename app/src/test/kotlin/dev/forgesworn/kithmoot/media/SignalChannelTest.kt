@@ -561,6 +561,65 @@ class SignalChannelTest {
     }
 
     @Test
+    fun `a batch stands in for every seq it covers`() = runTest {
+        // The whole reason `first` is on the wire. The signals a batch
+        // coalesces were sent once each and will never be sent again
+        // individually, so a receiver that only looked at `seq` would hold the
+        // batch behind a gap nothing was ever going to fill - and the pair
+        // would never hear another candidate.
+        val delivered = mutableListOf<SignalEnvelope>()
+        val channel = channel(deliver = { delivered += it })
+
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        // Seqs 2 and 3 were lost. Their retransmission is one batch.
+        channel.receive(
+            inbound(SignalType.ICE, seq = 3).copy(first = 2, candidates = listOf("candidate:2", "candidate:3")),
+        )
+        runCurrent()
+
+        assertEquals(listOf(1L, 3L), delivered.map { it.seq })
+        assertEquals(3, channel.ackedThrough, "the whole range is accounted for, not just its last seq")
+    }
+
+    @Test
+    fun `a batch whose range starts beyond the gap still waits`() = runTest {
+        val delivered = mutableListOf<SignalEnvelope>()
+        val channel = channel(deliver = { delivered += it })
+
+        channel.receive(
+            inbound(SignalType.ICE, seq = 5).copy(first = 3, candidates = listOf("candidate:3")),
+        )
+        runCurrent()
+        assertTrue(delivered.isEmpty(), "seqs 1 and 2 are still missing")
+
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        channel.receive(inbound(SignalType.ICE, seq = 2, candidate = "candidate:2"))
+        runCurrent()
+
+        assertEquals(listOf(1L, 2L, 5L), delivered.map { it.seq }, "and is released the moment they arrive")
+    }
+
+    @Test
+    fun `a batch already wholly seen is acknowledged and not delivered twice`() = runTest {
+        val sent = mutableListOf<SignalEnvelope>()
+        val delivered = mutableListOf<SignalEnvelope>()
+        val channel = channel(transmit = { sent += it }, deliver = { delivered += it })
+
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        channel.receive(inbound(SignalType.ICE, seq = 2, candidate = "candidate:2"))
+        runCurrent()
+        sent.clear()
+
+        channel.receive(
+            inbound(SignalType.ICE, seq = 2).copy(first = 2, candidates = listOf("candidate:2")),
+        )
+        runCurrent()
+
+        assertEquals(2, delivered.size)
+        assertEquals(SignalType.ACK, sent.single().type)
+    }
+
+    @Test
     fun `a health signal is delivered but never sequenced`() = runTest {
         // Its value is entirely in being current: a stale copy of what is being
         // received right now is worse than none.

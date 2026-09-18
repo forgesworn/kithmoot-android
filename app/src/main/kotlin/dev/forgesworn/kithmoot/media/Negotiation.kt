@@ -1,7 +1,10 @@
 package dev.forgesworn.kithmoot.media
 
+import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.normaliseHex
+import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -138,6 +141,35 @@ interface PeerConnectionHandle {
      * sent nothing at all.
      */
     fun setSlotTrack(mid: String, media: Any?): Boolean = false
+
+    // --- generations and health, profile 2 (sections 3.3 and 3.4) ------------
+
+    /**
+     * Gather again on the connection that exists.
+     *
+     * Inside the generation: the m-lines, their order and their mids do not
+     * move, so the far end applies the offer that follows to the session it
+     * already has. A rebuild at the next generation is a different act with a
+     * different cost, and the health ladder is what decides to take it.
+     */
+    fun restartIce(): Boolean = false
+
+    /** The media sections this connection holds, in m-line order. Named by mid,
+     *  because that is the name both ends of a pair agree on. */
+    fun transceivers(): List<String> = emptyList()
+
+    /** The description this connection currently holds locally, if any. What a
+     *  retransmitted offer or answer is re-sent as. */
+    fun localDescription(): SdpData? = null
+
+    /**
+     * One sample of the counters section 3.4 reads.
+     *
+     * Whether media is moving is the only honest evidence that a direction is
+     * alive: a connection can be `connected`, the signalling quiet, every object
+     * healthy, and one direction carrying nothing at all.
+     */
+    suspend fun getStats(): List<RtpProgress> = emptyList()
 }
 
 /**
@@ -168,6 +200,32 @@ class PeerLink(
      * build before this one - keeps the add-and-remove path it has always had.
      */
     val callProfile: Int = 1,
+    /** Where the reliable channel's retransmission timers live. Profile 2
+     *  only, and required there. */
+    private val scope: CoroutineScope? = null,
+    /**
+     * This connection has to be thrown away and a new one opened.
+     *
+     * Only the caller can: it owns the factory. `open` says whether the new
+     * link should open a generation of its own, or wait and answer - a higher
+     * generation is adopted by answering the offer that announced it, which the
+     * far end is still retransmitting because this side deliberately did not
+     * acknowledge it.
+     */
+    private val onRebuild: (suspend (gen: Long, open: Boolean) -> Unit)? = null,
+    /**
+     * A profile-1 shaped signal arrived from a device believed to speak profile
+     * 2 - which is what a far end reloading into an old build looks like
+     * (section 2.3). Nothing here can serve it: it has no generation to belong
+     * to and no connection id to be addressed at.
+     */
+    private val onDowngrade: (suspend () -> Unit)? = null,
+    /** A `health` signal arrived: what the far end is receiving from us. */
+    private val onHealthSignal: (suspend (Map<String, String>) -> Unit)? = null,
+    /** Defaults are the spec's; tests shorten them. */
+    private val signalRetry: SignalRetryTiming = SignalRetryTiming(),
+    /** Test seam: where connection instance ids come from. */
+    private val newConnectionId: () -> String = ::randomConnectionId,
 ) {
 
     /**
@@ -259,6 +317,44 @@ class PeerLink(
     var unexpectedNegotiations: Int = 0
         private set
 
+    // --- generations, profile 2 (section 3.3) -------------------------------
+
+    /**
+     * The generation this pair is on.
+     *
+     * H2 is a pair whose two ends disagree about which connection they are on,
+     * and nothing on the profile-1 wire can say: an offer describes a session,
+     * not *which* session. A generation is the missing sentence. Zero until one
+     * is opened.
+     */
+    var generation: Long = 0
+        private set
+
+    /** This side's connection instance id, fresh per connection and never
+     *  reused. Empty until a generation is open. */
+    var connectionId: String = ""
+        private set
+
+    /** The highest generation ever seen from the far end, adopted or not. A
+     *  rebuild goes above both sides' highest, so a number is never reused
+     *  whatever order the two sides rebuilt in. */
+    var lastRemoteGeneration: Long = 0
+        private set
+
+    /** The reliable channel for this connection: sequence numbers, cumulative
+     *  acknowledgement and retransmission until acknowledged. */
+    private var channel: SignalChannel? = null
+
+    /** The seq of our outstanding offer, when it was the one that opened the
+     *  generation. Together with the channel's outstanding offer it is the
+     *  glare column of section 3.3's table. */
+    private var openingOfferSeq: Long? = null
+
+    private var downgraded = false
+
+    /** How many signals are still waiting to be acknowledged. Diagnostics. */
+    val queueDepth: Int get() = channel?.queueDepth ?: 0
+
     /**
      * Open a generation: four fixed slots, this device's tracks in them, and an
      * offer carrying the map from mid to role.
@@ -276,8 +372,11 @@ class PeerLink(
      * and a profile-2 receiver resolves a track's role from the slot map, never
      * from the `a=msid` the offer happened to carry.
      */
-    suspend fun openSlots(tracks: List<SlotTrack>) = operations.withLock {
-        check(callProfile == 2) { "fixed media slots are profile 2 only" }
+    suspend fun openSlots(
+        tracks: List<SlotTrack>,
+        gen: Long = nextGeneration(generation, lastRemoteGeneration),
+    ) = operations.withLock {
+        check(callProfile == CALL_PROFILE_2) { "fixed media slots are profile 2 only" }
         if (slots != null) return@withLock
         localTracks = tracks
         val set = SlotSet.open(connection)
@@ -289,10 +388,116 @@ class PeerLink(
             slots = set
             slotMap = map
             set.apply(tracks)
-            send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, slots = map))
+            generation = gen
+            connectionId = newConnectionId()
+            val opened = openChannel(peerConn = null, expectedSeq = 1)
+            channel = opened
+            openingOfferSeq =
+                opened.send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, slots = map))
         } finally {
             makingOffer = false
         }
+    }
+
+    /**
+     * Gather again on the connection that exists, and say so.
+     *
+     * Inside the generation: the m-lines, their order and their mids do not
+     * move, so the far end applies this to the session it already has. A
+     * rebuild at the next generation is a different act with a different cost,
+     * and the health ladder is what decides to take it.
+     */
+    suspend fun restartIce() = operations.withLock {
+        val open = channel ?: return@withLock
+        if (!connection.restartIce()) return@withLock
+        try {
+            makingOffer = true
+            val local = connection.setLocalDescription()
+            open.send(
+                SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, restart = true),
+            )
+            // Not an opening offer: nothing was created for it, so the glare
+            // that follows one is an ordinary rollback rather than A1's case.
+            openingOfferSeq = null
+        } finally {
+            makingOffer = false
+        }
+        Unit
+    }
+
+    /**
+     * Tell the far end which of its slots this side is receiving nothing on.
+     *
+     * Unreliable on purpose: what is being received *right now* is the whole
+     * of a health signal's value, and a stale copy of it is worse than none.
+     */
+    suspend fun reportHealth(rx: Map<String, String>) {
+        channel?.sendUnreliable(SignalEnvelope(remoteDevice, SignalType.HEALTH, roomId, rx = rx))
+    }
+
+    /**
+     * Take a slot's track out and put it back.
+     *
+     * The repair for the one case RTCP cannot express: a single slot the far
+     * end says it is receiving nothing on, while the transport carrying it is
+     * plainly fine.
+     */
+    suspend fun refreshSlot(role: String) = operations.withLock {
+        val set = slots ?: return@withLock
+        val mid = set.midOf(role) ?: return@withLock
+        val track = set.track(role) ?: return@withLock
+        connection.setSlotTrack(mid, null)
+        connection.setSlotTrack(mid, track.media)
+        Unit
+    }
+
+    /** One sample of the counters the health ladder reads. */
+    suspend fun stats(): List<RtpProgress> = connection.getStats()
+
+    /** The relay transport came back after a half-open socket. Everything
+     *  unacknowledged goes out at once rather than waiting out a backoff step
+     *  armed before the wire existed. */
+    suspend fun reconnected() {
+        channel?.reconnected()
+    }
+
+    private fun openChannel(peerConn: String?, expectedSeq: Long): SignalChannel {
+        val timers = checkNotNull(scope) { "a profile-2 link needs a scope for its retransmission timers" }
+        return SignalChannel(
+            gen = generation,
+            conn = connectionId,
+            toDevice = remoteDevice,
+            roomId = roomId,
+            scope = timers,
+            transmit = send,
+            // Delivery takes the operations lock; the channel is careful to
+            // call this with none of its own held, so a negotiator that sends
+            // from inside its own delivery cannot deadlock against it.
+            deliver = { body -> operations.withLock { applySignal(body) } },
+            peerConn = peerConn,
+            expectedSeq = expectedSeq,
+            onNewerGeneration = { gen, body ->
+                lastRemoteGeneration = maxOf(lastRemoteGeneration, gen)
+                // Only an offer can be adopted: it is the only signal carrying
+                // a slot map, and without one there is nothing to bind. The
+                // connection is thrown away and the new one answers the offer
+                // the far end is still retransmitting - deliberately never
+                // acknowledged, so it is still coming.
+                if (body.type == SignalType.OFFER && body.slots != null) onRebuild?.invoke(gen, false)
+            },
+            onForeignConnection = { _, _ ->
+                // Our generation, a connection we have never heard of, nothing
+                // outstanding to explain it. Section 3.3 calls that a protocol
+                // error, and going up is the only repair that cannot be argued
+                // with.
+                onRebuild?.invoke(nextGeneration(generation, lastRemoteGeneration), true)
+            },
+            // A re-sent offer or answer goes out as what the connection holds
+            // NOW, under its original seq: same session, same ICE credentials,
+            // and by now carrying every candidate gathered since.
+            localDescription = { type -> connection.localDescription()?.takeIf { it.type == type }?.sdp },
+            timing = signalRetry,
+        )
     }
 
     /**
@@ -326,7 +531,12 @@ class PeerLink(
     }
 
     suspend fun onLocalCandidate(candidate: IceCandidateData) {
-        send(SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire()))
+        val body = SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire())
+        // Through the channel on a profile-2 pair, so a candidate that is lost
+        // is asked for again - batched with every other unacknowledged one, so
+        // a burst of thirty costs one signal rather than thirty (amendment A2).
+        val open = channel
+        if (open != null) open.send(body) else send(body)
     }
 
     /** One inbound signal from the remote device, in the three fields profile 1
@@ -335,16 +545,139 @@ class PeerLink(
         onRemoteSignal(SignalEnvelope(remoteDevice, type, roomId, sdp = sdp, candidate = candidate))
 
     /**
-     * One inbound signal from the remote device. Queued behind whatever this
-     * link is already doing - see [operations].
+     * One inbound signal from the remote device.
      *
      * An arriving body is carried in the same [SignalEnvelope] an outgoing one
      * is, so that a profile-2 field means the same thing in both directions and
      * neither side needs a second shape for it. [SignalEnvelope.toDevice] is
      * not read here: the device an inbound signal came *from* is this link's
      * own [remoteDevice], decided when the wrap was opened.
+     *
+     * On a profile-2 pair this is three steps with the lock held for as little
+     * of them as possible: judge the generation, hand the body to the reliable
+     * channel, and let the channel deliver it back in seq order once it is sure
+     * it is the next one. Profile 1 is unchanged - straight through, under the
+     * lock, exactly as it has always been.
      */
-    suspend fun onRemoteSignal(body: SignalEnvelope) = operations.withLock {
+    suspend fun onRemoteSignal(body: SignalEnvelope) {
+        if (callProfile != CALL_PROFILE_2) {
+            operations.withLock { applySignal(body) }
+            return
+        }
+        if (downgraded) return
+
+        if (body.gen == null) {
+            // Section 2.3: a profile-1 shaped signal from a device believed to
+            // speak profile 2 downgrades the pair. It has no generation to
+            // belong to and no connection id to be addressed at, so nothing
+            // here can serve it and the caller rebuilds legacy-style.
+            if (body.type !in setOf(SignalType.OFFER, SignalType.ANSWER, SignalType.ICE)) return
+            downgraded = true
+            onDowngrade?.invoke()
+            return
+        }
+        lastRemoteGeneration = maxOf(lastRemoteGeneration, body.gen)
+
+        val open = channel
+        if (open == null) {
+            // Nothing open yet: the far end got its offer out before this side
+            // opened anything, which on this client is the ordinary case for
+            // the polite half of every pair. Answering it is cheaper and far
+            // more reliable than opening a generation of our own and then
+            // resolving the glare.
+            if (body.type == SignalType.OFFER && body.slots != null) adoptGeneration(body)
+            return
+        }
+
+        if (body.type == SignalType.OFFER) {
+            val action = operations.withLock {
+                decideOffer(
+                    GenerationInput(
+                        incomingGen = body.gen,
+                        currentGen = generation,
+                        incomingConn = body.conn,
+                        boundConn = open.peerConn,
+                        outstanding = outstanding(open),
+                        polite = polite,
+                        opensGeneration = body.slots != null,
+                    ),
+                )
+            }
+            when (action) {
+                // Impolite, and our own offer is out. Saying nothing is the
+                // answer: the far end is polite and is about to give way.
+                GenerationAction.Ignore -> {
+                    offersIgnored++
+                    return
+                }
+                // A1: a rollback would not release the four transceivers this
+                // side opened, so only discarding the connection gives them up.
+                // The new one answers the offer the far end is still asking
+                // about, because this side never acknowledged it.
+                GenerationAction.RebuildConnection -> {
+                    onRebuild?.invoke(body.gen, false)
+                    return
+                }
+                is GenerationAction.Adopt -> {
+                    onRebuild?.invoke(action.gen, false)
+                    return
+                }
+                is GenerationAction.RebuildGeneration -> {
+                    onRebuild?.invoke(action.gen, true)
+                    return
+                }
+                GenerationAction.Rollback -> {
+                    // In-generation glare. Nothing was created for our offer,
+                    // so A1's reason does not apply and an ordinary rollback is
+                    // both correct and far cheaper than throwing away a
+                    // connection that is carrying media.
+                    val outstandingSeq = open.outstandingOffer
+                    operations.withLock {
+                        connection.rollbackLocalDescription()
+                        collisionsResolved++
+                        haveRemoteDescription = false
+                    }
+                    if (outstandingSeq != null) open.drop(outstandingSeq)
+                    openingOfferSeq = null
+                }
+                // `sync` is the channel's to send, and it rate limits it;
+                // `negotiate` simply falls through to the ordinary path.
+                GenerationAction.Sync, GenerationAction.Negotiate -> Unit
+            }
+        }
+
+        open.receive(body)
+    }
+
+    /** What this side is currently owed an answer for - the glare column of
+     *  section 3.3's table. */
+    private fun outstanding(open: SignalChannel): OutstandingOffer {
+        val seq = open.outstandingOffer ?: return OutstandingOffer.NONE
+        return if (seq == openingOfferSeq) OutstandingOffer.OPENING else OutstandingOffer.IN_GENERATION
+    }
+
+    /**
+     * Answer a generation the far end opened, on a connection that has no
+     * transceivers of its own.
+     *
+     * The channel is created first and the offer fed through it, so its seq is
+     * acknowledged and ordered exactly as every later signal's is - and so the
+     * far end stops retransmitting it.
+     */
+    private suspend fun adoptGeneration(body: SignalEnvelope) {
+        val gen = body.gen ?: return
+        val fresh = operations.withLock {
+            if (channel != null) return@withLock null
+            generation = gen
+            connectionId = newConnectionId()
+            openChannel(peerConn = body.conn, expectedSeq = body.seq ?: 1).also { channel = it }
+        } ?: return
+        fresh.receive(body)
+    }
+
+    /** One signal, in order and deduplicated, ready to be acted on. Called with
+     *  [operations] held. */
+    private suspend fun applySignal(body: SignalEnvelope) {
         when (body.type) {
             SignalType.OFFER, SignalType.ANSWER ->
                 body.sdp?.let { onRemoteDescription(SdpData(body.type, it), body) }
@@ -352,6 +685,7 @@ class PeerLink(
                 val wire = body.candidates ?: listOfNotNull(body.candidate)
                 for (one in wire) IceCandidateData.fromWire(one)?.let { onRemoteCandidate(it) }
             }
+            SignalType.HEALTH -> body.rx?.let { onHealthSignal?.invoke(it) }
             else -> Unit
         }
     }
@@ -402,7 +736,12 @@ class PeerLink(
         if (description.type == SignalType.OFFER) {
             bindSlots(body)
             val answer = connection.setLocalDescription()
-            send(SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp, re = body.seq))
+            val reply = SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp, re = body.seq)
+            // Reliably on a profile-2 pair. A lost answer was the failure that
+            // left a pair blind for the rest of a call, because profile 1 sent
+            // one exactly once and never again (H1).
+            val open = channel
+            if (open != null) open.send(reply) else send(reply)
         }
 
         flushCandidates()
@@ -455,6 +794,13 @@ class PeerLink(
     }
 
     fun close() {
+        // The channel goes first, so nothing in flight for this connection can
+        // reach whatever replaces it: a retransmission addressed to a `conn`
+        // that no longer exists, or a candidate for a description nobody holds.
+        // "A rebuild offer never reaches the old connection" is a property of
+        // this order.
+        channel?.close()
+        channel = null
         pendingCandidates.clear()
         connection.close()
     }
@@ -497,3 +843,14 @@ data class SignalEnvelope(
     /** On a `health` signal: what the sender is receiving, per role. */
     val rx: Map<String, String>? = null,
 )
+
+/**
+ * A connection instance id: 16 lower-case hex, fresh per peer connection and
+ * never reused (section 2.2).
+ *
+ * It is what lets the two ends of a pair tell "this is about the connection we
+ * are both on" from "this is about one of us that no longer exists", which
+ * profile 1 cannot say at all.
+ */
+internal fun randomConnectionId(): String =
+    Entropy.bytes(8).joinToString("") { "%02x".format(it) }

@@ -422,6 +422,11 @@ class RoomSession(
                 updatedAt = now(),
                 reply = reply,
                 left = left,
+                // Absent unless this build is switched on, so the wire does not
+                // change for anybody until it is. Saying it is what lets a far
+                // end open a profile-2 pair with this device; a pair is profile
+                // 2 only when both entries say so.
+                callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
             ).also { roster[identity.devicePubkey] = it }
         }
         transport.publish(

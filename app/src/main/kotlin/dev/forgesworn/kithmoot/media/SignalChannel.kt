@@ -242,10 +242,16 @@ class SignalChannel(
     suspend fun receive(body: SignalEnvelope) {
         val outcome = synchronized(lock) { receiveLocked(body) } ?: return
         for (envelope in outcome.transmit) transmit(envelope)
+        // Armed before the delivery, not after it. The negotiator usually
+        // answers from inside its own delivery, and that answer stamps the
+        // acknowledgement on itself and cancels this timer - which is the whole
+        // reason the common case costs no `ack` signal at all. Arming
+        // afterwards would send one anyway, two hundred milliseconds behind an
+        // answer that already carried it.
+        if (outcome.armAck) armAck()
         for (envelope in outcome.deliver) deliver(envelope)
         outcome.newerGeneration?.let { onNewerGeneration?.invoke(it, body) }
         outcome.foreignConnection?.let { onForeignConnection?.invoke(it, body) }
-        if (outcome.armAck) armAck()
     }
 
     /**
@@ -397,6 +403,29 @@ class SignalChannel(
             return outcome
         }
 
+        // A batch stands in for every seq from `first` to `seq`, which is the
+        // whole reason `first` is on the wire: the signals it coalesces were
+        // sent once each and will never be sent again individually, so a
+        // receiver that only looked at `seq` would hold the batch behind a gap
+        // that nothing was ever going to fill. It is released as soon as its
+        // range reaches what this side is waiting for.
+        val first = body.first
+        if (first != null && first in 1..seq) {
+            if (seq < expected) {
+                if (expected - 1 > 0) outcome.transmit += stampLocked(bare(SignalType.ACK))
+                return outcome
+            }
+            if (first > expected) {
+                buffer[seq] = body
+                trimBufferLocked()
+                return outcome
+            }
+            releaseLocked(body, outcome)
+            drainBufferLocked(outcome)
+            outcome.armAck = true
+            return outcome
+        }
+
         // A duplicate means our acknowledgement was lost - the far end would
         // not be asking again otherwise - so the repair is to acknowledge at
         // once rather than wait out the delay and watch it ask a third time.
@@ -407,10 +436,7 @@ class SignalChannel(
 
         if (seq > expected) {
             buffer[seq] = body
-            while (buffer.size > timing.bufferLimit) {
-                val oldest = buffer.keys.firstOrNull() ?: break
-                buffer.remove(oldest)
-            }
+            trimBufferLocked()
             // Deliberately not acknowledged: the acknowledgement is cumulative,
             // so acknowledging a gap would claim the missing signal arrived.
             // The far end keeps retransmitting the hole, which is what is
@@ -419,12 +445,27 @@ class SignalChannel(
         }
 
         releaseLocked(body, outcome)
-        while (true) {
-            val next = buffer.remove(expected) ?: break
-            releaseLocked(next, outcome)
-        }
+        drainBufferLocked(outcome)
         outcome.armAck = true
         return outcome
+    }
+
+    /** Release everything the buffer holds that is now next in turn. */
+    private fun drainBufferLocked(outcome: Outcome) {
+        while (true) {
+            val next = buffer.entries.firstOrNull { (seq, body) ->
+                seq == expected || (body.first?.let { it <= expected && seq >= expected } == true)
+            } ?: break
+            buffer.remove(next.key)
+            releaseLocked(next.value, outcome)
+        }
+    }
+
+    private fun trimBufferLocked() {
+        while (buffer.size > timing.bufferLimit) {
+            val oldest = buffer.keys.firstOrNull() ?: break
+            buffer.remove(oldest)
+        }
     }
 
     /**

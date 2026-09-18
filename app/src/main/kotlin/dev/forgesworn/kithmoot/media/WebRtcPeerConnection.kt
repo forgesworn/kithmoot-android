@@ -99,6 +99,57 @@ class WebRtcPeerConnection(private val connection: PeerConnection, private val o
         action(transceiver)
     }.getOrDefault(false)
 
+    override fun localDescription(): SdpData? = runCatching {
+        connection.localDescription?.let { SdpData(it.type.canonicalForm(), it.description) }
+    }.getOrNull()
+
+    override fun restartIce(): Boolean = runCatching { connection.restartIce(); true }.getOrDefault(false)
+
+    override fun transceivers(): List<String> =
+        runCatching { connection.transceivers.mapNotNull { it.mid } }.getOrDefault(emptyList())
+
+    /**
+     * One statistics report, reduced to the two counters the ladder reads.
+     *
+     * Per media section by `mid`, which libwebrtc puts on both `inbound-rtp`
+     * and `remote-inbound-rtp`; a report that omits it is skipped rather than
+     * guessed at, because attributing a counter to the wrong slot would have
+     * the ladder rebuild a connection that was working.
+     *
+     * Inbound progress is `framesDecoded` for video and `packetsReceived` for
+     * audio - packets alone would count a stream that is arriving and failing
+     * to decode as healthy. Outbound is `remote-inbound-rtp`: the far end's own
+     * report of what it is getting from us, which is the feedback path amendment
+     * A3 chose, and `roundTripTimeMeasurements` is the field that advances only
+     * while it is genuinely hearing us.
+     */
+    override suspend fun getStats(): List<RtpProgress> = suspendCancellableCoroutine { continuation ->
+        connection.getStats { report ->
+            val progress = report.statsMap.values.mapNotNull { stats ->
+                val mid = stats.members["mid"] as? String ?: return@mapNotNull null
+                when (stats.type) {
+                    "inbound-rtp" -> {
+                        val frames = number(stats.members["framesDecoded"])
+                        val counter = frames ?: number(stats.members["packetsReceived"]) ?: return@mapNotNull null
+                        RtpProgress(mid, RtpFlow.INBOUND, counter)
+                    }
+                    "remote-inbound-rtp" -> {
+                        val counter = number(stats.members["roundTripTimeMeasurements"])
+                            ?: number(stats.members["packetsReceived"])
+                            ?: stats.timestampUs.toLong()
+                        RtpProgress(mid, RtpFlow.REMOTE_INBOUND, counter)
+                    }
+                    else -> null
+                }
+            }
+            continuation.resume(progress)
+        }
+    }
+
+    /** libwebrtc hands counters back as whichever boxed number the native side
+     *  chose, so every one of them is read the same way. */
+    private fun number(value: Any?): Long? = (value as? Number)?.toLong()
+
     override fun close() {
         runCatching { connection.close() }
         runCatching { connection.dispose() }

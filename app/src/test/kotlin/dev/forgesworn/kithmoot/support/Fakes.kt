@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.support
 import dev.forgesworn.kithmoot.media.IceCandidateData
 import dev.forgesworn.kithmoot.media.PeerConnectionHandle
 import dev.forgesworn.kithmoot.media.SdpData
+import dev.forgesworn.kithmoot.media.RtpProgress
 import dev.forgesworn.kithmoot.media.SlotKind
 import dev.forgesworn.kithmoot.media.SignalType
 import dev.forgesworn.kithmoot.media.SignalingState
@@ -252,6 +253,27 @@ class FakePeerConnection : PeerConnectionHandle {
             appendLine("a=sendrecv")
         }
     }
+
+    /** How many times ICE was restarted on this connection. */
+    var iceRestarts: Int = 0
+        private set
+
+    override fun restartIce(): Boolean {
+        iceRestarts++
+        // A restart leaves the connection able to offer again, exactly as the
+        // real one does.
+        if (state == SignalingState.CLOSED) return false
+        return true
+    }
+
+    override fun transceivers(): List<String> = slotTransceivers.indices.map { it.toString() }
+
+    override fun localDescription(): SdpData? = localDescriptions.lastOrNull()
+
+    /** Counters the health ladder reads, scripted by the test. */
+    var stats: List<RtpProgress> = emptyList()
+
+    override suspend fun getStats(): List<RtpProgress> = stats
 
     override fun signalingState(): SignalingState = state
 
