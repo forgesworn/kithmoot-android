@@ -194,6 +194,13 @@ class BackgroundProcessor(
                 } catch (e: Exception) {
                     noteFailure(e)
                     null
+                } catch (e: LinkageError) {
+                    // A class or method the segmenter's library expected is
+                    // not there. That is an Error, not an Exception, and
+                    // uncaught it takes the whole app down with it; caught,
+                    // it is one more failed frame and the room stays hidden.
+                    noteFailure(e)
+                    null
                 }
                 if (taken == null) {
                     busy.set(false)
@@ -210,6 +217,8 @@ class BackgroundProcessor(
                             try { out.onFrame(made) } finally { made.release() }
                         }
                     } catch (e: Exception) {
+                        noteFailure(e)
+                    } catch (e: LinkageError) {
                         noteFailure(e)
                     } finally {
                         taken.release()
@@ -235,7 +244,7 @@ class BackgroundProcessor(
         (worker as? java.util.concurrent.ExecutorService)?.shutdown()
     }
 
-    private fun noteFailure(e: Exception? = null) {
+    private fun noteFailure(e: Throwable? = null) {
         failures += 1
         Log.w(TAG, "the background could not be drawn (${failures} in a row)", e)
         if (failures == MAX_CONSECUTIVE_FAILURES) {
