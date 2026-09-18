@@ -2,6 +2,27 @@
 
 The public website currently offers production-signed 0.6.6 (29), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.7 rejoin, call membership, rotation and no telemetry (candidate)
+
+Version 0.6.7 (30). Not yet signed or published; the website still offers 0.6.6.
+What it carries: entering a room is never silently dropped after a Leave, and
+media starts when the room's epoch becomes active instead of on a one-shot
+30 second retry; Android publishes and reads the roster's call membership, so
+"on the call" means the same thing on every client and a desktop offers "Join
+call" against a phone that is on one; the app turns with the phone all four
+ways, honouring the system rotation lock; Google's datatransport uploader is
+excluded from the app, with inert stand-ins under the same class names and a
+`verifyNoDatatransportTelemetry` check wired into `check`, because MediaPipe
+0.10.35 and the ML Kit barcode scanner both reported usage through it; a link
+error in the segmenter fails the frame rather than the app. New `KithMootJoin`
+log lines cover the join path.
+
+Unproven until it runs on a handset: the segmenter with the stand-ins (the
+arm64 emulator dies of SIGILL inside MediaPipe on main and on this build
+alike, so it can prove nothing either way); QR sign-in with ML Kit's uploader
+removed; the four rotations by eye. First thing to do after installing: turn
+background replace on once, and scan one QR code.
+
 ## 0.6.6 one-way audio release
 
 Published on 18 September 2026 from `639bc71`: owner-signed with the production key and lineage (v3 only), APK SHA-256 `3c894eb69f106b7987726e3b7e04980057cecf0055759d6995bcfa5ffd918fcd`, passed the web repository's publication verifier, installed in place over 0.6.5 on one Pixel 10 Pro XL, offered on the website and as GitHub pre-release `v0.6.6`.
