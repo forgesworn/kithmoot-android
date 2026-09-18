@@ -42,7 +42,14 @@ internal fun remoteTrackIds(sdp: String): Map<String, String> {
  * the transceiver already says so even though the receiver and its track
  * linger. See `RemoteTrack` and `resolveRemoteByRole`.
  */
-internal fun remoteTracksFor(device: String, connection: org.webrtc.PeerConnection, received: List<org.webrtc.MediaStreamTrack>): List<RemoteTrack> {
+internal fun remoteTracksFor(
+    device: String,
+    connection: org.webrtc.PeerConnection,
+    received: List<org.webrtc.MediaStreamTrack>,
+    /** The generation-opening offer's mid-to-role map, on a profile-2 pair.
+     *  Null on profile 1, where a role comes from the roster advert instead. */
+    slots: Map<String, String>? = null,
+): List<RemoteTrack> {
     val ids = remoteTrackIds(connection.remoteDescription?.description ?: return emptyList())
     return connection.transceivers.mapNotNull { transceiver ->
         val advertised = ids[transceiver.mid] ?: return@mapNotNull null
@@ -53,6 +60,13 @@ internal fun remoteTracksFor(device: String, connection: org.webrtc.PeerConnecti
         val direction = transceiver.currentDirection
         val receiving = direction == org.webrtc.RtpTransceiver.RtpTransceiverDirection.SEND_RECV ||
             direction == org.webrtc.RtpTransceiver.RtpTransceiverDirection.RECV_ONLY
-        RemoteTrack(device = device, track = track, trackId = advertised, mid = transceiver.mid, receiving = receiving)
+        RemoteTrack(
+            device = device,
+            track = track,
+            trackId = advertised,
+            mid = transceiver.mid,
+            receiving = receiving,
+            role = slots?.get(transceiver.mid),
+        )
     }
 }

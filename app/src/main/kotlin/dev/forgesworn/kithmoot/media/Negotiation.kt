@@ -102,6 +102,42 @@ interface PeerConnectionHandle {
     suspend fun addIceCandidate(candidate: IceCandidateData)
 
     fun close()
+
+    // --- fixed media slots, profile 2 (call reliability spec section 3.1) ----
+    //
+    // Mid-keyed rather than transceiver-keyed, and every native wrapper's life
+    // begins and ends inside one of these calls. See the header of
+    // `media/PeerSlots.kt` for why holding one would be a use-after-free.
+    //
+    // Defaulted so that a connection written before any of this existed - a
+    // profile-1 fake, or an adapter that has not been taught - simply cannot
+    // carry slots, rather than having to say so separately.
+
+    /**
+     * Add a `sendrecv` transceiver of this kind, in this device's one stream.
+     *
+     * Only the side that opens a generation may call this: amendment A1.
+     */
+    fun addSlotTransceiver(kind: SlotKind): Unit =
+        throw UnsupportedOperationException("this connection cannot carry fixed media slots")
+
+    /**
+     * Widen the transceiver at this mid to `sendrecv`.
+     *
+     * The answerer's one window, between applying the offer and describing the
+     * answer: an answer may only ever narrow what it describes.
+     */
+    fun setSlotDirection(mid: String): Boolean = false
+
+    /**
+     * Swap the track a slot is sending, without renegotiating.
+     *
+     * `RtpSender.setTrack(track, false)`: the sender does not take ownership,
+     * because the track belongs to `LocalMedia` and outlives any one
+     * connection. Null empties the slot, which is how a refused audience is
+     * sent nothing at all.
+     */
+    fun setSlotTrack(mid: String, media: Any?): Boolean = false
 }
 
 /**
@@ -122,6 +158,16 @@ class PeerLink(
     private val connection: PeerConnectionHandle,
     private val roomId: String,
     private val send: suspend (SignalEnvelope) -> Unit,
+    /**
+     * 1 or 2, decided per pair and never changed after construction.
+     *
+     * Profile 2 is fixed media slots (section 3.1): four `sendrecv`
+     * transceivers for the life of the connection, and every media change a
+     * `setTrack` rather than a negotiation. A pair is profile 2 only when both
+     * ends say so in the roster, so an old far end - including every Android
+     * build before this one - keeps the add-and-remove path it has always had.
+     */
+    val callProfile: Int = 1,
 ) {
 
     /**
@@ -180,7 +226,96 @@ class PeerLink(
     var offersIgnored: Int = 0
         private set
 
+    // --- fixed media slots, profile 2 ---------------------------------------
+
+    /** The four slots of this connection, once a generation has been opened by
+     *  one side or the other. Null on a profile-1 link, always. */
+    var slots: SlotSet? = null
+        private set
+
+    /**
+     * The generation-opening offer's map from mid to slot role.
+     *
+     * Held beside [slots] because a receiving track's role is read off it, and
+     * on the answering side the tracks arrive while the offer is being applied -
+     * before there is anything to bind the slots to.
+     */
+    var slotMap: Map<String, String>? = null
+        private set
+
+    /** What this device is currently publishing to this peer. */
+    private var localTracks: List<SlotTrack> = emptyList()
+
+    /**
+     * Renegotiations the connection asked for that this class did not want.
+     *
+     * Expected to stay zero on a profile-2 connection once its generation is
+     * open: every media change is a `setTrack`, which raises nothing. Anything
+     * else is a code path calling `addTrack` on a slotted connection, which
+     * would grow the m-lines - the risk section 9 of the spec names. Counted
+     * only after the opening offer has gone out, because libwebrtc raises one
+     * for the four transceivers themselves and that one is ours.
+     */
+    var unexpectedNegotiations: Int = 0
+        private set
+
+    /**
+     * Open a generation: four fixed slots, this device's tracks in them, and an
+     * offer carrying the map from mid to role.
+     *
+     * The slots are created here and only here. An answerer that created its
+     * own could not associate them with the offerer's m-lines, so the far end
+     * would offer four more and the pair would carry eight for the rest of the
+     * call. That is amendment A1, and it is why there is no shared "make the
+     * connection" helper between this and the answering path.
+     *
+     * The tracks go in **after** the local description rather than before it,
+     * which is where this differs from the web client. A slot is named by its
+     * mid here, and a mid is not real until the description that carries it has
+     * been applied. Nothing is lost by the order: `setTrack` never renegotiates,
+     * and a profile-2 receiver resolves a track's role from the slot map, never
+     * from the `a=msid` the offer happened to carry.
+     */
+    suspend fun openSlots(tracks: List<SlotTrack>) = operations.withLock {
+        check(callProfile == 2) { "fixed media slots are profile 2 only" }
+        if (slots != null) return@withLock
+        localTracks = tracks
+        val set = SlotSet.open(connection)
+        try {
+            makingOffer = true
+            val local = connection.setLocalDescription()
+            check(set.assign(local.sdp)) { "the opening offer does not describe exactly four media slots" }
+            val map = checkNotNull(set.map()) { "the connection assigned no mids to its media slots" }
+            slots = set
+            slotMap = map
+            set.apply(tracks)
+            send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, slots = map))
+        } finally {
+            makingOffer = false
+        }
+    }
+
+    /**
+     * Publish this set of tracks to this peer.
+     *
+     * The whole of D1: a camera toggle, a share, a microphone pipeline swap and
+     * an audience narrowing are all the same act, none of them is a negotiation,
+     * and so none of them has an answer that can be lost.
+     */
+    suspend fun applyTracks(tracks: List<SlotTrack>) = operations.withLock {
+        localTracks = tracks
+        slots?.apply(tracks)
+        Unit
+    }
+
     suspend fun onNegotiationNeeded() = operations.withLock {
+        if (callProfile == 2) {
+            // Deliberately not an offer. The only negotiation a slotted
+            // connection ever starts is a generation or an ICE restart, and
+            // both are explicit.
+            if (slots != null) unexpectedNegotiations++
+            return@withLock
+        }
         try {
             makingOffer = true
             val local = connection.setLocalDescription()
@@ -194,17 +329,34 @@ class PeerLink(
         send(SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire()))
     }
 
-    /** One inbound signal from the remote device. Queued behind whatever this
-     *  link is already doing - see [operations]. */
-    suspend fun onRemoteSignal(type: String, sdp: String?, candidate: String?) = operations.withLock {
-        when (type) {
-            SignalType.OFFER, SignalType.ANSWER -> if (sdp != null) onRemoteDescription(SdpData(type, sdp))
-            SignalType.ICE -> if (candidate != null) IceCandidateData.fromWire(candidate)?.let { onRemoteCandidate(it) }
+    /** One inbound signal from the remote device, in the three fields profile 1
+     *  carries. */
+    suspend fun onRemoteSignal(type: String, sdp: String? = null, candidate: String? = null) =
+        onRemoteSignal(SignalEnvelope(remoteDevice, type, roomId, sdp = sdp, candidate = candidate))
+
+    /**
+     * One inbound signal from the remote device. Queued behind whatever this
+     * link is already doing - see [operations].
+     *
+     * An arriving body is carried in the same [SignalEnvelope] an outgoing one
+     * is, so that a profile-2 field means the same thing in both directions and
+     * neither side needs a second shape for it. [SignalEnvelope.toDevice] is
+     * not read here: the device an inbound signal came *from* is this link's
+     * own [remoteDevice], decided when the wrap was opened.
+     */
+    suspend fun onRemoteSignal(body: SignalEnvelope) = operations.withLock {
+        when (body.type) {
+            SignalType.OFFER, SignalType.ANSWER ->
+                body.sdp?.let { onRemoteDescription(SdpData(body.type, it), body) }
+            SignalType.ICE -> {
+                val wire = body.candidates ?: listOfNotNull(body.candidate)
+                for (one in wire) IceCandidateData.fromWire(one)?.let { onRemoteCandidate(it) }
+            }
             else -> Unit
         }
     }
 
-    private suspend fun onRemoteDescription(description: SdpData) {
+    private suspend fun onRemoteDescription(description: SdpData, body: SignalEnvelope) {
         val readyForOffer = !makingOffer &&
             (connection.signalingState() == SignalingState.STABLE || settingRemoteAnswerPending)
         val offerCollision = description.type == SignalType.OFFER && !readyForOffer
@@ -248,11 +400,29 @@ class PeerLink(
         // silently for good, where a candidate that is never applied costs one
         // path out of several.
         if (description.type == SignalType.OFFER) {
+            bindSlots(body)
             val answer = connection.setLocalDescription()
-            send(SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp))
+            send(SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp, re = body.seq))
         }
 
         flushCandidates()
+    }
+
+    /**
+     * Adopt the transceivers the offer just created, by the map it carried.
+     *
+     * Between applying the offer and describing the answer, and nowhere else:
+     * a remote offer creates its transceivers `recvonly`, and an answer can
+     * only ever narrow what it describes, so a slot not widened here is a slot
+     * this side can never send on for the life of the connection.
+     */
+    private fun bindSlots(body: SignalEnvelope) {
+        if (callProfile != 2 || slots != null) return
+        val offered = body.slots ?: return
+        val set = SlotSet.bind(connection, offered) ?: return
+        slots = set
+        slotMap = offered
+        set.apply(localTracks)
     }
 
     private suspend fun onRemoteCandidate(candidate: IceCandidateData) {

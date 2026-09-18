@@ -250,6 +250,19 @@ class RoomSession(
      */
     val agentDevices: StateFlow<Set<String>> = _agentDevices.asStateFlow()
 
+    private val _profileTwoDevices = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Every remote device whose roster entry says it speaks call profile 2:
+     * fixed media slots, reliable signalling and pair health.
+     *
+     * Only the exact number 2 counts (call reliability spec section 2.1), and
+     * absence means profile 1, which is every client from before this work and
+     * the honest default for anything that does not say. The media engine reads
+     * it per pair; a pair is profile 2 only when both ends say so.
+     */
+    val profileTwoDevices: StateFlow<Set<String>> = _profileTwoDevices.asStateFlow()
+
     private val _localRoles = MutableStateFlow(LocalRoles())
     val localRoles: StateFlow<LocalRoles> = _localRoles.asStateFlow()
 
@@ -716,6 +729,7 @@ class RoomSession(
         _remoteDevices.value = remote.map { it.device }.toSet()
         val agentParticipants = grouped.filter { it.agent }.map { it.participant }.toSet()
         _agentDevices.value = remote.filter { it.participant in agentParticipants }.map { it.device }.toSet()
+        _profileTwoDevices.value = remote.filter { it.callProfile == CALL_PROFILE_2 }.map { it.device }.toSet()
         val me = grouped.firstOrNull { it.participant == identity.participant }
         _localRoles.value = LocalRoles(
             holdsMic = me?.micDevice == identity.devicePubkey,

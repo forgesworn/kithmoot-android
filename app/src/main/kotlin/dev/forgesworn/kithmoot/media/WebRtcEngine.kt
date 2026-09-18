@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
+import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
+import dev.forgesworn.kithmoot.session.CALL_PROFILE_2_ENABLED
 import dev.forgesworn.kithmoot.session.RoomSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +52,18 @@ data class RemoteTrack(
      *  linger. Defaults true so a track discovered by an older path (still
      *  possible during the transition) is not silently dropped. */
     val receiving: Boolean = true,
+    /**
+     * The slot this track arrived in, read off the generation-opening offer's
+     * `slots` map by [mid].
+     *
+     * Only ever set on a profile-2 pair, and there it is the whole of
+     * receive-side role resolution (spec section 4): a mid agrees on both ends
+     * of a pair in every Unified Plan implementation, where a sender's `a=msid`
+     * in a fixed slot is minted per transceiver and so never matches the track
+     * id the roster advertised. Null on profile 1, where the advert is still
+     * the only thing that ties a receiver to a slot.
+     */
+    val role: String? = null,
 )
 
 /**
@@ -147,7 +161,7 @@ class WebRtcEngine(
         scope.launch {
             session.signals.collect { signal ->
                 try {
-                    linkFor(signal.from)?.onRemoteSignal(signal.body.type, signal.body.sdp, signal.body.candidate)
+                    linkFor(signal.from)?.onRemoteSignal(inboundEnvelope(signal.from, signal.body))
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
                     // One failed negotiation must not cancel every other device's media collectors.
@@ -225,15 +239,47 @@ class WebRtcEngine(
         }
 
         _connections.update { it + (device to "connecting") }
-        val managed = ManagedLink(device)
+        // A pair is profile 2 only when both ends say so: this build behind its
+        // own switch, the far end in its roster entry. Either side silent and
+        // the pair keeps the add-and-remove path it has always had, which is
+        // what every client before this one speaks.
+        val profileTwo = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value
+        val managed = ManagedLink(device, profileTwo)
         val connection = factory.createPeerConnection(configuration, managed.observer)
-            ?: throw IllegalStateException("could not create a peer connection to $device")
+            ?: throw IllegalStateException("could not create a peer connection to \$device")
         managed.attach(connection)
         // Judged per link rather than per publish, so a device that arrives
         // after the rule was set is judged by the same rule.
-        for (track in tracksFor(device)) managed.addLocalTrack(track)
+        managed.syncLocalTracks(tracksFor(device))
         return managed
     }
+
+    /**
+     * An arriving body, in the shape the negotiation machine reads.
+     *
+     * The mirror of [sendEnvelope], field for field. [SignalEnvelope.toDevice]
+     * carries the device it came FROM here, which is the device this link is
+     * to; nothing downstream reads it, and naming the pair either way names the
+     * same pair.
+     */
+    private fun inboundEnvelope(from: String, body: SignalBody) = SignalEnvelope(
+        toDevice = from,
+        type = body.type,
+        roomId = body.roomId,
+        sdp = body.sdp,
+        candidate = body.candidate,
+        gen = body.gen,
+        conn = body.conn,
+        peerConn = body.peerConn,
+        first = body.first,
+        seq = body.seq,
+        candidates = body.candidates,
+        ack = body.ack,
+        re = body.re,
+        restart = body.restart,
+        slots = body.slots,
+        rx = body.rx,
+    )
 
     /**
      * Say who this device's media may be sent to, and act on it now.
@@ -298,7 +344,13 @@ class WebRtcEngine(
      * One peer connection, its negotiation machine, and the senders we have
      * added to it.
      */
-    private inner class ManagedLink(private val device: String) {
+    private inner class ManagedLink(
+        private val device: String,
+        /** Whether this pair speaks fixed media slots. Decided once, at open,
+         *  from both ends' roster entries; a pair never changes profile
+         *  without the connection being rebuilt. */
+        private val profileTwo: Boolean,
+    ) {
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
@@ -369,7 +421,22 @@ class WebRtcEngine(
                 connection = WebRtcPeerConnection(connection, ::refreshRemoteTracks),
                 roomId = session.room.roomId,
                 send = ::sendEnvelope,
+                callProfile = if (profileTwo) CALL_PROFILE_2 else 1,
             )
+            // Amendment A1: exactly one side creates the four transceivers, and
+            // the impolite side is the one, because politeness is a total order
+            // both ends compute from the pubkeys alone. The polite side builds
+            // an empty connection and answers what arrives, so it never has
+            // four m-lines of its own to give up in a glare. There is no
+            // negotiation about who negotiates.
+            if (profileTwo && !link.polite) {
+                scope.launch {
+                    try {
+                        link.openSlots(tracksFor(device).map { it.slot() })
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { if (!closed) _connections.update { it + (device to "failed") } }
+                }
+            }
         }
 
         fun reportMediaProgress() {
@@ -407,7 +474,8 @@ class WebRtcEngine(
         private fun refreshRemoteTracks() {
             if (closed) return
             val pc = connection ?: return
-            val bindings = remoteTracksFor(device, pc, received.values.toList())
+            val slotMap = if (profileTwo && ::link.isInitialized) link.slotMap else null
+            val bindings = remoteTracksFor(device, pc, received.values.toList(), slotMap)
             _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
             val aliases = bindings.count { it.trackId != it.track.id() }
             val videos = bindings.count { it.track is VideoTrack }
@@ -425,7 +493,24 @@ class WebRtcEngine(
                 ?.let { senders[track.trackId] = it }
         }
 
+        /**
+         * Publish this set of tracks to this peer.
+         *
+         * On a profile-2 pair every change is a `setTrack` into a slot that
+         * already exists: a camera toggle, a share, a microphone pipeline swap
+         * and an audience narrowing are all the same act, and none of them
+         * renegotiates, so none of them has an answer that can be lost (D1).
+         *
+         * On a profile-1 pair it is the add-and-remove path exactly as it has
+         * always been, because that is what every far end from before this work
+         * speaks - including every Android build so far.
+         */
         fun syncLocalTracks(tracks: List<LocalTrack>) {
+            if (profileTwo) {
+                if (!::link.isInitialized) return
+                scope.launch { runCatching { link.applyTracks(tracks.map { it.slot() }) } }
+                return
+            }
             val wanted = tracks.associateBy { it.trackId }
             for (track in tracks) addLocalTrack(track)
             for (id in senders.keys.toList() - wanted.keys) {
@@ -442,10 +527,16 @@ class WebRtcEngine(
         }
     }
 
-    private companion object {
-        const val STREAM_ID = "kithmoot"
-    }
 }
+
+/**
+ * The one stream id everything this device sends belongs to, whether it went
+ * on with `addTrack` or into a fixed slot.
+ *
+ * A receiver can tell one device's media from another's by it, even before the
+ * roster catches up.
+ */
+internal const val STREAM_ID: String = "kithmoot"
 
 /** Dispatcher the engine's own work runs on. WebRTC callbacks arrive on their own threads. */
 internal val MediaDispatcher = Dispatchers.Default

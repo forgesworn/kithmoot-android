@@ -2700,6 +2700,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                                 receiving = { it.receiving },
                                 roleForTrackId = roleForTrackId,
                                 valueFor = { it.track as VideoTrack },
+                                declaredRole = { it.role },
                             ),
                         )
                         for (track in local) (track.track as? VideoTrack)?.let { put(roleKey(who.devicePubkey, track.role), it) }

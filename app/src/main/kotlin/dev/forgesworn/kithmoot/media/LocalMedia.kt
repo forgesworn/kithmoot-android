@@ -29,6 +29,10 @@ data class LocalTrack(val track: MediaStreamTrack, val role: String) {
     val trackId: String get() = track.id()
 }
 
+/** The same track, as the fixed-slot machine wants it: a role and something to
+ *  hand the sender. See `SlotTrack`. */
+fun LocalTrack.slot(): SlotTrack = SlotTrack(role = role, media = track)
+
 /**
  * Camera, microphone and screen capture.
  *

@@ -2,7 +2,9 @@ package dev.forgesworn.kithmoot.media
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.webrtc.IceCandidate
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
+import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import kotlin.coroutines.resume
@@ -53,6 +55,49 @@ class WebRtcPeerConnection(private val connection: PeerConnection, private val o
         )
         if (!added) throw IllegalStateException("the candidate was refused")
     }
+
+    override fun addSlotTransceiver(kind: SlotKind) {
+        val type = when (kind) {
+            SlotKind.AUDIO -> MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO
+            SlotKind.VIDEO -> MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
+        }
+        // A single stream id for everything this device sends, exactly as the
+        // add-a-track path uses, so a receiver can still tell one device's
+        // media from another's.
+        connection.addTransceiver(
+            type,
+            RtpTransceiver.RtpTransceiverInit(
+                RtpTransceiver.RtpTransceiverDirection.SEND_RECV,
+                listOf(STREAM_ID),
+            ),
+        )
+    }
+
+    override fun setSlotDirection(mid: String): Boolean =
+        withTransceiver(mid) { it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV; true }
+
+    override fun setSlotTrack(mid: String, media: Any?): Boolean {
+        // The one cast in the slot machine, and it lives here because this is
+        // the mechanical layer. A track that is not a native one cannot be
+        // sent, and saying so marks the slot broken rather than pretending.
+        if (media != null && media !is MediaStreamTrack) return false
+        // `takeOwnership = false`: the track belongs to LocalMedia and outlives
+        // any one connection, so the sender must not dispose it.
+        return withTransceiver(mid) { it.sender.setTrack(media as MediaStreamTrack?, false) }
+    }
+
+    /**
+     * Do one thing with the transceiver at this mid, and never hold it.
+     *
+     * `getTransceivers()` disposes every Java wrapper a previous read returned,
+     * including the ones `addTransceiver` handed back, so a wrapper kept across
+     * calls is a use-after-free waiting for the next remote track event. Every
+     * native object's life begins and ends inside this method.
+     */
+    private fun withTransceiver(mid: String, action: (RtpTransceiver) -> Boolean): Boolean = runCatching {
+        val transceiver = connection.transceivers.firstOrNull { it.mid == mid } ?: return false
+        action(transceiver)
+    }.getOrDefault(false)
 
     override fun close() {
         runCatching { connection.close() }

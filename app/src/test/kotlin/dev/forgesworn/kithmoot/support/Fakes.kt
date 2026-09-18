@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.support
 import dev.forgesworn.kithmoot.media.IceCandidateData
 import dev.forgesworn.kithmoot.media.PeerConnectionHandle
 import dev.forgesworn.kithmoot.media.SdpData
+import dev.forgesworn.kithmoot.media.SlotKind
 import dev.forgesworn.kithmoot.media.SignalType
 import dev.forgesworn.kithmoot.media.SignalingState
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -197,13 +198,68 @@ class FakePeerConnection : PeerConnectionHandle {
     /** Reject the next [setRemoteDescription] only, then behave normally. */
     var failNextSetRemoteDescription: Boolean = false
 
+    // --- fixed media slots ---------------------------------------------------
+
+    /** Every transceiver added, in creation order. Its index is its mid, which
+     *  is what a real connection does for a fresh Unified Plan offer. */
+    val slotTransceivers = mutableListOf<SlotKind>()
+
+    /** The mids widened to `sendrecv`, in the order they were widened. */
+    val widened = mutableListOf<String>()
+
+    /** Every `setTrack`, in order: which mid, and what went in it. */
+    val trackSwaps = mutableListOf<kotlin.Pair<String, Any?>>()
+
+    /** Mids whose `setTrack` is refused, so the broken-slot path has a case. */
+    var refuseTrackAt: Set<String> = emptySet()
+
+    /** Extra m-lines the next local offer describes, to stand for a code path
+     *  that called `addTrack` on a slotted connection. */
+    var strayMediaSections: Int = 0
+
+    /** What each slot currently holds, by mid. */
+    fun trackAt(mid: String): Any? = trackSwaps.lastOrNull { it.first == mid }?.second
+
+    override fun addSlotTransceiver(kind: SlotKind) {
+        slotTransceivers += kind
+    }
+
+    override fun setSlotDirection(mid: String): Boolean {
+        widened += mid
+        return true
+    }
+
+    override fun setSlotTrack(mid: String, media: Any?): Boolean {
+        if (mid in refuseTrackAt) return false
+        trackSwaps += mid to media
+        return true
+    }
+
+    /**
+     * An offer describing one m-line per transceiver, mids in creation order.
+     *
+     * Real SDP rather than a placeholder because the slot map is read off the
+     * description, which is the only thing the far end will ever see.
+     */
+    private fun offerSdp(): String = buildString {
+        appendLine("v=0")
+        appendLine("o=- 0 0 IN IP4 127.0.0.1")
+        val kinds = slotTransceivers.map { if (it == SlotKind.AUDIO) "audio" else "video" } +
+            List(strayMediaSections) { "video" }
+        kinds.forEachIndexed { index, kind ->
+            appendLine("m=$kind 9 UDP/TLS/RTP/SAVPF 111")
+            appendLine("a=mid:$index")
+            appendLine("a=sendrecv")
+        }
+    }
+
     override fun signalingState(): SignalingState = state
 
     override suspend fun setLocalDescription(): SdpData {
         val description = when (state) {
             SignalingState.STABLE -> {
                 state = SignalingState.HAVE_LOCAL_OFFER
-                SdpData(SignalType.OFFER, "local-offer")
+                SdpData(SignalType.OFFER, if (slotTransceivers.isEmpty()) "local-offer" else offerSdp())
             }
 
             SignalingState.HAVE_REMOTE_OFFER -> {

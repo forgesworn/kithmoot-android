@@ -23,6 +23,12 @@ package dev.forgesworn.kithmoot.media
  * - **Keys by role, not by trackId.** A renegotiation mints a fresh WebRTC
  *   track id for the same logical slot; the roster's `trackId -> role`
  *   mapping is what ties the new id back to the tile the old one filled.
+ * - **Believes the slot over the roster.** On a profile-2 pair [declaredRole]
+ *   answers outright, because the role came off the generation-opening offer's
+ *   `slots` map by mid, and a mid agrees on both ends of a pair where a
+ *   sender's `a=msid` in a fixed slot does not. The roster lookup stays as the
+ *   profile-1 answer and as the fallback for a track that arrived before the
+ *   map did.
  *
  * Where more than one live, receiving element still resolves to the same
  * role - a brief window mid-renegotiation - the later entry in [remote]
@@ -37,11 +43,12 @@ internal fun <T, V> resolveRemoteByRole(
     receiving: (T) -> Boolean,
     roleForTrackId: (device: String, trackId: String) -> String?,
     valueFor: (T) -> V,
+    declaredRole: (T) -> String? = { null },
 ): Map<String, V> {
     val result = LinkedHashMap<String, V>()
     for (track in remote) {
         if (!receiving(track)) continue
-        val role = roleForTrackId(device(track), trackId(track)) ?: continue
+        val role = declaredRole(track) ?: roleForTrackId(device(track), trackId(track)) ?: continue
         result[roleKey(device(track), role)] = valueFor(track)
     }
     return result
