@@ -26,6 +26,9 @@ data class ParticipantTile(
     val micDevice: String?,
     /** True when the live microphone is the device you are holding. */
     val micIsThisDevice: Boolean,
+    /** The device holding the microphone has muted it at the source; it is
+     *  still live, just quiet. False when there is no live microphone. */
+    val micMuted: Boolean = false,
     /** Set when this phone holds a contact card for the person: the name on
      *  it, or an empty string for a card without one. See storage/ContactBook.kt. */
     val cardName: String? = null,
@@ -79,6 +82,7 @@ fun buildTiles(
                 .sortedWith(compareBy({ if (it.role == Roles.SCREEN) 0 else 1 }, { it.device }, { it.trackId })),
             micDevice = person.micDevice,
             micIsThisDevice = isSelf && person.micDevice == selfDevice,
+            micMuted = person.micMuted,
             cardName = cards[person.participant],
             name = person.devices.firstNotNullOfOrNull { it.name?.takeIf(String::isNotBlank) },
             hasScreenAudio = person.liveTracks.any { it.role == Roles.SCREEN_AUDIO },

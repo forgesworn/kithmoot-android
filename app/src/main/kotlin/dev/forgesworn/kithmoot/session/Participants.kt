@@ -7,6 +7,8 @@ data class ParticipantTrack(
     val device: String,
     val trackId: String,
     val role: String,
+    /** The device that published this track says it muted it at the source. */
+    val muted: Boolean = false,
 )
 
 /**
@@ -28,7 +30,7 @@ data class Participant(
 ) {
     /** Every track from every one of this person's devices. */
     val tracks: List<ParticipantTrack> = devices.flatMap { entry ->
-        entry.tracks.map { ParticipantTrack(entry.device, it.trackId, it.role) }
+        entry.tracks.map { ParticipantTrack(entry.device, it.trackId, it.role, muted = it.muted == true) }
     }
 
     /**
@@ -43,6 +45,9 @@ data class Participant(
     val liveTracks: List<ParticipantTrack> = tracks.filter {
         it.role != Roles.MIC || it.device == micDevice
     }
+
+    /** True when the microphone the room is hearing has muted itself at the source. */
+    val micMuted: Boolean = liveTracks.any { it.role == Roles.MIC && it.muted }
 
     /**
      * True when any of this person's devices says it is an automated

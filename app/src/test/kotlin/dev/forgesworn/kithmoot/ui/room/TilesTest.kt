@@ -189,6 +189,56 @@ class TilesTest {
     }
 
     @Test
+    fun `a muted microphone advert lands on the tile`() {
+        val alice = tiles(
+            listOf(entry("alice", "laptop", listOf(TrackRef("m1", Roles.MIC, muted = true)), mapOf(Roles.MIC to 1))),
+        ).single()
+
+        assertTrue(alice.hasMic)
+        assertTrue(alice.micMuted)
+    }
+
+    @Test
+    fun `a live unmuted microphone is not reported as muted`() {
+        val alice = tiles(
+            listOf(entry("alice", "laptop", listOf(TrackRef("m1", Roles.MIC)), mapOf(Roles.MIC to 1))),
+        ).single()
+
+        assertTrue(alice.hasMic)
+        assertFalse(alice.micMuted)
+    }
+
+    @Test
+    fun `mic-muted and silenced-for-you are two independent badges, and can both be true at once`() {
+        val roster = listOf(
+            entry("alice", "laptop"),
+            entry("bob", "b1", listOf(TrackRef("m1", Roles.MIC, muted = true)), mapOf(Roles.MIC to 1)),
+        )
+
+        // Neither switch, alone:
+        val neither = buildTiles(groupByParticipant(listOf(entry("alice", "laptop"), entry("carol", "c1"))), "alice", "laptop")
+            .first { it.participant == "carol" }
+        assertFalse(neither.micMuted)
+        assertFalse(neither.isSilencedForYou)
+
+        // Muted only, volume untouched:
+        val mutedOnly = buildTiles(groupByParticipant(roster), "alice", "laptop").first { it.participant == "bob" }
+        assertTrue(mutedOnly.micMuted)
+        assertFalse(mutedOnly.isSilencedForYou)
+
+        // Silenced only, mic live and unmuted:
+        val silencedRoster = listOf(entry("alice", "laptop"), entry("bob", "b1", listOf(TrackRef("m2", Roles.MIC)), mapOf(Roles.MIC to 1)))
+        val silencedOnly = buildTiles(groupByParticipant(silencedRoster), "alice", "laptop", volumes = mapOf("bob" to 0f)).first { it.participant == "bob" }
+        assertFalse(silencedOnly.micMuted)
+        assertTrue(silencedOnly.isSilencedForYou)
+
+        // Both at once - one badge does not crowd out the other.
+        val both = buildTiles(groupByParticipant(roster), "alice", "laptop", volumes = mapOf("bob" to 0f)).first { it.participant == "bob" }
+        assertTrue(both.micMuted)
+        assertTrue(both.isSilencedForYou)
+    }
+
+    @Test
     fun `a shortened key shows both ends`() {
         val key = "00a0b8b578de367e65c400cccdb7743e82403d457469d02023b1568a92faadd8"
 

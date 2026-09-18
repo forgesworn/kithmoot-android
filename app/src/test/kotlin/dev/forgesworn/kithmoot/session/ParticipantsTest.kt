@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ParticipantsTest {
@@ -49,6 +50,53 @@ class ParticipantsTest {
         // The laptop may still be publishing a stale mic track for a second or
         // two after losing the claim. Playing both is a feedback loop.
         assertEquals(listOf("mic-2"), alice.liveTracks.map { it.trackId })
+    }
+
+    @Test
+    fun `a muted microphone advert is reported on the participant`() {
+        val roster = listOf(
+            entry("alice", "laptop", listOf(TrackRef("mic-1", Roles.MIC, muted = true)), mapOf(Roles.MIC to 1)),
+        )
+
+        val alice = groupByParticipant(roster).single()
+
+        assertTrue(alice.micMuted)
+    }
+
+    @Test
+    fun `an unmuted microphone advert is not reported as muted`() {
+        val roster = listOf(
+            entry("alice", "laptop", listOf(TrackRef("mic-1", Roles.MIC, muted = null)), mapOf(Roles.MIC to 1)),
+        )
+
+        val alice = groupByParticipant(roster).single()
+
+        assertFalse(alice.micMuted)
+    }
+
+    @Test
+    fun `a stale mic track that lost the claim never sets the mute flag either`() {
+        val roster = listOf(
+            entry(
+                "alice",
+                "laptop",
+                listOf(TrackRef("mic-1", Roles.MIC, muted = true)),
+                mapOf(Roles.MIC to 1),
+            ),
+            entry(
+                "alice",
+                "phone",
+                listOf(TrackRef("mic-2", Roles.MIC, muted = false)),
+                mapOf(Roles.MIC to 2),
+            ),
+        )
+
+        val alice = groupByParticipant(roster).single()
+
+        // The phone claimed later and is not muted, so the room hears it -
+        // the laptop's muted, superseded track must not leak its flag in.
+        assertEquals("phone", alice.micDevice)
+        assertFalse(alice.micMuted)
     }
 
     @Test
