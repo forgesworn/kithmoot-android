@@ -31,6 +31,61 @@ const val KIND_ROSTER: Int = 20461
  */
 const val MAX_FUTURE_SKEW_SECONDS: Long = 60
 
+/**
+ * The call a device is on, when it is on one.
+ *
+ * A call is a thing people start, join, drop out of and rejoin, and until
+ * this field existed there was no such thing on the wire: "a call is on"
+ * meant "this device has a track", so nobody could start one for others to
+ * join, and a device with everything switched off looked exactly like one
+ * that was not on the call at all.
+ *
+ * It rides presence rather than a kind of its own. Presence is already
+ * ephemeral, encrypted to the room key and refreshed on the heartbeat, which
+ * is what a live call needs and nothing a relay should keep. So "a call is on
+ * in this room" is "a present device says it is on one", who is on it is read
+ * off the roster, and it ends when the last of them stops saying so.
+ *
+ * [id] is random, chosen by whoever started it and carried by everybody who
+ * joins, so two calls started at once in one room are visibly two. [since] is
+ * when THIS device joined. Mirrors the web client's `CallMembership`
+ * (`src/types.ts`).
+ */
+data class CallMembership(val id: String, val since: Long) {
+
+    fun toJson(): JsonObject = buildJsonObject {
+        put("id", id)
+        put("since", since)
+    }
+
+    companion object {
+        private val ID = Regex("^[0-9a-fA-F]{32}$")
+
+        /**
+         * A membership as another implementation wrote it, or null.
+         *
+         * A call id is opaque to everything that reads it, but it is also a
+         * string somebody else chose, so it is held to 32 hex characters and
+         * nothing else, and a time to a whole non-negative number of seconds.
+         * Malformed is dropped rather than carried: an entry with rubbish in
+         * `call` is still that device's presence, and the rest of it is fine.
+         * Matches `sanitiseCallMembership` in the web client's `roster.ts`.
+         */
+        fun sanitise(value: JsonElement?): CallMembership? {
+            val json = value as? JsonObject ?: return null
+            val id = (json["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+            if (!ID.matches(id)) return null
+            val since = (json["since"] as? JsonPrimitive)
+                ?.takeIf { !it.isString }
+                ?.content
+                ?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() && it >= 0 }
+                ?: return null
+            return CallMembership(id.lowercase(), kotlin.math.floor(since).toLong())
+        }
+    }
+}
+
 /** One published media track, attributed to a participant rather than a device. */
 data class TrackRef(
     val trackId: String,
@@ -125,14 +180,12 @@ data class RosterEntry(
      */
     val sid: String? = null,
     /**
-     * "This device is on a call, since when" (web `RosterEntry.call`,
-     * `CallMembership`: `{ id, since }`). Unrelated to the profile-2 call
-     * reliability work this client is otherwise catching up on - it shipped
-     * on the web side the same day - so it is carried opaquely rather than
-     * modelled: preserved byte for byte on the way through, never read or
-     * acted on here.
+     * This device is on a call, since when. See [CallMembership].
+     *
+     * Absent on every entry that is not on a call, and on a farewell, so the
+     * wire stays byte-identical for a client that has never heard of calls.
      */
-    val call: JsonObject? = null,
+    val call: CallMembership? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("participant", participant)
@@ -164,7 +217,7 @@ data class RosterEntry(
         if (left) put("left", true)
         if (callProfile != null) put("callProfile", callProfile)
         if (sid != null) put("sid", sid)
-        if (call != null) put("call", call)
+        if (call != null) put("call", call.toJson())
     }
 
     companion object {
@@ -206,7 +259,10 @@ data class RosterEntry(
                 ?.toIntOrNull()
                 ?.takeIf { it == 2 },
             sid = (json["sid"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
-            call = json["call"] as? JsonObject,
+            // Sanitised on the way in, as the web client does: only a
+            // well-formed membership counts, and a malformed one is dropped
+            // rather than carried around as a value nothing can read.
+            call = CallMembership.sanitise(json["call"]),
         )
 
         /** A JSON `true` and nothing else: not `"true"`, not `1`, not `"yes"`. */

@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 
 /** One published track, attributed to the person rather than the device. */
@@ -56,7 +57,78 @@ data class Participant(
      */
     val agent: Boolean = devices.any { it.agent }
 
+    /**
+     * The call this person is on, if any, and which of their devices are on it.
+     *
+     * One answer per person even when their laptop and their phone disagree,
+     * which happens for a heartbeat or two whenever somebody moves a call from
+     * one of their devices to another. The freshest entry that names a call
+     * decides which call it is; every device naming that same call is listed,
+     * and `since` is the earliest of theirs, so "on the call since" is when
+     * the person joined rather than when their latest device did.
+     *
+     * The web client reaches the same answer by stamping each participant as
+     * it folds the roster (`participants()` in `src/session.ts`); done here on
+     * the grouped devices instead, which does not depend on the order the
+     * roster happened to arrive in.
+     */
+    val call: CallMembership?
+    val callDevices: List<String>
+
+    init {
+        val onCall = devices.filter { it.call != null }
+        val freshest = onCall.maxByOrNull { it.updatedAt }
+        val id = freshest?.call?.id
+        val together = onCall.filter { it.call?.id == id }
+        call = id?.let { CallMembership(it, together.minOf { entry -> entry.call!!.since }) }
+        callDevices = together.map { it.device }
+    }
+
     val deviceCount: Int get() = devices.size
+}
+
+/**
+ * One call in progress, read off presence: everybody with a device on it.
+ *
+ * Usually zero or one. Two means two people pressed Start at once, and a
+ * client offers the bigger or the older one and lets the other wither - see
+ * [callsOf]'s ordering, which is the web client's `calls()` rule.
+ */
+data class CallView(
+    val id: String,
+    /** The earliest join across everybody on it. */
+    val since: Long,
+    val participants: List<String>,
+    val devices: List<String>,
+)
+
+/**
+ * The calls in progress in a room, best first.
+ *
+ * "Best" is the one with the most people on it, and between two of equal size
+ * the older. That ordering is the whole of how a room with two calls started
+ * at the same moment collapses back to one: every client picks the head of
+ * this list when it joins, so joiners pile onto the same call and the other
+ * empties as its people leave. Mirrors `Session.calls()` in `src/session.ts`.
+ */
+fun callsOf(people: Collection<Participant>): List<CallView> {
+    val byId = LinkedHashMap<String, CallView>()
+    for (person in people) {
+        val call = person.call ?: continue
+        val held = byId[call.id]
+        byId[call.id] = if (held == null) {
+            CallView(call.id, call.since, listOf(person.participant), person.callDevices)
+        } else {
+            held.copy(
+                since = minOf(held.since, call.since),
+                participants = held.participants + person.participant,
+                devices = held.devices + person.callDevices,
+            )
+        }
+    }
+    return byId.values.sortedWith(
+        compareByDescending<CallView> { it.participants.size }.thenBy { it.since }.thenBy { it.id },
+    )
 }
 
 /**
