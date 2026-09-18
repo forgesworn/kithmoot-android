@@ -387,6 +387,42 @@ class NegotiationDisagreementTest {
         return here.negotiatedAudio() to far.connection.negotiatedAudio()
     }
 
+    @Test
+    fun `a track landing while the answer is described is not counted as being in it`() = runTest {
+        // `addLocalTrack` runs on whatever thread the engine is on and takes no
+        // negotiation lock, so a microphone really can land between the moment
+        // an answer is planned and the moment it comes back. The answer does
+        // not have it; what the connection is sending does. Recording the
+        // second as though it were the first is how a replay comes to send an
+        // answer that predates the microphone it claims to carry.
+        val far = DescribingPeerConnection("far").apply { hasLocalAudio = true }
+        val here = DescribingPeerConnection("and")
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire)
+        here.onDescribe = {
+            here.hasLocalAudio = true
+            here.onDescribe = null
+        }
+
+        deliver(android, wire, offer(far.setLocalDescription().sdp))
+        far.setRemoteDescription(SdpData(SignalType.ANSWER, wire.last(SignalType.ANSWER).sdp!!))
+        assertEquals("recvonly", here.negotiatedAudio(), "the answer went out before the microphone landed")
+        assertEquals(setOf("microphone"), here.localMedia(), "but the connection is sending now")
+
+        far.gatherCandidate(candidate)
+        deliver(android, wire, offer(far.localDescription()!!.sdp))
+
+        assertEquals(0, android.answersReplayed, "the stored answer predates what this side is sending")
+        val answers = wire.of(SignalType.ANSWER)
+        assertFalse(SdpShape.same(answers[0].sdp!!, answers[1].sdp!!))
+        assertEquals(1, android.disagreementsRepaired)
+
+        far.setRemoteDescription(SdpData(SignalType.OFFER, wire.last(SignalType.OFFER).sdp!!))
+        deliver(android, wire, answer(far.setLocalDescription().sdp))
+        assertEquals("sendrecv", here.negotiatedAudio())
+        assertEquals(here.negotiatedAudio(), far.negotiatedAudio())
+    }
+
     // -- an offer nobody answers ---------------------------------------------
 
     @Test

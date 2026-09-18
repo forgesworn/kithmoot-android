@@ -938,13 +938,20 @@ class PeerLink(
         // path out of several.
         if (description.type == SignalType.OFFER) {
             bindSlots(body)
+            // Read BEFORE the session is described, not after. The engine adds
+            // and removes senders on the connection without this lock, so a
+            // track landing in that window is not in the answer - and media
+            // recorded afterwards would say it was, which is exactly the state
+            // in which a later replay sends an answer that predates the
+            // microphone it claims to have been written with.
+            val media = if (splitGuard) connection.localMedia() else null
             val answer = connection.setLocalDescription()
             val shape = SdpShape.of(answer.sdp)
             if (splitGuard) {
                 appliedOfferShape = SdpShape.of(description.sdp)
                 sentAnswerSdp = answer.sdp
                 sentAnswerShape = shape
-                sentAnswerMedia = connection.localMedia()
+                sentAnswerMedia = media
             }
             sendAnswer(answer.sdp, body)
             // The same offer, answered differently: local media moved between

@@ -47,6 +47,15 @@ class DescribingPeerConnection(
      */
     var hasLocalAudio: Boolean = false
 
+    /**
+     * Something the caller does while this connection is being described.
+     *
+     * The engine adds and removes senders without the negotiation lock, so a
+     * track really can land between the moment a description is planned and the
+     * moment the caller gets it back. This is that window, made controllable.
+     */
+    var onDescribe: (() -> Unit)? = null
+
     var state: SignalingState = SignalingState.STABLE
         private set
 
@@ -201,6 +210,7 @@ class DescribingPeerConnection(
 
             else -> throw IllegalStateException("cannot set a local description in $state")
         }
+        onDescribe?.invoke()
         return SdpData(description.type, description.render(candidates)).also { localDescriptions += it }
     }
 
