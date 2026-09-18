@@ -144,6 +144,10 @@ class DescribingPeerConnection(
 
     override fun signalingState(): SignalingState = state
 
+    /** What this connection is sending. One microphone is all this fake has,
+     *  and one is all the bug needs. */
+    override fun localMedia(): Set<String>? = if (hasLocalAudio) setOf("microphone") else emptySet()
+
     override suspend fun setLocalDescription(): SdpData {
         sessionVersion++
         val description = when (state) {
