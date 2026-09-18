@@ -95,10 +95,22 @@ fun workingSize(
     val uprightH = if (quarterTurn) bufferWidth else bufferHeight
     if (uprightW <= 0 || uprightH <= 0) return WorkingSize(2, 2, 2, 2)
 
-    // Never scale up. A 320-wide camera on a cheap handset is composited at
-    // 320 wide, not blown up to 640 so the numbers look tidier.
-    val outW = even(minOf(uprightW, maxOf(2, maxWidth)))
-    val outH = even(maxOf(2, Math.round(uprightH.toFloat() * outW / uprightW)))
+    // The cap is on the LONGER side, not on the width.
+    //
+    // The web client caps width, and on the web the frame is landscape so the
+    // two are the same thing. A phone is not: a portrait frame capped at 640
+    // wide is 640x1138, which is three times the pixels of the landscape case
+    // for the same picture, and every one of them is composited in Kotlin
+    // thirty times a second. Capping the long side gives 360x640 instead -
+    // the same cost either way up, and still no wider than 640.
+    //
+    // Never scaled up, either. A 320-wide camera on a cheap handset is
+    // composited at 320, not blown up so the numbers look tidier.
+    val cap = maxOf(2, maxWidth)
+    val longest = maxOf(uprightW, uprightH)
+    val scale = if (longest <= cap) 1f else cap.toFloat() / longest
+    val outW = even(maxOf(2, Math.round(uprightW * scale)))
+    val outH = even(maxOf(2, Math.round(uprightH * scale)))
     return if (quarterTurn) {
         WorkingSize(scaleWidth = outH, scaleHeight = outW, outWidth = outW, outHeight = outH)
     } else {
