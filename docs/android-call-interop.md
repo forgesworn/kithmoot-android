@@ -39,3 +39,32 @@ and call identity/Listen UI. Tests use synthetic media only.
 Physical Pixel call was reported working before this update. This build has not
 been physically accepted and requires owner-local production signing on M4.
 Web sibling-camera release 20260916T100810Z is separate and already live.
+
+## All-way rotation
+
+MainActivity is now `android:screenOrientation="fullUser"`, so the phone can
+reach all four rotations (portrait, both landscapes, reverse portrait), and
+the system's own rotation lock is honoured: nobody sees an unwanted flip who
+has that switch off. The activity already keeps `configChanges` for
+orientation and is not recreated on a turn, so Compose and the call engine
+just see a new frame shape rather than a restart.
+
+Camera frames come from libwebrtc's own Camera2 capturer, which reads the
+display rotation to stamp each frame's rotation metadata; nothing in this app
+overrides that. The background-replacement compositor
+(`media/effects/FrameCompositor.kt`, `Compositing.kt`) turns every camera
+frame upright before it draws the sea, the reef and the person, and always
+emits rotation zero, so the segmentation mask, the backdrop artwork and the
+composited output line up in all four orientations, both for the local
+preview and for what the room receives. `CompositingTest` covers the
+rotation/working-size arithmetic for 0, 90, 180 and 270 explicitly, including
+that all four cost the same number of pixels. The front-camera mirror and the
+self-view/remote `SurfaceViewRenderer` tiles rotate the same way, since both
+read the frame's own rotation rather than assuming portrait.
+
+QR scanning (`ui/qr/QrScanner.kt`) uses CameraX's own display-rotation
+tracking for `ImageAnalysis`, so scanning keeps working turned any way.
+
+Not proven on a physical handset in this change: the four rotations have not
+been photographed on a real device, only exercised through the JVM-testable
+geometry and read through the capture/render code paths.
