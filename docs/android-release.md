@@ -1,6 +1,14 @@
 # Android release signing and device acceptance
 
-The public website currently offers production-signed 0.6.2 (25), Android 13 or later. Version 0.6.4 (27) reconciles the account-room sync, profile/relay settings, call interoperability and notification work with the rendezvous and remote-signer changes already on main. It requires the same owner-held signing key. Signing, publication and physical acceptance are recorded separately.
+The public website currently offers production-signed 0.6.4 (27), Android 13 or later. Version 0.6.5 (28) is the call-reliability candidate. It requires the same owner-held signing key. Signing, publication and physical acceptance are recorded separately.
+
+## 0.6.5 call reliability candidate
+
+Version code 28 brings Android level with the web client's call work of 17 and 18 September 2026. Remote tiles are keyed by role rather than by track id, so a far end that toggles its camera or microphone no longer loses its tile. The room's third default relay is added. The microphone button now mutes by disabling the track and keeps the microphone open, as the web client does, so unmuting is instant and the person's tile says "muted" to everybody else; the microphone is released on leaving the call. Tiles show "muted" and "silenced for you" as two distinct states. "Backdrop" replaces what is behind you with one of four sea scenes, with fish swimming past; there is no blur. The background pipeline was proven on an arm64 emulator only, and adds about 28 MiB to the APK, nearly all of it the MediaPipe runtime.
+
+The profile-2 call scheme (reliable signalling, fixed media slots, generations and pair health) is compiled in and switched off: `CALL_PROFILE_2_ENABLED` in `session/CallProfile.kt` is false, the roster entry carries no `callProfile`, and the wire is unchanged for every pair.
+
+Open before publication, none of it provable without a handset: the three microphone button states and their TalkBack labels, the two tile badges, the front-camera mirror of a backdrop against the real mirrored preview, frame cost and battery of a backdrop on real hardware, and a call between this build, the desktop 0.1.5 preview and the web client.
 
 ## 0.6.4 account rooms and notifications
 
@@ -17,7 +25,7 @@ any public publication. A successful build is not approval to install or
 publish it.
 
 The reviewed signer script obtains its output filename from the unsigned APK's
-validated version metadata (`kithmoot-0.6.4-production.apk` for this release) and
+validated version metadata (`kithmoot-0.6.5-production.apk` for this release) and
 refuses a version code at or below 25. This prevents a future candidate from
 silently reusing the pre-rendezvous update slot.
 
