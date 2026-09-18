@@ -696,6 +696,1110 @@
         }
       },
       {
+        "name": "call-id-upper-case",
+        "kind": "positive",
+        "note": "`call.id` in upper-case hex: accepted, and lower-cased on decode - the same case-folding every other hex field on a roster entry gets, so a case-insensitive comparison is never needed downstream.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "C0FFEEC0FFEEC0FFEEC0FFEEC0FFEEC0",
+              "since": 1799999940
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "a7158346a533a5a8a75ea8075f65036cbab3c601e6b4e54986b47105cd66470e",
+          "auxRandHex": "3237374b1d083fc3e834ea785def301c98de71c423eff577286e62193fc7f9c2"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AqcVg0alM6Wop16oB19lA2y6s8YB5rTlSYa0cQXNZkcOjdTnzups0VFGc51UD+FD8Amh/L41LYpDaawVJjLZY66b6QSaw4+wBABFk5jkGoGc1+jQ7LNqPDA7NzSfl27+vmKYHdlTsBfqNFj+Nr9psE+48zg91LFOZXcNXwwX0z1a8Z3wsmwWdk7peCl5Osa2AYlBrFcpA6pFVAJX6+sLVkkCbuK5tUUySPW109UUp8ZZV2NA6P1Nh1H+xEVWZue1dAxv3dI2CGk/JnYkLzIH20rEY6i2/YAvXdNSfok3ldGWYZTlSPvWCJFzDOoetyHIpKG+59cItxauCRwL0MNj06L5hr8SpuxMeSKQZ4jx82HAzDdJQ2jnqePz+7Y94WL3zeKl+mp3hpUWnayg2qYOu4dB3hN2EdFxrMaoUdCaarr7TROj7K2JAZ0uVtVnlyZmGKLJfYCNS6XHzTNuDgvsNyAX/HIohDcN2mVILF9me0BevYZPKhOhd5rvvA+v6ZZOyg1DNgKuYbsIcvUEDHVykI2+UhCT2FvhHfLG2GUuMhAGuzQeBZxgYvZvuSl1m8562G9ieJGK/KFK+TDCWo1UYDrpijGm3945e2rQGyEA+hdmbkG2d0GinRfDMgREbWCIVm4fkpSMfwbLal6hqTltlVc1P1lUl21QbW/gkFxDa+J48b3EIh7LGo/k4at76DGfQdVFp/HsaqgqGcFDIrgSKlXNamrU/bVSddu08ySfntpJRx9sk61i6oMHcza8kvESqeejVWptNLPJnx0IIciSrXAedF4gdM8whclYe5ju/O9S7OyDgrEijZ5Owmi0KoX8TL2DWvDQ7Y8Wkqc2hqfbeMJ4WawwQYCVu0U0V17A3vzFoP8g6IvEutckBzBx4yfylnUsWhHMkiI1f+hT/wrMCRKU0SPgJ8X55Oxgy9y/1ossn+nSi05PErc4UArtjw+7lZVyihds0DDxmUKmdVv5ysQ4zkyaFP5iFzb2qpYPgJH5W846ntaPlz80If04mxDX+x/adWxZtXo+Xu4TsOXYeMU5wmxOwfJ+21EdCfm1VjBgBPWvHV6MsJ4bFkicciFyCZOTy5Gj/DHneqe26QZNGe0hr+pEotwqN/+4L49GusXnlxPgapgw3inhxv9J8ZHxmvLBrGDfOkjqtgBrYGw9XR+8LS920ybXZ8An4T6VAZHfHbUxv8nz7qBdpez48hZAOL9R1cevUYkJEw9Fx1l2KJGU5DEe4+vzws7nufuuQVd/73VMdo6nsVE4t+7kZVPWDprE",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "3755440fc0409c6598b45e177cc26ad4e1243c09b37a1c78a791cdab896b5e8a",
+            "sig": "fcf84f8f65111610894dd0eebe407aa7c19875b77a69c73d3b431e4b8196e3ec3ad8ceac64b49022218b2a577c341e0c2662dba5c74160733aa024bc7334dbf2"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          }
+        }
+      },
+      {
+        "name": "call-id-wrong-length",
+        "kind": "negative",
+        "note": "`call.id` one byte short of 32 hex characters: not a call id, so `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffee",
+              "since": 1799999940
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "a3908c9edc540326b11e74dbe7e9c9958856c6b00992dafcc2cf86ee129da96d",
+          "auxRandHex": "e1e9984e5394981ea8cfdc5f1643abed0f4b8f29ff701ad454790bd084c05d37"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AqOQjJ7cVAMmsR502+fpyZWIVsawCZLa/MLPhu4SnaltLR4m8ZB8HGEpyVRBIoVj413MxCa4+D1mxIcX8IUusO4aB2q5/oysLDPduU7YjoK8pmvFwEqmBJWaS+LDnl5pLXE1Zlw8bM2Z87y+7gdNzVHATstlKjwvSvmgd2UNW9J7HwuLHKvKkP+uC0+GDuw1gyeIZsPpUndxfd8iOKRC1MOtpDFZwRN0/NyLbV6SugBTjU7n1Qh73P6wk4X51XGKYJuO9I02anyTOnEMcVVDvch43evdGVQGz/vWSV9egPybsLEtqyq8d9kEiexHTJT8ZMBzBc0W6FPSHVSoNzJGVVzQpOU0kx2JZzALq/7sBXxuxBoSyFPzVHYNBhrDLz4Hg3n4v4OIWAD7Wh78XkgYmrVwWH48+Pb2jmAsGV2ZO5AmhNS/Mzi4jEB2I+/HSvWwYHrmsh7sdLF+QAVciye3iQNcFuVBSsSocmHIiGjjQopKKvkyOioT5kRHKYzdWHPLcoM/CfdDu4x8Af8OYi2A22O4OVdAHWaVccW2gNFRraxXI/Vfk7k8FtADs0Fhg5E7k3lUBkBaIuKhWHtFwEepFwvwadZYRdvCHuzQrHB37B4LKhos8efSECHHxoJJ6QODTINtVf/Um/qGUEUMiGK+zTwz4TXZNnvxYOo/rB+7f0stt2f34ZhQXKa8cQFoQ2Rixp0tfDHCg9olv4MqEiLzWQgvsRyl2hjDgjLqlCGBkVPDsNiUhMNBZxjwixYzQku2cw7jgmplIoHHtRmXqBi0NABS1xXwSWuAzrm6iJ2YOPrRTFpS6T+1vtPCqtlPI3nP0dqd4IL7oFhqbC5Qqkun8WkCApqZNIxcNHuFPeJubj1jlVOD/Cw+zaU5LEWW/XPnm2/Bc+r7rq9isloHp7PC6kJo72sWIYvSawZHtOyVGtnZ2f1RStKpKTln31IPTBTdsKAEuJ5di+zALaEgZParnCv79+DJdSbUKT/6mTgKHrwt6FnW0mfmPAglLQMgL4aBQho+jzb0JW5ySPuXBxubpcEI17Xc3R96EijdE8/VwHha5ElNbWK4SsxAKB7GLnTFtu2mKqzrGgKWaDpeHBSSePHGYbKyHYA87RmqYCaw0rmQxeM+n2cSqrzhDXoqw4EY4C9CObP1/MG7yYHy1w5lKseji0HOwYpQ5Vojkz2UFR1HAObFOtB45jEYlIJDVnGQcmHosPTXbdlrD798072qo2h2mXtfR02UZGxltWI5nAcQm44t8Pl0WyVOOfDzpHWRxcaj",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "e1700c1dbb734e5058fac004a09a0e683474e7b30aaeb87b202295614aa75561",
+            "sig": "a14c61b0b199410365813d321a34644ab48ef66068ad55203834bf69603fd855cb1ebabd0c60a864885cfb5b302f22dfd4d0c00b57e748f506471100614c02a1"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-id-non-hex",
+        "kind": "negative",
+        "note": "`call.id` the right length but not hex (`z` is not a hex digit): `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+              "since": 1799999940
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "d539c38aba76f640c39f55241701b94ac39fa263b6296ccf8ee87da684fc7141",
+          "auxRandHex": "8e34e95675b9f1852860d7c527671faf82a8c71dd79c4f42928bb966b14e9d55"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AtU5w4q6dvZAw59VJBcBuUrDn6Jjtilsz47ofaaE/HFBnkwftAwo3huCWUDLeyaNn0vPrDp0vU4lxxVRqHMELPk1QgF20kGxN8FNN8SS5gM2XTSNisro1iwjUY8oiwjjd8WPqDyzc8elOe/nw/ym4fPD96O5T1EgLWjywK1MMyd/9ckyhn2YIvNKP1UkmEhDO5xrxoNkDoK0ZoJjH47cwQoimlyOJx80ELP4VwBF8hwV2q1tEtWnPapHMeuBBQxEzexCJKyOsOkPTujny3ePCQQidwqmi4OweSXevDOCJUYigJDHciWlLjzst0G7njRZ7crzRXjgkq09kHoh6f6axOTzf3qnV2UMzBm82gC7jSffFuXVJudp8R53io5g8IItOBhme1kX9+G1nSOiTcNgODgbDcsem9hsMKOhXd54l8rFYMjnap0BMz/k3wMQxnKk8QB5c1Zn7iKABKTmzPZajZ4AymIQfDO1Wd0Fl/D0Hy9C3AcBkwzyOWw/iqmo0VNzUWsJBrtYukAMekEzeSnvIyabzIOudVwePeVn7DOtcNH5aqrVgjNabMyu6/3rlhg4UPzfAJHfyhDZA3qy+uSy//95HIQd+LfmtFwi8swmwvKuo4qRSXptq2UFMrgSrzgNM1z01gmO+zvHdWXJV49/GUPyUM+tTEQGtfr4rzNQqSakvLi08CUCnq5IFdBzlR4pjTMvdUo9S+eg3MGoeEku95xhAUKMDo81o1CvAxz+jPd/+TsnV/eo2aSWbUBn0VCmEW9NjtUvyGo9T6tHnM76c+Yb6EKqHW4BgHmvIfsnd/bSLjr0JDHz64jMrMGpscTSFAEZ5LX7tsL0vIyWSlwrpgUlsKDP/p/EIPMMvdJnX/vFnyBrHHUCKBAPAR4r0cnat0k4no3e7vjpmA2fUCY8uxBV4jKFIhHmuJcLZvkuYboV3hBH2piPSHDiMKXL29fY85ukxAjL9RKTx0TIeZWOMtl20PwPm3aNDLV64tQLOofb/ghhE6pkltHOFY2Id7xC5gP7iyptPetIZ+akNh4luybI4dRXglCh2RCsbTa5AaKsUh+dO632G0DiYmsuX+zuJ1CjpHl+EXtpsTJYuCND+EoSZGOILjox8h8EOG6/MuEBE8dC7C72k6WLjbHPW209fw+Ig/ihGx/z1bgjfWeVznf/mpQ5Jt4a7bvNhPCTbwrrUU3P7Qxb59f6rbbyStN1kqBE2IrzWz2nGSBFdohrTJHPrO7r09tSkLDBwjCiYTKxdoetioectviFaduGtchN1vEO",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "fe80ffa1777ad7c4aff1bbc155fc7f91da006e56503c9a8d5a8583d135d5f298",
+            "sig": "a0cb60bf6fddc21e48594cee7e31398564c037a83032831ff8d1722944e2e7ac09c7a053af85801c138edf02ca04b614a01d02397b8c4bc98dfd6d3772d77bf2"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-since-string",
+        "kind": "negative",
+        "note": "`call.since` as a JSON string rather than a number: not the claim `sanitiseCallMembership` requires, so `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": "1799999940"
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "bf866efaf22a569c1092fad24d1175419990ca8f97bc369d7332b2395605e004",
+          "auxRandHex": "5c3c09a0a4d17321c478684de8f143b986445f8e4c822814599cf91a77f336e0"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Ar+GbvryKlacEJL60k0RdUGZkMqPl7w2nXMysjlWBeAEd00H0l9K6bk3mwFojayBOeZajVrxgbYOZCb7Z8k5QLwcBw5EIdIOkpfGgZDrfMes56rLGA/sMLmBAMeSZ7GchHh2dIBukV7HFlTf1CyT5kImVAkpnlaGB8967kf/IrT4kRhu5LKuOI30ntZ59M9aZHCrDE0vu6h9LDsfjDBeiqK3brKtbzgjplQTNAL4mH0OPy3xGIeLLdnjFmBx0KPH96/fIOjo8vFO4oL94R71ItobyPYmeHqTKCWtNkpIlhGDZwhfbM/O6JFeCvc4hZbapJtNp8u1T0DCqDpJpKGwxzMhuUUGFUpUsLTMFc5vV8jN8S8Rcx6tA8SbcHV1tzB+gjIn8ItucK8uXcC04At4ZhhT3u6namoVerMVpFYuZvlft69XcogmOuMgsqbJYpkO7+PeKnhjDRV7suIyvtNtvnlfgCkzfH5Xi4hXNxfblqPBdrX69CEnXU8PK2lt+zJttAiTJcRohQiiyPVZKBraTBqlbdz/Mn9gc6DD7Msa/S/qddLj7ub+xXDAEO2PFvluMkdQz9UauL7lPzYsmPNZraOGFt/fHLuHy/rU1yEqNASHtwtPu42yUCXRrbQZ0hZS8qqWLgsIZw8/2LheWl6qAx/4S9mgMdSAUmQCdEaA2JfN6ghmUMu/5zjYWyOCtkgA1oXrgZj1SkCsOUl3QS67XfXzErLj5HBsQBnrCVP54W2WumpYj3hj2r/nCfwZxXtwSq7PEWWhNnVzcPAXsz9oUTtJxMMyvPy1Y9RpmtOWnx6NFiOpKPkEptieYfP0+r4wqpQWoPGNnzKmV2cLd44WR55mLe2HlM4sSIiNMAqBO8gIA9MUeegq8E2rrJUqGpfldyvE7+U5zzdafQOy5XU9HkyJqAkqQYWy4lzc0OdyX/57tUb1kAfg4u6oW1c+8ugccODXxAPn67Ytwq4Hw9sfMvaHLA+nlIU5DE3lYl4GH8kBKmDtzOgwYy9eUaMe2NNH7cZdPT4GIhMgEXfkVObCPuABM4uwpRARpWCTPsJNHKSNxRx6FvMEJdY1wf3JmV9YHAAfe+MiyJjZJsnXE7BmcXkacbZSkU5jrvftswnRwL/uwrPg85B4o6ENijuHvkeDyv6U4Rd7BvTlQlz1K6O5Viq6Wj6AusJD49i3dojZrXdDUNIVGb0zAWYD2JoUVKcubXWVVzPMlHqtoaf5OLAXgmAGTRL9wMvGAhorv30PTIOkhMDR8Tiq4w0z8nbhwrW1cUOS",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "9ce7d0c99da5db343a336a123c4c5e15819a163ebf2999739f7400bb926c80b4",
+            "sig": "273be1df59b111288d612949f64e6823113b7d95733831e623eb6d675f3a7108f84491e83871c2151b858f19e7c7700fe282fcfc489152d0d3fab687f4476282"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-since-missing",
+        "kind": "negative",
+        "note": "`call` with no `since` at all: `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0"
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "c693d455537cae3d88fd1ac277db8b5886b4682cc9ff41e7d724e7b5acf1c90f",
+          "auxRandHex": "c6859604448fac0b89862ba62ce231a791ecc624ec63b11d9e653110d08e7c1c"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AsaT1FVTfK49iP0awnfbi1iGtGgsyf9B59ck57Ws8ckPoEDLtGq9JfiSHwTiiaN6bm03FXF6Z6sA+fUl3pmpc8sZvjlXJottmclgRNVU/dvLljfWiVYXVdYQ/2osA4L4x/8wyqCzorjO1KwAwzM+VxYGPSCbGcbL3i732Qw3p84sk7kQQuQPC+nIfKnyvU0nFvYw8NUqNTDu47KMxErJTB4lXKKMP1cf29jntdxL1AH0hI0gCcQHwLVBTPuJUu6mJ4CEH1XMvYTXUxx/E48iMqeUATy2oJ8+wW3NDeQnJAqNdTv5avNrou3mDhNBIYxi72Gs0eDLH0d0y2/fNBfFknv74OYfS04ZnCXDhWs/yHzNGH7VIVOzb4UCn1CvAANiA7gvLRy8qhVeTHq89lmOpN840s94CH7otxJ445iAC4hTJ31hj4ARx6YAYKmx3qol/TbqR+3zIXpj8YC6cNKKnEFI3yvkg7xPMaDEWk1iE8MdIluckvmxlnjfPLvpb5Vs6afbWzg+XKkpJEaBDHS8YDBGW3bkkjlRTyKNTLfZOyAeT03Bpv4aSxbl9urCo7XWRO+xG5/9VNf2t21XHbWM6k8YdM5n4T04LRuqdC4NLT+nU8WlsfRgeejXuI53PtknvUV/5fSunueU9ljCy6F1TtF85z4ZbEeB5h11Dziv0f7ayiR5RyAkDO2PfKZy8wtysKbelWkyq+nbAGBDL2qAdWw3yGjnH0Bl/oTBHzH2o/WfrA3+d+r1KT2P4R6jiWSRHv4HL1TQOI1A8yLP0V11F+igC/K+o+ENPxAZTDnPGVAypTbpFsH4qfEtJsBF2ypITbA45wBEpWiUrltsQluj/ntlnX8fLlxsrRcQBxPaaQ/brNGVwKlZtkCLQvUfkIJONpx+6Qs6NXjbffoXBpJhcma+Pih3/BM8jU9wosqG1hkIiyArcA3OC8KgN46+JjrV3/d77/XdQiZTj0SYbj/Wl0E3ZRic+UJqzb6qJx9MKAJJJCRVrOEOxm2Osm4AGvrAzZmaBcIK1tHirz9IMbkoTK7pJFESkeB9T3votvpHrCpfx/RX9AVIMvSOJCqfgaKYP6s8lsFGoHM/t4fL4WyGnSSTu+rd3uHOKshERFZqHLUr6Vulyh0GRqLFa9JhA/OgX9MkR2Yc7siKC5U0aAznI/lGK99z6cqDUCnNZKvyuM9Yt5gmde9qxJl8fkxdgQoK6nCYQdPgj/xFtZF7UU7wBnTYRQLbR8etx8C7AfAZ/VOBQWn01C5Uon5N9pHSdaWbbMoh",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "5ee77ad81f71ca6097342b86a03065cd94dfd2654fab8798057bdbe0cf17b09f",
+            "sig": "fe49f4c9eec053c9243d3824d66c97188b67c09c0ccf33bab5ec9239296fdb9c3911a21db0f9b18bebb7116d5e3c7107ab41f69a147733bf762dad3ef9472374"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-since-negative",
+        "kind": "negative",
+        "note": "`call.since` negative: not a Unix timestamp anybody could have meant, so `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": -1
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "1e798818abaa151f15da5c23a37640ead26a876c35bc5966ab45a5ed1a520da1",
+          "auxRandHex": "5e572d44ce60ff00829d352a6279f0f83386d46ec017c59f10e7e64c8a2d6d29"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Ah55iBirqhUfFdpcI6N2QOrSaodsNbxZZqtFpe0aUg2hJ2Hd5ui6o8dYtqZn4PPLwsriOVKdmhrFAhCNtdxwUG3tLPf6Els44Gr/jaVJS71SPsx+0gqJmu53uwAWUn8apjc8N9T7G7sCBP2XAd60M6d6TkTiSpz09IrWDf55FLXsD/NANEU4n+JXJb16aVCwCB+wHr5R8wj4PNxVIgC2q5CpQ/hQw713f0qyVGGe44vFUqAtG1oK0TcMpbAYht4+tb82NW50No5lV1ZoPLQzA1F3eDCtMl7ekcVPjTsSRYMpNSdC+sK8VkQMe6u0xXa9oFBOI3odr7Sg/PiebyAMwr/n636SIdrJq69OnnMVcfjQHak/q9lHZklpLDQkDvJfD7CXJWauAC+lYRLHWqa8aXQ8RxR0HZMBHOce77o8Pmat2Y3XDoy2tRwQt+HKAc5O2wmlBtYz3Pb1t4ou1/XJ7ur16bkQkDvhFFXj9rywxikYYaipu0IX3Tc1GRZFK9srznkVvFhINC2abXloRUHbzjo6IMWP9pnjQQz6PMMsbuy9o/dbdkv1xfa1unACk//eyf5bONuWDNpuSRNt9J70PijtqiFzeGH/yXSPUYBQGeGrJx6H/IV+PHtaw7enNf09WGcJ+DWWdYfqe99Ur7MjZXsC2IY/1Wk0ztw55r6DMsfhlPGUIw1QUkZNlExH0cgpOIjz2mWbmyN+jnf7CRAwc/+ikuvZ2nhQeSSuhntPSgH0ihDwNSxjc0MzRchz0tUuSImsIfQO3dmEAVPPUfbq54jWiHtuwVQ/WPYIJvATcuyrw733BTrIuX3dsusthGsh/go/4npRoQKiHyrX7KsPI6lREPvlDFSvegQ/F3k8yW/AKmEWP0ppw4kUn6M7JKVbMH8sUYpbgxp3WW8YbhwD74bJ7m+bcrFO2MC+PUfot7+tdPcGfYlxG9o/6UH0CAgg8/gm7lga/wS3kkOTQcXIQx0D+QZO2BEBo7NIVzuREnyt9Iy6DeW/tXYVHASL9HSWS1bfe0LzetKZBIoiZUt8O+d3I/T1ZCX28IZqViVMSt9CaI2fAKBrNFQsxuQ1Eb1IYVLAnN/OplPAshjj81mARPD2MCZZOC7P3tT9FeQxinPhS+xrecbDhy13gkoz1XqmTq3t3TpAzc1SlcMEK3vtIpOjozaV8zVatlzMZcbdvGrKWi1bYUqWvYVF2mx7XNEUS/raB6XKmCf+edkRW0aep+d8OaLdZTFZOGfYHlDqrBKnk+5+gL0SzRqc03lPeJ0KNenW",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "1213735875fda847a1cfece42d7f5ba912c007ccf1dc27e4fbcf4f56283d4f43",
+            "sig": "d9b1340f5a14e9217b006f8b77db373f04671920f07242b1982ef9274439f11cf3ede7fe09c92e25a16b326bc0ff94895d41ec92bc9068e98f599ba1244f83df"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-not-an-object",
+        "kind": "negative",
+        "note": "`call` as a bare string rather than an `{ id, since }` object: `call` is dropped and the rest of the entry decodes unchanged.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": "c0ffeec0ffeec0ffeec0ffeec0ffeec0"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "24235de85bc262704631b6cc4fae72354d3a90218d452a6cea73d05add6a2925",
+          "auxRandHex": "e814927ba7f2cfe772a6385b11993fa069a78032da9146ac458eed219903fe96"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AiQjXehbwmJwRjG2zE+ucjVNOpAhjUUqbOpz0FrdaikleH/IOFU2/8lD8CoquEYJ0pRwx/yU9FjGzGmg5V0T7l++wW7rLaH9izRNCufP/blYkRUhvqoqR6HacmAJdNzQe120tRmA7RkPG4sIXoX68KZoTZF1pDIukh8jwaZ/vuIIlDZK0+fmSBmAuAUbfLuWc5z5NmlCkw24eD5K+F5tyVMVP+rr0yCwgyLNQFk2vfyiUqGghZW+i8fK4iCMCApy6hF7rxZJOXy52yCbXSHm1UZXudW3HJMMXXu2+ULB8sOTKo2GM07xqny8LakIiH+1wuBtAD+X4nn+6X6gSayVGXCyn3xPCI9h3wj26bODbSPOGGHPM2rsapd7ajuyJdzG7ZDNysvpY8FOx287Qf4vC/97K1jRTUJHCxIC3vAuvqu3yZHCikVssnrxdhyeyEaPT7PlYWBUBeUy3gAeqLfwd478MRggkybdfsCLbVt4DAOCkr2fk00aO0Yh+zT19aW7tUz04fYXqumYi9BGltKPFMmfvuhKlT7wQ+AtG+lldonGv0QMtxT9qrMFy6pfzmF//dpXm7FB7d8L0qHH68YxfxbRHtAuMeaMoZvr7W4ZulPJqdrxZvKZtGCia6uavEmFEfnwIRpcZV0u3AfKJoNSYVA4uT1BtlRflxE7Tnqg1PNFQkJhL8LATYL5BdfeejAlYIFkMvMUmtDthwT9TqWwW8yH61ox85jDjLmoHLuAO+xX/NJpFw9wnbochtrLz8GeZiUGhYpJLCSPRW8Q76FCP9e46EC9TlZeiDtf0ur9hJGU03nDEZn1jmQFEDP+gz85zfxJfe6Ub0CVguWHXao10DwAhUtAJjmzNoFew8yCt2uxcHMhVOenU0MH4vapoPoXkc9HNzrZJ6LI8KOBgtBHKbQx+0q1StmwUHuErlTjoVcUZxJHzIiz8NMBtP8K4hgUp3QPx/ZJfTZi0IXg+FoiSKkAD0mRbF/hapwqNtspD3/0JVk/CgIhPDULZsffhWw5LsEGXj1h4FCzhe4ULNqZb+KhWKKUedl+1VeU9n9XrFEQQmmHtqwxswSgVZMO3rbOAxv/bGEpUHmCReeoY16PU6/TYJ+BEgTjNwvLeguuRh3cdCMXTUgX5KofVXg79FI3GB9WRYwTRO/A2/u+3buKGjJQHUgk0hmubCqGe4nR/tb4YP21TtGBYDqyhTILm24rspEElwCyzb9Kcufj6vc0cD8UCsrNtZKBD8rB+ll0nAeNXl8JF3lyOgZSerDyi6DUCxGg",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "b72fff0f92002ea05bf633de6bc13991d696f2f8d6eb487cb98ce6c7f23dd64b",
+            "sig": "aee050612729892c718198198d26198a55321667ba649e2aadc45acc9b581878ded5f4348ac3a91254c76646b5c5880999312636f67f5a2980e263386a069939"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "call-since-fractional",
+        "kind": "positive",
+        "note": "`call.since` with a fractional part: kept, floored to a whole second - a call joined at a fraction of a second is still a Unix-second claim once decoded.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999939.25
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "c483be0b6e5ab1a8c8f036596c10623144ee518c0b1fbe10531e104cd36f1a1d",
+          "auxRandHex": "88521564a3a669f2bcf2333086bb45cdc61537e40c49b19e5d7aef6852126673"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AsSDvgtuWrGoyPA2WWwQYjFE7lGMCx++EFMeEEzTbxodl9as3RkUSezG+tYdHwSWmuqNaavN6tdu3TCDcS+mKV9uYT4Enj/XEZd2dO2q9zLEYzpb0kTc5ySgeWve9qnnZfnjG+fEqFpPAqpFQtDR56ZulPUO8GlEwma7oNiNlYAxZ27JqUV5fBPylVBiUwgNPawJJXqE917lwOtG5C+lAosRD5Ory//hZ4qNbjRZIH3Wsy8aBmmU67Yedz7s1USlUAvA4OmQxqX7pR+u+Qs9BWZjbKfBE+mZ4xus7LIFUz1KXwUdU/TGH8oOQwstjp8btN1g/7kJyLivp6GL5TnCkiidmq+SjNNeE/mPUgQKa8fQH6z1oRoSS64a2075ngjOlnUEoHFt+7Lb6DE/B0NgwQhbFBK1dUfjVz7c7tSUSmmwUyZ/sYdRH8t/nB+MQczMf79gweoFv3tBGTF7nDVAV5x+EZZL7Ct34tp7c6OFU2S5I5S2oIJf1/W2n9LFp9f7qc6sPDG5H678/NQn9YwEi0QgSLAG+JLXVdL5isY0lB2Zyi7f9qEy3JbtcrgNUZuvz9E+3Pam7n06oxnLN2VUbaMOsg1txsdIOe2n7XSslDC2kJWwzME9ODKb1VcRxz7loeFWaUSqEJn76I/0B/7gzF8Gg+ReyNRS8jAHutKDqVtQ73AJTC3VR/xS04sT3Q42xUwdUB30vB4yvaao1LX9VvWvwWv1TJ1KXggrQ3gOmB0CRZMq6M3V2Vm4ildHM4hWwKMR+gF2UEqQffjD6jaRhnwrKBhnrPsW9VVEHs+0V3jzeVpfLdyf2lHptvIBj9ZrBAgnkxc0t80P7Tc69GUAAxougGt7UXLOb8X0kIMpYbyLM1iTYEC/nJc7fLjoBYYuGiRF4eU8hZwBk6Jq7Q43Ey6eVnWTOmCdKIcquMOEjbwgIJa5RdMcwVejLdjAqX+/fqgam2q0sYx0DXJED75Yt6xwpggk1PFzougLZIOgUsWDAxsNrE4Elz5w7giqEGEsSDdlKxkHKVtzUqy+aFhPFOx0fJfPm1lVe3xbccWG8MewDqXVWU5yB60uLi5a1tqcoVrnQHsjmZybAfSyyngeVZ3Pfi0+LfNmic7earnegQuH9lhxA2LugYfj5MJHoAkA4dMBTLKa2R70VPooVQO0BrKwpXlcUuS0MqvQCBfSLSWCaeTlCSh1kE0AsZY6OFrydkRyz2g6nbyD1Gnz+ScGLE0DxMVgQY6X7/SlnaLK18kRhnWGOvDi9186F9IWmbTnPGlY",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "0dcbd23a0cccfbeca14e3dbeddc014b2c8f7ebb73ba90a365de33f421702406c",
+            "sig": "bd9e64ec10ab87c57cd72c7e6fb0f4eb056057f860939529f6d167132b6215ada7a6c2e30ed02cf6ad14ea66008bf7f47a3a8d908825ed6ddf9a9bd352100520"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999939
+            }
+          }
+        }
+      },
+      {
+        "name": "call-extra-keys",
+        "kind": "positive",
+        "note": "A `call` object carrying extra keys a future client might add: kept, but only `id` and `since` survive decode - `sanitiseCallMembership` reads exactly those two fields and nothing else, so an unrecognised extra is silently dropped rather than carried through.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940,
+              "profile": "video",
+              "note": "ignored"
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "cc77b9b0a6489cac172a5187464b129141a23d5fb525b005a6449b4f8155ddfd",
+          "auxRandHex": "1943b0259a9a76c5445ea366f765f69e208909d66639dce91e77243fcd27b058"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "Asx3ubCmSJysFypRh0ZLEpFBoj1ftSWwBaZEm0+BVd39Un8LfZdmmDrT8ZlTs54MP72mj7qF4Kr35sGRONhaDLoQzXrWZS2kBJbAHV/Os9vPe2NK9LNwWz+dJ2ziN6lFt+gOHOJYK21z3XEe9ruHXx4lgcozVCQNybdrhcDKogiJw/H5khjdwo7wuaXz2uLxVEsjUw/t9FpIpgqxj1iw6U3uji5vcclJoY+VS+3+gZH68MKdv2Cxc88SaW9DT05c4Ct4sj3LdBqLlwGX+/HvFYZjGqC1L/jwt82jG1z0wrvUi+u76VsF/jJhg3h/UHK+TyH/RB9jSQruM4ylSl2P6s097Q0C7pGHOrCw3ibx0IH+ULmLv50ORgstvJXdBL+9UPrHHJo/9pJU7JsD+RALeYQGCEV1XCQrijQ20abPMb5UMHOhAU8kuO4oRr9+Dt2WS4V1zGXOhV0wnlFdVsh9MCMrlT20Pd+rdCtVdwF8tgUvioaNcn8lGwfiUybMOkr9MaWGbCbnckGaazIqcsJezdiW1jrxUyu2u6yjPNChsAupI9k2BINwoSSpGRQ/n+z3C6MAKXm6d1VWLp3H7GIIeqyoe5+wPiyavcKydK7zOd3JZzfGqUG6kkeSl54yiXRMYaLUP6v0VtDoD00uuhfPKWNgkTF3Rwj4Rt/zjf6V/UItFI7NE8E2MTJ6PG03gF4eOvOQdGJMxXZAOGTr2l7P+4qtzBGxkhSiCDiKC4Q5YpdSFUZgWM5I1kltFK7YWJiWVibW7NRn8eT9ht3+G49UE6weiWlSj9nT46XHIildORITPXCNdBtrDJRzvTlJzcfWNEGHZRLhlZstca2AXi+rBbBLHLkGikg5rXpBb02MLgIKLsSXFPTPIdSCWrJhIfzAvnV9fTBBU3qLw/a3c0dT/U16qoQIpWJn1VQRy7BCqgfucp4ps/BtA1zb0+vSvoNEHbajv3a42emMoHACdDTMGAv6BkU+xnNapO2fnRXquBG/uWr6s+dD0QSrKqeHFw6wi8GRSTYaMIYQ7kxsXL1x39Ec8efcsedkEZRzny8TgJodVyD9RBj6b5GChwuAWEIDNgoN1Le/r2VrxjE57Y5vOqkQk+iEEDRz/mvWFtmxLS08kZIvqFREE86JGqiUMdYE/NBQbjUkb+8HjNzlXzNnetqtkVMiTze09CrgqUEN5r4/VdbCfjypQLbGFfpXKWFZJoSIunmTeRxb2K5fvqAGaRQwbJd5FJvbuAWuBvaQxAjswffUJcqkk1ACNAaaEo4HMDQV",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "9ac927f9105b09d8e3a9fac27c5e60021061efa8c07e85cdf9ee6f3514b4f7ca",
+            "sig": "deeee6f3cfaa4ea86a82e2184d18f437a599d9df61f0757597e80a6ac0c83f4fc3544f6d595c9d2b8ffa18264e51f3c54ac011fa684203a1a9a6ee45aec25054"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [
+              {
+                "trackId": "t1",
+                "role": "screen"
+              }
+            ],
+            "claims": {
+              "mic": 1800000000
+            },
+            "updatedAt": 1800000000,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          }
+        }
+      },
+      {
+        "name": "farewell-on-call",
+        "kind": "positive",
+        "note": "A farewell entry (`left: true`) that also carries a valid `call`: the decoder applies `sanitiseCallMembership` regardless of `left`, so `left` and `call` both survive decode. Never publishing `call` on a farewell is a sender-side rule, not a decode-side one - this vector pins what a reader does when a looser implementation sends both.",
+        "input": {
+          "entry": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [],
+            "claims": {},
+            "updatedAt": 1800000000,
+            "reply": true,
+            "left": true,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "nonceHex": "d27d77087d42791279ef7a78b974ec4a633761872a095e6c6a1f0b064ecc9909",
+          "auxRandHex": "48305d49de7f512d5f33a78af5606e23f1ad657794cefdcedf3b3611b5d332ef"
+        },
+        "output": {
+          "event": {
+            "kind": 20461,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ]
+            ],
+            "content": "AtJ9dwh9QnkSee96eLl07EpjN2GHKglebGofCwZOzJkJke6b8zwhtRLRu9EFFtpzhjDR8Vq9HB/3TFf7+12uiJeMe1yBLhTtDKqfeI0pSUWhEkLf3gZUA3QnOGo6D84uQqhJE08HUtu84pewhmk48eanrP0B1ozTfW7f7H4ArQFVyeN1Dfj8j82iktQAMYscZX901xomXWMuIWdsQ3XWVLUv1axrxS+27uR5jkD7MYzVvpGSIsnqs56fXMv/HkqjYE7l1RhQ4ONvBSt7ctR01WutQCj35iPbZbQvKaZ1mL0JMCeErwkYNV5O7mBjMI29MKgRxOlrVMsDUyIVNoxuFMm6WXtpoktQQZ6EJ4mu+NNiA+lLV5z8bJw+r9R2ImRJ89R+hpghn/CHWBwkUuDhrIgRZWceGJeHIv25uquIzAJEAweIkBLsA+M9gfPwr4h6t6YXy7Et5QN6D213ACZe+yeHAbeiLBOF3Nul8oBOgGimFLnG1BETB2+NtSpBqJ+ePjN+mN8Rfy/fsaAah2T8wxclCfDGTiKUTTPNchPaewIr7tfL+HeZVU7PvCC4CpsEQbU/NNt6OBCIgI70dG3mlsAiDLBEkwJTekeYFsXQpW5KNEyHI6CVu/KzccnIqnvCHCHl9AV3x+3maQfG4kw7ATuOSzsx4ijXg10HOB7ABN8lxkcasVeIQB6tU9GuS3+7ZzI5TpzCqSANdIunXn1IBfEYxJO7NOpmlhpm2ZiO0Xe60jLN9JGKQCEZSk/ztE81XpiOFMR6Pxe/zH360ixhptv0reHp4GTUlU1vCHuNKfW8vYwcwGZqgqT8DNsnZu3/X1TMNwlUbtEPTQtQtYQqCEJRM6jEtf/dC5eM1PqU9Wqbz1kyTP2nyeGCghEIkJxXiOQwWk0MOuccnBTTm8uXmp6bVWD/iwTlCqWRxfrp9Ta3kWlAVCW2aVUN7+MDhngUaiu7TKttFIK7Ep5k4+HFeOuG2CNeCEl6j5B6WtlOHHsxR5UpUkg+zsQ2IeW8AyWbYtuJ/t8sqMbyX6G45TXsKpXGLF6hcYbLk658yQC0VW/OcULnrJqBFpVV/+hWeq4zu9rH4OsV44evL6X4VHQBGdpBvMcKK1dTdq9bbIQswfjJQzE8lKLlrIo5u1ELHCvcLvvZjwSTt6RR41/GmLdmiJNlvgUUqVu4PsF1/J0uHhS2znAG2K1ykaOoP1YpfYmXA7ej0wtC+Dwkx7CHHiK9HvAoi/5E1K7JJ2If15ddny5LHzXIzqWpm+jaonMHy9WP6Gc1",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "3d038aedca752028b4316f9824dcf20a65d4a4f04411425832a089951a02e03e",
+            "sig": "fe310283d331c96bb31224d198584abe3f833b9d1fbf69720429bea6dace4e6031b5ebc085334640b225d58905e9a4f45de0b40d281022446faeb25efb443691"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "now": 1800000000
+          },
+          "result": {
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+            },
+            "tracks": [],
+            "claims": {},
+            "updatedAt": 1800000000,
+            "reply": true,
+            "left": true,
+            "call": {
+              "id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0",
+              "since": 1799999940
+            }
+          }
+        }
+      },
+      {
         "name": "profile-2-and-page-session",
         "kind": "positive",
         "note": "A roster entry declaring `callProfile: 2` (this device speaks fixed slots, reliable signalling and pair health - docs/protocol.md \"Profile 2 additions\") alongside `sid` (its page session, see H3 and the 'sid' vector group). Both are inside the room-key ciphertext with everything else. A reader that knows neither field decodes this event unchanged on everything it does model; only the exact number `2` is the profile claim, and only 8 lower-case hex is the session id.",
