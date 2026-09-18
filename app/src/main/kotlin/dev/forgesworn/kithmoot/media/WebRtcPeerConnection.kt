@@ -19,7 +19,22 @@ import kotlin.coroutines.resumeWithException
  * who gives way in a collision, what to do with a candidate that arrived early -
  * lives in [PeerLink], where it can be tested without any of this.
  */
-class WebRtcPeerConnection(private val connection: PeerConnection, private val onRemoteApplied: () -> Unit = {}) : PeerConnectionHandle {
+class WebRtcPeerConnection(
+    private val connection: PeerConnection,
+    private val onRemoteApplied: () -> Unit = {},
+    /**
+     * What this connection is sending, by track id.
+     *
+     * Read from the caller's own record of the senders it added rather than
+     * from `connection.senders`, which mints Java wrappers around native
+     * objects on every read - the same disposal hazard `withTransceiver` exists
+     * for. The caller already knows; asking libwebrtc would only be a way of
+     * being told again, expensively.
+     */
+    private val localMedia: () -> Set<String>? = { null },
+) : PeerConnectionHandle {
+
+    override fun localMedia(): Set<String>? = runCatching { localMedia.invoke() }.getOrNull()
 
     override fun signalingState(): SignalingState = when (connection.signalingState()) {
         PeerConnection.SignalingState.STABLE -> SignalingState.STABLE

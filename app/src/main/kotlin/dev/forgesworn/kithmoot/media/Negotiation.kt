@@ -173,6 +173,18 @@ interface PeerConnectionHandle {
     fun localDescription(): SdpData? = null
 
     /**
+     * What this connection is currently sending, by track id, or null when it
+     * cannot say.
+     *
+     * Profile 1 adds and removes senders on the connection directly, so this is
+     * the only thing that can answer "would the answer come out the same?"
+     * without describing the session again to find out. A connection that
+     * cannot say is answered afresh and the two answers compared instead, which
+     * is correct but churns the connection - so a real one should say.
+     */
+    fun localMedia(): Set<String>? = null
+
+    /**
      * One sample of the counters section 3.4 reads.
      *
      * Whether media is moving is the only honest evidence that a direction is
@@ -322,8 +334,20 @@ class PeerLink(
      */
     private val remoteAnswerShapes = ArrayDeque<String>()
 
+    /** The shape of the remote offer this connection last applied, the exact
+     *  answer bytes sent for it, that answer's shape, and the local media it
+     *  was written with. What a retransmitted offer is judged against. */
+    private var appliedOfferShape: String? = null
+    private var sentAnswerSdp: String? = null
+    private var sentAnswerShape: String? = null
+    private var sentAnswerMedia: Set<String>? = null
+
     /** A repair renegotiation is owed, as soon as this side is idle. */
     private var repairOwed = false
+
+    /** A retransmitted offer answered from store rather than described again. */
+    var answersReplayed: Int = 0
+        private set
 
     /** An answer this connection had already settled on, arriving again. */
     var duplicateAnswersDropped: Int = 0
@@ -783,6 +807,21 @@ class PeerLink(
             return
         }
 
+        // The same offer again, and nothing on this side has moved since it was
+        // answered. Replaying those exact bytes is the whole repair: describing
+        // the session again would mint a new answer, and a new answer is a new
+        // shape the far end may already be unable to apply.
+        //
+        // Not after a collision: the rollback discarded an offer of our own,
+        // and the connection genuinely needs describing again.
+        if (splitGuard && description.type == SignalType.OFFER && !offerCollision && replayable(description)) {
+            haveRemoteDescription = true
+            answersReplayed++
+            sendAnswer(sentAnswerSdp!!, body)
+            flushCandidates()
+            return
+        }
+
         settingRemoteAnswerPending = description.type == SignalType.ANSWER
         if (offerCollision) {
             // Polite by construction: an impolite collision returned above.
@@ -799,6 +838,13 @@ class PeerLink(
             haveRemoteDescription = false
         }
 
+        // Judged before the description is applied, because applying it is what
+        // replaces the thing being compared against.
+        val repeatedOffer = splitGuard &&
+            description.type == SignalType.OFFER &&
+            SdpShape.of(description.sdp) == appliedOfferShape
+        val previousAnswerShape = sentAnswerShape
+
         connection.setRemoteDescription(description)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
@@ -814,7 +860,25 @@ class PeerLink(
         if (description.type == SignalType.OFFER) {
             bindSlots(body)
             val answer = connection.setLocalDescription()
+            val shape = SdpShape.of(answer.sdp)
+            if (splitGuard) {
+                appliedOfferShape = SdpShape.of(description.sdp)
+                sentAnswerSdp = answer.sdp
+                sentAnswerShape = shape
+                sentAnswerMedia = connection.localMedia()
+            }
             sendAnswer(answer.sdp, body)
+            // The same offer, answered differently: local media moved between
+            // the two, or a rollback re-described the session. The far end may
+            // already have settled on the answer this one replaces and will
+            // refuse it exactly as this side used to, so one offer from here is
+            // the repair - and an offer can never be mistaken for a duplicate
+            // answer or a repeated offer, which is what stops two fixed clients
+            // repairing at each other for ever.
+            if (repeatedOffer && previousAnswerShape != null && previousAnswerShape != shape) {
+                disagreementsRepaired++
+                repairOwed = true
+            }
         }
 
         flushCandidates()
@@ -844,6 +908,23 @@ class PeerLink(
         disagreementsRepaired++
         repairOwed = true
         repairIfOwed()
+    }
+
+    /**
+     * Whether a repeated offer can be answered from store.
+     *
+     * The answer has to be one this connection actually sent, for an offer of
+     * the same shape, written with the media the connection is sending now. A
+     * connection that cannot say what it is sending is answered afresh, which
+     * is slower but never wrong.
+     */
+    private fun replayable(description: SdpData): Boolean {
+        val stored = sentAnswerSdp ?: return false
+        if (stored.isEmpty()) return false
+        if (appliedOfferShape == null) return false
+        if (SdpShape.of(description.sdp) != appliedOfferShape) return false
+        val current = connection.localMedia() ?: return false
+        return current == sentAnswerMedia
     }
 
     /**
@@ -933,6 +1014,7 @@ class PeerLink(
         channel = null
         pendingCandidates.clear()
         remoteAnswerShapes.clear()
+        sentAnswerSdp = null
         connection.close()
     }
 }

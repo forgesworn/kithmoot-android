@@ -501,7 +501,14 @@ class WebRtcEngine(
             link = PeerLink(
                 localDevice = session.identity.devicePubkey,
                 remoteDevice = device,
-                connection = WebRtcPeerConnection(connection, ::refreshRemoteTracks),
+                connection = WebRtcPeerConnection(
+                    connection,
+                    ::refreshRemoteTracks,
+                    // Profile 1 adds and removes senders on the connection
+                    // directly, so this map is the only thing that can say
+                    // whether a repeated offer would be answered the same way.
+                    localMedia = { runCatching { senders.keys.toSet() }.getOrNull() },
+                ),
                 roomId = session.room.roomId,
                 send = ::sendEnvelope,
                 callProfile = if (profileTwo) CALL_PROFILE_2 else 1,
