@@ -42,6 +42,14 @@ class MainActivity : ComponentActivity() {
     /** The browser coming back from Signet with a sign-in. */
     private val signetReturn = MutableStateFlow<String?>(null)
     private val pictureInPicture = MutableStateFlow(false)
+    /**
+     * Whether the person can see this application.
+     *
+     * Only the camera background pipeline reads it, and it reads it to stop a
+     * segmentation model running on a phone that is in somebody's pocket. See
+     * RoomViewModel.setAppVisible.
+     */
+    private val visible = MutableStateFlow(true)
     private val notificationRoom = MutableStateFlow<String?>(null)
 
     /**
@@ -101,6 +109,8 @@ class MainActivity : ComponentActivity() {
                         catch (e: Exception) { model.cancelSignIn(); model.showNotice("No browser could open the Signet sign-in.") }
                     }
                 }
+                val onScreen by visible.collectAsState()
+                LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
                 val inPip by pictureInPicture.collectAsState()
                 KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
                     val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
@@ -109,6 +119,16 @@ class MainActivity : ComponentActivity() {
               }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        visible.value = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        visible.value = false
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {

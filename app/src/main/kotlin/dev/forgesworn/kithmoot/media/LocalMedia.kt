@@ -5,6 +5,10 @@ import android.content.Intent
 import android.media.projection.MediaProjection
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
+import dev.forgesworn.kithmoot.media.effects.BackgroundProcessor
+import dev.forgesworn.kithmoot.media.effects.FrameCompositor
+import dev.forgesworn.kithmoot.media.effects.ReducedMotion
 import dev.forgesworn.kithmoot.session.Roles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +59,21 @@ class LocalMedia(
     private var cameraTrack: VideoTrack? = null
     private var cameraHelper: SurfaceTextureHelper? = null
     private var frontFacing = true
+
+    /**
+     * What is drawn behind the person, when anything is.
+     *
+     * Made with the camera and destroyed with it, which is most of the battery
+     * answer: a segmentation model is not left loaded for a camera that is off.
+     * Held here rather than in the view model because the processor belongs to
+     * the `VideoSource`, and the source's life is this class's business.
+     */
+    private var background: BackgroundProcessor? = null
+    private var backgroundChoice = BackgroundChoice()
+    private var appVisible = true
+
+    /** Told when the compositor has given up on a run of frames. */
+    var onBackgroundTrouble: ((String) -> Unit)? = null
 
     private var screenCapturer: VideoCapturer? = null
     private var screenSource: VideoSource? = null
@@ -128,6 +147,10 @@ class LocalMedia(
         val capturer = createCameraCapturer() ?: return null
         val helper = SurfaceTextureHelper.create("camera-capture", eglBase.eglBaseContext)
         val source = factory.createVideoSource(false)
+        // Set before the capturer starts, so there is no window in which a
+        // frame reaches the encoder without having been through the rule in
+        // `routeFor`. With no scene chosen it forwards frames untouched.
+        source.setVideoProcessor(newBackgroundProcessor())
         capturer.initialize(helper, context, source.capturerObserver)
         capturer.startCapture(CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
         val track = factory.createVideoTrack(trackId(Roles.CAMERA), source)
@@ -145,7 +168,12 @@ class LocalMedia(
         runCatching { cameraCapturer?.stopCapture() }
         runCatching { cameraCapturer?.dispose() }
         runCatching { cameraHelper?.dispose() }
+        // The source has to go before the processor: a frame arriving after the
+        // compositor has given its bitmaps back would find nothing to draw on.
+        runCatching { cameraSource?.setVideoProcessor(null) }
         runCatching { cameraSource?.dispose() }
+        runCatching { background?.close() }
+        background = null
         cameraCapturer = null
         cameraHelper = null
         cameraSource = null
@@ -156,7 +184,51 @@ class LocalMedia(
     @Synchronized
     fun switchCamera() {
         frontFacing = !frontFacing
+        background?.setFrontFacing(frontFacing)
         cameraCapturer?.switchCamera(null)
+    }
+
+    /**
+     * Put a sea behind the person, or take it away again.
+     *
+     * Remembered even with the camera off, so turning the camera back on comes
+     * up with the background the person last chose rather than with their room.
+     */
+    @Synchronized
+    fun setBackground(choice: BackgroundChoice) {
+        backgroundChoice = choice
+        background?.setChoice(choice)
+    }
+
+    @Synchronized
+    fun background(): BackgroundChoice = backgroundChoice
+
+    /**
+     * The application is, or is not, in front of the person.
+     *
+     * Going away stops the segmentation model; coming back starts it on the
+     * next frame. While it is away and a background is chosen, nothing at all
+     * is published from the camera - not the room, and not a stale composite.
+     */
+    @Synchronized
+    fun setAppVisible(visible: Boolean) {
+        appVisible = visible
+        background?.setVisible(visible)
+    }
+
+    private fun newBackgroundProcessor(): BackgroundProcessor {
+        val made = BackgroundProcessor(
+            composer = FrameCompositor(
+                context = context,
+                reducedMotion = ReducedMotion(context)::on,
+            ),
+            onTrouble = { message -> onBackgroundTrouble?.invoke(message) },
+        )
+        made.setChoice(backgroundChoice)
+        made.setFrontFacing(frontFacing)
+        made.setVisible(appVisible)
+        background = made
+        return made
     }
 
     /**
