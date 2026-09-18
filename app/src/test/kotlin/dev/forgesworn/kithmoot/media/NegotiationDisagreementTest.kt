@@ -559,6 +559,54 @@ class NegotiationDisagreementTest {
         append("a=sendrecv\r\n")
     }
 
+    @Test
+    fun `an answer to an offer this side gave up on is not applied to the next one`() = runTest {
+        // Profile 1 has no way to tell which offer an answer replies to, so a
+        // stale answer still in flight from a rollback minutes ago used to be
+        // applied to whatever offer happened to be open, and its directions
+        // became the pair's.
+        val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+        val far = DescribingPeerConnection("far")
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire)
+        assertTrue(android.polite)
+
+        android.onNegotiationNeeded()
+        val ours = wire.last(SignalType.OFFER)
+        assertEquals(1L, ours.seq, "an offer has to be nameable for its answer to be recognised")
+
+        // The far end answers it without a microphone, and that answer is slow.
+        far.setRemoteDescription(SdpData(SignalType.OFFER, ours.sdp!!))
+        val stale = far.setLocalDescription()
+
+        // Meanwhile the far end unmutes and offers of its own accord, which the
+        // polite side gives way to.
+        far.hasLocalAudio = true
+        deliver(android, wire, offer(far.setLocalDescription().sdp))
+        assertEquals(1, here.rollbacks)
+        far.setRemoteDescription(SdpData(SignalType.ANSWER, wire.last(SignalType.ANSWER).sdp!!))
+        assertEquals("sendrecv", here.negotiatedAudio())
+        assertEquals("sendrecv", far.negotiatedAudio())
+
+        // This side has something new to say, and asks.
+        android.onNegotiationNeeded()
+        assertEquals(SignalingState.HAVE_LOCAL_OFFER, here.signalingState())
+
+        // And now the answer to the offer that was abandoned arrives, naming it.
+        deliver(android, wire, SignalEnvelope(impoliteDevice, SignalType.ANSWER, roomId, sdp = stale.sdp, re = 1L))
+
+        assertEquals(1, android.staleAnswersDropped)
+        assertEquals(0, android.disagreementsRepaired, "a stale answer is not a disagreement")
+        assertEquals(
+            SignalingState.HAVE_LOCAL_OFFER,
+            here.signalingState(),
+            "the outstanding offer is still waiting for its own answer",
+        )
+        assertEquals("sendrecv", here.negotiatedAudio(), "and the pair is untouched")
+        assertNull(wire.label)
+        android.close()
+    }
+
     // -- the invariant: a repair is an offer, and offers do not echo ---------
 
     @OptIn(ExperimentalCoroutinesApi::class)

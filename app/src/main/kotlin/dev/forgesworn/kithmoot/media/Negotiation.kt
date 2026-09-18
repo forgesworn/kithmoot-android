@@ -396,6 +396,24 @@ class PeerLink(
     var repairsExhausted: Boolean = false
         private set
 
+    /**
+     * Which offer of ours the far end is being asked to answer.
+     *
+     * Profile 1 had no way to tell an answer to the offer now outstanding from
+     * an answer to one abandoned in a rollback minutes ago - an offer describes
+     * a session, not WHICH offer it replies to - so a stale answer still in
+     * flight was applied to whatever offer happened to be open, and its
+     * directions became the pair's. The number is ours; a far end that echoes
+     * it in `re` lets this side tell the two apart, and one that does not is
+     * judged exactly as before.
+     */
+    private var offerSeq: Long = 0
+    private var outstandingOfferSeq: Long? = null
+
+    /** Answers to an offer this side has abandoned. */
+    var staleAnswersDropped: Int = 0
+        private set
+
     // --- fixed media slots, profile 2 ---------------------------------------
 
     /** The four slots of this connection, once a generation has been opened by
@@ -645,10 +663,12 @@ class PeerLink(
      * shortcut past any of that would be a second negotiation machine.
      */
     private suspend fun offerLocked() {
+        val seq = if (splitGuard) ++offerSeq else null
         try {
             makingOffer = true
             val local = connection.setLocalDescription()
-            send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp))
+            outstandingOfferSeq = seq
+            send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, seq = seq))
         } finally {
             makingOffer = false
         }
@@ -680,7 +700,9 @@ class PeerLink(
                 delay(jittered(wait))
                 if (connection.signalingState() != SignalingState.HAVE_LOCAL_OFFER) return@launch
                 val held = connection.localDescription()?.takeIf { it.type == SignalType.OFFER } ?: return@launch
-                send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = held.sdp))
+                // The same offer, under the same number: asking again is not a
+                // new offer, and an answer to it answers the one outstanding.
+                send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = held.sdp, seq = outstandingOfferSeq))
             }
         }
     }
@@ -882,6 +904,17 @@ class PeerLink(
             return
         }
 
+        // An answer to an offer this side has given up on. It says nothing
+        // about what the pair is doing now - applying it would hand the
+        // outstanding offer a stale session's directions, and repairing from it
+        // would spend a repair on a disagreement that does not exist.
+        if (splitGuard && description.type == SignalType.ANSWER &&
+            body.re != null && body.re != outstandingOfferSeq
+        ) {
+            staleAnswersDropped++
+            return
+        }
+
         // An answer for a negotiation this connection is not in. Applying it is
         // impossible - the stack refuses an answer with no offer outstanding -
         // and letting that refusal escape was how a working pair came to be
@@ -923,6 +956,7 @@ class PeerLink(
             // connects.
             connection.rollbackLocalDescription()
             stopOfferRetry()
+            outstandingOfferSeq = null
             collisionsResolved++
             // We are renegotiating from `stable` now. Candidates still arriving
             // belong to the description that has not landed yet, so they go
@@ -942,7 +976,10 @@ class PeerLink(
         connection.setRemoteDescription(description)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
-        if (description.type == SignalType.ANSWER) stopOfferRetry()
+        if (description.type == SignalType.ANSWER) {
+            stopOfferRetry()
+            outstandingOfferSeq = null
+        }
         if (splitGuard && description.type == SignalType.ANSWER) {
             remember(remoteAnswerShapes, SdpShape.of(description.sdp))
         }
