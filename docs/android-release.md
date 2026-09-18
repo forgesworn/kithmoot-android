@@ -1,10 +1,10 @@
 # Android release signing and device acceptance
 
-The public website currently offers production-signed 0.6.6 (29), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
+The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
-## 0.6.7 rejoin, call membership, rotation and no telemetry (candidate)
+## 0.6.7 rejoin, call membership, rotation and no telemetry
 
-Version 0.6.7 (30). Not yet signed or published; the website still offers 0.6.6.
+Published on 18 September 2026 from `7d153e9`: owner-signed with the production key and lineage (v3 only), APK SHA-256 `a1f4c64b1c296d4eb66bbfdbbfc18206b0d5cc7815e1e92592d64597f4521a5a`, certificate `135bcabf…`. On the website and as GitHub pre-release `v0.6.7`. The signed build was installed on an arm64 emulator and started cleanly with no linkage errors; it has not yet run on a handset.
 What it carries: entering a room is never silently dropped after a Leave, and
 media starts when the room's epoch becomes active instead of on a one-shot
 30 second retry; Android publishes and reads the roster's call membership, so
