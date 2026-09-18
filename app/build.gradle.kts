@@ -148,6 +148,11 @@ dependencies {
     // use a camera, a network service, or a Google service.
     implementation(libs.zxing.core)
 
+    // Background replacement on the camera: MediaPipe runs the bundled selfie
+    // segmentation model on the device. No network call and no Google service -
+    // the .tflite is in this module's assets, see the README beside it.
+    implementation(libs.mediapipe.tasks.vision)
+
     // UniFFI's generated Link Kotlin bindings load liblink_ffi through JNA.
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 

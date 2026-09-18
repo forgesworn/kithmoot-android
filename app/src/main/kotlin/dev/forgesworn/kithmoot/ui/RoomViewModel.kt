@@ -93,6 +93,10 @@ import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
 import dev.forgesworn.kithmoot.media.CallVolume
+import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
+import dev.forgesworn.kithmoot.media.effects.BackgroundPreference
+import dev.forgesworn.kithmoot.media.effects.SeaScene
+import dev.forgesworn.kithmoot.media.effects.SharedPreferencesBackgroundStore
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.SharedPreferencesVolumeStore
 import dev.forgesworn.kithmoot.media.WebRtcEngine
@@ -367,6 +371,14 @@ data class RoomState(
     val micMuted: Boolean = false,
     val cameraOn: Boolean = false,
     val screenOn: Boolean = false,
+    /**
+     * What is drawn behind this device's camera picture, if anything.
+     *
+     * Off by default and remembered on this device between calls: somebody who
+     * has a reason to hide their room has that reason on Tuesday as well.
+     * See media/effects/BackgroundChoice.kt.
+     */
+    val background: BackgroundChoice = BackgroundChoice(),
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
@@ -502,7 +514,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
 
-    private val _room = MutableStateFlow(RoomState())
+    /** The remembered background, read before [_room] because the room's first
+     *  value carries it: a device that has chosen a sea must never come up on
+     *  its owner's room, not even for the frame it takes to load a preference. */
+    private val backgrounds = BackgroundPreference(
+        SharedPreferencesBackgroundStore(
+            application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE),
+        ),
+    )
+    private val _room = MutableStateFlow(RoomState(background = backgrounds.load()))
     val room: StateFlow<RoomState> = _room.asStateFlow()
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
     fun notificationReading(reading: Boolean) { notifications.reading = reading; notifications.refresh() }
@@ -2680,6 +2700,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 engine = media
                 media.localMedia.onScreenShareStopped = { stopScreenShare() }
                 media.localMedia.onCameraLost = { cameraLost() }
+                media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
+                media.localMedia.setBackground(_room.value.background)
+                media.localMedia.setAppVisible(appVisible)
                 media.setCallActive(_room.value.callActive)
                 media.start()
             }
@@ -3095,6 +3118,36 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchCamera() {
         engine?.localMedia?.switchCamera()
+    }
+
+    /**
+     * Whether the application is in front of the person.
+     *
+     * Only the background pipeline cares, and it cares for the battery: a
+     * segmentation model running on a phone in somebody's pocket is a bill for
+     * a picture nobody is looking at. While the app is away and a background is
+     * chosen, nothing at all goes out from the camera - not the room, and not a
+     * stale composite. See media/effects/BackgroundProcessor.kt.
+     */
+    fun setAppVisible(visible: Boolean) {
+        appVisible = visible
+        engine?.localMedia?.setAppVisible(visible)
+    }
+
+    @Volatile private var appVisible: Boolean = true
+
+    /**
+     * Choose what is drawn behind you, or choose nothing.
+     *
+     * Applied to the running camera at once and remembered on this device.
+     * Passing a null scene turns it off, which is the only route by which this
+     * device's camera goes out untouched.
+     */
+    fun chooseBackground(scene: SeaScene?, fish: Boolean) {
+        val choice = BackgroundChoice(scene = scene, fish = fish)
+        backgrounds.save(choice)
+        _room.update { it.copy(background = choice) }
+        engine?.localMedia?.setBackground(choice)
     }
 
     /**

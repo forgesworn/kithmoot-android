@@ -39,6 +39,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
+import dev.forgesworn.kithmoot.media.effects.SeaScene
+import androidx.compose.material.icons.filled.HideImage
+import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Contacts
@@ -98,6 +101,9 @@ fun RoomScreen(
     onLeave: () -> Unit,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
+    /** Choose what is drawn behind this device's camera, or nothing. Defaulted
+     *  so the positional call sites in the instrumented tests keep working. */
+    onChooseBackground: (SeaScene?, Boolean) -> Unit = { _, _ -> },
     onOpenCards: () -> Unit = {},
     onSetVolume: (String, Float) -> Unit = { _, _ -> },
     work: @Composable () -> Unit = {},
@@ -125,6 +131,7 @@ fun RoomScreen(
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    var backgroundOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
 
     // Keep the screen awake while this device is actually on the call, so a
@@ -136,6 +143,18 @@ fun RoomScreen(
     DisposableEffect(view, onCall) {
         view.keepScreenOn = onCall
         onDispose { view.keepScreenOn = false }
+    }
+    if (backgroundOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { backgroundOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            BackgroundSheet(
+                choice = state.background,
+                onChoose = onChooseBackground,
+                onDone = { backgroundOpen = false },
+            )
+        }
     }
     if (inviteOpen) {
         AlertDialog(
@@ -301,6 +320,7 @@ fun RoomScreen(
                     onToggleCamera = onToggleCamera,
                     onSwitchCamera = onSwitchCamera,
                     onToggleScreenShare = onToggleScreenShare,
+                    onOpenBackground = { backgroundOpen = true },
                     onOpenChat = { callOpen = false },
                     onAddDevice = onAddDevice,
                     onOpenCards = onOpenCards,
@@ -528,6 +548,7 @@ private fun Controls(
     onToggleCamera: () -> Unit,
     onSwitchCamera: () -> Unit,
     onToggleScreenShare: () -> Unit,
+    onOpenBackground: () -> Unit,
     onOpenChat: () -> Unit,
     onAddDevice: () -> Unit,
     onOpenCards: () -> Unit,
@@ -562,6 +583,15 @@ private fun Controls(
                     label = "Flip",
                     active = false,
                     onClick = onSwitchCamera,
+                )
+                // Only while the camera is on. A control for hiding what is
+                // behind you, offered when nothing is being published, teaches
+                // somebody the wrong thing about when it is doing anything.
+                ControlButton(
+                    icon = if (state.background.on) Icons.Filled.Landscape else Icons.Filled.HideImage,
+                    label = "Backdrop",
+                    active = state.background.on,
+                    onClick = onOpenBackground,
                 )
             }
             ControlButton(

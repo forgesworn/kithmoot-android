@@ -258,6 +258,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                         }
                     },
                     onSwitchCamera = model::switchCamera,
+                    onChooseBackground = model::chooseBackground,
                     onToggleScreenShare = {
                         if (roomState.screenOn) model.stopScreenShare() else requestScreenShare()
                     },
