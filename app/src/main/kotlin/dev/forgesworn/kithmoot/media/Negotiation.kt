@@ -5,6 +5,9 @@ import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -84,6 +87,15 @@ const val MAX_PENDING_CANDIDATES: Int = 64
  * stops that memory being an attack surface.
  */
 const val REMEMBERED_SHAPES: Int = 4
+
+/**
+ * How long to wait before asking again for an answer, and how many times.
+ *
+ * Two seconds is longer than a relay round trip and shorter than a person
+ * waiting; the tail is every ten seconds for five minutes, which is longer
+ * than any transient worth waiting out and short of asking for ever.
+ */
+val OFFER_RETRY_MS: List<Long> = listOf(2_000L, 5_000L, 10_000L) + List(30) { 10_000L }
 
 /** The subset of `RTCSignalingState` the negotiation machine reasons about. */
 enum class SignalingState { STABLE, HAVE_LOCAL_OFFER, HAVE_REMOTE_OFFER, HAVE_LOCAL_PRANSWER, HAVE_REMOTE_PRANSWER, CLOSED }
@@ -344,6 +356,11 @@ class PeerLink(
 
     /** A repair renegotiation is owed, as soon as this side is idle. */
     private var repairOwed = false
+
+    /** Asking again for an answer to the offer this side has outstanding.
+     *  Volatile because [close] cancels it from whatever thread closes. */
+    @Volatile
+    private var offerRetry: Job? = null
 
     /** A retransmitted offer answered from store rather than described again. */
     var answersReplayed: Int = 0
@@ -614,6 +631,52 @@ class PeerLink(
         } finally {
             makingOffer = false
         }
+        armOfferRetry()
+    }
+
+    /**
+     * Ask again for an answer, until one arrives.
+     *
+     * Profile 1 sends each signal exactly once: a lost offer leaves this side
+     * in `have-local-offer` for good, and on the impolite side every later
+     * offer from the far end is then ignored as a collision, so the pair stays
+     * split for the rest of the call with neither end able to say why. That is
+     * true of a repair and of an ordinary offer alike - the same wedge, from
+     * the same single transmission - so every profile-1 offer is retried here
+     * rather than only the repairs.
+     *
+     * What goes back out is what the connection holds NOW: same session, same
+     * ICE credentials, and by now carrying every candidate gathered since, which
+     * a far end reads as the same shape and answers from store. Bounded rather
+     * than endless, because a pair that has gone unanswered for five minutes
+     * has a problem no amount of asking will fix.
+     */
+    private fun armOfferRetry() {
+        val timers = scope ?: return
+        offerRetry?.cancel()
+        offerRetry = timers.launch {
+            for (wait in OFFER_RETRY_MS) {
+                delay(jittered(wait))
+                if (connection.signalingState() != SignalingState.HAVE_LOCAL_OFFER) return@launch
+                val held = connection.localDescription()?.takeIf { it.type == SignalType.OFFER } ?: return@launch
+                send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = held.sdp))
+            }
+        }
+    }
+
+    /**
+     * Spread across the pair.
+     *
+     * Two devices that lost each other's offers in the same instant would
+     * otherwise ask again in the same instant, for as long as they both keep
+     * asking.
+     */
+    private fun jittered(wait: Long): Long = wait + (Entropy.bytes(1).first().toLong() and 0xff) * wait / 1_280
+
+    /** The offer has been answered, rolled back or given up on. */
+    private fun stopOfferRetry() {
+        offerRetry?.cancel()
+        offerRetry = null
     }
 
     suspend fun onLocalCandidate(candidate: IceCandidateData) {
@@ -829,6 +892,7 @@ class PeerLink(
             // applied; without it setRemoteDescription fails and the call never
             // connects.
             connection.rollbackLocalDescription()
+            stopOfferRetry()
             collisionsResolved++
             // We are renegotiating from `stable` now. Candidates still arriving
             // belong to the description that has not landed yet, so they go
@@ -848,6 +912,7 @@ class PeerLink(
         connection.setRemoteDescription(description)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
+        if (description.type == SignalType.ANSWER) stopOfferRetry()
         if (splitGuard && description.type == SignalType.ANSWER) {
             remember(remoteAnswerShapes, SdpShape.of(description.sdp))
         }
@@ -1010,6 +1075,7 @@ class PeerLink(
         // that no longer exists, or a candidate for a description nobody holds.
         // "A rebuild offer never reaches the old connection" is a property of
         // this order.
+        stopOfferRetry()
         channel?.close()
         channel = null
         pendingCandidates.clear()

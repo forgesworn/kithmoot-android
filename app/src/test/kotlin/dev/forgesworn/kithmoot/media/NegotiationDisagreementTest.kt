@@ -1,8 +1,8 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.support.DescribingPeerConnection
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.random.Random
 import kotlin.test.Test
@@ -71,8 +71,13 @@ class NegotiationDisagreementTest {
         fun count(type: String): Int = of(type).size
     }
 
-    private fun link(local: String, remote: String, connection: DescribingPeerConnection, wire: Wire) =
-        PeerLink(local, remote, connection, roomId, wire::send)
+    private fun link(
+        local: String,
+        remote: String,
+        connection: DescribingPeerConnection,
+        wire: Wire,
+        scope: CoroutineScope? = null,
+    ) = PeerLink(local, remote, connection, roomId, wire::send, scope = scope)
 
     /** One inbound signal, delivered the way `WebRtcEngine` delivers one. */
     private suspend fun deliver(link: PeerLink, wire: Wire, body: SignalEnvelope) {
@@ -380,6 +385,84 @@ class NegotiationDisagreementTest {
         assertNull(wire.label)
         assertTrue(unmuted)
         return here.negotiatedAudio() to far.connection.negotiatedAudio()
+    }
+
+    // -- an offer nobody answers ---------------------------------------------
+
+    @Test
+    fun `a lost offer is asked about again until it is answered`() = runTest {
+        // Profile 1 sends each signal exactly once. A lost offer used to leave
+        // this side in `have-local-offer` for the rest of the call - and on the
+        // impolite side every later offer from the far end is then ignored as a
+        // collision, so neither end can get the pair out of it.
+        val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+        val far = DescribingPeerConnection("far").apply { hasLocalAudio = true }
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire, scope = this)
+
+        android.onNegotiationNeeded()
+        val first = wire.last(SignalType.OFFER).sdp!!
+
+        // The relay loses it. Gathering carries on meanwhile, so what goes back
+        // out is the same session with more candidates on it - which the far
+        // end reads as the same shape and can answer from store.
+        here.gatherCandidate(candidate)
+        testScheduler.advanceTimeBy(3_000)
+        testScheduler.runCurrent()
+
+        assertEquals(2, wire.count(SignalType.OFFER), "an unanswered offer must be asked about again")
+        val again = wire.last(SignalType.OFFER).sdp!!
+        assertNotEquals(first, again)
+        assertTrue(SdpShape.same(first, again), "the same session, asked about again")
+
+        far.setRemoteDescription(SdpData(SignalType.OFFER, again))
+        deliver(android, wire, answer(far.setLocalDescription().sdp))
+        assertEquals(SignalingState.STABLE, here.signalingState())
+
+        testScheduler.advanceTimeBy(120_000)
+        testScheduler.runCurrent()
+        assertEquals(2, wire.count(SignalType.OFFER), "an answered offer is never asked about again")
+        assertEquals("sendrecv", here.negotiatedAudio())
+        android.close()
+    }
+
+    @Test
+    fun `a lost repair offer is re-sent and the pair converges`() = runTest {
+        // The repair is the one offer that must not be lost: it is the only
+        // thing that gets a split pair back together, and it goes out through
+        // the same send-once transport as everything else.
+        val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+        val far = DescribingPeerConnection("far")
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire, scope = this)
+
+        android.onNegotiationNeeded()
+        val offered = SdpData(SignalType.OFFER, wire.last(SignalType.OFFER).sdp!!)
+        far.setRemoteDescription(offered)
+        deliver(android, wire, answer(far.setLocalDescription().sdp))
+        assertEquals("sendonly", here.negotiatedAudio())
+
+        // The far end unmutes and answers the offer it still holds a second
+        // time. This side cannot apply that, and repairs.
+        far.hasLocalAudio = true
+        far.setRemoteDescription(offered)
+        deliver(android, wire, answer(far.setLocalDescription().sdp))
+        assertEquals(1, android.disagreementsRepaired)
+        assertEquals(2, wire.count(SignalType.OFFER))
+
+        // And the repair is lost. Nothing else will ever notice: this side is
+        // settled, the far end is settled, and they disagree.
+        testScheduler.advanceTimeBy(3_000)
+        testScheduler.runCurrent()
+        assertEquals(3, wire.count(SignalType.OFFER), "a lost repair must be asked about again")
+
+        far.setRemoteDescription(SdpData(SignalType.OFFER, wire.last(SignalType.OFFER).sdp!!))
+        deliver(android, wire, answer(far.setLocalDescription().sdp))
+
+        assertEquals("sendrecv", here.negotiatedAudio())
+        assertEquals(far.negotiatedAudio(), here.negotiatedAudio())
+        assertNull(wire.label)
+        android.close()
     }
 
     // -- the invariant: a repair is an offer, and offers do not echo ---------
