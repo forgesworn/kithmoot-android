@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -73,7 +74,10 @@ fun ParticipantTileView(
     selfDevice: String = "",
     connectionStates: Map<String, String> = emptyMap(),
 ) {
-    val speaking = tile.hasMic
+    // A muted microphone is still live - hasMic stays true - but disabled at
+    // the source, so it never reads as speaking. There is no audio-level
+    // meter here; "speaking" is standing in for "on air".
+    val speaking = tile.hasMic && !tile.micMuted
     val name = profile?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name ?: shortNpub(tile.participant)
     var identityOpen by remember { mutableStateOf(false) }
     if (identityOpen) AlertDialog(onDismissRequest = { identityOpen = false }, title = { Text(name) },
@@ -157,6 +161,7 @@ fun ParticipantTileView(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 MicChip(tile)
+                if (tile.isSilencedForYou) SilencedChip()
                 if (tile.isSelf && tile.deviceCount > 1) {
                     Chip(
                         icon = Icons.Filled.Devices,
@@ -239,6 +244,10 @@ private fun VolumeRow(tile: ParticipantTile, onSetVolume: (String, Float) -> Uni
 @Composable
 private fun MicChip(tile: ParticipantTile) {
     val label = when {
+        // A muted microphone is still live - the room can turn it back on
+        // without a renegotiation - so it gets its own badge rather than
+        // reading as "off". See RoomViewModel.toggleMicrophone.
+        tile.hasMic && tile.micMuted -> "🎙️ Muted"
         // Which machine of yours the room is hearing is worth saying plainly.
         // It is the one thing about being on two devices that people get wrong.
         tile.isSelf && tile.micIsThisDevice -> "Mic on this device"
@@ -247,9 +256,29 @@ private fun MicChip(tile: ParticipantTile) {
         else -> "Mic off"
     }
     Chip(
-        icon = if (tile.hasMic) Icons.Filled.Mic else Icons.Filled.MicOff,
+        icon = if (tile.hasMic && !tile.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
         label = label,
-        tone = if (tile.hasMic) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        tone = when {
+            tile.hasMic && tile.micMuted -> MaterialTheme.colorScheme.error
+            tile.hasMic -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
+}
+
+/**
+ * "Silenced for you" as its own badge, distinct from [MicChip].
+ *
+ * Deliberately never folded into one icon with the mute badge above: a
+ * person can be muted at the source AND silenced on this device at once, and
+ * those are two different facts about two different people's choices.
+ */
+@Composable
+private fun SilencedChip() {
+    Chip(
+        icon = Icons.AutoMirrored.Filled.VolumeOff,
+        label = "🔇 Silenced for you",
+        tone = MaterialTheme.colorScheme.error,
     )
 }
 

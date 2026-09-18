@@ -566,9 +566,18 @@ private fun Controls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ControlButton(
-                icon = if (state.micOn) Icons.Filled.Mic else Icons.Filled.MicOff,
+                // Live-and-muted keeps the microphone icon crossed out, same
+                // as off, but is coloured as a warning rather than plain
+                // inactive: the mic is still running, just silenced.
+                icon = if (state.micOn && !state.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
                 label = "Mic",
-                active = state.micOn,
+                active = state.micOn && !state.micMuted,
+                danger = state.micOn && state.micMuted,
+                contentDescription = when {
+                    !state.micOn -> "Microphone off"
+                    state.micMuted -> "Microphone muted"
+                    else -> "Microphone on"
+                },
                 onClick = onToggleMic,
             )
             ControlButton(
@@ -647,6 +656,7 @@ private fun ControlButton(
     onClick: () -> Unit,
     danger: Boolean = false,
     badge: Int? = null,
+    contentDescription: String = label,
 ) {
     val container = when {
         danger -> MaterialTheme.colorScheme.error
@@ -682,7 +692,7 @@ private fun ControlButton(
                         }
                     },
                 ) {
-                    Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+                    Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(28.dp))
                 }
             }
         }
