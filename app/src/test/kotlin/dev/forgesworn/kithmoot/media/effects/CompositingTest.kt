@@ -121,6 +121,33 @@ class CompositingTest {
         assertEquals(workingSize(1280, 720, 90), workingSize(1280, 720, 450))
     }
 
+    /**
+     * Portrait, both landscapes, reverse portrait: `fullUser` in the manifest
+     * now lets the phone actually reach all four, and the frame's rotation
+     * metadata follows. Every one of them has to come out upright and at the
+     * same cost, not just 90 and 270 agreeing with each other.
+     */
+    @Test
+    fun `all four rotations produce an upright working size at the same cost`() {
+        val bufferW = 1280
+        val bufferH = 720
+        val expected = mapOf(
+            0 to WorkingSize(scaleWidth = 640, scaleHeight = 360, outWidth = 640, outHeight = 360),
+            90 to WorkingSize(scaleWidth = 640, scaleHeight = 360, outWidth = 360, outHeight = 640),
+            180 to WorkingSize(scaleWidth = 640, scaleHeight = 360, outWidth = 640, outHeight = 360),
+            270 to WorkingSize(scaleWidth = 640, scaleHeight = 360, outWidth = 360, outHeight = 640),
+        )
+        for ((rotation, want) in expected) {
+            val got = workingSize(bufferW, bufferH, rotation)
+            assertEquals(want, got, "rotation $rotation")
+        }
+        // Portrait and reverse portrait cost the same as each other, and the
+        // same as the two landscapes: nobody's upside-down frame is composited
+        // at four times the resolution because of a sign error.
+        val costs = expected.values.map { it.outWidth * it.outHeight }.toSet()
+        assertEquals(1, costs.size, "every rotation should composite at the same pixel count")
+    }
+
     @Test
     fun `every dimension is even, whatever the camera hands over`() {
         val awkward = listOf(
