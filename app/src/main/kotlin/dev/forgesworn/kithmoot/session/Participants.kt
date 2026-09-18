@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 
 /** One published track, attributed to the person rather than the device. */
@@ -56,7 +57,88 @@ data class Participant(
      */
     val agent: Boolean = devices.any { it.agent }
 
+    /**
+     * The call this person is on, if any, and which of their devices are on it.
+     *
+     * One answer per person even when their laptop and their phone disagree,
+     * which happens for a heartbeat or two whenever somebody moves a call from
+     * one of their devices to another. The freshest entry that names a call
+     * decides which call it is; every device naming that same call is listed,
+     * and `since` is the earliest of theirs, so "on the call since" is when
+     * the person joined rather than when their latest device did.
+     *
+     * The web client reaches the same answer by stamping each participant as
+     * it folds the roster (`participants()` in `src/session.ts`); done here on
+     * the grouped devices instead, which does not depend on the order the
+     * roster happened to arrive in.
+     */
+    val call: CallMembership?
+    val callDevices: List<String>
+
+    init {
+        val onCall = devices.filter { it.call != null }
+        val freshest = onCall.maxByOrNull { it.updatedAt }
+        val id = freshest?.call?.id
+        val together = onCall.filter { it.call?.id == id }
+        call = id?.let { CallMembership(it, together.minOf { entry -> entry.call!!.since }) }
+        callDevices = together.map { it.device }
+    }
+
     val deviceCount: Int get() = devices.size
+}
+
+/**
+ * One call in progress, read off presence: everybody with a device on it.
+ *
+ * Usually zero or one. Two means two people pressed Start at once, and a
+ * client offers the bigger or the older one and lets the other wither - see
+ * [callsOf]'s ordering, which is the web client's `calls()` rule.
+ */
+data class CallView(
+    val id: String,
+    /** The earliest join across everybody on it. */
+    val since: Long,
+    val participants: List<String>,
+    val devices: List<String>,
+)
+
+/**
+ * The calls in progress in a room, best first.
+ *
+ * The head of this list is what every client joins, so every client has to
+ * compute the same head from the same roster or a room with two accidental
+ * calls never collapses back to one. The comparator, exactly:
+ *
+ *  1. number of participants, DESCENDING - the bigger call wins;
+ *  2. then `since`, ASCENDING - of two equal calls, the older wins;
+ *  3. then `id`, ASCENDING, as a plain lower-case hex string comparison.
+ *
+ * Step 3 is the one the web client does not have yet. `Session.calls()` in
+ * `src/session.ts` falls back to the insertion order of its map, which is the
+ * order presence happened to arrive in on that device - so two clients with
+ * the same roster can disagree about which of two exactly-tied calls to join,
+ * and split the room permanently. The ids are unique by construction, so
+ * ordering on them is total and the tie cannot survive. The web side is to
+ * adopt the same third step.
+ */
+fun callsOf(people: Collection<Participant>): List<CallView> {
+    val byId = LinkedHashMap<String, CallView>()
+    for (person in people) {
+        val call = person.call ?: continue
+        val held = byId[call.id]
+        byId[call.id] = if (held == null) {
+            CallView(call.id, call.since, listOf(person.participant), person.callDevices)
+        } else {
+            held.copy(
+                since = minOf(held.since, call.since),
+                participants = held.participants + person.participant,
+                devices = held.devices + person.callDevices,
+            )
+        }
+    }
+    return byId.values.sortedWith(
+        compareByDescending<CallView> { it.participants.size }.thenBy { it.since }.thenBy { it.id },
+    )
 }
 
 /**

@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.media
 
+import android.util.Log
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
@@ -96,6 +97,14 @@ const val REMEMBERED_SHAPES: Int = 4
  * than any transient worth waiting out and short of asking for ever.
  */
 val OFFER_RETRY_MS: List<Long> = listOf(2_000L, 5_000L, 10_000L) + List(30) { 10_000L }
+
+/**
+ * Signalling, under the same logcat tag as everything else about getting into
+ * a room: `adb logcat -s KithMootJoin`. Device keys are cut to eight hex
+ * characters, and no SDP, candidate or room key ever goes near it - only which
+ * message went which way and when.
+ */
+private const val NEGOTIATION_LOG = "KithMootJoin"
 
 /**
  * How many disagreements one connection will repair before it stops.
@@ -668,6 +677,7 @@ class PeerLink(
             makingOffer = true
             val local = connection.setLocalDescription()
             outstandingOfferSeq = seq
+            Log.i(NEGOTIATION_LOG, "offer sent peer=${remoteDevice.take(8)} seq=${seq ?: "-"} profile=${if (splitGuard) 2 else 1}")
             send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, seq = seq))
         } finally {
             makingOffer = false
@@ -702,6 +712,7 @@ class PeerLink(
                 val held = connection.localDescription()?.takeIf { it.type == SignalType.OFFER } ?: return@launch
                 // The same offer, under the same number: asking again is not a
                 // new offer, and an answer to it answers the one outstanding.
+                Log.i(NEGOTIATION_LOG, "offer retry peer=${remoteDevice.take(8)} seq=${outstandingOfferSeq ?: "-"} afterMs=$wait")
                 send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = held.sdp, seq = outstandingOfferSeq))
             }
         }
@@ -887,6 +898,11 @@ class PeerLink(
     }
 
     private suspend fun onRemoteDescription(description: SdpData, body: SignalEnvelope) {
+        Log.i(
+            NEGOTIATION_LOG,
+            "${description.type} received peer=${remoteDevice.take(8)} seq=${body.seq ?: "-"} re=${body.re ?: "-"} " +
+                "state=${connection.signalingState()}",
+        )
         val readyForOffer = !makingOffer &&
             (connection.signalingState() == SignalingState.STABLE || settingRemoteAnswerPending)
         val offerCollision = description.type == SignalType.OFFER && !readyForOffer
@@ -1100,6 +1116,7 @@ class PeerLink(
 
     private suspend fun sendAnswer(sdp: String, body: SignalEnvelope) {
         val reply = SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = sdp, re = body.seq)
+        Log.i(NEGOTIATION_LOG, "answer sent peer=${remoteDevice.take(8)} re=${body.seq ?: "-"}")
         // Reliably on a profile-2 pair. A lost answer was the failure that
         // left a pair blind for the rest of a call, because profile 1 sent
         // one exactly once and never again (H1).

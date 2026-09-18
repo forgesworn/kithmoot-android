@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import android.util.Log
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
 import dev.forgesworn.kithmoot.discovery.BoxRelayReader
 import dev.forgesworn.kithmoot.session.RoomWork
@@ -113,6 +114,7 @@ import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_RETIREMENT
 import dev.forgesworn.kithmoot.protocol.RoomAdmission
+import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
@@ -189,6 +191,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
+import dev.forgesworn.kithmoot.session.callsOf
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.decodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.decodePairingLink
@@ -198,6 +201,9 @@ import dev.forgesworn.kithmoot.ui.room.ParticipantTile
 import dev.forgesworn.kithmoot.ui.room.MicrophoneAction
 import dev.forgesworn.kithmoot.ui.room.buildTiles
 import dev.forgesworn.kithmoot.ui.room.microphoneAction
+import dev.forgesworn.kithmoot.ui.room.JoinDecision
+import dev.forgesworn.kithmoot.ui.room.SingleBuild
+import dev.forgesworn.kithmoot.ui.room.joinDecision
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
@@ -360,8 +366,52 @@ data class RoomState(
     val selfDevice: String = "",
     val mediaConnections: Map<String, String> = emptyMap(),
     val listeningHere: Boolean = true,
-    val callActive: Boolean = true,
+    /**
+     * This device's media stack is engaged: peers connected, local capture
+     * possible, remote audio routed here.
+     *
+     * NOT membership of the call - see [onCall], and never read as that. It
+     * is true from the moment a room opens, because opening a room is how you
+     * hear the people already in it, and a person who only listens has
+     * declared nothing to anybody.
+     */
+    val mediaRunning: Boolean = true,
+    /**
+     * This device has declared on the roster that it is on the room's call.
+     *
+     * The mirror of `RoomSession.currentCall() != null`, and the only thing
+     * that may be read as "on the call" - exactly as the web client reads
+     * `session.call`. Having the engine running is not being on a call: a
+     * person who opens a room and listens is not on one until they press
+     * Start or Join, or switch a microphone, camera or screen on.
+     */
+    val onCall: Boolean = false,
     val callChanging: Boolean = false,
+    /**
+     * Audio and video do not exist yet on this device and are still expected.
+     *
+     * True while the room is waiting for its epoch to become active, and
+     * while the engine is being built. It is what the call control shows
+     * instead of a button that does nothing, and what makes a Join pressed
+     * now worth remembering rather than refusing.
+     */
+    val mediaStarting: Boolean = false,
+    /**
+     * Join was pressed before there was anything to join with, and is
+     * remembered. Carried out the moment the engine exists, cleared by Leave
+     * and by giving up on the epoch.
+     */
+    val callJoinPending: Boolean = false,
+    /**
+     * Devices on the room's current call that are not this one.
+     *
+     * Own other devices count: a call taken on the laptop is one this phone
+     * may join, and the control says so. Read off the roster's call
+     * memberships, never from who happens to have a track, so somebody
+     * listening in from a train with everything switched off still counts as
+     * being on the call. See `ui/room/CallStance.kt`.
+     */
+    val callOtherDevices: Int = 0,
     val micOn: Boolean = false,
     /**
      * This device's microphone is running but silenced at the source.
@@ -484,6 +534,30 @@ private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
 private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
 private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
+
+/**
+ * Everything about getting into a room and onto its call, in one logcat tag.
+ *
+ * `adb logcat -s KithMootJoin` is the whole of the diagnosis for "it took a
+ * couple of goes". Pubkeys are cut to eight hex characters, as the media
+ * lines already are, and no room secret, room key or invitation ever goes
+ * near it.
+ */
+internal const val JOIN_LOG = "KithMootJoin"
+
+/** How long a room tap waits for the last room to finish closing. */
+private const val ENTRY_GATE_WAIT_MS = 30_000L
+
+/** Shown on the start screen while a tap is waiting behind a teardown. */
+private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
+
+/**
+ * How long a room may sit at a non-active epoch before audio and video are
+ * declared a failure. Generous: a secure room update has a relay round trip
+ * and an authority in it.
+ */
+private const val EPOCH_ACTIVATION_TIMEOUT_MS = 60_000L
+
 private class RetiredInvitationException : Exception()
 
 internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
@@ -575,6 +649,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private var relayUrls: List<String> = emptyList()
     private var anonymousRoom: Boolean = false
     private var opening: Job? = null
+    /** One WebRTC engine per session, however many callers ask for one. */
+    private val mediaBuild = SingleBuild<WebRtcEngine> { runCatching { it.stop() }; runCatching { it.dispose() } }
 
     /**
      * Serialises opening and closing a room.
@@ -586,7 +662,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val gate = Mutex()
     private val circleGrantGate = Mutex()
     private val cadenceGate = Mutex()
-    private val entering = AtomicBoolean(false)
+    private val entering = EntryGate()
+    /** A Leave has been pressed and has not settled. Blocks the call self-heal. */
+    @Volatile private var leavingCall = false
+    /** The room tap waiting behind a teardown, if any: always the latest one. */
+    private val queuedEnter = LatestRequest<QueuedEnter>()
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
     /** Kept only in memory, discarded on room/account/session changes. */
@@ -676,7 +756,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             room.collect { value ->
-                notifications.onCall = value.callActive && (value.micOn || value.cameraOn || value.screenOn || value.mediaConnections.values.any { it == "connected" || it == "completed" })
+                notifications.onCall = dev.forgesworn.kithmoot.ui.room.inACall(
+                    onCall = value.onCall,
+                    mediaRunning = value.mediaRunning,
+                    micOn = value.micOn,
+                    cameraOn = value.cameraOn,
+                    screenOn = value.screenOn,
+                )
                 notifications.refresh()
             }
         }
@@ -860,7 +946,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun removeAccountRoom(roomId: String) = changeRoomBookmarks { it.remove(roomId) }
 
     /** The account record is only a locator. Verify admission before saving or opening any room. */
-    fun openAccountRoom(room: AccountRoom) = enter {
+    fun openAccountRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation") {
         val bookmarks = roomBookmarks ?: throw RoomRecoveryException("Sign in to open this conversation.")
         val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this conversation.")
         fun checkSelection() {
@@ -1569,11 +1655,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pairBothy(roomId: String, code: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1641,16 +1727,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), error = null, notice = message) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     fun disconnectBothy(roomId: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1686,17 +1772,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy access could not be withdrawn; KithMoot kept the route for retry.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     /** Revoke Bob's authority while Alice keeps her keeper connection and retained ciphertext. */
     fun revokeBothyGuests(roomId: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1716,12 +1802,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy confirmed guest access was revoked for ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy guest revocation is waiting to retry.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     private fun changeSavedRooms(change: () -> Unit) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1731,11 +1817,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "The saved room could not be changed.") } }
-            finally { entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
-    fun reopenRoom(id: String) = enter {
+    fun reopenRoom(id: String) = enter(label = savedRooms.runCatching { get(id)?.name }.getOrNull()?.takeIf { it.isNotBlank() } ?: "That room") {
         openSaved(savedRooms.get(id) ?: throw RoomRecoveryException("This room is no longer saved on this device."))
     }
 
@@ -1764,13 +1850,92 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         return onionOnly
     }
 
+    /**
+     * A start-screen act that needs the entry gate.
+     *
+     * True when it may go ahead. False leaves a reason on the start screen,
+     * which is the screen the person is looking at: a refusal nobody can see
+     * is the same to them as the app doing nothing at all.
+     */
+    private fun takeStartScreenGate(): Boolean {
+        if (_stage.value != Stage.START) return false
+        if (entering.tryAcquire()) return true
+        _start.update { it.copy(busy = true, error = null, notice = FINISHING_LAST_ROOM) }
+        viewModelScope.launch {
+            // Nothing to carry out afterwards - these are settings changes, not
+            // a room being opened - but the "still finishing" line must not be
+            // left standing once it is no longer true.
+            entering.awaitAcquire(ENTRY_GATE_WAIT_MS).also { if (it) entering.release() }
+            _start.update { it.copy(busy = false, notice = null) }
+        }
+        return false
+    }
+
+    /** A room tap that is waiting for the last room to finish closing. */
+    private class QueuedEnter(val label: String, val block: suspend () -> Unit)
+
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
-    private fun enter(block: suspend () -> Unit) {
+    private fun enter(label: String = "That room", block: suspend () -> Unit) {
         if (_stage.value != Stage.START) {
+            // The person is in a room, so the room's own snackbar is where they
+            // will see this. See KithMootApp's notice effect.
             note("Leave this room before opening another. The invitation will be waiting on the home screen.")
+            Log.i(JOIN_LOG, "enter refused reason=already-in-a-room")
             return
         }
-        if (!entering.compareAndSet(false, true)) return
+        if (entering.tryAcquire()) {
+            runEnter(block)
+            return
+        }
+        // The gate is held, and on this screen that is almost always the last
+        // room still tearing down - a farewell over relays, an engine to
+        // dispose, sockets to close. A tap dropped here is what "it takes a
+        // couple of goes to rejoin" is made of, so it is never dropped.
+        //
+        // The LATEST tap wins. Somebody who taps a room, thinks better of it
+        // and taps another is asking for the second one, and opening the first
+        // would be worse than the silence this replaced.
+        val startsTheWait = queuedEnter.offer(QueuedEnter(label, block))
+        _start.update { it.copy(busy = true, error = null, notice = waitingNotice(label)) }
+        if (!startsTheWait) {
+            Log.i(JOIN_LOG, "enter queued replaced an earlier waiting tap")
+            return
+        }
+        Log.i(JOIN_LOG, "enter waiting reason=previous-room-still-closing")
+        viewModelScope.launch {
+            var taken = false
+            try {
+                taken = entering.awaitAcquire(ENTRY_GATE_WAIT_MS)
+                val latest = queuedEnter.take()
+                if (!taken) {
+                    Log.i(JOIN_LOG, "enter refused reason=previous-room-did-not-finish-closing")
+                    _start.update {
+                        it.copy(busy = false, notice = null, error = "The last room is still closing. Try that room again in a moment.")
+                    }
+                    return@launch
+                }
+                if (latest == null || _stage.value != Stage.START) {
+                    entering.release()
+                    taken = false
+                    _start.update { it.copy(busy = false, notice = null) }
+                    Log.i(JOIN_LOG, "enter dropped reason=nothing-left-to-open")
+                    return@launch
+                }
+                _start.update { it.copy(notice = null) }
+                taken = false
+                runEnter(latest.block)
+            } catch (cancelled: CancellationException) {
+                if (taken) entering.release()
+                throw cancelled
+            }
+        }
+    }
+
+    /** "Finishing leaving the last room… Wednesday standup will open next." */
+    private fun waitingNotice(label: String): String = "$FINISHING_LAST_ROOM $label will open next."
+
+    /** The body of [enter], with the gate already held. */
+    private fun runEnter(block: suspend () -> Unit) {
         _start.update { it.copy(busy = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             var opened = false
@@ -1792,7 +1957,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 // Otherwise a fast Leave tap can be silently rejected. Keep the
                 // unlock and UI transition on Main so a tap cannot interleave.
                 withContext(NonCancellable + Dispatchers.Main.immediate) {
-                    entering.set(false)
+                    entering.release()
                     _start.update { it.copy(busy = false) }
                     if (opened && session != null) _stage.value = Stage.ROOM
                 }
@@ -1958,7 +2123,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         }
         val name = _start.value.roomName
         val persistent = true
-        enter {
+        enter(label = name.takeIf { it.isNotBlank() } ?: "The new room") {
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation(persistent)
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
@@ -1993,7 +2158,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             _start.value = _start.value.copy(error = "Paste a join link first.")
             return
         }
-        enter { join(url) }
+        enter(label = "The invitation") { join(url) }
     }
 
     private suspend fun join(url: String) {
@@ -2352,6 +2517,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         localName: String = "",
         anonymous: Boolean = false,
     ) = gate.withLock {
+        val openBegan = android.os.SystemClock.elapsedRealtime()
+        Log.i(
+            JOIN_LOG,
+            "opening room=${derived.roomId.take(8)} from=${if (restoring != null) "saved" else "link"} " +
+                "relays=${relays.size} anonymous=${restoring?.anonymous ?: anonymous}",
+        )
         if (policy != null && policy.tier != KindredTier.OPEN) {
             _start.value = _start.value.copy(
                 busy = false,
@@ -2620,93 +2791,190 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
-        if (live.epochState.value !is dev.forgesworn.kithmoot.session.RoomEpochState.Active) return@withLock
-        if (!anonymousProfile) {
-            // Verification, replay and encrypted persistence must not run on the UI thread.
-            val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
-            val liveEpoch=live.epochKeys()
-            val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
-                AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
-                initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
-            roomWork=work
-            scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
-            scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
-            scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
-            scope.launch(Dispatchers.IO) {
-                try {work.open()} catch(cancelled:CancellationException){throw cancelled}
-                catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
-            }
-        }
-        // This device plays the room's audio unless one of your others takes it
-        // over. Claiming rather than assuming is what lets that handover happen.
-        live.claim(Roles.MONITOR)
-
-        notifications.begin(record.id, record.name, who.participant, epochSeconds())
-        scope.launch {
-            combine(live.participants, live.chat) { people, chat -> people to chat }
-                .collect { (people, chat) ->
-                    notifications.accept(chat)
-                    _room.update { it.copy(
-                        tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
-                        chat = chat,
-                        privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
-                            people.map { it.participant }.filter { it != who.participant }
-                        } else emptyList(),
-                    ) }
+        Log.i(
+            JOIN_LOG,
+            "joined room=${derived.roomId.take(8)} device=${who.devicePubkey.take(8)} " +
+                "relaysUp=${transport.connected.value.size}/${activeRelays.size} " +
+                "outbox=${(transport as? RelayPool)?.outboxDepth() ?: -1} " +
+                "epoch=${live.epochState.value.javaClass.simpleName} openMs=${android.os.SystemClock.elapsedRealtime() - openBegan}",
+        )
+        // Everything below is what makes a room a room: the shared work
+        // journal, the monitor claim, notifications, the tiles and chat
+        // collectors, the relay counter and the media engine. All of it used
+        // to be abandoned outright when the room opened at a non-active epoch
+        // - one `return@withLock` - and nothing ever came back for it. The
+        // only route out was the person pressing Join and being told audio and
+        // video were "still starting", which was true and stayed true.
+        //
+        // So it is a block that runs at an active epoch, which is almost
+        // always at once, and otherwise waits on the epoch state itself rather
+        // than on a timer that fires once and gives up.
+        val activate: suspend () -> Unit = {
+            if (!anonymousProfile) {
+                // Verification, replay and encrypted persistence must not run on the UI thread.
+                val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
+                val liveEpoch=live.epochKeys()
+                val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
+                    AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
+                    initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
+                roomWork=work
+                scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
+                scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
+                scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
+                scope.launch(Dispatchers.IO) {
+                    try {work.open()} catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
                 }
+            }
+            // This device plays the room's audio unless one of your others takes it
+            // over. Claiming rather than assuming is what lets that handover happen.
+            live.claim(Roles.MONITOR)
+
+            notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            scope.launch {
+                combine(live.participants, live.chat) { people, chat -> people to chat }
+                    .collect { (people, chat) ->
+                        notifications.accept(chat)
+                        // The room's current call is the head of the same list
+                        // every other client picks from - see RoomSession.calls.
+                        val onCall = callsOf(people).firstOrNull()?.devices.orEmpty()
+                        _room.update { it.copy(
+                            tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
+                            chat = chat,
+                            callOtherDevices = onCall.count { device -> device != who.devicePubkey },
+                            privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
+                                people.map { it.participant }.filter { it != who.participant }
+                            } else emptyList(),
+                        ) }
+                    }
+            }
+            scope.launch {
+                transport.connected.collect { up ->
+                    gate.withLock {
+                        if (session !== live) return@withLock
+                        Log.i(
+                            JOIN_LOG,
+                            "relays up=${up.size}/${activeRelays.size} outbox=${(transport as? RelayPool)?.outboxDepth() ?: -1}",
+                        )
+                        _room.update { it.copy(relaysUp = up.size) }
+                        // The transport's offline queue is bounded and expires. Replay
+                        // durable retirements on reconnect, including rotations made
+                        // during this session, so a long outage cannot drop them.
+                        if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                    }
+                }
+            }
+            scope.launch {
+                live.localRoles.collect { roles ->
+                    // Another of your devices has taken the microphone. Let go of
+                    // the hardware rather than sitting on a hot mic: the roster
+                    // already stops anyone hearing this one, but a person looking at
+                    // a lit microphone button believes they are being heard.
+                    if (_room.value.micOn && !roles.holdsMic && roles.micDevice != null) {
+                        engine?.localMedia?.stopMicrophone()
+                    }
+                }
+            }
+
+            if (!anonymousProfile) startMedia(live, scope, who)
         }
-        scope.launch {
-            transport.connected.collect { up ->
+        val epochAtOpen = live.epochState.value
+        if (epochAtOpen is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
+            Log.i(JOIN_LOG, "epoch active at open epoch=${epochAtOpen.epoch}")
+            activate()
+        } else {
+            Log.i(JOIN_LOG, "epoch not active at open state=${epochAtOpen.javaClass.simpleName} - media waits for it")
+            _room.update { it.copy(mediaStarting = true) }
+            scope.launch {
+                val settled = kotlinx.coroutines.withTimeoutOrNull(EPOCH_ACTIVATION_TIMEOUT_MS) {
+                    live.epochState.first {
+                        it is dev.forgesworn.kithmoot.session.RoomEpochState.Active ||
+                            it is dev.forgesworn.kithmoot.session.RoomEpochState.Removed ||
+                            it is dev.forgesworn.kithmoot.session.RoomEpochState.Closed
+                    }
+                }
                 gate.withLock {
                     if (session !== live) return@withLock
-                    _room.update { it.copy(relaysUp = up.size) }
-                    // The transport's offline queue is bounded and expires. Replay
-                    // durable retirements on reconnect, including rotations made
-                    // during this session, so a long outage cannot drop them.
-                    if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                    if (settled is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
+                        Log.i(JOIN_LOG, "epoch became active epoch=${settled.epoch} - starting the room")
+                        _room.update { it.copy(mediaStarting = false) }
+                        activate()
+                    } else {
+                        Log.i(JOIN_LOG, "epoch never became active settled=${settled?.javaClass?.simpleName ?: "timeout"}")
+                        _room.update {
+                            it.copy(
+                                mediaStarting = false,
+                                callJoinPending = false,
+                                mediaFault = "This room did not finish its secure update, so audio and video could not start. Leave and open it again.",
+                            )
+                        }
+                    }
                 }
             }
         }
-        scope.launch {
-            live.localRoles.collect { roles ->
-                // Another of your devices has taken the microphone. Let go of
-                // the hardware rather than sitting on a hot mic: the roster
-                // already stops anyone hearing this one, but a person looking at
-                // a lit microphone button believes they are being heard.
-                if (_room.value.micOn && !roles.holdsMic && roles.micDevice != null) {
-                    engine?.localMedia?.stopMicrophone()
-                }
-            }
-        }
-
-        if (!anonymousProfile) startMedia(live, scope, who)
     }
 
-    /** Build media only while this exact session is active at one traffic epoch. */
+    /**
+     * Build media once for this session, however many callers ask.
+     *
+     * Two do at a recovered epoch - the epoch-ready callback and the waiter
+     * that starts the room when its epoch goes active - and "is there an
+     * engine yet" is not a guard against them, because it only becomes true
+     * after ICE and a factory. See [SingleBuild].
+     */
     private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
-        if (session !== live || engine != null) return
-        opening?.cancel()
+        if (session !== live) return
+        if (engine != null || mediaBuild.inFlight) return
+        _room.update { it.copy(mediaStarting = true) }
         opening = scope.launch {
-            val built = withContext(Dispatchers.Default) { runCatching {
-                WebRtcEngine(getApplication(), live, this@launch, dev.forgesworn.kithmoot.media.CallIceServers.resolve())
-            } }
-            val media = built.getOrElse { failure ->
-                _room.update { it.copy(
-                    mediaFault = "Audio and video are unavailable on this device: " +
-                        (failure.message ?: failure::class.java.simpleName),
-                ) }
-                return@launch
-            }
-            synchronized(mediaControlLock) {
-                if (session !== live) { media.dispose(); return@launch }
-                engine = media
-                media.localMedia.onScreenShareStopped = { stopScreenShare() }
-                media.localMedia.onCameraLost = { cameraLost() }
-                media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
-                media.localMedia.setBackground(_room.value.background)
-                media.localMedia.setAppVisible(appVisible)
-                media.setCallActive(_room.value.callActive)
-                media.start()
+            val begun = android.os.SystemClock.elapsedRealtime()
+            var remembered = false
+            val installed = mediaBuild.build(
+                held = { engine },
+                make = {
+                    val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }}")
+                    withContext(Dispatchers.Default) {
+                        runCatching { WebRtcEngine(getApplication(), live, this@launch, ice) }
+                    }.getOrElse { failure ->
+                        Log.w(JOIN_LOG, "media failed to build after ${android.os.SystemClock.elapsedRealtime() - begun}ms", failure)
+                        _room.update { it.copy(
+                            mediaStarting = false,
+                            callJoinPending = false,
+                            mediaFault = "Audio and video are unavailable on this device: " +
+                                (failure.message ?: failure::class.java.simpleName),
+                        ) }
+                        null
+                    }
+                },
+                install = { media ->
+                    synchronized(mediaControlLock) {
+                        if (session !== live || engine != null) return@synchronized false
+                        Log.i(JOIN_LOG, "media built in ${android.os.SystemClock.elapsedRealtime() - begun}ms")
+                        engine = media
+                        media.localMedia.onScreenShareStopped = { stopScreenShare() }
+                        media.localMedia.onCameraLost = { cameraLost() }
+                        media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
+                        media.localMedia.setBackground(_room.value.background)
+                        media.localMedia.setAppVisible(appVisible)
+                        // A Join pressed while there was nothing to join with.
+                        // It was remembered rather than refused, and this is
+                        // where it happens - no second tap, no timer.
+                        remembered = _room.value.callJoinPending
+                        val running = _room.value.mediaRunning || remembered
+                        media.setCallActive(running)
+                        media.start()
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, mediaRunning = running) }
+                        true
+                    }
+                },
+            )
+            if (!installed) return@launch
+            val media = engine ?: return@launch
+            if (remembered) {
+                Log.i(JOIN_LOG, "remembered join carried out now that media exists")
+                live.claim(Roles.MONITOR)
+                adoptRoomCall()
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
 
@@ -2834,6 +3102,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         scope.launch {
             live.epochState.collect { state ->
                 if (session !== live) return@collect
+                Log.i(JOIN_LOG, "epoch state=${state.javaClass.simpleName}")
                 when (state) {
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update {
                         it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)
@@ -2907,7 +3176,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leave() {
-        if (!entering.compareAndSet(false, true)) return
+        if (!entering.tryAcquire()) {
+            // The gate is held by an entry that has not finished. Saying so on
+            // the room's own snackbar is the point: a Leave tap that does
+            // nothing and says nothing is indistinguishable from a frozen app.
+            note("This room is still opening. Leave will work in a moment.")
+            Log.i(JOIN_LOG, "leave refused reason=room-still-opening")
+            return
+        }
         val live = session
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
@@ -2915,11 +3191,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.value = RoomState()
         _stage.value = Stage.START
         _start.update { it.copy(busy = true) }
+        val began = android.os.SystemClock.elapsedRealtime()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 gate.withLock { try { live?.leave() } finally { closeSession() } }
             } finally {
-                entering.set(false)
+                entering.release()
+                Log.i(JOIN_LOG, "left room teardownMs=${android.os.SystemClock.elapsedRealtime() - began}")
                 _start.update { it.copy(busy = false) }
                 refreshSavedRooms()
             }
@@ -3044,33 +3322,85 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     fun leaveCall() {
         val live = session ?: return
-        if (!_room.value.callActive || _room.value.callChanging) return
-        _room.update { it.copy(callActive = false, callChanging = true) }
+        if (!_room.value.onCall || _room.value.callChanging) return
+        // A remembered Join must not survive a Leave; it would put the person
+        // straight back on the call they just left.
+        _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false) }
+        // Shuts the self-heal until this leave has settled. Local media is
+        // stopped below before the membership is cleared, but the track list
+        // is a flow and its last emission can still be in flight behind us:
+        // without this, that emission re-declares a call nobody is on and
+        // mints a fresh id for it.
+        leavingCall = true
+        Log.i(JOIN_LOG, "call leave requested")
         act {
-            if (session !== live) return@act
             try {
+                if (session !== live) return@act
+                // Order matters and is the same as the web client's: local
+                // media down first, membership cleared second. The other way
+                // round leaves a device advertising tracks for a call it has
+                // just said it is not on.
                 engine?.setCallActive(false)
                 ScreenShareService.stop(getApplication())
                 // Local hang-up must complete even during a relay outage or rekey.
                 runCatching { live.release(Roles.MIC) }
                 runCatching { live.release(Roles.MONITOR) }
+                // Off the call is a stated fact, like leaving the room is.
+                // Nobody can guess it from an absent track: a device listening
+                // in with everything switched off looks the same.
+                runCatching { live.setCall(null) }
                 _videos.value = emptyMap()
             } finally {
-                if (session === live) _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                // `callChanging` is a latch on the call control: while it is set
+                // the button is disabled and every joinCall() returns without a
+                // word. It used to be cleared only when this was still the live
+                // session, and the early return above skipped even that, so a
+                // session swapped underneath a Leave left the latch set for the
+                // rest of the room's life. It is now always cleared; only the
+                // local media flags, which belong to THIS session, are held back
+                // when the session has moved on.
+                leavingCall = false
+                if (session === live) {
+                    _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                } else {
+                    _room.update { it.copy(callChanging = false) }
+                }
             }
         }
     }
 
     fun joinCall() = act {
-        if (_room.value.callChanging || _room.value.callActive) return@act
-        val media = engine ?: return@act note("Audio and video are still starting. Try again shortly.")
+        val state = _room.value
         val live = session ?: return@act
-        _room.update { it.copy(callActive = true) }
+        when (val decision = joinDecision(
+            onCall = state.onCall,
+            changing = state.callChanging,
+            mediaReady = engine != null,
+            mediaStarting = state.mediaStarting,
+            mediaFault = state.mediaFault,
+        )) {
+            is JoinDecision.Ignore -> return@act
+            is JoinDecision.Refuse -> {
+                Log.i(JOIN_LOG, "call join refused reason=no-media")
+                return@act note(decision.message)
+            }
+            is JoinDecision.WhenReady -> {
+                // Remembered, not refused. startMedia carries it out.
+                Log.i(JOIN_LOG, "call join remembered reason=media-not-ready-yet")
+                _room.update { it.copy(callJoinPending = true) }
+                return@act
+            }
+            is JoinDecision.Now -> Unit
+        }
+        val media = engine ?: return@act
+        Log.i(JOIN_LOG, "call join now")
+        _room.update { it.copy(onCall = true, mediaRunning = true) }
         media.setCallActive(true)
+        adoptRoomCall()
         live.claim(Roles.MONITOR)
     }
 
-    fun listenOnThisDevice() { if (_room.value.callActive) session?.claim(Roles.MONITOR) }
+    fun listenOnThisDevice() { if (_room.value.mediaRunning) session?.claim(Roles.MONITOR) }
 
 
     /**
@@ -3083,7 +3413,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * [setMicrophoneMuted] - this is only the button's own cycle through it.
      */
     fun toggleMicrophone() = act {
-        if (!_room.value.callActive) return@act
+        if (!_room.value.mediaRunning) return@act
         val media = engine?.localMedia ?: return@act note("No microphone on this device.")
         val live = session ?: return@act
         when (microphoneAction(_room.value.micOn, _room.value.micMuted)) {
@@ -3115,13 +3445,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * measure.
      */
     fun setMicrophoneMuted(muted: Boolean) = act {
-        if (!_room.value.callActive) return@act
+        if (!_room.value.mediaRunning) return@act
         val media = engine?.localMedia ?: return@act
         if (!media.setMicrophoneMuted(muted)) note("There is no microphone running to mute.")
     }
 
     fun toggleCamera() = act {
-        if (!_room.value.callActive) return@act
+        if (!_room.value.mediaRunning) return@act
         val media = engine?.localMedia ?: return@act note("No camera on this device.")
         if (_room.value.cameraOn) {
             media.stopCamera()
@@ -3188,7 +3518,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * and the failure is a `SecurityException` rather than a null.
      */
     fun startScreenShare(permission: Intent) {
-        if (!_room.value.callActive) return
+        if (!_room.value.mediaRunning) return
         val media = engine?.localMedia ?: return note("Screen sharing needs the media stack.")
         val scope = sessionScope ?: return
         scope.launch {
@@ -3199,7 +3529,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch note("Android would not start the screen-sharing notification.")
             }
             val started = withContext(Dispatchers.Default) { synchronized(mediaControlLock) { runCatching {
-                check(_room.value.callActive && engine?.localMedia === media) { "The call has ended." }
+                check(_room.value.mediaRunning && engine?.localMedia === media) { "The call has ended." }
                 media.startScreenShare(permission)
             } } }
             if (started.getOrNull() == null) {
@@ -3764,7 +4094,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             note("That person is no longer present in this room.")
             return
         }
-        if (!entering.compareAndSet(false, true)) {
+        if (!entering.tryAcquire()) {
             note("Finish the current room action first.")
             return
         }
@@ -3830,7 +4160,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val fallback = if (retained != null) " The private room remains saved on Home." else ""
                 note((e.message ?: "The private conversation could not be started.") + fallback)
             } finally {
-                entering.set(false)
+                entering.release()
                 _room.update { it.copy(privateConversationBusy = false) }
             }
         }
@@ -3847,7 +4177,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             note("This private invitation is not addressed to the signed-in room account.")
             return
         }
-        if (!entering.compareAndSet(false, true)) {
+        if (!entering.tryAcquire()) {
             note("Finish the current room action first.")
             return
         }
@@ -3905,7 +4235,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 note(e.message ?: "The private conversation could not be opened.")
             } finally {
-                entering.set(false)
+                entering.release()
                 _room.update { it.copy(privateConversationBusy = false) }
             }
         }
@@ -4032,7 +4362,45 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             cameraOn = tracks.any { it.role == Roles.CAMERA },
             screenOn = tracks.any { it.role == Roles.SCREEN },
         ) }
+        // The self-heal the web client does in `publishActiveTracks`: a device
+        // with something live that is not saying which call it is on is the
+        // exact shape of the complaint - a phone streaming to a Mac that still
+        // offered to Start one. Adopt the call that is on rather than minting a
+        // second.
+        if (tracks.isNotEmpty()) adoptRoomCall()
     }
+
+    /**
+     * Say which call this device is on: the room's current one if any present
+     * device advertises one, else a new one.
+     *
+     * The choice rule is the head of [RoomSession.calls], which is the web's
+     * `calls()[0]` - most people, then oldest - so two clients adopting at the
+     * same moment adopt the same call rather than each other's.
+     */
+    private fun adoptRoomCall() {
+        val live = session ?: return
+        // Never while a leave is settling. See leaveCall.
+        if (leavingCall) {
+            Log.i(JOIN_LOG, "call adopt skipped reason=leave-in-flight")
+            return
+        }
+        if (live.currentCall() != null) {
+            // Already a member. Keep the screen's mirror of it honest anyway:
+            // it is what the control reads as "on the call".
+            _room.update { if (session === live) it.copy(onCall = true) else it }
+            return
+        }
+        val existing = live.calls().firstOrNull()?.id
+        val id = existing ?: newCallId()
+        Log.i(JOIN_LOG, "call ${if (existing != null) "joined" else "started"} id=${id.take(8)}")
+        runCatching { live.setCall(CallMembership(id, epochSeconds())) }
+            .onSuccess { _room.update { if (session === live) it.copy(onCall = true) else it } }
+            .onFailure { Log.w(JOIN_LOG, "call declaration could not be published") }
+    }
+
+    /** A fresh call id, in the web client's format: 16 random bytes as hex. */
+    private fun newCallId(): String = Entropy.bytes(16).toHex()
 
     private fun note(message: String) {
         _room.update { it.copy(notice = message) }

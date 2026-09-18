@@ -17,6 +17,7 @@ import dev.forgesworn.kithmoot.protocol.encodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
@@ -208,6 +209,13 @@ class RoomSession(
     private var tracks: List<TrackRef> = emptyList()
     private var claims: Map<String, Long> = emptyMap()
 
+    /**
+     * The call this device says it is on, restated on every announcement
+     * while it lasts. See [CallMembership]: a call is a claim on presence, not
+     * a kind of its own, and it ends when the last device stops saying it.
+     */
+    private var call: CallMembership? = null
+
     private val _participants = MutableStateFlow<List<Participant>>(emptyList())
 
     /** The room as people, not as devices. */
@@ -370,6 +378,9 @@ class RoomSession(
             publicationAllowed = false
             tracks = emptyList()
             claims = emptyMap()
+            // A farewell is never on a call. Leaving the room is leaving
+            // everything in it.
+            call = null
             cancelling = jobs.toList()
             jobs.clear()
             traffic = trafficJobs.toList()
@@ -427,6 +438,10 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
+                // Omitted on a farewell, as the web client omits it: a device
+                // on its way out is not on the call either, and the last thing
+                // it publishes should not say it is.
+                call = if (left) null else call,
             ).also { roster[identity.devicePubkey] = it }
         }
         transport.publish(
@@ -439,6 +454,33 @@ class RoomSession(
         )
         recompute()
     }
+
+    /**
+     * Go on a call, or off it.
+     *
+     * Starting and joining are the same act: say which call this device is on.
+     * A fresh id starts one, somebody else's id joins theirs, and null drops
+     * off it. Tracks are a separate matter - a device can be on a call with
+     * everything switched off, which is how somebody listens in from a train.
+     * Mirrors `Session.setCall` in the web client's `src/session.ts`.
+     */
+    fun setCall(membership: CallMembership?) {
+        synchronized(lock) {
+            call = membership?.let { CallMembership(it.id.lowercase(), it.since) }
+        }
+        announce(reply = true)
+    }
+
+    /** The call this device says it is on, if any. */
+    fun currentCall(): CallMembership? = synchronized(lock) { call }
+
+    /**
+     * The calls in progress in this room, best first. See [callsOf].
+     *
+     * Read off presence, so it is only ever as fresh as the last heartbeat,
+     * which is exactly right: a call is on while somebody present says it is.
+     */
+    fun calls(): List<CallView> = callsOf(_participants.value)
 
     fun setTracks(tracks: List<TrackRef>) {
         synchronized(lock) { this.tracks = tracks }
