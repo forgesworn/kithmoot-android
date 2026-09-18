@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import android.util.Log
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
 import dev.forgesworn.kithmoot.discovery.BoxRelayReader
 import dev.forgesworn.kithmoot.session.RoomWork
@@ -484,6 +485,30 @@ private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
 private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
 private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
+
+/**
+ * Everything about getting into a room and onto its call, in one logcat tag.
+ *
+ * `adb logcat -s KithMootJoin` is the whole of the diagnosis for "it took a
+ * couple of goes". Pubkeys are cut to eight hex characters, as the media
+ * lines already are, and no room secret, room key or invitation ever goes
+ * near it.
+ */
+internal const val JOIN_LOG = "KithMootJoin"
+
+/** How long a room tap waits for the last room to finish closing. */
+private const val ENTRY_GATE_WAIT_MS = 30_000L
+
+/** Shown on the start screen while a tap is waiting behind a teardown. */
+private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
+
+/**
+ * How long a room may sit at a non-active epoch before audio and video are
+ * declared a failure. Generous: a secure room update has a relay round trip
+ * and an authority in it.
+ */
+private const val EPOCH_ACTIVATION_TIMEOUT_MS = 60_000L
+
 private class RetiredInvitationException : Exception()
 
 internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
@@ -586,7 +611,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val gate = Mutex()
     private val circleGrantGate = Mutex()
     private val cadenceGate = Mutex()
-    private val entering = AtomicBoolean(false)
+    private val entering = EntryGate()
+    /** One room tap may wait behind a teardown. A second is told so rather than queued twice. */
+    private val enterQueued = AtomicBoolean(false)
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
     /** Kept only in memory, discarded on room/account/session changes. */
@@ -1569,11 +1596,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun pairBothy(roomId: String, code: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1641,16 +1668,16 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), error = null, notice = message) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     fun disconnectBothy(roomId: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1686,17 +1713,17 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy access could not be withdrawn; KithMoot kept the route for retry.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     /** Revoke Bob's authority while Alice keeps her keeper connection and retained ciphertext. */
     fun revokeBothyGuests(roomId: String) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
             if (!circleGrantGate.tryLock()) {
-                entering.set(false)
+                entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
             }
@@ -1716,12 +1743,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy confirmed guest access was revoked for ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy guest revocation is waiting to retry.") } }
-            finally { circleGrantGate.unlock(); entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
     private fun changeSavedRooms(change: () -> Unit) {
-        if (_stage.value != Stage.START || !entering.compareAndSet(false, true)) return
+        if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1731,7 +1758,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "The saved room could not be changed.") } }
-            finally { entering.set(false); _start.update { it.copy(busy = false) } }
+            finally { entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
 
@@ -1764,13 +1791,79 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         return onionOnly
     }
 
+    /**
+     * A start-screen act that needs the entry gate.
+     *
+     * True when it may go ahead. False leaves a reason on the start screen,
+     * which is the screen the person is looking at: a refusal nobody can see
+     * is the same to them as the app doing nothing at all.
+     */
+    private fun takeStartScreenGate(): Boolean {
+        if (_stage.value != Stage.START) return false
+        if (entering.tryAcquire()) return true
+        _start.update { it.copy(busy = true, error = null, notice = FINISHING_LAST_ROOM) }
+        viewModelScope.launch {
+            // Nothing to carry out afterwards - these are settings changes, not
+            // a room being opened - but the "still finishing" line must not be
+            // left standing once it is no longer true.
+            entering.awaitAcquire(ENTRY_GATE_WAIT_MS).also { if (it) entering.release() }
+            _start.update { it.copy(busy = false, notice = null) }
+        }
+        return false
+    }
+
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
     private fun enter(block: suspend () -> Unit) {
         if (_stage.value != Stage.START) {
+            // The person is in a room, so the room's own snackbar is where they
+            // will see this. See KithMootApp's notice effect.
             note("Leave this room before opening another. The invitation will be waiting on the home screen.")
+            Log.i(JOIN_LOG, "enter refused reason=already-in-a-room")
             return
         }
-        if (!entering.compareAndSet(false, true)) return
+        if (entering.tryAcquire()) {
+            runEnter(block)
+            return
+        }
+        // The gate is held, and on this screen that is almost always the last
+        // room still tearing down - a farewell over relays, an engine to
+        // dispose, sockets to close. A tap dropped here is what "it takes a
+        // couple of goes to rejoin" is made of, so it is never dropped: the
+        // person is told what is happening and the tap is carried out when the
+        // teardown lets go.
+        if (!enterQueued.compareAndSet(false, true)) {
+            _start.update { it.copy(busy = true, error = null, notice = FINISHING_LAST_ROOM) }
+            Log.i(JOIN_LOG, "enter refused reason=one-room-tap-already-waiting")
+            return
+        }
+        Log.i(JOIN_LOG, "enter waiting reason=previous-room-still-closing")
+        _start.update { it.copy(busy = true, error = null, notice = FINISHING_LAST_ROOM) }
+        viewModelScope.launch {
+            val taken = try {
+                entering.awaitAcquire(ENTRY_GATE_WAIT_MS)
+            } finally {
+                enterQueued.set(false)
+            }
+            if (!taken) {
+                Log.i(JOIN_LOG, "enter refused reason=previous-room-did-not-finish-closing")
+                _start.update {
+                    it.copy(busy = false, notice = null, error = "The last room is still closing. Try that room again in a moment.")
+                }
+                return@launch
+            }
+            if (_stage.value != Stage.START) {
+                entering.release()
+                _start.update { it.copy(busy = false, notice = null) }
+                Log.i(JOIN_LOG, "enter refused reason=another-room-opened-while-waiting")
+                return@launch
+            }
+            _start.update { it.copy(notice = null) }
+            runEnter(block)
+        }
+    }
+
+    /** The body of [enter], with the gate already held. */
+    private fun runEnter(block: suspend () -> Unit) {
         _start.update { it.copy(busy = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             var opened = false
@@ -1792,7 +1885,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 // Otherwise a fast Leave tap can be silently rejected. Keep the
                 // unlock and UI transition on Main so a tap cannot interleave.
                 withContext(NonCancellable + Dispatchers.Main.immediate) {
-                    entering.set(false)
+                    entering.release()
                     _start.update { it.copy(busy = false) }
                     if (opened && session != null) _stage.value = Stage.ROOM
                 }
@@ -2907,7 +3000,14 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leave() {
-        if (!entering.compareAndSet(false, true)) return
+        if (!entering.tryAcquire()) {
+            // The gate is held by an entry that has not finished. Saying so on
+            // the room's own snackbar is the point: a Leave tap that does
+            // nothing and says nothing is indistinguishable from a frozen app.
+            note("This room is still opening. Leave will work in a moment.")
+            Log.i(JOIN_LOG, "leave refused reason=room-still-opening")
+            return
+        }
         val live = session
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
@@ -2915,11 +3015,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.value = RoomState()
         _stage.value = Stage.START
         _start.update { it.copy(busy = true) }
+        val began = android.os.SystemClock.elapsedRealtime()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 gate.withLock { try { live?.leave() } finally { closeSession() } }
             } finally {
-                entering.set(false)
+                entering.release()
+                Log.i(JOIN_LOG, "left room teardownMs=${android.os.SystemClock.elapsedRealtime() - began}")
                 _start.update { it.copy(busy = false) }
                 refreshSavedRooms()
             }
@@ -3764,7 +3866,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             note("That person is no longer present in this room.")
             return
         }
-        if (!entering.compareAndSet(false, true)) {
+        if (!entering.tryAcquire()) {
             note("Finish the current room action first.")
             return
         }
@@ -3830,7 +3932,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 val fallback = if (retained != null) " The private room remains saved on Home." else ""
                 note((e.message ?: "The private conversation could not be started.") + fallback)
             } finally {
-                entering.set(false)
+                entering.release()
                 _room.update { it.copy(privateConversationBusy = false) }
             }
         }
@@ -3847,7 +3949,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             note("This private invitation is not addressed to the signed-in room account.")
             return
         }
-        if (!entering.compareAndSet(false, true)) {
+        if (!entering.tryAcquire()) {
             note("Finish the current room action first.")
             return
         }
@@ -3905,7 +4007,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 note(e.message ?: "The private conversation could not be opened.")
             } finally {
-                entering.set(false)
+                entering.release()
                 _room.update { it.copy(privateConversationBusy = false) }
             }
         }
