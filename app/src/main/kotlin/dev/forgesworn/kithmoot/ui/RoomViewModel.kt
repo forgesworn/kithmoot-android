@@ -2474,6 +2474,12 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         localName: String = "",
         anonymous: Boolean = false,
     ) = gate.withLock {
+        val openBegan = android.os.SystemClock.elapsedRealtime()
+        Log.i(
+            JOIN_LOG,
+            "opening room=${derived.roomId.take(8)} from=${if (restoring != null) "saved" else "link"} " +
+                "relays=${relays.size} anonymous=${restoring?.anonymous ?: anonymous}",
+        )
         if (policy != null && policy.tier != KindredTier.OPEN) {
             _start.value = _start.value.copy(
                 busy = false,
@@ -2742,6 +2748,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
+        Log.i(
+            JOIN_LOG,
+            "joined room=${derived.roomId.take(8)} device=${who.devicePubkey.take(8)} " +
+                "relaysUp=${transport.connected.value.size}/${activeRelays.size} " +
+                "outbox=${(transport as? RelayPool)?.outboxDepth() ?: -1} " +
+                "epoch=${live.epochState.value.javaClass.simpleName} openMs=${android.os.SystemClock.elapsedRealtime() - openBegan}",
+        )
         // Everything below is what makes a room a room: the shared work
         // journal, the monitor claim, notifications, the tiles and chat
         // collectors, the relay counter and the media engine. All of it used
@@ -2796,6 +2809,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 transport.connected.collect { up ->
                     gate.withLock {
                         if (session !== live) return@withLock
+                        Log.i(
+                            JOIN_LOG,
+                            "relays up=${up.size}/${activeRelays.size} outbox=${(transport as? RelayPool)?.outboxDepth() ?: -1}",
+                        )
                         _room.update { it.copy(relaysUp = up.size) }
                         // The transport's offline queue is bounded and expires. Replay
                         // durable retirements on reconnect, including rotations made
@@ -3025,6 +3042,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         scope.launch {
             live.epochState.collect { state ->
                 if (session !== live) return@collect
+                Log.i(JOIN_LOG, "epoch state=${state.javaClass.simpleName}")
                 when (state) {
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update {
                         it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)

@@ -294,6 +294,15 @@ class RelayPool(
         true
     }
 
+    /**
+     * How many frames are waiting for a relay to come back, across every link.
+     *
+     * Diagnosis only. A room that looks joined while this stays high is a room
+     * whose announcements never left the phone, which from the inside is
+     * indistinguishable from a room nobody else is in.
+     */
+    fun outboxDepth(): Int = synchronized(lock) { links.values.sumOf { it.outboxDepth() } }
+
     override fun publish(event: NostrEvent) {
         check(!publicationBlocked) { "Room publication is blocked during a secure update" }
         trackWrite(event)
@@ -690,6 +699,8 @@ class RelayPool(
         }
 
         fun clearOutbox() = synchronized(outboxLock) { outbox.clear() }
+
+        fun outboxDepth(): Int = synchronized(outboxLock) { outbox.size }
     }
 
     private enum class AuthState { CLOSED, AWAITING_CHALLENGE, SIGNING, AWAITING_OK, READY, BLOCKED }
