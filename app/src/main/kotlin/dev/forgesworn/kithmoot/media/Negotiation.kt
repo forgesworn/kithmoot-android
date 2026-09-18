@@ -75,6 +75,16 @@ data class IceCandidateData(
  */
 const val MAX_PENDING_CANDIDATES: Int = 64
 
+/**
+ * How many description shapes a connection remembers.
+ *
+ * Enough to cover a call's real renegotiations - a microphone, a camera, a
+ * share - and small enough that a far end sending answers cannot grow it. The
+ * memory is what makes a replay tellable from a disagreement; the bound is what
+ * stops that memory being an attack surface.
+ */
+const val REMEMBERED_SHAPES: Int = 4
+
 /** The subset of `RTCSignalingState` the negotiation machine reasons about. */
 enum class SignalingState { STABLE, HAVE_LOCAL_OFFER, HAVE_REMOTE_OFFER, HAVE_LOCAL_PRANSWER, HAVE_REMOTE_PRANSWER, CLOSED }
 
@@ -282,6 +292,46 @@ class PeerLink(
         private set
 
     var offersIgnored: Int = 0
+        private set
+
+    // --- the two ends completing different negotiations (profile 1) ---------
+    //
+    // A pair can finish a negotiation each and disagree about the result, with
+    // nothing anywhere to say so: an answer written before a microphone reached
+    // the connection says `recvonly`, the same offer answered again after it
+    // arrives says `sendrecv`, and whichever end keeps the first one has a
+    // direction the other end does not. Both sit in `stable`, both connections
+    // say `connected`, RTP arrives and is never played.
+    //
+    // Profile 2 cannot get here: its four slots are `sendrecv` for the life of
+    // the connection and every media change is a `setTrack`, so no direction
+    // can move, and its reliable channel deduplicates a retransmitted offer by
+    // seq long before any of this. So all of it is gated on [splitGuard].
+
+    /** Whether the rules below apply to this pair at all. */
+    private val splitGuard: Boolean = callProfile != CALL_PROFILE_2
+
+    /**
+     * Shapes of answers from the far end that this connection has applied, or
+     * has already spent a repair on.
+     *
+     * A remembered shape is a duplicate to be dropped; an unremembered one
+     * arriving with nothing outstanding is the disagreement. Bounded, because
+     * a hostile or broken far end must not be able to grow this by sending
+     * answers - and four is more renegotiations than a working call has.
+     */
+    private val remoteAnswerShapes = ArrayDeque<String>()
+
+    /** A repair renegotiation is owed, as soon as this side is idle. */
+    private var repairOwed = false
+
+    /** An answer this connection had already settled on, arriving again. */
+    var duplicateAnswersDropped: Int = 0
+        private set
+
+    /** Disagreements noticed and renegotiated. Expected to be zero on a pair
+     *  whose two ends both keep up. */
+    var disagreementsRepaired: Int = 0
         private set
 
     // --- fixed media slots, profile 2 ---------------------------------------
@@ -521,6 +571,18 @@ class PeerLink(
             if (slots != null) unexpectedNegotiations++
             return@withLock
         }
+        offerLocked()
+    }
+
+    /**
+     * One ordinary renegotiation. Called with [operations] held.
+     *
+     * The single place a profile-1 offer is made, so that a repair goes out
+     * through exactly the path a microphone being unmuted goes out through -
+     * same lock, same collision rules, same politeness. A repair that took a
+     * shortcut past any of that would be a second negotiation machine.
+     */
+    private suspend fun offerLocked() {
         try {
             makingOffer = true
             val local = connection.setLocalDescription()
@@ -708,6 +770,19 @@ class PeerLink(
             return
         }
 
+        // An answer for a negotiation this connection is not in. Applying it is
+        // impossible - the stack refuses an answer with no offer outstanding -
+        // and letting that refusal escape was how a working pair came to be
+        // labelled failed. Whether it is a replay or a disagreement is decided
+        // by what it says, not by the fact that it arrived.
+        if (splitGuard &&
+            description.type == SignalType.ANSWER &&
+            connection.signalingState() != SignalingState.HAVE_LOCAL_OFFER
+        ) {
+            onAnswerOutOfTurn(description)
+            return
+        }
+
         settingRemoteAnswerPending = description.type == SignalType.ANSWER
         if (offerCollision) {
             // Polite by construction: an impolite collision returned above.
@@ -727,6 +802,9 @@ class PeerLink(
         connection.setRemoteDescription(description)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
+        if (splitGuard && description.type == SignalType.ANSWER) {
+            remember(remoteAnswerShapes, SdpShape.of(description.sdp))
+        }
 
         // The answer comes first, and only then the buffered candidates.
         // Nothing to do with a candidate may stand between an offer and its
@@ -736,15 +814,67 @@ class PeerLink(
         if (description.type == SignalType.OFFER) {
             bindSlots(body)
             val answer = connection.setLocalDescription()
-            val reply = SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = answer.sdp, re = body.seq)
-            // Reliably on a profile-2 pair. A lost answer was the failure that
-            // left a pair blind for the rest of a call, because profile 1 sent
-            // one exactly once and never again (H1).
-            val open = channel
-            if (open != null) open.send(reply) else send(reply)
+            sendAnswer(answer.sdp, body)
         }
 
         flushCandidates()
+        repairIfOwed()
+    }
+
+    /**
+     * An answer that arrived with no offer of ours outstanding.
+     *
+     * A shape this connection has already applied is a replay and is dropped
+     * without a sound: the web client replays its stored answer on every
+     * retransmitted offer by design, so on a desktop-to-Android call this is
+     * the ordinary case rather than the exception. Any other shape is the far
+     * end telling us, in the only way it can, that it completed a negotiation
+     * this side did not.
+     */
+    private suspend fun onAnswerOutOfTurn(description: SdpData) {
+        val shape = SdpShape.of(description.sdp)
+        if (shape in remoteAnswerShapes) {
+            duplicateAnswersDropped++
+            return
+        }
+        // Remembered before the repair rather than after it, so a second copy
+        // of the same disagreement costs nothing: at most one renegotiation per
+        // distinct answer this connection has ever been handed.
+        remember(remoteAnswerShapes, shape)
+        disagreementsRepaired++
+        repairOwed = true
+        repairIfOwed()
+    }
+
+    /**
+     * The one repair, once this side is idle.
+     *
+     * A renegotiation already in flight settles the pair by itself - its answer
+     * describes the session as it is now - so the owed repair is dropped rather
+     * than queued behind it. Called with [operations] held.
+     */
+    private suspend fun repairIfOwed() {
+        if (!repairOwed) return
+        repairOwed = false
+        if (makingOffer) return
+        if (connection.signalingState() != SignalingState.STABLE) return
+        offerLocked()
+    }
+
+    private suspend fun sendAnswer(sdp: String, body: SignalEnvelope) {
+        val reply = SignalEnvelope(remoteDevice, SignalType.ANSWER, roomId, sdp = sdp, re = body.seq)
+        // Reliably on a profile-2 pair. A lost answer was the failure that
+        // left a pair blind for the rest of a call, because profile 1 sent
+        // one exactly once and never again (H1).
+        val open = channel
+        if (open != null) open.send(reply) else send(reply)
+    }
+
+    /** Bounded, oldest first. Nothing a far end sends may grow this. */
+    private fun remember(shapes: ArrayDeque<String>, shape: String) {
+        if (shape in shapes) return
+        shapes.addLast(shape)
+        while (shapes.size > REMEMBERED_SHAPES) shapes.removeFirst()
     }
 
     /**
@@ -802,6 +932,7 @@ class PeerLink(
         channel?.close()
         channel = null
         pendingCandidates.clear()
+        remoteAnswerShapes.clear()
         connection.close()
     }
 }
