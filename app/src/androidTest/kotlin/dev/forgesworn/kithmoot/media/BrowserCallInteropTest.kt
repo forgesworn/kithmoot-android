@@ -99,10 +99,21 @@ class BrowserCallInteropTest {
             track?.addSink(videoSink)
         }
         fun js(script: String) = instrumentation.runOnMainSync { view.evaluateJavascript(script, null) }
-        link = PeerLink((if (nativeLow) "11" else "22").repeat(32), (if (nativeLow) "22" else "11").repeat(32), WebRtcPeerConnection(pc, ::bindReceivedVideo), "33".repeat(32)) { signal ->
-            val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) } }
-            withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
-        }
+        // `send` by name, and every optional argument left alone. PeerLink now
+        // takes profile-2 callbacks after it, so a trailing lambda would bind
+        // to the last of those instead. This pair is deliberately profile 1:
+        // it is what a browser on the other side of a real call speaks today,
+        // and proving THAT still works is the whole point of this test.
+        link = PeerLink(
+            localDevice = (if (nativeLow) "11" else "22").repeat(32),
+            remoteDevice = (if (nativeLow) "22" else "11").repeat(32),
+            connection = WebRtcPeerConnection(pc, ::bindReceivedVideo),
+            roomId = "33".repeat(32),
+            send = { signal ->
+                val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) } }
+                withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
+            },
+        )
         scope.launch {
             for (body in incoming) runCatching {
                 link.onRemoteSignal(body.getValue("type").jsonPrimitive.content, body["sdp"]?.jsonPrimitive?.content, body["candidate"]?.jsonPrimitive?.content)
