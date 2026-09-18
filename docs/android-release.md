@@ -1,8 +1,10 @@
 # Android release signing and device acceptance
 
-The public website currently offers production-signed 0.6.4 (27), Android 13 or later. Version 0.6.5 (28) is the call-reliability candidate. It requires the same owner-held signing key. Signing, publication and physical acceptance are recorded separately.
+The public website currently offers production-signed 0.6.5 (28), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
-## 0.6.5 call reliability candidate
+## 0.6.5 call reliability release
+
+Published on 18 September 2026 from `b759947`: signed by the owner with the production key and the preview-to-production lineage (APK Signature Scheme v3 only), APK SHA-256 `1a4f0c7226ee5fac299f6b492eaae039892edf401df208cdd4e7d65de58320cc`, checked by the web repository's publication verifier, installed in place over 0.6.4 on one Pixel 10 Pro XL, and offered on the website and as GitHub pre-release `v0.6.5`. The signer writes its APK under `umask 077`; the first upload was therefore unreadable by the web server and answered 403 for about two minutes, and the web repository's deploy script now sets the mode itself. The physical checks listed at the end of this section are still open.
 
 Version code 28 brings Android level with the web client's call work of 17 and 18 September 2026. Remote tiles are keyed by role rather than by track id, so a far end that toggles its camera or microphone no longer loses its tile. The room's third default relay is added. The microphone button now mutes by disabling the track and keeps the microphone open, as the web client does, so unmuting is instant and the person's tile says "muted" to everybody else; the microphone is released on leaving the call. Tiles show "muted" and "silenced for you" as two distinct states. "Backdrop" replaces what is behind you with one of four sea scenes, with fish swimming past; there is no blur. The background pipeline was proven on an arm64 emulator only, and adds about 28 MiB to the APK, nearly all of it the MediaPipe runtime.
 
