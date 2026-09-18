@@ -465,6 +465,32 @@ class NegotiationDisagreementTest {
         android.close()
     }
 
+    @Test
+    fun `a signal arriving after the link closes is ignored`() = runTest {
+        // Closing runs on the thread that tears the call down and takes no
+        // lock, so a signal can arrive against a connection that has just gone.
+        // Pushing a description at a closed connection is refused, and that
+        // refusal used to escape and mark a pair that had simply hung up as
+        // failed.
+        val far = DescribingPeerConnection("far").apply { hasLocalAudio = true }
+        val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+        val wire = Wire()
+        val android = link(politeDevice, impoliteDevice, here, wire)
+
+        val first = far.setLocalDescription()
+        deliver(android, wire, offer(first.sdp))
+        val answered = wire.count(SignalType.ANSWER)
+
+        android.close()
+        far.gatherCandidate(candidate)
+        deliver(android, wire, offer(far.localDescription()!!.sdp))
+        deliver(android, wire, answer(first.sdp))
+
+        assertNull(wire.label, "hanging up is not a failed pair")
+        assertEquals(answered, wire.count(SignalType.ANSWER), "a closed link answers nothing")
+        assertTrue(here.closed)
+    }
+
     // -- the invariant: a repair is an offer, and offers do not echo ---------
 
     @OptIn(ExperimentalCoroutinesApi::class)

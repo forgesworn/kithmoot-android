@@ -362,6 +362,11 @@ class PeerLink(
     @Volatile
     private var offerRetry: Job? = null
 
+    /** [close] runs on whatever thread tears the call down, holding no lock.
+     *  Nothing after it may touch the connection. */
+    @Volatile
+    private var closed = false
+
     /** A retransmitted offer answered from store rather than described again. */
     var answersReplayed: Int = 0
         private set
@@ -709,6 +714,10 @@ class PeerLink(
      * lock, exactly as it has always been.
      */
     suspend fun onRemoteSignal(body: SignalEnvelope) {
+        // The connection is gone. A description pushed at a closed one is
+        // refused, and that refusal used to escape into the engine's catch and
+        // mark a pair that had simply hung up as failed.
+        if (closed) return
         if (callProfile != CALL_PROFILE_2) {
             operations.withLock { applySignal(body) }
             return
@@ -877,10 +886,15 @@ class PeerLink(
         //
         // Not after a collision: the rollback discarded an offer of our own,
         // and the connection genuinely needs describing again.
-        if (splitGuard && description.type == SignalType.OFFER && !offerCollision && replayable(description)) {
+        val replay = if (splitGuard && description.type == SignalType.OFFER && !offerCollision) {
+            replayable(description)
+        } else {
+            null
+        }
+        if (replay != null) {
             haveRemoteDescription = true
             answersReplayed++
-            sendAnswer(sentAnswerSdp!!, body)
+            sendAnswer(replay, body)
             flushCandidates()
             return
         }
@@ -983,13 +997,14 @@ class PeerLink(
      * connection that cannot say what it is sending is answered afresh, which
      * is slower but never wrong.
      */
-    private fun replayable(description: SdpData): Boolean {
-        val stored = sentAnswerSdp ?: return false
-        if (stored.isEmpty()) return false
-        if (appliedOfferShape == null) return false
-        if (SdpShape.of(description.sdp) != appliedOfferShape) return false
-        val current = connection.localMedia() ?: return false
-        return current == sentAnswerMedia
+    private fun replayable(description: SdpData): String? {
+        // Read once and returned, never re-read: the caller must send the exact
+        // bytes this decision was made about, whatever else changes in between.
+        val stored = sentAnswerSdp ?: return null
+        if (stored.isEmpty()) return null
+        if (SdpShape.of(description.sdp) != (appliedOfferShape ?: return null)) return null
+        val current = connection.localMedia() ?: return null
+        return if (current == sentAnswerMedia) stored else null
     }
 
     /**
@@ -1075,12 +1090,16 @@ class PeerLink(
         // that no longer exists, or a candidate for a description nobody holds.
         // "A rebuild offer never reaches the old connection" is a property of
         // this order.
+        closed = true
         stopOfferRetry()
         channel?.close()
         channel = null
         pendingCandidates.clear()
-        remoteAnswerShapes.clear()
-        sentAnswerSdp = null
+        // Deliberately NOT clearing what the negotiation rules read. This runs
+        // on the thread that tears the call down, holding no lock, while a
+        // signal may be halfway through being judged against exactly those
+        // fields. They are bounded and this object is being discarded, so there
+        // is nothing to gain by racing a lock-holder for them.
         connection.close()
     }
 }
