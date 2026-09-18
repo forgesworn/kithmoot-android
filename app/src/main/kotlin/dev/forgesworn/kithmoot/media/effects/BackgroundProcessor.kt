@@ -61,6 +61,27 @@ fun routeFor(chosen: Boolean, capturing: Boolean, visible: Boolean, busy: Boolea
 /** Makes one composited frame from one captured frame. Implemented for real by
  *  `FrameCompositor`, which is the part that needs a device. */
 interface FrameComposer {
+    /**
+     * Take the picture off the capturer's own buffer, so the capturer's frame
+     * can be handed back at once.
+     *
+     * Called on the capture thread, deliberately, and it is the one piece of
+     * work that may not be moved off it. A camera frame arrives as a GPU
+     * texture, and reading a texture back into memory is a job for the thread
+     * that owns the GL context; done from anywhere else it is a cross-thread
+     * block, and done late it holds the capturer's only texture while a
+     * segmentation model runs.
+     *
+     * `SurfaceTextureHelper` hands out one texture and does not produce the
+     * next frame until that one is released, so a frame held for the length of
+     * a composite does not cost a dropped frame - it stops the camera dead.
+     * Measured on an emulator with software GL, where the readback takes
+     * thirteen seconds: one frame arrived, and then nothing at all.
+     *
+     * Returns a frame that owns its own memory, or null.
+     */
+    fun detach(frame: VideoFrame): VideoFrame?
+
     /** The composited frame, or null if it could not be made. Never the
      *  original: a composer that cannot compose says so and the frame is
      *  dropped. */
@@ -165,13 +186,23 @@ class BackgroundProcessor(
             FrameRoute.DROP -> Unit
             FrameRoute.COMPOSE -> {
                 if (!busy.compareAndSet(false, true)) return
-                // The caller releases this frame the moment we return, and the
-                // worker has not looked at it yet.
-                frame.retain()
+                // Copied out of the capturer's texture here, on the capture
+                // thread, so the capturer has its buffer back before any of the
+                // slow work starts. See `FrameComposer.detach`.
+                val taken = try {
+                    composer.detach(frame)
+                } catch (e: Exception) {
+                    noteFailure(e)
+                    null
+                }
+                if (taken == null) {
+                    busy.set(false)
+                    return
+                }
                 val front = frontFacing
                 val submitted = worker.safely {
                     try {
-                        val made = composer.compose(frame, wanted, front)
+                        val made = composer.compose(taken, wanted, front)
                         if (made == null) {
                             noteFailure()
                         } else {
@@ -181,12 +212,12 @@ class BackgroundProcessor(
                     } catch (e: Exception) {
                         noteFailure(e)
                     } finally {
-                        frame.release()
+                        taken.release()
                         busy.set(false)
                     }
                 }
                 if (!submitted) {
-                    frame.release()
+                    taken.release()
                     busy.set(false)
                 }
             }

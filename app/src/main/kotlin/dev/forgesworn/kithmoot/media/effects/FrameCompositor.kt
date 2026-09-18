@@ -81,8 +81,52 @@ class FrameCompositor(
     private val smooth = Paint().apply { isFilterBitmap = true; isAntiAlias = true }
     private val plain = Paint()
 
+    /**
+     * The camera's picture, scaled down and read out of the GPU, as a frame
+     * that owns its own memory.
+     *
+     * This runs on the capture thread and it is the one piece of work that has
+     * to. The scale is libwebrtc's own, which is the cheapest available, and
+     * the readback runs on the thread that owns the GL context rather than
+     * blocking across to it. `FrameComposer.detach` says why the timing of
+     * this matters more than the cost of it.
+     */
+    @Synchronized
+    override fun detach(frame: VideoFrame): VideoFrame? {
+        if (closed) return null
+        val buffer = frame.buffer
+        val wanted = workingSize(buffer.width, buffer.height, frame.rotation)
+        val scaled = runCatching {
+            buffer.cropAndScale(0, 0, buffer.width, buffer.height, wanted.scaleWidth, wanted.scaleHeight)
+        }.getOrElse {
+            Log.w(TAG, "the capturer would not scale its own buffer", it)
+            return null
+        }
+        val i420 = runCatching { scaled.toI420() }.getOrElse {
+            Log.w(TAG, "the camera texture would not read back", it)
+            null
+        }
+        scaled.release()
+        if (i420 == null) return null
+        return VideoFrame(i420, frame.rotation, frame.timestampNs)
+    }
+
+    /**
+     * Synchronised with [pause] and [close], and guarded by [closed].
+     *
+     * Compositing runs on the processor's worker; closing arrives from
+     * whichever thread is stopping the camera. Without the lock those two race
+     * over the same bitmaps, and the loser draws on one that has already been
+     * recycled - which is a crash on a real phone, not a dropped frame. Found
+     * on an emulator exactly that way.
+     */
+    @Synchronized
     override fun compose(frame: VideoFrame, choice: BackgroundChoice, frontFacing: Boolean): VideoFrame? {
+        if (closed) return null
         val scene = choice.scene ?: return null
+        // The buffer arrives already at the working size, because [detach]
+        // scaled it. Asking again costs a couple of divides and keeps the two
+        // halves from ever disagreeing about how big the picture is.
         val buffer = frame.buffer
         val wanted = workingSize(buffer.width, buffer.height, frame.rotation)
         if (size != wanted) release(keepSegmenter = true)
@@ -90,9 +134,8 @@ class FrameCompositor(
 
         if (!unpack(frame, wanted, work)) return null
 
-        val mask = segmentOf(work)
-        val cutOut = mask != null && cutPersonOut(mask, wanted)
-        if (!cutOut) return null
+        val mask = segmentOf(work) ?: return null
+        if (!cutPersonOut(mask, wanted)) return null
 
         val canvas = Canvas(work)
         if (!drawScene(canvas, scene, wanted, frontFacing)) return null
@@ -102,6 +145,7 @@ class FrameCompositor(
         return pack(work, wanted, frame.timestampNs)
     }
 
+    @Synchronized
     override fun pause() {
         // The model and the sprites are the expensive things to hold; the
         // bitmaps come back on the next frame for the price of an allocation.
@@ -111,25 +155,22 @@ class FrameCompositor(
         reef.release()
     }
 
+    @Synchronized
     override fun close() {
+        closed = true
         pause()
         release(keepSegmenter = false)
     }
 
+    @Volatile private var closed = false
+
+
     // -- steps ----------------------------------------------------------------
 
-    /** The camera's picture, scaled down by libwebrtc and turned upright. */
+    /** The camera's picture, already scaled and read back by [detach], turned
+     *  upright into `work`. */
     private fun unpack(frame: VideoFrame, wanted: WorkingSize, work: Bitmap): Boolean {
-        val buffer = frame.buffer
-        val scaled = runCatching {
-            buffer.cropAndScale(0, 0, buffer.width, buffer.height, wanted.scaleWidth, wanted.scaleHeight)
-        }.getOrElse {
-            Log.w(TAG, "the capturer would not scale its own buffer", it)
-            return false
-        }
-        val i420 = runCatching { scaled.toI420() }.getOrNull()
-        scaled.release()
-        if (i420 == null) return false
+        val i420 = runCatching { frame.buffer.toI420() }.getOrNull() ?: return false
         try {
             val w = wanted.scaleWidth
             val h = wanted.scaleHeight

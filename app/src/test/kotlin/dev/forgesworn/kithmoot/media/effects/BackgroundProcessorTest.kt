@@ -48,7 +48,10 @@ class BackgroundProcessorTest {
         override fun onFrame(frame: VideoFrame) { frames += frame }
     }
 
-    private class Composer(private val answer: () -> VideoFrame?) : FrameComposer {
+    private class Composer(
+        private val detaches: Boolean = true,
+        private val answer: () -> VideoFrame?,
+    ) : FrameComposer {
         var calls = 0
             private set
         var paused = 0
@@ -57,6 +60,16 @@ class BackgroundProcessorTest {
             private set
         val choices = mutableListOf<BackgroundChoice>()
         val facings = mutableListOf<Boolean>()
+        var detached = 0
+            private set
+        /** Stands in for the readback: hands back the same frame, retained the
+         *  way a real detach hands back one the worker owns. */
+        override fun detach(frame: VideoFrame): VideoFrame? {
+            detached += 1
+            if (!detaches) return null
+            frame.retain()
+            return frame
+        }
         override fun compose(frame: VideoFrame, choice: BackgroundChoice, frontFacing: Boolean): VideoFrame? {
             calls += 1
             choices += choice
@@ -267,6 +280,58 @@ class BackgroundProcessorTest {
         processor.onFrameCaptured(frame())
         assertTrue(sink.frames.isEmpty())
         assertTrue(composer.paused >= 1)
+    }
+
+    // --- the readback happens before the hand-off ----------------------------
+
+    @Test
+    fun `the camera's own frame is copied out before any work is queued`() {
+        // The capturer hands out one texture and waits for it back, so the
+        // readback has to happen inline and the camera's frame let go at once.
+        // Queue the composite first and the camera does not stall for a frame,
+        // it stalls until the composite finishes.
+        val composer = Composer { frame() }
+        val worker = ManualExecutor()
+        val processor = BackgroundProcessor(composer, worker)
+        processor.setSink(Sink())
+        processor.onCapturerStarted(true)
+        processor.setChoice(BackgroundChoice(SeaScene.LAGOON))
+        worker.drain()
+
+        processor.onFrameCaptured(frame())
+        assertEquals(1, composer.detached, "detach must run before the worker is asked for anything")
+        assertEquals(0, composer.calls, "the composite must not have started yet")
+        assertEquals(1, worker.pending)
+    }
+
+    @Test
+    fun `a readback that fails publishes nothing and frees the processor for the next frame`() {
+        val composer = Composer(detaches = false) { frame() }
+        val sink = Sink()
+        val processor = BackgroundProcessor(composer, immediate)
+        processor.setSink(sink)
+        processor.onCapturerStarted(true)
+        processor.setChoice(BackgroundChoice(SeaScene.LAGOON))
+
+        val one = frame()
+        processor.onFrameCaptured(one)
+        assertTrue(sink.frames.isEmpty(), "a failed readback must never fall back to the room")
+        assertEquals(0, composer.calls)
+        assertEquals(1, (one.buffer as FakeBuffer).references, "a failed readback must not hold the frame")
+
+        // Not stuck: the next frame is tried.
+        processor.onFrameCaptured(frame())
+        assertEquals(2, composer.detached)
+    }
+
+    @Test
+    fun `off does not even ask for the readback`() {
+        val composer = Composer { frame() }
+        val processor = BackgroundProcessor(composer, immediate)
+        processor.setSink(Sink())
+        processor.onCapturerStarted(true)
+        processor.onFrameCaptured(frame())
+        assertEquals(0, composer.detached)
     }
 
     // --- falling behind ------------------------------------------------------

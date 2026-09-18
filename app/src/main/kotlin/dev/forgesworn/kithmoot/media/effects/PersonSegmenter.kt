@@ -70,8 +70,16 @@ class MediaPipeSegmenter private constructor(private var inner: ImageSegmenter?)
             floats.get(data, 0, minOf(data.size, floats.remaining()))
             return SegmentationMask(data, mask.width, mask.height)
         } finally {
+            // The masks are the task's own images and have to be given back.
             for (one in masks) runCatching { one.close() }
-            runCatching { image.close() }
+            // `image` is deliberately NOT closed. An MPImage built by
+            // `BitmapImageBuilder` wraps the Bitmap it was handed, and closing
+            // it RECYCLES that Bitmap - which here is the compositor's own
+            // working bitmap, reused for every frame. Closing it turns the
+            // second frame into "Canvas: trying to use a recycled bitmap" and
+            // every frame after it, which is what an emulator run showed. The
+            // wrapper owns no native memory of its own; the bitmap is the
+            // compositor's and the compositor recycles it.
         }
     }
 
