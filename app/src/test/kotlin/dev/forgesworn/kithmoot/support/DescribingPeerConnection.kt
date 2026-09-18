@@ -81,13 +81,21 @@ class DescribingPeerConnection(
         val ice: Int,
     ) {
         fun render(candidates: List<String>): String = buildString {
+            // A stack offers the discard port with an unspecified address until
+            // it has a candidate, and rewrites all three lines the moment it
+            // has one. Every retransmission is re-read off the connection, so
+            // this difference is on the wire of every real call.
+            val port = if (candidates.isEmpty()) 9 else 50_000 + candidates.size
+            val host = if (candidates.isEmpty()) "0.0.0.0" else "198.51.100.7"
             append("v=0\r\n")
             append("o=- 4611731400430051336 $version IN IP4 127.0.0.1\r\n")
             append("s=-\r\n")
             append("t=0 0\r\n")
             append("a=group:BUNDLE 0\r\n")
-            append("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n")
-            append("c=IN IP4 0.0.0.0\r\n")
+            append("m=audio $port UDP/TLS/RTP/SAVPF 111\r\n")
+            append("c=IN IP4 $host\r\n")
+            append("a=rtcp:$port IN IP4 $host\r\n")
+            append("a=rtcp-mux\r\n")
             append("a=mid:0\r\n")
             append("a=ice-ufrag:$label$ice\r\n")
             append("a=ice-pwd:${label}pwd$ice\r\n")

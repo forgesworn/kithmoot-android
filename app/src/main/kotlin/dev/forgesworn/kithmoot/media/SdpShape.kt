@@ -44,9 +44,36 @@ object SdpShape {
             // trickled candidate arrives outside the description entirely.
             if (line.startsWith("a=candidate:")) continue
             if (line.startsWith("a=end-of-candidates")) continue
-            append(if (line.startsWith("o=")) originWithoutVersion(line) else line)
+            // The three things a stack rewrites the moment it has a candidate
+            // to put in them. They say where the media would go, which is a
+            // gathering result, not a negotiated one - and `a=rtcp-mux`,
+            // `a=rtcp-fb` and `a=rtcp-rsize` are none of them, so only the bare
+            // `a=rtcp:` line goes.
+            if (line.startsWith("a=rtcp:")) continue
+            append(
+                when {
+                    line.startsWith("o=") -> originWithoutVersion(line)
+                    line.startsWith("m=") -> mediaWithoutPort(line)
+                    line.startsWith("c=") -> "c=IN IP4 0.0.0.0"
+                    else -> line
+                },
+            )
             append('\n')
         }
+    }
+
+    /**
+     * `m=<media> <port> <proto> <formats...>` with the port flattened.
+     *
+     * libwebrtc offers port 9 - the discard port - until it has a candidate,
+     * and then rewrites the line with the port of whichever one it chose. The
+     * media, the transport and the formats are the negotiation; the port is
+     * where this render happened to point.
+     */
+    private fun mediaWithoutPort(line: String): String {
+        val fields = line.split(' ')
+        if (fields.size < 3) return line
+        return fields.mapIndexed { index, field -> if (index == 1) "9" else field }.joinToString(" ")
     }
 
     /** Whether two descriptions describe the same session, whatever their bytes. */
