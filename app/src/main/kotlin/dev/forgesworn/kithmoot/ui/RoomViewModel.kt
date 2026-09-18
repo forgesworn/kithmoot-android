@@ -114,6 +114,7 @@ import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_RETIREMENT
 import dev.forgesworn.kithmoot.protocol.RoomAdmission
+import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
@@ -190,6 +191,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
+import dev.forgesworn.kithmoot.session.callsOf
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.decodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.decodePairingLink
@@ -380,6 +382,16 @@ data class RoomState(
      * and by giving up on the epoch.
      */
     val callJoinPending: Boolean = false,
+    /**
+     * Devices on the room's current call that are not this one.
+     *
+     * Own other devices count: a call taken on the laptop is one this phone
+     * may join, and the control says so. Read off the roster's call
+     * memberships, never from who happens to have a track, so somebody
+     * listening in from a train with everything switched off still counts as
+     * being on the call. See `ui/room/CallStance.kt`.
+     */
+    val callOtherDevices: Int = 0,
     val micOn: Boolean = false,
     /**
      * This device's microphone is running but silenced at the source.
@@ -2767,9 +2779,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
                         notifications.accept(chat)
+                        // The room's current call is the head of the same list
+                        // every other client picks from - see RoomSession.calls.
+                        val onCall = callsOf(people).firstOrNull()?.devices.orEmpty()
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
+                            callOtherDevices = onCall.count { device -> device != who.devicePubkey },
                             privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
@@ -2880,6 +2896,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 if (remembered) {
                     Log.i(JOIN_LOG, "remembered join carried out now that media exists")
                     live.claim(Roles.MONITOR)
+                    adoptRoomCall()
                 }
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
@@ -3240,6 +3257,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 // Local hang-up must complete even during a relay outage or rekey.
                 runCatching { live.release(Roles.MIC) }
                 runCatching { live.release(Roles.MONITOR) }
+                // Off the call is a stated fact, like leaving the room is.
+                // Nobody can guess it from an absent track: a device listening
+                // in with everything switched off looks the same.
+                runCatching { live.setCall(null) }
                 _videos.value = emptyMap()
             } finally {
                 // `callChanging` is a latch on the call control: while it is set
@@ -3286,6 +3307,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         Log.i(JOIN_LOG, "call join now")
         _room.update { it.copy(callActive = true) }
         media.setCallActive(true)
+        adoptRoomCall()
         live.claim(Roles.MONITOR)
     }
 
@@ -4251,7 +4273,33 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             cameraOn = tracks.any { it.role == Roles.CAMERA },
             screenOn = tracks.any { it.role == Roles.SCREEN },
         ) }
+        // The self-heal the web client does in `publishActiveTracks`: a device
+        // with something live that is not saying which call it is on is the
+        // exact shape of the complaint - a phone streaming to a Mac that still
+        // offered to Start one. Adopt the call that is on rather than minting a
+        // second.
+        if (tracks.isNotEmpty()) adoptRoomCall()
     }
+
+    /**
+     * Say which call this device is on: the room's current one if any present
+     * device advertises one, else a new one.
+     *
+     * The choice rule is the head of [RoomSession.calls], which is the web's
+     * `calls()[0]` - most people, then oldest - so two clients adopting at the
+     * same moment adopt the same call rather than each other's.
+     */
+    private fun adoptRoomCall() {
+        val live = session ?: return
+        if (live.currentCall() != null) return
+        val existing = live.calls().firstOrNull()?.id
+        val id = existing ?: newCallId()
+        Log.i(JOIN_LOG, "call ${if (existing != null) "joined" else "started"} id=${id.take(8)}")
+        runCatching { live.setCall(CallMembership(id, epochSeconds())) }
+    }
+
+    /** A fresh call id, in the web client's format: 16 random bytes as hex. */
+    private fun newCallId(): String = Entropy.bytes(16).toHex()
 
     private fun note(message: String) {
         _room.update { it.copy(notice = message) }

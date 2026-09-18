@@ -232,18 +232,34 @@ fun RoomScreen(
                 Text(if(decisions>0)"Work · $decisions" else "Work")
             })
             if (!state.anonymous) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
-                Text(if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call · live" else "Call")
+                // "A call is on" is what the roster says, not what this phone
+                // happens to have negotiated: somebody on the call with
+                // everything switched off is still a call worth a badge.
+                Text(
+                    when {
+                        state.mediaConnections.values.any { it == "connected" || it == "completed" } -> "Call · live"
+                        state.callOtherDevices > 0 -> "Call · on"
+                        else -> "Call"
+                    },
+                )
             })
         }
-        if (!state.anonymous && (state.callActive || callOpen || state.callChanging || state.mediaStarting)) {
+        // What the control is for, computed the way the web client computes it
+        // - from what OTHER devices say, never from the roster's count of
+        // calls - so "Start call" and "Join call" mean the same thing on both.
+        val stance = callStance(
+            mineOn = state.callActive,
+            otherDevicesOn = state.callOtherDevices,
+            leaving = state.callChanging,
+        )
+        if (!state.anonymous && (state.callActive || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
                         state.callChanging -> "Leaving call…"
                         state.callJoinPending -> JOIN_PENDING_LABEL
                         state.mediaStarting -> "Audio and video are starting…"
-                        state.callActive -> "On call"
-                        else -> "Call ended on this phone"
+                        else -> callStanceTitle(stance)
                     },
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
@@ -255,7 +271,7 @@ fun RoomScreen(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     if (state.callActive) { Icon(Icons.Filled.CallEnd, null); Spacer(Modifier.width(8.dp)) }
-                    Text(if (state.callActive) "Leave call" else "Join call")
+                    Text(callStanceLabel(stance))
                 }
             }
         }
