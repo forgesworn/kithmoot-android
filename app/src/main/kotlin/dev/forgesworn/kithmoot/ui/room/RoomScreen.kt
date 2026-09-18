@@ -235,12 +235,22 @@ fun RoomScreen(
                 Text(if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call · live" else "Call")
             })
         }
-        if (!state.anonymous && (state.callActive || callOpen || state.callChanging)) {
+        if (!state.anonymous && (state.callActive || callOpen || state.callChanging || state.mediaStarting)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (state.callChanging) "Leaving call…" else if (state.callActive) "On call" else "Call ended on this phone", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    when {
+                        state.callChanging -> "Leaving call…"
+                        state.callJoinPending -> JOIN_PENDING_LABEL
+                        state.mediaStarting -> "Audio and video are starting…"
+                        state.callActive -> "On call"
+                        else -> "Call ended on this phone"
+                    },
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Button(
                     onClick = { if (state.callActive) { onLeaveCall(); callOpen = false; workOpen = false } else onJoinCall() },
-                    enabled = !state.callChanging,
+                    enabled = !state.callChanging && !state.callJoinPending,
                     colors = if (state.callActive) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {

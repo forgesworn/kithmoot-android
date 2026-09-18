@@ -199,6 +199,8 @@ import dev.forgesworn.kithmoot.ui.room.ParticipantTile
 import dev.forgesworn.kithmoot.ui.room.MicrophoneAction
 import dev.forgesworn.kithmoot.ui.room.buildTiles
 import dev.forgesworn.kithmoot.ui.room.microphoneAction
+import dev.forgesworn.kithmoot.ui.room.JoinDecision
+import dev.forgesworn.kithmoot.ui.room.joinDecision
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
@@ -363,6 +365,21 @@ data class RoomState(
     val listeningHere: Boolean = true,
     val callActive: Boolean = true,
     val callChanging: Boolean = false,
+    /**
+     * Audio and video do not exist yet on this device and are still expected.
+     *
+     * True while the room is waiting for its epoch to become active, and
+     * while the engine is being built. It is what the call control shows
+     * instead of a button that does nothing, and what makes a Join pressed
+     * now worth remembering rather than refusing.
+     */
+    val mediaStarting: Boolean = false,
+    /**
+     * Join was pressed before there was anything to join with, and is
+     * remembered. Carried out the moment the engine exists, cleared by Leave
+     * and by giving up on the epoch.
+     */
+    val callJoinPending: Boolean = false,
     val micOn: Boolean = false,
     /**
      * This device's microphone is running but silenced at the source.
@@ -2713,83 +2730,137 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
-        if (live.epochState.value !is dev.forgesworn.kithmoot.session.RoomEpochState.Active) return@withLock
-        if (!anonymousProfile) {
-            // Verification, replay and encrypted persistence must not run on the UI thread.
-            val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
-            val liveEpoch=live.epochKeys()
-            val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
-                AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
-                initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
-            roomWork=work
-            scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
-            scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
-            scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
-            scope.launch(Dispatchers.IO) {
-                try {work.open()} catch(cancelled:CancellationException){throw cancelled}
-                catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
-            }
-        }
-        // This device plays the room's audio unless one of your others takes it
-        // over. Claiming rather than assuming is what lets that handover happen.
-        live.claim(Roles.MONITOR)
-
-        notifications.begin(record.id, record.name, who.participant, epochSeconds())
-        scope.launch {
-            combine(live.participants, live.chat) { people, chat -> people to chat }
-                .collect { (people, chat) ->
-                    notifications.accept(chat)
-                    _room.update { it.copy(
-                        tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
-                        chat = chat,
-                        privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
-                            people.map { it.participant }.filter { it != who.participant }
-                        } else emptyList(),
-                    ) }
+        // Everything below is what makes a room a room: the shared work
+        // journal, the monitor claim, notifications, the tiles and chat
+        // collectors, the relay counter and the media engine. All of it used
+        // to be abandoned outright when the room opened at a non-active epoch
+        // - one `return@withLock` - and nothing ever came back for it. The
+        // only route out was the person pressing Join and being told audio and
+        // video were "still starting", which was true and stayed true.
+        //
+        // So it is a block that runs at an active epoch, which is almost
+        // always at once, and otherwise waits on the epoch state itself rather
+        // than on a timer that fires once and gives up.
+        val activate: suspend () -> Unit = {
+            if (!anonymousProfile) {
+                // Verification, replay and encrypted persistence must not run on the UI thread.
+                val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
+                val liveEpoch=live.epochKeys()
+                val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
+                    AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
+                    initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
+                roomWork=work
+                scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
+                scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
+                scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
+                scope.launch(Dispatchers.IO) {
+                    try {work.open()} catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
                 }
+            }
+            // This device plays the room's audio unless one of your others takes it
+            // over. Claiming rather than assuming is what lets that handover happen.
+            live.claim(Roles.MONITOR)
+
+            notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            scope.launch {
+                combine(live.participants, live.chat) { people, chat -> people to chat }
+                    .collect { (people, chat) ->
+                        notifications.accept(chat)
+                        _room.update { it.copy(
+                            tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
+                            chat = chat,
+                            privateConversationPeers = if (!anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
+                                people.map { it.participant }.filter { it != who.participant }
+                            } else emptyList(),
+                        ) }
+                    }
+            }
+            scope.launch {
+                transport.connected.collect { up ->
+                    gate.withLock {
+                        if (session !== live) return@withLock
+                        _room.update { it.copy(relaysUp = up.size) }
+                        // The transport's offline queue is bounded and expires. Replay
+                        // durable retirements on reconnect, including rotations made
+                        // during this session, so a long outage cannot drop them.
+                        if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                    }
+                }
+            }
+            scope.launch {
+                live.localRoles.collect { roles ->
+                    // Another of your devices has taken the microphone. Let go of
+                    // the hardware rather than sitting on a hot mic: the roster
+                    // already stops anyone hearing this one, but a person looking at
+                    // a lit microphone button believes they are being heard.
+                    if (_room.value.micOn && !roles.holdsMic && roles.micDevice != null) {
+                        engine?.localMedia?.stopMicrophone()
+                    }
+                }
+            }
+
+            if (!anonymousProfile) startMedia(live, scope, who)
         }
-        scope.launch {
-            transport.connected.collect { up ->
+        val epochAtOpen = live.epochState.value
+        if (epochAtOpen is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
+            Log.i(JOIN_LOG, "epoch active at open epoch=${epochAtOpen.epoch}")
+            activate()
+        } else {
+            Log.i(JOIN_LOG, "epoch not active at open state=${epochAtOpen.javaClass.simpleName} - media waits for it")
+            _room.update { it.copy(mediaStarting = true) }
+            scope.launch {
+                val settled = kotlinx.coroutines.withTimeoutOrNull(EPOCH_ACTIVATION_TIMEOUT_MS) {
+                    live.epochState.first {
+                        it is dev.forgesworn.kithmoot.session.RoomEpochState.Active ||
+                            it is dev.forgesworn.kithmoot.session.RoomEpochState.Removed ||
+                            it is dev.forgesworn.kithmoot.session.RoomEpochState.Closed
+                    }
+                }
                 gate.withLock {
                     if (session !== live) return@withLock
-                    _room.update { it.copy(relaysUp = up.size) }
-                    // The transport's offline queue is bounded and expires. Replay
-                    // durable retirements on reconnect, including rotations made
-                    // during this session, so a long outage cannot drop them.
-                    if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                    if (settled is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
+                        Log.i(JOIN_LOG, "epoch became active epoch=${settled.epoch} - starting the room")
+                        _room.update { it.copy(mediaStarting = false) }
+                        activate()
+                    } else {
+                        Log.i(JOIN_LOG, "epoch never became active settled=${settled?.javaClass?.simpleName ?: "timeout"}")
+                        _room.update {
+                            it.copy(
+                                mediaStarting = false,
+                                callJoinPending = false,
+                                mediaFault = "This room did not finish its secure update, so audio and video could not start. Leave and open it again.",
+                            )
+                        }
+                    }
                 }
             }
         }
-        scope.launch {
-            live.localRoles.collect { roles ->
-                // Another of your devices has taken the microphone. Let go of
-                // the hardware rather than sitting on a hot mic: the roster
-                // already stops anyone hearing this one, but a person looking at
-                // a lit microphone button believes they are being heard.
-                if (_room.value.micOn && !roles.holdsMic && roles.micDevice != null) {
-                    engine?.localMedia?.stopMicrophone()
-                }
-            }
-        }
-
-        if (!anonymousProfile) startMedia(live, scope, who)
     }
 
     /** Build media only while this exact session is active at one traffic epoch. */
     private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
         if (session !== live || engine != null) return
         opening?.cancel()
+        _room.update { it.copy(mediaStarting = true) }
         opening = scope.launch {
+            val begun = android.os.SystemClock.elapsedRealtime()
+            val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
+            Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }}")
             val built = withContext(Dispatchers.Default) { runCatching {
-                WebRtcEngine(getApplication(), live, this@launch, dev.forgesworn.kithmoot.media.CallIceServers.resolve())
+                WebRtcEngine(getApplication(), live, this@launch, ice)
             } }
             val media = built.getOrElse { failure ->
+                Log.w(JOIN_LOG, "media failed to build after ${android.os.SystemClock.elapsedRealtime() - begun}ms", failure)
                 _room.update { it.copy(
+                    mediaStarting = false,
+                    callJoinPending = false,
                     mediaFault = "Audio and video are unavailable on this device: " +
                         (failure.message ?: failure::class.java.simpleName),
                 ) }
                 return@launch
             }
+            Log.i(JOIN_LOG, "media built in ${android.os.SystemClock.elapsedRealtime() - begun}ms")
             synchronized(mediaControlLock) {
                 if (session !== live) { media.dispose(); return@launch }
                 engine = media
@@ -2798,8 +2869,18 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
                 media.localMedia.setBackground(_room.value.background)
                 media.localMedia.setAppVisible(appVisible)
-                media.setCallActive(_room.value.callActive)
+                // A Join pressed while there was nothing to join with. It was
+                // remembered rather than refused, and this is where it happens
+                // - no second tap, no timer.
+                val remembered = _room.value.callJoinPending
+                val active = _room.value.callActive || remembered
+                media.setCallActive(active)
                 media.start()
+                _room.update { it.copy(mediaStarting = false, callJoinPending = false, callActive = active) }
+                if (remembered) {
+                    Log.i(JOIN_LOG, "remembered join carried out now that media exists")
+                    live.claim(Roles.MONITOR)
+                }
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
 
@@ -3147,10 +3228,13 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     fun leaveCall() {
         val live = session ?: return
         if (!_room.value.callActive || _room.value.callChanging) return
-        _room.update { it.copy(callActive = false, callChanging = true) }
+        // A remembered Join must not survive a Leave; it would put the person
+        // straight back on the call they just left.
+        _room.update { it.copy(callActive = false, callChanging = true, callJoinPending = false) }
+        Log.i(JOIN_LOG, "call leave requested")
         act {
-            if (session !== live) return@act
             try {
+                if (session !== live) return@act
                 engine?.setCallActive(false)
                 ScreenShareService.stop(getApplication())
                 // Local hang-up must complete even during a relay outage or rekey.
@@ -3158,15 +3242,48 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { live.release(Roles.MONITOR) }
                 _videos.value = emptyMap()
             } finally {
-                if (session === live) _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                // `callChanging` is a latch on the call control: while it is set
+                // the button is disabled and every joinCall() returns without a
+                // word. It used to be cleared only when this was still the live
+                // session, and the early return above skipped even that, so a
+                // session swapped underneath a Leave left the latch set for the
+                // rest of the room's life. It is now always cleared; only the
+                // local media flags, which belong to THIS session, are held back
+                // when the session has moved on.
+                if (session === live) {
+                    _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                } else {
+                    _room.update { it.copy(callChanging = false) }
+                }
             }
         }
     }
 
     fun joinCall() = act {
-        if (_room.value.callChanging || _room.value.callActive) return@act
-        val media = engine ?: return@act note("Audio and video are still starting. Try again shortly.")
+        val state = _room.value
         val live = session ?: return@act
+        when (val decision = joinDecision(
+            onCall = state.callActive,
+            changing = state.callChanging,
+            mediaReady = engine != null,
+            mediaStarting = state.mediaStarting,
+            mediaFault = state.mediaFault,
+        )) {
+            is JoinDecision.Ignore -> return@act
+            is JoinDecision.Refuse -> {
+                Log.i(JOIN_LOG, "call join refused reason=no-media")
+                return@act note(decision.message)
+            }
+            is JoinDecision.WhenReady -> {
+                // Remembered, not refused. startMedia carries it out.
+                Log.i(JOIN_LOG, "call join remembered reason=media-not-ready-yet")
+                _room.update { it.copy(callJoinPending = true) }
+                return@act
+            }
+            is JoinDecision.Now -> Unit
+        }
+        val media = engine ?: return@act
+        Log.i(JOIN_LOG, "call join now")
         _room.update { it.copy(callActive = true) }
         media.setCallActive(true)
         live.claim(Roles.MONITOR)
