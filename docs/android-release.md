@@ -2,6 +2,10 @@
 
 The public website currently offers production-signed 0.6.5 (28), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.6 one-way audio candidate
+
+Version code 29 fixes the cause of "I can see them but not hear them" in the native negotiator. Two ends of a profile-1 pair could complete different negotiations: one side answered before its microphone reached that connection, the offer was repeated, and the second, true answer was either thrown at the stack while it was already settled (libwebrtc refused it and the tile read "Video connection failed" for the rest of the call, though nothing was torn down) or, on the far side, dropped as a duplicate. Descriptions are now compared by what they propose, not by their bytes: candidates, the `o=` version, the media port, the `c=` line and `a=rtcp:` are ignored; directions, ICE credentials, codecs and fingerprints are not. An answer of a known shape is dropped quietly; one of an unknown shape is a disagreement and is repaired with one ordinary renegotiation, bounded per connection. A repeated offer is answered from store when local media has not changed. Profile-1 offers are now re-sent until answered, because a lost offer used to wedge the pair for good, and carry a sequence number so an answer to an abandoned offer is not applied to the current one; a far end that does not echo it is judged exactly as before. Profile 2 is untouched and still switched off. Requires the same owner-held signing key; the physical checks listed under 0.6.5 remain open, with a real call between this build, desktop 0.1.7 and the web client first among them.
+
 ## 0.6.5 call reliability release
 
 Published on 18 September 2026 from `b759947`: signed by the owner with the production key and the preview-to-production lineage (APK Signature Scheme v3 only), APK SHA-256 `1a4f0c7226ee5fac299f6b492eaae039892edf401df208cdd4e7d65de58320cc`, checked by the web repository's publication verifier, installed in place over 0.6.4 on one Pixel 10 Pro XL, and offered on the website and as GitHub pre-release `v0.6.5`. The signer writes its APK under `umask 077`; the first upload was therefore unreadable by the web server and answered 403 for about two minutes, and the web repository's deploy script now sets the mode itself. The physical checks listed at the end of this section are still open.
@@ -27,7 +31,7 @@ any public publication. A successful build is not approval to install or
 publish it.
 
 The reviewed signer script obtains its output filename from the unsigned APK's
-validated version metadata (`kithmoot-0.6.5-production.apk` for this release) and
+validated version metadata (`kithmoot-0.6.6-production.apk` for this release) and
 refuses a version code at or below 25. This prevents a future candidate from
 silently reusing the pre-rendezvous update slot.
 
