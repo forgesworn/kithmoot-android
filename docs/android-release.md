@@ -1,8 +1,10 @@
 # Android release signing and device acceptance
 
-The public website currently offers production-signed 0.6.5 (28), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
+The public website currently offers production-signed 0.6.6 (29), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
-## 0.6.6 one-way audio candidate
+## 0.6.6 one-way audio release
+
+Published on 18 September 2026 from `639bc71`: owner-signed with the production key and lineage (v3 only), APK SHA-256 `3c894eb69f106b7987726e3b7e04980057cecf0055759d6995bcfa5ffd918fcd`, passed the web repository's publication verifier, installed in place over 0.6.5 on one Pixel 10 Pro XL, offered on the website and as GitHub pre-release `v0.6.6`.
 
 Version code 29 fixes the cause of "I can see them but not hear them" in the native negotiator. Two ends of a profile-1 pair could complete different negotiations: one side answered before its microphone reached that connection, the offer was repeated, and the second, true answer was either thrown at the stack while it was already settled (libwebrtc refused it and the tile read "Video connection failed" for the rest of the call, though nothing was torn down) or, on the far side, dropped as a duplicate. Descriptions are now compared by what they propose, not by their bytes: candidates, the `o=` version, the media port, the `c=` line and `a=rtcp:` are ignored; directions, ICE credentials, codecs and fingerprints are not. An answer of a known shape is dropped quietly; one of an unknown shape is a disagreement and is repaired with one ordinary renegotiation, bounded per connection. A repeated offer is answered from store when local media has not changed. Profile-1 offers are now re-sent until answered, because a lost offer used to wedge the pair for good, and carry a sequence number so an answer to an abandoned offer is not applied to the current one; a far end that does not echo it is judged exactly as before. Profile 2 is untouched and still switched off. Requires the same owner-held signing key; the physical checks listed under 0.6.5 remain open, with a real call between this build, desktop 0.1.7 and the web client first among them.
 
