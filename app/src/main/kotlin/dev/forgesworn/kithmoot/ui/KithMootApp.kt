@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+
 import android.Manifest
 import android.app.Activity
 import android.media.projection.MediaProjectionManager
@@ -66,6 +69,9 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
     val snackbars = remember { SnackbarHostState() }
     val roomUiState = rememberSaveableStateHolder()
     var searchOpen by remember { mutableStateOf(false) }
+    var shareOptions by remember { mutableStateOf(false) }
+    var shareDeviceSound by remember { mutableStateOf(true) }
+    var requestedScreenAudio by remember { mutableStateOf(true) }
     var cardsOpen by remember { mutableStateOf(false) }
     var expandedScreen by remember { mutableStateOf<dev.forgesworn.kithmoot.ui.room.SharedScreen?>(null) }
 
@@ -82,21 +88,31 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
     ) { result ->
         val data = result.data
         if (result.resultCode == Activity.RESULT_OK && data != null) {
-            model.startScreenShare(data)
+            model.startScreenShare(data, requestedScreenAudio)
         } else {
             model.screenShareDeclined()
         }
     }
 
     /** Asks Android for screen-capture consent. Notifications first, or the service cannot show one. */
-    fun requestScreenShare() {
-        val launch = {
+    fun beginScreenShare() {
+        requestedScreenAudio = shareDeviceSound
+        val capture = {
             val manager = context.getSystemService(MediaProjectionManager::class.java)
             if (manager == null) {
                 model.showNotice("This device has no screen capture.")
             } else {
                 projection.launch(manager.createScreenCaptureIntent())
             }
+        }
+        val launch = {
+            if (!requestedScreenAudio) capture() else asker.ask(PermissionAsk(
+                permission = Manifest.permission.RECORD_AUDIO,
+                title = "Share app sound",
+                why = "Android requires audio recording permission to share sound from apps that allow capture. Your microphone stays under its own call control.",
+                refused = "Audio permission was refused. Allow it in Settings to share your screen with app sound.",
+                onGranted = capture,
+            ))
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             asker.ask(
@@ -114,6 +130,23 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
         }
     }
 
+    fun requestScreenShare() { shareOptions = true }
+    if (shareOptions && stage == Stage.ROOM) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { shareOptions = false },
+            title = { androidx.compose.material3.Text("Share your screen") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.material3.Text("Include device sound from apps that allow capture. This can include other apps' sound when you share a single app. Your microphone has its own call control.")
+                    androidx.compose.material3.Switch(checked = shareDeviceSound, onCheckedChange = { shareDeviceSound = it },
+                        modifier = Modifier.semantics { contentDescription = "Share device sound" })
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { shareOptions = false; beginScreenShare() }) { androidx.compose.material3.Text("Choose screen or app") } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { shareOptions = false }) { androidx.compose.material3.Text("Cancel") } },
+        )
+    }
+
     LaunchedEffect(stage) { if (stage != Stage.ROOM) { expandedScreen = null; searchOpen = false } }
     val expanded = expandedScreen
     if (expanded != null && stage == Stage.ROOM) {
@@ -123,6 +156,8 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
             track = meta?.let { videos["${it.device}|${it.role}"] }, eglBase = model.eglBase,
             title = if (tile?.isSelf == true) "Your screen" else "${dev.forgesworn.kithmoot.ui.room.shortId(expanded.participant)}’s screen",
             inPictureInPicture = inPictureInPicture, onPopOut = onPopOut,
+            shareId = meta?.trackId, marks = roomState.shareMarks[meta?.trackId].orEmpty(),
+            onAnnotation = model::drawOnShare,
             onClose = { expandedScreen = null },
         )
         return

@@ -34,6 +34,19 @@ class ChatTest {
     )
 
     @Test
+    fun `authenticated attachment fields survive chat decoding and excess references are refused`() {
+        val original = message("A picture")
+        val fields = Json.parseToJsonElement(Nip44.decrypt(original.content, room.roomKey)) as kotlinx.serialization.json.JsonObject
+        val attachment = Json.parseToJsonElement("""{"url":"https://example.test/file","key":"${"ab".repeat(32)}","sha256":"${"cd".repeat(32)}"}""")
+        fun wrapped(count: Int) = Events.sign(
+            secretKey = owner.deviceSecretKey, kind = KIND_CHAT, createdAt = 100, tags = original.tags,
+            content = Nip44.encrypt(kotlinx.serialization.json.JsonObject(fields + ("attachments" to
+                kotlinx.serialization.json.JsonArray(List(count) { attachment }))).toString(), room.roomKey))
+        assertEquals(1, assertNotNull(decodeChatEvent(wrapped(1), room.roomId, room.roomKey, 200)).attachments.size)
+        assertNull(decodeChatEvent(wrapped(5), room.roomId, room.roomKey, 200))
+    }
+
+    @Test
     fun `a chat line round-trips`() {
         val decoded = decodeChatEvent(message("Start a room."), room.roomId, room.roomKey, now = 200)
 

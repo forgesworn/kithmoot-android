@@ -5,6 +5,11 @@ import android.view.TextureView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import dev.forgesworn.kithmoot.protocol.AnnotationPoint
+import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
+import java.util.UUID
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,7 +38,10 @@ data class SharedScreen(val participant: String, val device: String)
 fun ScreenShareViewer(
     track: VideoTrack?, eglBase: EglBase?, title: String, inPictureInPicture: Boolean,
     onPopOut: (() -> Unit)?, onClose: () -> Unit,
+    shareId: String? = null, marks: List<LiveMark> = emptyList(),
+    onAnnotation: (ScreenAnnotation) -> Unit = {},
 ) {
+    var drawing by remember(shareId) { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var aspect by remember { mutableFloatStateOf(16f / 9f) }
@@ -58,6 +66,7 @@ fun ScreenShareViewer(
                         Text("${(zoom * 100).toInt()}%", Modifier.padding(vertical = 14.dp))
                         TextButton(onClick = { setZoom(zoom * 1.25f) }, enabled = track != null && zoom < 8f, modifier = Modifier.semantics { contentDescription = "Zoom in" }) { Text("+") }
                         TextButton(onClick = { setZoom(1f); pan = Offset.Zero }) { Text("Fit to screen") }
+                        FilterChip(selected = drawing, onClick = { drawing = !drawing }, enabled = shareId != null && track != null, label = { Text("Draw") })
                         if (onPopOut != null) TextButton(onClick = onPopOut) { Text("Pop out") }
                         TextButton(onClick = onClose) { Text("Close viewer") }
                     }
@@ -66,17 +75,38 @@ fun ScreenShareViewer(
         }
         Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged { size = it }
             .semantics { contentDescription = "Shared screen, ${(zoom * 100).toInt()} percent zoom. Pinch to zoom and drag to pan." }
-            .pointerInput(fittedWidth, fittedHeight) {
-                detectTransformGestures { _, movement, scale, _ -> setZoom(zoom * scale); pan = constrain(pan + movement, zoom) }
+            .pointerInput(fittedWidth, fittedHeight, drawing) {
+                if (!drawing) detectTransformGestures { _, movement, scale, _ -> setZoom(zoom * scale); pan = constrain(pan + movement, zoom) }
             }, contentAlignment = Alignment.Center) {
             if (track != null && eglBase != null) {
                 val density = LocalDensity.current
-                ScreenTexture(track, eglBase, onAspect = { aspect = it }, modifier = Modifier
-                    .size(with(density) { fittedWidth.toDp() }, with(density) { fittedHeight.toDp() })
-                    .graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y })
+                Box(Modifier.size(with(density) { fittedWidth.toDp() }, with(density) { fittedHeight.toDp() })
+                    .graphicsLayer { scaleX = zoom; scaleY = zoom; translationX = pan.x; translationY = pan.y }) {
+                    ScreenTexture(track, eglBase, onAspect = { aspect = it }, modifier = Modifier.fillMaxSize())
+                    ShareMarksOverlay(marks, Modifier.fillMaxSize())
+                    if (drawing && !inPictureInPicture && shareId != null) Box(Modifier.fillMaxSize()
+                        .pointerInput(shareId) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                fun point(offset: Offset) = AnnotationPoint(
+                                    (offset.x / size.width.coerceAtLeast(1)).toDouble().coerceIn(0.0, 1.0),
+                                    (offset.y / size.height.coerceAtLeast(1)).toDouble().coerceIn(0.0, 1.0))
+                                val stroke = StrokeSegments(shareId, onAnnotation)
+                                stroke.start(point(down.position), down.uptimeMillis)
+                                down.consume()
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    stroke.move(point(change.position), change.uptimeMillis)
+                                    change.consume()
+                                } while (change.pressed)
+                                stroke.finish()
+                            }
+                        })
+                }
             } else Text("Screen sharing has stopped or is reconnecting.", color = Color.White, modifier = Modifier.padding(24.dp))
         }
-        if (!inPictureInPicture) Text("Pinch to zoom. Drag to move around. Fit to screen resets the view.", color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+        if (!inPictureInPicture) Text(if (drawing) "Draw on the shared image. Everyone sees marks as you move." else "Pinch to zoom. Drag to move around. Fit to screen resets the view.", color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
     }
 }
 

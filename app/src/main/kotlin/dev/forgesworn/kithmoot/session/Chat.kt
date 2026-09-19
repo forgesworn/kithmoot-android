@@ -81,6 +81,7 @@ data class ChatMessage(
     val lane: Lane? = null,
     /** Verified participant signature, bound to this room and outer device. */
     val assignment: NostrEvent? = null,
+    val attachments: List<ChatAttachment> = emptyList(),
 )
 
 fun encodeChatEvent(
@@ -182,6 +183,9 @@ fun decodeChatEvent(
             // thing about one other message, and a payload carrying two of
             // them, or one beside conversation it has no business carrying,
             // is refused whole. Mirrors `decodeChatEvent` in src/chat.ts.
+            val rawAttachments = json["attachments"] as? kotlinx.serialization.json.JsonArray
+            require(rawAttachments == null || rawAttachments.size <= 4)
+            val attachments = rawAttachments?.mapNotNull(::parseAttachment).orEmpty()
             val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment").count { json.containsKey(it) }
             val conversationKeys = listOf("kind", "attachments", "reply", "thread", "mentions")
             val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment")
@@ -231,6 +235,7 @@ fun decodeChatEvent(
                     mentions = mentions,
                     invite = invite,
                     assignment = assignment,
+                    attachments = attachments,
                 )
             }
         }

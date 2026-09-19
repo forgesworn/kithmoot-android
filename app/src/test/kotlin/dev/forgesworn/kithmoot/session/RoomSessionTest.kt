@@ -30,6 +30,27 @@ import kotlin.test.assertTrue
 class RoomSessionTest {
 
     @Test
+    fun `rapid listening handover wins within one second and sharing leaves it alone`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val phone = Fixtures.secondary(room, owner, 30)
+        val timing = Fixtures.QUIET.copy(announceJitterMs = 0)
+        val desktop = session(room, owner, relay, timing = timing)
+        val mobile = session(room, phone, relay, timing = timing)
+        desktop.join(); mobile.join(); advanceTimeBy(2_000); runCurrent()
+        mobile.claim(Roles.MONITOR); runCurrent()
+        assertTrue(mobile.localRoles.value.holdsMonitor)
+        desktop.setTracks(listOf(TrackRef("screen", Roles.SCREEN))); runCurrent()
+        assertTrue(mobile.localRoles.value.holdsMonitor)
+        desktop.claim(Roles.MONITOR); runCurrent()
+        assertTrue(desktop.localRoles.value.holdsMonitor)
+        mobile.claim(Roles.MONITOR); runCurrent()
+        assertTrue(mobile.localRoles.value.holdsMonitor)
+        assertFalse(desktop.localRoles.value.holdsMonitor)
+    }
+
+    @Test
     fun `a gated member refuses an unproved roster publisher`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
@@ -324,6 +345,15 @@ class RoomSessionTest {
         assertEquals(stroke, marks.single().annotation)
         // Drawing never falls through to ordinary negotiation traffic.
         assertTrue(signals.isEmpty())
+        repeat(480) { index ->
+            theirs.sendSignal(owner.devicePubkey, SignalBody("annotation", room.roomId,
+                annotation = stroke.copy(strokeId = "segment-$index")))
+            runCurrent()
+        }
+        assertEquals(480, marks.size)
+        theirs.sendSignal(owner.devicePubkey, SignalBody("offer", room.roomId, sdp = "v=0"))
+        runCurrent()
+        assertEquals(1, signals.size, "Drawing must not consume the negotiation allowance")
     }
 
     @Test

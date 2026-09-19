@@ -5,5 +5,7 @@
       the real NIP-55 intent/result boundary without introducing a signer into
       the production application.
     -->
-    <application />
+    <application android:allowAudioPlaybackCapture="true">
+        <activity android:name="dev.forgesworn.kithmoot.media.PlaybackToneActivity" android:exported="true" />
+    </application>
 </manifest>

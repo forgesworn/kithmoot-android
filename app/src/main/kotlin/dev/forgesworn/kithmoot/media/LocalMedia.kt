@@ -44,6 +44,8 @@ data class LocalTrack(
      * progressing and the health ladder has something to measure.
      */
     val muted: Boolean = false,
+    val microphoneOn: Boolean = false,
+    val microphoneMuted: Boolean = false,
 ) {
     val trackId: String get() = track.id()
 }
@@ -65,11 +67,13 @@ class LocalMedia(
     private val context: Context,
     private val factory: PeerConnectionFactory,
     private val eglBase: EglBase,
+    private val playbackAudio: PlaybackAudio = PlaybackAudio(),
 ) {
 
     private val _tracks = MutableStateFlow<List<LocalTrack>>(emptyList())
     val tracks: StateFlow<List<LocalTrack>> = _tracks.asStateFlow()
 
+    private var microphoneRequested = false
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
 
@@ -129,12 +133,22 @@ class LocalMedia(
         override fun onCameraClosed() = Unit
     }
 
-    val microphoneTrack: AudioTrack? get() = audioTrack
+    val microphoneTrack: AudioTrack? get() = audioTrack?.takeIf { microphoneRequested }
     val localCameraTrack: VideoTrack? get() = cameraTrack
     val localScreenTrack: VideoTrack? get() = screenTrack
 
     @Synchronized
     fun startMicrophone(): AudioTrack? {
+        microphoneRequested = true
+        micMuted = false
+        playbackAudio.microphone = true
+        val track = ensureAudioTrack()
+        track.setEnabled(true)
+        publish()
+        return track
+    }
+
+    private fun ensureAudioTrack(): AudioTrack {
         audioTrack?.let { return it }
         val constraints = MediaConstraints().apply {
             // Left to the platform's hardware canceller where there is one; the
@@ -147,15 +161,19 @@ class LocalMedia(
         val track = factory.createAudioTrack(trackId(Roles.MIC), source)
         audioSource = source
         audioTrack = track
-        // A microphone that has just been started is not muted, whatever the
-        // last one was.
-        micMuted = false
-        publish()
         return track
     }
 
     @Synchronized
     fun stopMicrophone() {
+        microphoneRequested = false
+        playbackAudio.microphone = false
+        micMuted = false
+        if (!playbackAudio.active) releaseAudioTrack()
+        publish()
+    }
+
+    private fun releaseAudioTrack() {
         audioTrack?.let { runCatching { it.setEnabled(false) } }
         audioTrack = null
         audioSource?.let { runCatching { it.dispose() } }
@@ -263,7 +281,7 @@ class LocalMedia(
      * create the projection at all.
      */
     @Synchronized
-    fun startScreenShare(permission: Intent): VideoTrack? {
+    fun startScreenShare(permission: Intent, shareAudio: Boolean = true): VideoTrack? {
         screenTrack?.let { return it }
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
@@ -275,21 +293,33 @@ class LocalMedia(
         // isScreencast = true, so the encoder favours sharpness over frame rate.
         // Text on a shared slide is unreadable otherwise.
         val source = factory.createVideoSource(true)
-        capturer.initialize(helper, context, source.capturerObserver)
-        val size = screenSize()
-        capturer.startCapture(size.first, size.second, SCREEN_FPS)
-        val track = factory.createVideoTrack(trackId(Roles.SCREEN), source)
-
         screenCapturer = capturer
         screenHelper = helper
         screenSource = source
+        val track = try {
+            capturer.initialize(helper, context, source.capturerObserver)
+            val size = screenSize()
+            capturer.startCapture(size.first, size.second, SCREEN_FPS)
+            factory.createVideoTrack(trackId(Roles.SCREEN), source)
+        } catch (failure: Exception) { stopScreenShare(); throw failure }
         screenTrack = track
+        if (shareAudio && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try {
+                playbackAudio.start(checkNotNull(capturer.mediaProjection))
+                ensureAudioTrack().setEnabled(true)
+            } catch (_: Exception) {
+                playbackAudio.stop()
+                onBackgroundTrouble?.invoke("Screen shared without sound: Android could not start app audio capture.")
+            }
+        } else if (shareAudio) onBackgroundTrouble?.invoke("Screen shared without sound. Allow audio recording to share app sound.")
         publish()
         return track
     }
 
     @Synchronized
     fun stopScreenShare() {
+        playbackAudio.stop()
+        if (!microphoneRequested) releaseAudioTrack() else audioTrack?.setEnabled(!micMuted)
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenCapturer?.dispose() }
         runCatching { screenHelper?.dispose() }
@@ -318,10 +348,11 @@ class LocalMedia(
      */
     @Synchronized
     fun setMicrophoneMuted(muted: Boolean): Boolean {
-        val track = audioTrack ?: return false
+        val track = microphoneTrack ?: return false
         if (micMuted == muted) return true
         micMuted = muted
-        runCatching { track.setEnabled(!muted) }
+        playbackAudio.microphone = !muted
+        runCatching { track.setEnabled(playbackAudio.active || !muted) }
         // Republished at once, so the roster says so on this mute rather than
         // on the next thing that happens to change.
         publish()
@@ -335,7 +366,10 @@ class LocalMedia(
 
     private fun publish() {
         _tracks.value = buildList {
-            audioTrack?.let { add(LocalTrack(it, Roles.MIC, muted = micMuted)) }
+            audioTrack?.let { add(LocalTrack(it,
+                if (playbackAudio.active) Roles.SCREEN_AUDIO else Roles.MIC,
+                muted = micMuted && !playbackAudio.active,
+                microphoneOn = microphoneRequested, microphoneMuted = micMuted)) }
             cameraTrack?.let { add(LocalTrack(it, Roles.CAMERA)) }
             screenTrack?.let { add(LocalTrack(it, Roles.SCREEN)) }
         }

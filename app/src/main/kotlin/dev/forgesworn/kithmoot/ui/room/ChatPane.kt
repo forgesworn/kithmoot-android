@@ -67,6 +67,7 @@ fun ChatPane(
     onCloseSearch: () -> Unit = {},
     onReadingChanged: (Boolean) -> Unit = {},
 ) {
+    var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
@@ -200,6 +201,11 @@ fun ChatPane(
                                 if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 Text(if (r.retracted) "Message retracted" else message.body, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                if (!r.retracted) message.attachments.forEach { attachment ->
+                                    TextButton(onClick = { expandedImage = attachment }) {
+                                        Text("Open attachment: ${attachment.name ?: "Image"}")
+                                    }
+                                }
                                 val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
                                     if (r.edited && !r.retracted) "edited" else null, if (nested || r.orphan) "reply" else null)
                                 Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
@@ -235,6 +241,11 @@ fun ChatPane(
         if (sending) Text("Waiting for relay confirmation…", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    }
+    expandedImage?.let { attachment ->
+        if (messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
+            AttachmentViewer(attachment, onClose = { expandedImage = null })
+        } else LaunchedEffect(attachment) { expandedImage = null }
     }
     if (emojiOpen) EmojiDialog(onDismiss = { emojiOpen = false }) { emoji ->
         val start = draft.selection.min; val end = draft.selection.max

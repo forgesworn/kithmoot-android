@@ -98,7 +98,7 @@ class ScreenShareService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Sharing your screen")
-            .setContentText("Everyone in the room can see this device's screen.")
+            .setContentText("Your selected screen or app is being shared.")
             .setSmallIcon(R.drawable.ic_screen_share)
             .setContentIntent(open)
             .setOngoing(true)
