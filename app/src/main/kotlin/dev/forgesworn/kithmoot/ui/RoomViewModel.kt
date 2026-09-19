@@ -3012,7 +3012,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
                     val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
-                    local.any { it.role == Roles.MIC } || (listeningHere && remote.any { it.track is AudioTrack })
+                    local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack })
                 }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
             }
             launch {
