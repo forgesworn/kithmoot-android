@@ -2,6 +2,39 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.8 sharing and listening candidate
+
+Version code 31 adds app playback capture during screen sharing, preserves an
+existing listening device on automatic joins, makes rapid explicit handovers
+win within the same clock second, and sends drawing segments while the finger
+is down. Expanded screen views display both local and remote marks. Drawing
+has a separate 480-per-20-second sender allowance; the ordinary negotiation
+allowance remains 120. Existing web/desktop releases with the old combined
+allowance can still stop receiving sustained strokes until updated.
+
+Native WebRTC has one input stream here. While sharing sound, that stream is
+advertised as screen-audio and mixes the microphone only when its independent
+control is on and unmuted. Android playback capture excludes KithMoot's UID to
+avoid sending room audio back to listeners. Apps can prohibit capture; protected
+content and voice-communication playback are not bypassed. Android's own
+MediaProjection consent and the foreground notification remain required.
+
+Incoming encrypted PNG, JPEG, WebP and GIF attachments can be opened, fitted,
+viewed at actual size, zoomed and passed explicitly to another image app.
+Downloads happen only on a tap, use HTTPS without redirects, verify the complete
+ciphertext hash, and authenticate all envelope records before displaying data.
+The viewer allows 32 MiB encrypted files and 16 megapixels. SVG, larger files,
+attachment uploads and arbitrary floating overlays on other Android apps are
+not part of this update. Open in temporarily writes only the selected decrypted
+image into a narrowly scoped FileProvider cache; stale exports are removed on
+the next export. Closing or retracting the message closes the viewer.
+
+Local unit, lint and build checks and emulator checks are recorded in
+[the sharing evidence](sharing-and-listening-20260919.md). Production signing
+still uses the owner's existing key and lineage on M4. This candidate is not
+yet published or installed over the Pixel's 0.6.6; the owner is using that phone
+for a call. Do not interrupt it for acceptance testing.
+
 ## 0.6.7 rejoin, call membership, rotation and no telemetry
 
 Published on 18 September 2026 from `7d153e9`: owner-signed with the production key and lineage (v3 only), APK SHA-256 `a1f4c64b1c296d4eb66bbfdbbfc18206b0d5cc7815e1e92592d64597f4521a5a`, certificate `135bcabf…`. On the website and as GitHub pre-release `v0.6.7`. The signed build was installed on an arm64 emulator and started cleanly with no linkage errors; it has not yet run on a handset.

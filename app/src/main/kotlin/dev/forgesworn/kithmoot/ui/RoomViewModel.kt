@@ -2828,7 +2828,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
             // This device plays the room's audio unless one of your others takes it
             // over. Claiming rather than assuming is what lets that handover happen.
-            live.claim(Roles.MONITOR)
+            if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
             notifications.begin(record.id, record.name, who.participant, epochSeconds())
             scope.launch {
@@ -2973,7 +2973,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             val media = engine ?: return@launch
             if (remembered) {
                 Log.i(JOIN_LOG, "remembered join carried out now that media exists")
-                live.claim(Roles.MONITOR)
+                if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
                 adoptRoomCall()
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
@@ -3012,7 +3012,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
                     val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
-                    local.any { it.role == Roles.MIC } || (listeningHere && remote.any { it.track is AudioTrack })
+                    local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack })
                 }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
             }
             launch {
@@ -3063,6 +3063,23 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     pushShareMarks()
                     ensureMarksTicking(scope = annotationScope)
                 }
+            }
+        }
+    }
+
+    fun drawOnShare(annotation: dev.forgesworn.kithmoot.protocol.ScreenAnnotation) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        if (!dev.forgesworn.kithmoot.protocol.isValidScreenAnnotation(annotation) ||
+            _room.value.tiles.none { tile -> tile.videos.any { it.role == Roles.SCREEN && it.trackId == annotation.shareId } }) return
+        shareMarks.remember(annotation, MarkAuthor(live.identity.participant, "You"))
+        pushShareMarks()
+        ensureMarksTicking(scope)
+        scope.launch(Dispatchers.Default) {
+            for (device in live.remoteDevices.value) {
+                if (session !== live) break
+                runCatching { live.sendSignal(device, dev.forgesworn.kithmoot.protocol.SignalBody(
+                    type = "annotation", roomId = live.room.roomId, annotation = annotation)) }
             }
         }
     }
@@ -3397,7 +3414,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         _room.update { it.copy(onCall = true, mediaRunning = true) }
         media.setCallActive(true)
         adoptRoomCall()
-        live.claim(Roles.MONITOR)
+        if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
     }
 
     fun listenOnThisDevice() { if (_room.value.mediaRunning) session?.claim(Roles.MONITOR) }
@@ -3517,7 +3534,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * projection at all unless a `mediaProjection` service is already running,
      * and the failure is a `SecurityException` rather than a null.
      */
-    fun startScreenShare(permission: Intent) {
+    fun startScreenShare(permission: Intent, shareAudio: Boolean = true) {
         if (!_room.value.mediaRunning) return
         val media = engine?.localMedia ?: return note("Screen sharing needs the media stack.")
         val scope = sessionScope ?: return
@@ -3530,7 +3547,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
             val started = withContext(Dispatchers.Default) { synchronized(mediaControlLock) { runCatching {
                 check(_room.value.mediaRunning && engine?.localMedia === media) { "The call has ended." }
-                media.startScreenShare(permission)
+                media.startScreenShare(permission, shareAudio)
             } } }
             if (started.getOrNull() == null) {
                 ScreenShareService.stop(getApplication())
@@ -4357,8 +4374,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onLocalTracks(tracks: List<LocalTrack>) {
         _room.update { it.copy(
-            micOn = tracks.any { it.role == Roles.MIC },
-            micMuted = tracks.any { it.role == Roles.MIC && it.muted },
+            micOn = tracks.any { it.microphoneOn },
+            micMuted = tracks.any { it.microphoneOn && it.microphoneMuted },
             cameraOn = tracks.any { it.role == Roles.CAMERA },
             screenOn = tracks.any { it.role == Roles.SCREEN },
         ) }

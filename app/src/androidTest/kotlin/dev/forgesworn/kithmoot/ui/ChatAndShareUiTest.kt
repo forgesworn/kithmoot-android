@@ -51,6 +51,7 @@ class ChatAndShareUiTest {
             for (i in 0 until buffer.dataV.capacity()) buffer.dataV.put(i, 150.toByte())
             val frame = VideoFrame(buffer, 0, System.nanoTime()); source.capturerObserver.onFrameCaptured(frame); frame.release(); frameNumber++
         }, 0, 100, TimeUnit.MILLISECONDS)
+        val strokes = mutableListOf<dev.forgesworn.kithmoot.protocol.ScreenAnnotation>()
         var phase by mutableIntStateOf(0)
         var live by mutableStateOf<VideoTrack?>(track)
         var pip by mutableStateOf(false)
@@ -70,7 +71,7 @@ class ChatAndShareUiTest {
                                     onReact = { target, emoji -> messages = messages + first.copy(id = "reaction-${messages.size}", participant = self, reaction = toggleReaction(messages, target, self, emoji)) })
                                 1 -> ScreenShareViewer(live, egl, "Synthetic workshop presentation", pip,
                                     onPopOut = { assertTrue(activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())) },
-                                    onClose = { phase = 2 })
+                                    onClose = { phase = 2 }, shareId = "synthetic-presentation", onAnnotation = strokes::add)
                                 else -> Text("Viewer closed; call track retained")
                             }
                         }
@@ -118,6 +119,12 @@ class ChatAndShareUiTest {
                         android.graphics.Color.red(left) > android.graphics.Color.red(right) + 30
                 }
                 assertNotEquals("The shared picture must render, not just negotiate", left, right)
+                ui.onNodeWithText("Draw").performClick()
+                val shared = ui.onNodeWithContentDescription("Shared screen, 100 percent zoom. Pinch to zoom and drag to pan.")
+                shared.performTouchInput { down(center); moveBy(androidx.compose.ui.geometry.Offset(40f, 20f), delayMillis = 80) }
+                ui.runOnIdle { assertTrue("A stroke must leave while the finger is still down", strokes.isNotEmpty()) }
+                shared.performTouchInput { up() }
+                ui.onNodeWithText("Draw").performClick()
                 ui.onNodeWithText("Pop out").performClick()
                 ui.waitUntil(20_000) { pip }
                 ui.onNodeWithText("Synthetic workshop presentation").assertDoesNotExist()

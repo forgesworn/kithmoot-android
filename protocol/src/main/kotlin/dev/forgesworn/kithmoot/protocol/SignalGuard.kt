@@ -50,7 +50,7 @@ const val MAX_REMEMBERED_SIGNALS: Int = 4096
  */
 const val MAX_UNWRAPS_PER_WINDOW: Int = 4096
 
-class SignalGuard {
+class SignalGuard(private val senderLimit: Int = MAX_SIGNALS_PER_WINDOW) {
     private var unwrapWindow: Window? = null
 
     /** Bound anonymous crypto work before the sender can be authenticated. */
@@ -98,7 +98,7 @@ class SignalGuard {
             senders[sender] = Window(now, 1)
             return true
         }
-        if (window.count >= MAX_SIGNALS_PER_WINDOW) return false
+        if (window.count >= senderLimit) return false
         window.count++
         return true
     }

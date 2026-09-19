@@ -92,6 +92,7 @@ class WebRtcEngine(
      * it. It owns an `AudioRecord`, an `AudioTrack` and their threads, and only
      * [dispose] gives them back.
      */
+    private val playbackAudio = PlaybackAudio()
     private val audioDevice: JavaAudioDeviceModule
     val localMedia: LocalMedia
     val audioRouting = CallAudioRouting(context)
@@ -134,6 +135,11 @@ class WebRtcEngine(
                 .createInitializationOptions(),
         )
         audioDevice = JavaAudioDeviceModule.builder(context.applicationContext)
+            .setSampleRate(48_000)
+            .setAudioBufferCallback { buffer, format, channels, rate, bytes, timestamp ->
+                playbackAudio.fill(buffer, format, channels, rate, bytes)
+                timestamp
+            }
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
             .createAudioDeviceModule()
@@ -142,7 +148,7 @@ class WebRtcEngine(
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
             .createPeerConnectionFactory()
-        localMedia = LocalMedia(context.applicationContext, factory, eglBase)
+        localMedia = LocalMedia(context.applicationContext, factory, eglBase, playbackAudio)
     }
 
     @Volatile var callActive: Boolean = true

@@ -82,6 +82,11 @@
             </intent-filter>
         </activity>
 
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.images" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/image_paths" />
+        </provider>
+
         <service
             android:name=".service.ScreenShareService"
             android:exported="false"

@@ -37,8 +37,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 30
-        versionName = "0.6.7"
+        versionCode = 31
+        versionName = "0.6.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -80,6 +80,7 @@ android {
     }
 
     sourceSets.getByName("androidTest").assets.srcDir("../protocol/src/test/resources")
+    sourceSets.getByName("androidTest").assets.srcDir("src/test/resources/attachments")
     sourceSets.getByName("androidTest").assets.srcDir(layout.buildDirectory.dir("browser-call-interop"))
     // The reviewed Link bundle is unpacked into build/link-bridge only after
     // its archive and per-file manifest have been verified. Never copy these

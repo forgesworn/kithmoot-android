@@ -194,6 +194,7 @@ class RoomSession(
      * applied inside [unwrapSignal].
      */
     private val signalGuard = SignalGuard()
+    private val annotationGuard = SignalGuard(480)
     private val chatSeen = mutableSetOf<String>()
     private val chatLog = mutableListOf<ChatMessage>()
     private val chatSenderTimes = linkedMapOf<String, MutableList<Long>>()
@@ -496,7 +497,14 @@ class RoomSession(
      * anything having to agree first.
      */
     fun claim(role: String) {
-        synchronized(lock) { claims = claims + (role to now()) }
+        synchronized(lock) {
+            val at = now()
+            val latest = maxOf(claims[role] ?: 0L, roster.values
+                .filter { it.participant == identity.participant && it.updatedAt >= at - timing.presenceTtlSeconds }
+                .maxOfOrNull { it.claims[role] ?: 0L } ?: 0L)
+            check(latest < at + 60) { "Device clocks disagree. Wait a moment and try the handover again." }
+            claims = claims + (role to maxOf(at, latest + 1))
+        }
         announce()
     }
 
@@ -669,13 +677,14 @@ class RoomSession(
         // Rate limiting against the *sending device* rather than the wrap's
         // pubkey: every wrap is signed by a fresh ephemeral key, so the only
         // stable identity a budget can be held against is the one inside.
-        if (!signalGuard.admitEvent("inner:${signal.id}") || !signalGuard.admitSender(signal.from, at)) return
+        if (!signalGuard.admitEvent("inner:${signal.id}")) return
 
         val sender = synchronized(lock) { roster[signal.from] }
         // The roster authenticates sibling devices too. Only our exact local
         // device is excluded; paired cameras need ordinary negotiation.
         if (sender == null || signal.from == identity.devicePubkey) return
         if (signal.body.type == "annotation") {
+            if (!annotationGuard.admitSender(signal.from, at)) return
             // Shape-checked here, after the same roster and rate-limit checks
             // every other signal passes, and never falls through to ordinary
             // negotiation: an old reader that does not know this branch
@@ -686,6 +695,7 @@ class RoomSession(
             }
             return
         }
+        if (!signalGuard.admitSender(signal.from, at)) return
         _signals.tryEmit(signal)
     }
 
