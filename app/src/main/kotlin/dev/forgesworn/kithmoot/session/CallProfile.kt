@@ -15,16 +15,15 @@ package dev.forgesworn.kithmoot.session
 const val CALL_PROFILE_2: Int = 2
 
 /**
- * The one switch, and it is off.
+ * The one switch, enabled for this release.
  *
- * Off, nothing changes on the wire for anybody: this device's roster entry
- * carries no `callProfile`, so no far end will open a profile-2 pair with it,
- * and this device opens none either. On, it advertises profile 2 and uses it
- * with any pair whose far end advertises it too - both ends, never one.
+ * This device advertises profile 2 and uses it only with a far end that also
+ * advertises it. Older clients therefore remain on profile 1 automatically;
+ * a mixed-version room never reaches the fixed-slot signalling by accident.
  *
  * A build-time constant rather than a setting because it must be impossible to
  * reach halfway: a device that advertised the profile and then could not
  * carry it would leave every pair it touched waiting for an offer that was
  * never coming.
  */
-const val CALL_PROFILE_2_ENABLED: Boolean = false
+const val CALL_PROFILE_2_ENABLED: Boolean = true

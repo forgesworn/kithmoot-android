@@ -38,5 +38,6 @@ class RelayInputTest {
     fun `the defaults parse`() {
         assertEquals(DEFAULT_RELAYS, parseRelays(DEFAULT_RELAYS.joinToString("\n")))
         assertTrue(DEFAULT_RELAYS.isNotEmpty())
+        assertTrue("wss://relay.trotters.cc" in DEFAULT_RELAYS)
     }
 }
