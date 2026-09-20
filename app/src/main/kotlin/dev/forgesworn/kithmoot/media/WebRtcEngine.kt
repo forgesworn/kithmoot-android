@@ -506,9 +506,14 @@ class WebRtcEngine(
                 refreshRemoteTracks()
             }
 
-            // Unified Plan fires this once a transceiver's receiver has a
-            // track to hand over.
-            override fun onTrack(transceiver: RtpTransceiver?) = refreshRemoteTracks()
+            // Unified Plan delivers the receiver here. Do not rely on the
+            // older onAddTrack callback also firing: refreshRemoteTracks reads
+            // the separately owned objects in `received`, because a fresh
+            // getTransceivers() snapshot disposes its previous Java wrappers.
+            override fun onTrack(transceiver: RtpTransceiver?) {
+                transceiver?.receiver?.track()?.let { received[it.id()] = it }
+                refreshRemoteTracks()
+            }
         }
 
         fun attach(connection: PeerConnection) {
