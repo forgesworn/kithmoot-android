@@ -92,19 +92,14 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         // Locate the control even while an asynchronous operation keeps it
         // disabled. Scrolling past it then waiting at the bottom misses the
         // later enabled state, particularly with animations disabled in CI.
-        repeat(8) {
-            reveal { button(text) }
-            // Removing another row can move this control offscreen while it
-            // is becoming enabled. A missing node means reveal it again;
-            // waiting at the old scroll position can never make it reappear.
-            await("$text to become enabled or move") {
-                val target = button(text)
-                target == null || target.isEnabled
-            }
+        reveal { button(text) }
+        await("$text to become enabled") { button(text)?.isEnabled == true }
+        // Removing a row can replace Compose's accessibility node between
+        // lookup and dispatch. Re-query only when Android refused the click.
+        await("$text to accept a click") {
             val target = button(text)
-            if (target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
-        throw AssertionError("$text kept moving before Android accepted the click")
     }
 
     fun replace(label: String, value: String) {

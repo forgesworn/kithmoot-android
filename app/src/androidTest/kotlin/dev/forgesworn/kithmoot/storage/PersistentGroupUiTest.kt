@@ -43,11 +43,8 @@ class PersistentGroupUiTest {
     }
 
     private fun chooseRelay(url: String) {
-        var previous = emptyList<String>()
-        activity.scenario.onActivity { previous = ViewModelProvider(it)[RoomViewModel::class.java].accountRelayChoices().map { relay -> relay.url } }
         ui.click("Sign in")
         ui.click("Relays")
-        previous.forEach { ui.click("Remove relay $it") }
         ui.replace("Add relay URL", url)
         ui.click("Add relay")
         ui.click("Save relay choices")
