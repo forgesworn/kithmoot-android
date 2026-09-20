@@ -677,7 +677,7 @@ class PeerLink(
             makingOffer = true
             val local = connection.setLocalDescription()
             outstandingOfferSeq = seq
-            Log.i(NEGOTIATION_LOG, "offer sent peer=${remoteDevice.take(8)} seq=${seq ?: "-"} profile=${if (splitGuard) 2 else 1}")
+            Log.i(NEGOTIATION_LOG, "offer sent peer=${remoteDevice.take(8)} seq=${seq ?: "-"} profile=$callProfile")
             send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, seq = seq))
         } finally {
             makingOffer = false

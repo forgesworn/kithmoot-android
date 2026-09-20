@@ -166,12 +166,21 @@ class WebRtcEngine(
         scope.launch { session.remoteDevices.collect { reconcile(it) } }
         scope.launch {
             session.signals.collect { signal ->
+                val target = managedLinkFor(signal.from) ?: return@collect
                 try {
-                    linkFor(signal.from)?.onRemoteSignal(inboundEnvelope(signal.from, signal.body))
+                    target.onRemoteSignal(inboundEnvelope(signal.from, signal.body))
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) {
-                    // One failed negotiation must not cancel every other device's media collectors.
-                    _connections.update { it + (signal.from to "failed") }
+                catch (failure: Exception) {
+                    // A signal can finish after its link was deliberately
+                    // replaced. That old link's exception must not relabel the
+                    // replacement as failed. Check identity and publish the
+                    // state while holding the same lock used for replacement.
+                    synchronized(lock) {
+                        if (callActive && links[signal.from] === target) {
+                            Log.w("KithMootMedia", "signal failed peer=${signal.from.take(8)}", failure)
+                            _connections.update { it + (signal.from to "failed") }
+                        }
+                    }
                 }
             }
         }
@@ -241,7 +250,7 @@ class WebRtcEngine(
         }
     }
 
-    private fun linkFor(device: String): PeerLink? = synchronized(lock) { links[device]?.link }
+    private fun managedLinkFor(device: String): ManagedLink? = synchronized(lock) { links[device] }
 
     /**
      * Throw a pair's connection away and open another.
@@ -444,7 +453,7 @@ class WebRtcEngine(
             // reaches until it has answered. See refreshRemoteTracks.
             override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                if (!closed && state != null) _connections.update { it + (device to state.name.lowercase()) }
+                if (state != null) updateConnectionState(state.name.lowercase())
             }
             /**
              * The transport's own verdict, which used to be recorded and
@@ -458,7 +467,7 @@ class WebRtcEngine(
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
                 if (closed || state == null) return
                 val name = state.name.lowercase()
-                _connections.update { it + (device to name) }
+                updateConnectionState(name)
                 if (profileTwo) health.onConnectionState(name, System.currentTimeMillis())
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
@@ -477,7 +486,7 @@ class WebRtcEngine(
                 scope.launch {
                     try { link.onNegotiationNeeded() }
                     catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { if (!closed) _connections.update { it + (device to "failed") } }
+                    catch (_: Exception) { updateConnectionState("failed") }
                 }
             }
 
@@ -546,7 +555,19 @@ class WebRtcEngine(
                             gen = generation,
                         )
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { if (!closed) _connections.update { it + (device to "failed") } }
+                    catch (_: Exception) { updateConnectionState("failed") }
+                }
+            }
+        }
+
+        /** Publish state only while this is still the device's current link.
+         * Native WebRTC callbacks can arrive after close/rebuild; without the
+         * identity check an old callback can overwrite the new link's state.
+         */
+        private fun updateConnectionState(state: String) {
+            synchronized(lock) {
+                if (!closed && callActive && links[device] === this) {
+                    _connections.update { it + (device to state) }
                 }
             }
         }
@@ -665,6 +686,10 @@ class WebRtcEngine(
             for (id in senders.keys.toList() - wanted.keys) {
                 senders.remove(id)?.let { sender -> runCatching { connection?.removeTrack(sender) } }
             }
+        }
+
+        suspend fun onRemoteSignal(body: SignalEnvelope) {
+            if (!closed) link.onRemoteSignal(body)
         }
 
         fun close() {
