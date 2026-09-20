@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.protocol.*
+import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import kotlinx.serialization.json.*
 import okhttp3.Response
@@ -43,12 +44,10 @@ class PersistentGroupUiTest {
     }
 
     private fun chooseRelay(url: String) {
-        ui.click("Sign in")
-        ui.click("Relays")
-        ui.replace("Add relay URL", url)
-        ui.click("Add relay")
-        ui.click("Save relay choices")
-        ui.click("Done")
+        activity.scenario.onActivity {
+            val model = ViewModelProvider(it)[RoomViewModel::class.java]
+            assertNull(model.saveAccountRelays(model.accountRelayChoices() + RelayChoice(url)))
+        }
     }
 
     private fun webLink(server: StoredGroupRelay): String {
