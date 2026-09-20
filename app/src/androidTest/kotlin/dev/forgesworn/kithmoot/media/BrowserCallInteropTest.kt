@@ -80,7 +80,9 @@ class BrowserCallInteropTest {
                 if (ready) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
             }
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let { received[it.id()] = it } }
-            override fun onTrack(transceiver: RtpTransceiver?) = Unit
+            override fun onTrack(transceiver: RtpTransceiver?) {
+                transceiver?.receiver?.track()?.let { received[it.id()] = it }
+            }
         }
         val pc = requireNotNull(factory.createPeerConnection(configuration, observer))
         val videoSource = factory.createVideoSource(false)
