@@ -2,6 +2,37 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.11 the secure-update crash and the camera ladder
+
+Version code 34 fixes a process crash and puts a ceiling on what the camera
+costs in a group call. No wire change: web and desktop peers need nothing.
+
+The crash: a local track change (a camera or microphone toggle, a share
+starting or stopping, or the engine's first read of them) while the room was
+between epochs, which is every link rotation, every removal and every rejoin,
+called the fail-closed `announce()` and the `IllegalStateException` ("Room
+publication is blocked during a secure update") ended the process. CI's
+`recovery-emulator` lane hit it on `main` after 0.6.10 in
+`PersistentGroupUiTest.a_create_and_join_web_group`. `RoomSession.setTracks`
+is now best-effort like a heartbeat: the set is kept while the gate is shut
+and goes out in the successor epoch's first announcement, which
+`RoomEpochTransitionTest` pins both ways. The engine's jobs also now run
+under a supervisor with a handler, so a media job that throws is a
+`KithMootMedia` log line and not the end of the app.
+
+The heat: every remote device on a call has its own peer connection and its
+own encoder, and each encoded the full 1280 by 720 at 30 with no bitrate
+ceiling. `VideoLadder` fits the one camera source to the number of devices
+it goes to (one: 720p at 30; two or three: 540p at 24; four or more: 360p at
+15) with one downscale at the source, and caps each camera sender's bitrate
+(1.2 Mbps, 800 kbps, 500 kbps). Screen shares are untouched. The rung moves as
+links open and close and as the audience rule changes; a sender added later is
+capped as it is added, on both the add-a-track path and the profile-2 slots.
+`VideoLadderTest` pins the steps. Not measured on a handset yet: the check is
+a ten-minute three-way video call on the Pixel with `dumpsys thermalservice`
+sampled every two minutes, and the far end's received size in
+`chrome://webrtc-internals`.
+
 ## 0.6.10 the freeze on calls
 
 Published on 22 September 2026 from `f4a1efa`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `725266089a7b32b87870e724e41afc24591c3dfe981adf80688f694aa50c3ad8`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.9 on the owner's Pixel 10 Pro XL (version 33 reported, first-install time preserved, launched in about a second, no crash), offered as GitHub pre-release `v0.6.10`, and on the website once kithmoot's release PR merges. A live multi-person call on this build is the check that remains.

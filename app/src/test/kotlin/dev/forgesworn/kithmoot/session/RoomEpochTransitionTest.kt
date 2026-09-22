@@ -7,6 +7,8 @@ import dev.forgesworn.kithmoot.protocol.decodeRekeyEvent
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.encodeRekeyEvent
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
+import dev.forgesworn.kithmoot.protocol.TrackRef
+import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
@@ -16,11 +18,13 @@ import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -126,6 +130,71 @@ class RoomEpochTransitionTest {
         advanceTimeBy(1_000)
         runCurrent()
         assertEquals(before, relay.countFrom(identity.devicePubkey, KIND_ROSTER))
+    }
+
+    @Test fun `a track change while a secure update blocks traffic is kept and not fatal`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        val live = session(
+            stable, identity, relay, authority = authority,
+            epochGate = { _, _ -> EpochGateResult.PENDING },
+        )
+        live.join()
+        runCurrent()
+        val before = relay.countFrom(identity.devicePubkey, KIND_ROSTER)
+        val current = deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 }))
+        relay.publish(
+            encodeRekeyEvent(
+                stable.roomId, authoritySecret, current, RoomEpoch(1, ByteArray(32) { 45 }),
+                listOf(identity.devicePubkey), emptyList(), 1,
+            ),
+        )
+        runCurrent()
+        assertTrue(relay.publicationBlocked)
+        // The engine calls this on every local track change, gate or no gate:
+        // a camera toggle during a secure update is a kept fact, not a crash.
+        live.setTracks(listOf(TrackRef("camera-1", Roles.CAMERA)))
+        assertEquals(before, relay.countFrom(identity.devicePubkey, KIND_ROSTER))
+    }
+
+    @Test fun `a track change during a committed rekey is announced under the successor`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        val tracks = listOf(TrackRef("camera-1", Roles.CAMERA))
+        lateinit var live: RoomSession
+        live = session(
+            stable, identity, relay, authority = authority,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+            onEpochApplied = { _, _ ->
+                // Between the old epoch and the new: the gate is shut.
+                assertTrue(relay.publicationBlocked)
+                live.setTracks(tracks)
+            },
+        )
+        live.join()
+        runCurrent()
+        val current = deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 }))
+        val next = RoomEpoch(1, ByteArray(32) { 44 })
+        relay.publish(
+            encodeRekeyEvent(
+                stable.roomId, authoritySecret, current, next, listOf(identity.devicePubkey), emptyList(), 1,
+                recipientNonces = mapOf(identity.devicePubkey to ByteArray(32) { 3 }),
+                bodyNonce = ByteArray(32) { 4 }, auxRand = ByteArray(32) { 5 },
+            ),
+        )
+        runCurrent()
+
+        val successor = deriveEpoch(next)
+        assertEquals(successor.id, live.epochKeys().id)
+        val announced = relay.published.last { it.kind == KIND_ROSTER }
+        assertEquals(successor.id, announced.tagValue("d"))
+        // Successor traffic is keyed by the epoch id; the credential still names the room.
+        val entry = assertNotNull(
+            decodeRosterEvent(announced, successor.id, successor.key, currentTime / 1000, credentialRoomId = stable.roomId),
+        )
+        assertEquals(tracks, entry.tracks)
     }
 
     @Test fun `a committed removal is terminal and never reveals or enters the successor`() = runTest {

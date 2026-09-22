@@ -7,6 +7,7 @@ import org.webrtc.PeerConnection
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.VideoTrack
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -32,6 +33,8 @@ class WebRtcPeerConnection(
      * being told again, expensively.
      */
     private val localMedia: () -> Set<String>? = { null },
+    /** The camera sender's bitrate ceiling at the moment a slot binds it; 0 for none. See [VideoLadder]. */
+    private val cameraBitrate: () -> Int = { 0 },
 ) : PeerConnectionHandle {
 
     override fun localMedia(): Set<String>? = runCatching { localMedia.invoke() }.getOrNull()
@@ -98,7 +101,26 @@ class WebRtcPeerConnection(
         if (media != null && media !is MediaStreamTrack) return false
         // `takeOwnership = false`: the track belongs to LocalMedia and outlives
         // any one connection, so the sender must not dispose it.
-        return withTransceiver(mid) { it.sender.setTrack(media as MediaStreamTrack?, false) }
+        return withTransceiver(mid) {
+            val bound = it.sender.setTrack(media as MediaStreamTrack?, false)
+            if (bound && media is VideoTrack && isCameraTrackId(media.id())) capSender(it.sender, cameraBitrate())
+            bound
+        }
+    }
+
+    /**
+     * Bound every camera sender on this connection; see [VideoLadder].
+     *
+     * The transceivers are read once and never held, for the reason
+     * [withTransceiver] gives.
+     */
+    fun capCameraSenders(maxBitrateBps: Int) {
+        runCatching {
+            for (transceiver in connection.transceivers) {
+                val track = transceiver.sender.track() ?: continue
+                if (track is VideoTrack && isCameraTrackId(track.id())) capSender(transceiver.sender, maxBitrateBps)
+            }
+        }
     }
 
     /**

@@ -79,6 +79,9 @@ class LocalMedia(
 
     private var cameraCapturer: CameraVideoCapturer? = null
     private var cameraSource: VideoSource? = null
+
+    /** What the camera source hands the encoders; see [VideoLadder]. */
+    @Volatile private var cameraRung: VideoRung = VideoLadder.FULL
     private var cameraTrack: VideoTrack? = null
     private var cameraHelper: SurfaceTextureHelper? = null
     private var frontFacing = true
@@ -191,6 +194,9 @@ class LocalMedia(
         // frame reaches the encoder without having been through the rule in
         // `routeFor`. With no scene chosen it forwards frames untouched.
         source.setVideoProcessor(newBackgroundProcessor())
+        // The sensor runs at the full format; the source scales and drops to
+        // the rung before the processor and every encoder see a frame.
+        source.adaptOutputFormat(cameraRung.width, cameraRung.height, cameraRung.fps)
         capturer.initialize(helper, context, source.capturerObserver)
         capturer.startCapture(CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
         val track = factory.createVideoTrack(trackId(Roles.CAMERA), source)
@@ -201,6 +207,19 @@ class LocalMedia(
         cameraTrack = track
         publish()
         return track
+    }
+
+    /**
+     * Fit the camera to a call of this size.
+     *
+     * One downscale at the source, so a phone on a four-way call encodes
+     * 640 by 360 three times rather than 720p three times. Takes effect on
+     * the next frame, or when the camera next starts.
+     */
+    @Synchronized
+    fun adaptCamera(rung: VideoRung) {
+        cameraRung = rung
+        runCatching { cameraSource?.adaptOutputFormat(rung.width, rung.height, rung.fps) }
     }
 
     @Synchronized
