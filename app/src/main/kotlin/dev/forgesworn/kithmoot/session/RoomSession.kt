@@ -483,9 +483,18 @@ class RoomSession(
      */
     fun calls(): List<CallView> = callsOf(_participants.value)
 
+    /**
+     * What this device is publishing, for the roster.
+     *
+     * Best-effort like a heartbeat, not fail-closed like a chat message: the
+     * engine calls this on every local track change, and a camera toggle
+     * does not stop for a secure update. While the gate is shut the set is
+     * kept and nothing is published; the successor epoch's first
+     * announcement (`applyEpoch`) and every heartbeat after it carry it.
+     */
     fun setTracks(tracks: List<TrackRef>) {
         synchronized(lock) { this.tracks = tracks }
-        announce()
+        announceIfPublishing()
     }
 
     /**
