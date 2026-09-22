@@ -6,10 +6,14 @@ import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.TrackRef
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2_ENABLED
+import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.RoomSession
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,6 +84,21 @@ class WebRtcEngine(
     private val scope: CoroutineScope,
     private val iceServers: List<PeerConnection.IceServer>,
 ) {
+
+    /**
+     * Where the engine's jobs run.
+     *
+     * A supervisor under the caller's scope, with a handler: a job that throws
+     * is a logged failure, not the end of the process, and does not take the
+     * other jobs with it. Cancelling the caller's scope still cancels all of
+     * it. The caller's dispatcher is kept; the collectors pick
+     * [MediaDispatcher] themselves.
+     */
+    private val engineScope = CoroutineScope(
+        scope.coroutineContext +
+            SupervisorJob(scope.coroutineContext[Job]) +
+            CoroutineExceptionHandler { _, failure -> Log.e("KithMootMedia", "engine job failed", failure) },
+    )
 
     val eglBase: EglBase = EglBase.create()
 
@@ -161,7 +180,7 @@ class WebRtcEngine(
 
     fun setCallActive(active: Boolean) {
         synchronized(lock) { callActive = active }
-        if (active) scope.launch(MediaDispatcher) { reconcile(session.remoteDevices.value) } else stop()
+        if (active) engineScope.launch(MediaDispatcher) { reconcile(session.remoteDevices.value) } else stop()
     }
 
     /**
@@ -174,8 +193,8 @@ class WebRtcEngine(
         // The set of devices to connect to is derived from the roster, so a
         // device that joins, leaves or lapses is reconciled here rather than
         // being handled as an event.
-        scope.launch(MediaDispatcher) { session.remoteDevices.collect { reconcile(it) } }
-        scope.launch(MediaDispatcher) {
+        engineScope.launch(MediaDispatcher) { session.remoteDevices.collect { reconcile(it) } }
+        engineScope.launch(MediaDispatcher) {
             session.signals.collect { signal ->
                 val target = managedLinkFor(signal.from) ?: return@collect
                 try {
@@ -193,8 +212,8 @@ class WebRtcEngine(
                 }
             }
         }
-        scope.launch(MediaDispatcher) { localMedia.tracks.collect { onLocalTracksChanged(it) } }
-        scope.launch(MediaDispatcher) {
+        engineScope.launch(MediaDispatcher) { localMedia.tracks.collect { onLocalTracksChanged(it) } }
+        engineScope.launch(MediaDispatcher) {
             while (isActive) {
                 delay(10_000)
                 synchronized(lock) { links.values().forEach { it.reportMediaProgress() } }
@@ -205,7 +224,7 @@ class WebRtcEngine(
         // the only honest evidence that a direction is alive: a connection can
         // be `connected`, the signalling quiet, every object healthy, and one
         // direction carrying nothing at all.
-        scope.launch(MediaDispatcher) {
+        engineScope.launch(MediaDispatcher) {
             while (isActive) {
                 delay(HEALTH_SAMPLE_MS)
                 val sampling = synchronized(lock) { links.values().filter { it.profileTwo } }
@@ -260,6 +279,7 @@ class WebRtcEngine(
             _connections.update { it - device }
             _remoteTracks.update { current -> current.filterNot { it.device == device } }
         }
+        applyRung()
     }
 
     private fun managedLinkFor(device: String): ManagedLink? = links[device]
@@ -381,6 +401,28 @@ class WebRtcEngine(
         synchronized(lock) {
             for ((device, link) in links.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
         }
+        applyRung()
+    }
+
+    /** What the camera sends right now; see [VideoLadder]. */
+    @Volatile private var rung: VideoRung = VideoLadder.FULL
+
+    /**
+     * Fit the camera to the number of devices it goes to.
+     *
+     * Called after the links or the audience move, and outside the engine
+     * lock: adapting the source and setting sender parameters both wait on
+     * libwebrtc's threads, and nothing that waits on them may hold the lock
+     * (see [reconcile]). A sender added later is capped as it is added.
+     */
+    private fun applyRung() {
+        val peers = links.devices.count { runCatching { audience(it) }.getOrDefault(false) }
+        val next = VideoLadder.rungFor(peers)
+        if (next == rung) return
+        rung = next
+        Log.i("KithMootMedia", "camera rung peers=$peers ${next.width}x${next.height}@${next.fps} maxBitrateBps=${next.maxBitrateBps}")
+        localMedia.adaptCamera(next)
+        for (link in links.values()) link.capCamera(next.maxBitrateBps)
     }
 
     private fun tracksFor(device: String, tracks: List<LocalTrack> = localMedia.tracks.value): List<LocalTrack> =
@@ -460,8 +502,10 @@ class WebRtcEngine(
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
-        private val senders = mutableMapOf<String, RtpSender>()
+        // Read outside the engine lock by `capCamera`; written under it.
+        private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
+        private var handle: WebRtcPeerConnection? = null
         lateinit var link: PeerLink
             private set
 
@@ -499,7 +543,7 @@ class WebRtcEngine(
 
             override fun onIceCandidate(candidate: IceCandidate?) {
                 val value = candidate ?: return
-                scope.launch { link.onLocalCandidate(IceCandidateData(value.sdp, value.sdpMid, value.sdpMLineIndex)) }
+                engineScope.launch { link.onLocalCandidate(IceCandidateData(value.sdp, value.sdpMid, value.sdpMLineIndex)) }
             }
 
             override fun onRenegotiationNeeded() {
@@ -538,21 +582,24 @@ class WebRtcEngine(
 
         fun attach(connection: PeerConnection) {
             this.connection = connection
+            val handle = WebRtcPeerConnection(
+                connection,
+                ::refreshRemoteTracks,
+                // Profile 1 adds and removes senders on the connection
+                // directly, so this map is the only thing that can say
+                // whether a repeated offer would be answered the same way.
+                localMedia = { runCatching { senders.keys.toSet() }.getOrNull() },
+                cameraBitrate = { rung.maxBitrateBps },
+            )
+            this.handle = handle
             link = PeerLink(
                 localDevice = session.identity.devicePubkey,
                 remoteDevice = device,
-                connection = WebRtcPeerConnection(
-                    connection,
-                    ::refreshRemoteTracks,
-                    // Profile 1 adds and removes senders on the connection
-                    // directly, so this map is the only thing that can say
-                    // whether a repeated offer would be answered the same way.
-                    localMedia = { runCatching { senders.keys.toSet() }.getOrNull() },
-                ),
+                connection = handle,
                 roomId = session.room.roomId,
                 send = ::sendEnvelope,
                 callProfile = if (profileTwo) CALL_PROFILE_2 else 1,
-                scope = scope,
+                scope = engineScope,
                 onRebuild = { generation, open -> rebuildLink(device, generation, open) },
                 onDowngrade = {
                     // The far end reloaded into a build that does not speak
@@ -689,7 +736,25 @@ class WebRtcEngine(
             // catches up.
             runCatching { connection.addTrack(track.track, listOf(STREAM_ID)) }
                 .getOrNull()
-                ?.let { senders[track.trackId] = it }
+                ?.let { sender ->
+                    senders[track.trackId] = sender
+                    if (track.role == Roles.CAMERA) capSender(sender, rung.maxBitrateBps)
+                }
+        }
+
+        /**
+         * Bound what this pair's camera sender may spend; see [VideoLadder].
+         *
+         * A profile-1 pair's senders are the ones `addLocalTrack` kept; a
+         * profile-2 pair's live in its slots, which the handle reads.
+         */
+        fun capCamera(maxBitrateBps: Int) {
+            if (closed) return
+            if (profileTwo) {
+                handle?.capCameraSenders(maxBitrateBps)
+                return
+            }
+            for ((id, sender) in senders) if (isCameraTrackId(id)) capSender(sender, maxBitrateBps)
         }
 
         /**
@@ -707,7 +772,7 @@ class WebRtcEngine(
         fun syncLocalTracks(tracks: List<LocalTrack>) {
             if (profileTwo) {
                 if (!::link.isInitialized) return
-                scope.launch { runCatching { link.applyTracks(tracks.map { it.slot() }) } }
+                engineScope.launch { runCatching { link.applyTracks(tracks.map { it.slot() }) } }
                 return
             }
             val wanted = tracks.associateBy { it.trackId }
