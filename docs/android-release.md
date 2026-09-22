@@ -4,6 +4,8 @@ The public website currently offers production-signed 0.6.7 (30), Android 13 or 
 
 ## 0.6.10 the freeze on calls
 
+Published on 22 September 2026 from `f4a1efa`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `725266089a7b32b87870e724e41afc24591c3dfe981adf80688f694aa50c3ad8`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.9 on the owner's Pixel 10 Pro XL (version 33 reported, first-install time preserved, launched in about a second, no crash), offered as GitHub pre-release `v0.6.10`, and on the website once kithmoot's release PR merges. A live multi-person call on this build is the check that remains.
+
 Version code 33 fixes the "KithMoot isn't responding" that 0.6.9 produced three
 times in two days on the owner's Pixel 10 Pro XL, always during or around a
 call. All three system traces show the same deadlock: a roster change ran the
