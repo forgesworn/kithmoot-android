@@ -105,9 +105,14 @@ class WebRtcEngine(
      * caller cancels this scope moments after asking for it. Anything launched
      * here would be cancelled before it ran, leaving every peer connection
      * alive behind a factory that had already gone.
+     *
+     * Two rules keep it from deadlocking against libwebrtc, whose callbacks
+     * arrive on its signalling thread and whose `close` waits for that thread:
+     * nothing that runs on a WebRTC callback takes this lock (see
+     * [LinkTable]), and a link is closed only after this lock is released.
      */
     private val lock = Any()
-    private val links = mutableMapOf<String, ManagedLink>()
+    private val links = LinkTable<ManagedLink>()
 
     /**
      * Which remote devices this device's media may be sent to.
@@ -156,15 +161,21 @@ class WebRtcEngine(
 
     fun setCallActive(active: Boolean) {
         synchronized(lock) { callActive = active }
-        if (active) reconcile(session.remoteDevices.value) else stop()
+        if (active) scope.launch(MediaDispatcher) { reconcile(session.remoteDevices.value) } else stop()
     }
 
+    /**
+     * Everything here runs on [MediaDispatcher], never on the caller's thread.
+     * Opening and closing a peer connection blocks until libwebrtc's signalling
+     * thread has done it, and a roster change used to do that on the main
+     * thread, which is where the input timeout is measured.
+     */
     fun start() {
         // The set of devices to connect to is derived from the roster, so a
         // device that joins, leaves or lapses is reconciled here rather than
         // being handled as an event.
-        scope.launch { session.remoteDevices.collect { reconcile(it) } }
-        scope.launch {
+        scope.launch(MediaDispatcher) { session.remoteDevices.collect { reconcile(it) } }
+        scope.launch(MediaDispatcher) {
             session.signals.collect { signal ->
                 val target = managedLinkFor(signal.from) ?: return@collect
                 try {
@@ -173,22 +184,20 @@ class WebRtcEngine(
                 catch (failure: Exception) {
                     // A signal can finish after its link was deliberately
                     // replaced. That old link's exception must not relabel the
-                    // replacement as failed. Check identity and publish the
-                    // state while holding the same lock used for replacement.
-                    synchronized(lock) {
-                        if (callActive && links[signal.from] === target) {
-                            Log.w("KithMootMedia", "signal failed peer=${signal.from.take(8)}", failure)
-                            _connections.update { it + (signal.from to "failed") }
-                        }
+                    // replacement as failed: publish only while this is still
+                    // the device's current link.
+                    if (callActive && links.isCurrent(signal.from, target)) {
+                        Log.w("KithMootMedia", "signal failed peer=${signal.from.take(8)}", failure)
+                        _connections.update { it + (signal.from to "failed") }
                     }
                 }
             }
         }
-        scope.launch { localMedia.tracks.collect { onLocalTracksChanged(it) } }
-        scope.launch {
+        scope.launch(MediaDispatcher) { localMedia.tracks.collect { onLocalTracksChanged(it) } }
+        scope.launch(MediaDispatcher) {
             while (isActive) {
                 delay(10_000)
-                synchronized(lock) { links.values.forEach { it.reportMediaProgress() } }
+                synchronized(lock) { links.values().forEach { it.reportMediaProgress() } }
             }
         }
         // One statistics sample per profile-2 pair every two seconds, which is
@@ -196,10 +205,10 @@ class WebRtcEngine(
         // the only honest evidence that a direction is alive: a connection can
         // be `connected`, the signalling quiet, every object healthy, and one
         // direction carrying nothing at all.
-        scope.launch {
+        scope.launch(MediaDispatcher) {
             while (isActive) {
                 delay(HEALTH_SAMPLE_MS)
-                val sampling = synchronized(lock) { links.values.filter { it.profileTwo } }
+                val sampling = synchronized(lock) { links.values().filter { it.profileTwo } }
                 for (link in sampling) runCatching { link.sampleHealth() }
             }
         }
@@ -230,27 +239,30 @@ class WebRtcEngine(
     }
 
     private fun closeLinks() {
-        val closing = synchronized(lock) {
-            val all = links.values.toList()
-            links.clear()
-            all
-        }
+        val closing = synchronized(lock) { links.clear() }
         for (link in closing) runCatching { link.close() }
         _remoteTracks.value = emptyList()
         _connections.value = emptyMap()
     }
 
-    private fun reconcile(devices: Set<String>) = synchronized(lock) {
-        if (!callActive) return@synchronized
-        for (device in devices - links.keys) links[device] = openLink(device)
-        for (device in links.keys - devices) {
-            links.remove(device)?.close()
+    /**
+     * Opened under the lock, so two reconciles cannot open one device twice;
+     * closed after it, because a close waits for the signalling thread, and
+     * the signalling thread must never find this lock held while it waits.
+     */
+    private fun reconcile(devices: Set<String>) {
+        val closing = synchronized(lock) {
+            if (!callActive) return
+            links.reconcile(lock, devices) { openLink(it) }
+        }
+        for ((device, link) in closing) {
+            runCatching { link.close() }
             _connections.update { it - device }
             _remoteTracks.update { current -> current.filterNot { it.device == device } }
         }
     }
 
-    private fun managedLinkFor(device: String): ManagedLink? = synchronized(lock) { links[device] }
+    private fun managedLinkFor(device: String): ManagedLink? = links[device]
 
     /**
      * Throw a pair's connection away and open another.
@@ -262,11 +274,16 @@ class WebRtcEngine(
      * rather than opening a generation of its own and glaring with it.
      */
     private fun rebuildLink(device: String, gen: Long, open: Boolean) {
-        synchronized(lock) {
-            if (!callActive || device !in links) return
-            links.remove(device)?.let { runCatching { it.close() } }
-            links[device] = openLink(device, gen, open)
+        val old = synchronized(lock) {
+            val current = links[device]
+            if (!callActive || current == null) return
+            links.remove(device)
+            links.put(device, openLink(device, gen, open))
+            current
         }
+        // Outside the lock: see `reconcile`. The old link's callbacks are
+        // already ignored, because it is no longer the device's current link.
+        runCatching { old.close() }
         _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
@@ -279,11 +296,14 @@ class WebRtcEngine(
      * it was addressed to a session the far end no longer has.
      */
     private fun reopenAsProfileOne(device: String) {
-        synchronized(lock) {
-            if (!callActive || device !in links) return
-            links.remove(device)?.let { runCatching { it.close() } }
-            links[device] = openLink(device, profileTwo = false)
+        val old = synchronized(lock) {
+            val current = links[device]
+            if (!callActive || current == null) return
+            links.remove(device)
+            links.put(device, openLink(device, profileTwo = false))
+            current
         }
+        runCatching { old.close() }
         _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
@@ -359,7 +379,7 @@ class WebRtcEngine(
         audience = rule
         val tracks = localMedia.tracks.value
         synchronized(lock) {
-            for ((device, link) in links) link.syncLocalTracks(tracksFor(device, tracks))
+            for ((device, link) in links.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
         }
     }
 
@@ -408,7 +428,7 @@ class WebRtcEngine(
         // byte-identical for everyone who never mutes.
         session.setTracks(tracks.map { TrackRef(it.trackId, it.role, if (it.muted) true else null) })
         synchronized(lock) {
-            for ((device, link) in links) link.syncLocalTracks(tracksFor(device, tracks))
+            for ((device, link) in links.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
         }
     }
 
@@ -565,15 +585,19 @@ class WebRtcEngine(
             }
         }
 
-        /** Publish state only while this is still the device's current link.
+        /**
+         * Publish state only while this is still the device's current link.
          * Native WebRTC callbacks can arrive after close/rebuild; without the
          * identity check an old callback can overwrite the new link's state.
+         *
+         * Never under the engine lock. This runs on libwebrtc's signalling
+         * thread, and closing a connection waits for that thread: taking the
+         * lock here while the engine held it through a close was the deadlock
+         * behind every freeze on 0.6.9.
          */
         private fun updateConnectionState(state: String) {
-            synchronized(lock) {
-                if (!closed && callActive && links[device] === this) {
-                    _connections.update { it + (device to state) }
-                }
+            if (!closed && callActive && links.isCurrent(device, this)) {
+                _connections.update { it + (device to state) }
             }
         }
 

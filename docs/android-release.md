@@ -2,6 +2,25 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.10 the freeze on calls
+
+Version code 33 fixes the "KithMoot isn't responding" that 0.6.9 produced three
+times in two days on the owner's Pixel 10 Pro XL, always during or around a
+call. All three system traces show the same deadlock: a roster change ran the
+engine's reconcile on the main thread, which closed the departed device's peer
+connection while holding the engine lock; that close waits for libwebrtc's
+signalling thread, and the signalling thread was delivering an ICE state
+callback that took the same lock. Now nothing that runs on a WebRTC callback
+takes the engine lock, a link is closed only after the lock is released, and
+the engine's collectors run off the main thread. `LinkTableTest` pins the two
+rules. It also carries the epoch request admission proof (PR #70), which the
+web keeper deployed on 22 September now requires: without this build an
+Android member who misses a removal in a keeper room cannot catch up.
+
+Not changed here, and worth knowing while judging a hot phone: the camera is
+captured at 1280 by 720 at 30 frames a second and every remote peer gets its own
+encoder with no bitrate, resolution or framerate cap.
+
 ## 0.6.8 sharing and listening candidate
 
 Version code 31 adds app playback capture during screen sharing, preserves an
