@@ -4494,6 +4494,211 @@
         }
       }
     ],
+    "epochRequestAdmission": [
+      {
+        "name": "admission-proof",
+        "kind": "positive",
+        "note": "The proof a kind-20468 epoch request carries as `admission`. `requestKey = HKDF-SHA256(ikm = roomKey, info = \"kithmoot/v1/epoch-request-key\", 32)`, no salt, from the EPOCH-0 room key - `deriveRoom(secret).roomKey`, never a later epoch's key, so a device that has fallen any number of epochs behind can still make one. Then `admission = HMAC-SHA256(requestKey, \"kithmoot/v1/epoch-request:\" + roomId + \":\" + authority + \":\" + device + \":\" + createdAt)` as lower-case hex, the three identifiers lower-case hex and `createdAt` the request event's own `created_at` in decimal.",
+        "input": {
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "device": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+          "createdAt": 1800000000,
+          "message": "kithmoot/v1/epoch-request:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86:fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe:1800000000"
+        },
+        "output": {
+          "requestKeyHex": "51c647c6096dddd20dd646103d6667e8915beaebe5c86646940d686a5fddfbe5",
+          "admission": "87a278bd02e95df8c19a2eabd6a86e04476b1c87565ae4716ffd947e398f1d64"
+        }
+      },
+      {
+        "name": "request",
+        "kind": "positive",
+        "note": "A complete epoch request: the device credential and the admission proof inside a NIP-44 body between the device key and the authority, on a kind-20468 event tagged `d` room id and `p` authority, signed by the device. The desk decodes it to the device, the participant the credential names, and the request id the grant will answer.",
+        "input": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "ArfzHVC+8B6YNMBsF0awGflQhqqsbINUeyByVDwUTl01TxviXkxH77TINN14a8A9TLr9j/I+qwZAbEtZURYvUubA//Y6AvuAjGrEUBpoJs8kIpG1MwrcCnKbv4TM9CZTbBbhb3K7pIj7gIp0T47ZFLQAa/gKx9K4QtFfOC6zpx9rU57pe4jU8GLKEKnh//mtakZ3CaPyKpC9SXBsIFyFuXYb9ZyCia26+XQLb7K6zvOOm1T5DCGSJOTmb/RwO6ia0Zh1wSDGHNlayAahmZiSHSSIxO+HphRAacTpwGAgpp79HEOV4D1fPTN108NZ6hddOkHrSwKOWdox0zTjVTlpcY1NJmHCfT7h2bBlRPXikbdRyDfO+NcLXNsBsoxZjrHSUuwORAbKiw4RLtJi9es4tFW5idFLkeoMO6D6DCwvUhEOzS7WReVuEzmWxgjVq972Hki3GT/UKxxh5ISDl29P33Dt94EiREhSg0d5gUUpVPehVRK8jdyjhGFauR2Q8Ue0cuLjMYZUsllSuPH+EL9yDr1FmjOdAtQoN/BUiwzrl4qsCvrZf5OWeHL9BazNeHfZvp02hZ8AQaMywfsQvMJpZQvSrIZMydvuDetIG4ZMaAKkjFi4zT3gNHEZyPw7eW7B6cetPT0utHguntAVwXzFluW3o9Hhkn0nxdJcbMbO7tsg1AR1NSaVbYqzwKmC0G2gZ23dVPloT7qemQqqqoA8TJo9bgqEoaZ0GR4PB7vLZSH10If9X4h+bzfL//KGeJBGQcxHf+7zk6KWbwCfyKjHSdWQtCY3VrWNUnJqX9hkRDiX4ebh1kKBHja7iWEeAwe73WV7X3826gJ/iFtIp7TNrLUjTq7bYgWK3wNAZ4LthnLJRrzgPMuj7ypryDVcyAdXLiJKWYvA+jj667PrW7HbPI+BzRZM43OnxD5GIXILPYIOfRM=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "860709d92f992f24ccd9bdaf99da6b6201f1665ef22166c0b84a5e22aec9a4de",
+            "sig": "fd292b92bf14b4ac27a1d2c29465d69d08b9737a071e75f4a320f500cb03dd6fa4f6e913ee172b93dfa6c06de7c4f4da21b71332c02bb0e2f0222d6baf6f6145"
+          },
+          "body": {
+            "v": 1,
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "955860a514bffb37f649013c7b3dbfedc4673bc1faadded13d1847b0e027d15d",
+              "sig": "844567d3b069426b95d26462864ffbd49d55a07244cef702ebaf6a4fda2ee3f5fd0b12e0ecdd43e3ca1d799051142dfe643c416a2e84051fd32bba68f7018841"
+            },
+            "admission": "87a278bd02e95df8c19a2eabd6a86e04476b1c87565ae4716ffd947e398f1d64"
+          },
+          "deviceSkHex": "751627289895e0df520a348eed03006ac69522989ce970c8a4926268de6f69de",
+          "nonceHex": "b7f31d50bef01e9834c06c1746b019f95086aaac6c83547b2072543c144e5d35",
+          "auxRandHex": "f22f47f5a46f90e1108a3f37152079b04daf291b52116ad10384f96aa0dee5dd"
+        },
+        "output": {
+          "result": {
+            "device": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "request": "860709d92f992f24ccd9bdaf99da6b6201f1665ef22166c0b84a5e22aec9a4de"
+          }
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": {
+            "device": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "request": "860709d92f992f24ccd9bdaf99da6b6201f1665ef22166c0b84a5e22aec9a4de"
+          }
+        }
+      },
+      {
+        "name": "request-without-admission",
+        "kind": "negative",
+        "note": "The same request with no `admission` field: what a client from before the proof sent, and exactly what a stranger with the room id, the authority's pubkey and a participant key of their own can produce. Refused before the policy is consulted; the desk publishes nothing, so the stranger does not learn that a desk is there.",
+        "input": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "AoFUOhU2v9MLbRocQqQZnqndVMW0nOn8IBUdp+Gi9GfgDV+MKXVM9AWsZuFqTjG6gpGmOLSkqeVdR1TYBIwk3dmtF+UttI7zhEaTWcLW6iUSe//Z2fYOExXU68z2VTgYVerIoZpgeQWl4RLOCDV6yTeIoAULoQndnqRqJEi6QjGrOqGrpxvgxFpHUqYkx3KVq0UNWea/zhP2627MkEdcYmklVF86jzBFT2HByeF8YlRWh2lS81D8ORCdT+tmhf1iSbLqhCV4EWtJ+QdxdTxMNeG3mvojLeLEeLMaorpKlunxcpqtbJAWoPGGsrPSn8b0Zc36tdOVo9JwMgDpI8l3SgGW2C5Gvkswa97eWbQ5nl3nP/AEv04zkZ6jvp1f1g8mGzvfhTKGxpWjALC52dG5fJV1RIvmetxy/aTx8e2oXDoKXDMofJr8wZ1WmgJwCK7o/dGroW9QNIB63tBZIl0gk65bSwMFAPYCkcvhaYWHeYGATODe8Ip2Xr1xamW+9Sn9gtoLV6lWEA//Oo/Y1Glpi5DvcnhkgIoVXEHVF70xJCqEePPu0YIINaF1OpeP/MUJ7ANzxT7drMCfOXn4dMS1jhrplARzNWUnmTEi47UaIe0d9yjjp/+o2NcbtOrcZyChaF6iJgWxaTEli8/8tfvfU1ZrCOlvE/ik0F7m1+6vGK+H2GLNsISj4pQZb686oWabr7bbu8MnFKKOGp95bgidzbEac2HrkFJbB/HMTDSbpzWNMeUaZmneJJ/sq+F1hOpXL2vF3DYM0xMverh4YIKGeBeNLj1GrbLoVElShqGO95I2FS468DpcYb/h10BA+VgfMySdTtvwnQx+/FyltA3std7h9pAgZD8FWVuKFmW+T9lcK03ISt0bxo847aMSn9zyZVGHc440b4QPxUhbe5QNFz5a5foLiImSa2AOYoDU+rC0CLs=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "1ecd7084c7b2a4b8a039f5eb7be3a1a1c2e6a19fb53d222b9c50e24f4a8185d8",
+            "sig": "f5a3b54740f0655f3bbcae0b65df41b95ad171375925c4cd181bc378c18d8fdf3bed31c97c5239cb6f90657e0fa5d55fa98c244cafaa9fd74358b06dc6c57e45"
+          }
+        },
+        "output": {
+          "result": null
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "request-under-another-key",
+        "kind": "negative",
+        "note": "The proof computed under the key of epoch 1 rather than the epoch-0 room key. Refused: the proof key is always derived from epoch 0, because that is the one key every admitted device holds however far behind it is, and a desk checking against anything else would refuse exactly the devices the desk exists for.",
+        "input": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "AuUfBktokBfC8jEAZ1XW+9645urzhmGGFc4NrEdOiP+5uzK7LdP3+bF4u6wCdbToEe1YWFaD4zj9xjN+VfvFGdp1x0XHESePQbYBFJAKuBvyFGGIgS52aNYZtIlEsAoXMo4gqJ1RQJdFTwsrnCG4ZoKNx0+zvzchG7UF8xt9fBUSoQFDnmOSyp42AIxMKJsubW9xUn120VQt3FkMLrGEfaGZIW6Em0RKQORQ2OeGhJVVqSL94r2iJMNvD166Ecxzrw85nfxqxX1bLeUKEkbqOgIvpv38XNBZ8rKBWeH16MXS5E30p12QTm4zZFrx3tqMD16175LOZoWTAeKe+KU/ex8SAyC7tblOwUo9vjuHv9mvxPirBsuWNftg88FkKcrHImWOYdyGU95bb3lUQ4z6aNfDcZBv3M7jKbRe55AxaxS3gs3NL0HrgstmD6fJ18degnhdhobohzvLGxbzVsKk6sqBSEuukqwxJPSzYLOklYHWfSwfqroLAYnp4oqNZZRZsBYcUzmjPpQk5hxneBZTrGp541hS2cEVbf1p0XRBadU9I0yUf7bMWcIJuzzl8JCVNNplApmsXr047CU7Eq/cRV1jyP7/jfnRCD0egj6lNxEaUlwyVpinhCk1zsNYf7TgIwKrDhpctlEShoj/Ix3e9l1PrZ2i+JCjeoKeUgSONpxp1an3wGKgBzjj4O0+jdYJv5yXv12PLB3viRXzoInyWwlTyikzS0HvZ6IDi/leFmftBbzj+FtL1GQneiVWbxDU3isR4YXjC/xkk2gAlCfmLb+PB9WlYtyuQG8R6gLw361xMLgSisCc/jgwGB2xUMbGRpV62pohxtwpKmLTACcdf/W89OL6xNO0nRGRwZVrPhTakqlEarU+rUv6mVcrSE+uB5yxtc7S345p2MV73yI/YnoIYcNwx2uqvTn+SZIikpYImK4=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "f6761f70ade8e0bc4caa60bfdd0b3a9252c1c49a678b33cdf28fee6e7c4c53ad",
+            "sig": "dce2560b24cca141a93c2caa4b860472467aafce2256f397e9abc2b857357d52285f77ceaf1d494ebcdd8df4193566376cb05750f544a53df1cc07102932c7cf"
+          },
+          "proofKeyHex": "1376c99d11c91603ba3904328d3fd6c857b098c62a187e4a1322c84e832d63b7"
+        },
+        "output": {
+          "result": null
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "request-proof-for-another-moment",
+        "kind": "negative",
+        "note": "A correct proof for `created_at` one second later than the event carries. Refused: the proof binds the device and the moment, so a proof lifted from one request is no use inside another, even one from the same device.",
+        "input": {
+          "event": {
+            "kind": 20468,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "p",
+                "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+              ]
+            ],
+            "content": "Aum2++QEm52Lth4BQRQZi1AM2yQIzEcXA35bnqJbbz5w/tigHvF48pAbcgIiDGxF9SoHVve5jktDIn6ooJ+YV77/0z5y5RFqgFFer5d1ARPFnSfGy0tUhUZTBscQhQ33t8FmF9gqdhKgvxhkYPUdTMeS6ADNrrbu8CkuEffzn8SOncmMrqrxChhWPcekuIiDEfNBgwzkmiMLXeXyKRIEz/HeWAMefKClpO8zHkLtkhOK/zeEP+xv/iuPB5fohlwevFm8orVuE9C5f15LaxC/LxUkQx/qr6jLl824R1rfyscAv3FqzhstM2lg7PDwjFQh2Gk0yQ0TskelGjPFFHzTYlILQOEH2KceoDRwmlNjep5AO1EPgiW71HMsat94OlGzrN0x6OjUJyoZkCEV6Nd+5xSc0syWaQjqORin5/Px2dqu/wXBFxY4jl3d4MlUZlI7E/vJDgbbVCuwErPFe4Fw2AaCAbfV/n3WqLM6+YN6ls4hVClF4SFrBusgyoFoYHqTZhh/i6mnGZPRbYD82j3kteS/JGxhC0LQC9ReoMUk5a0uJK02iaAJVI/uj9aVUM9b0STHGItg8mHgnYec198/efD0hnApmM50no6fizHEA1WDpH10ljyR5/gXZPGVFirKqmVeQEDiqegIUpW0OM/q3HstrzSVOajma3r9LNK4J4yEcu+591VteUZaxNzRfPwT2WSSKjpT+UvQ9JMZodXPjJKZXFk6wH4WcDcuAfU4ojNFzYR+k78MoIoIwovYlkrdfCZOhwWWEp8h7jf6XTqDyuJZ3lC3s2Pi/UbX3y/M3G6vKTS02a4JTgAgQvbqUpoZf0cXZxUXZGXPfBllsayw7f2y/kXesL2i/VANRBAx7e1qHJURgWTUH/DVwLJbN4r0OCQMl5ighi+gLRSAI/IbPtS7PZV2VSSmZXLEl7yZ7S/1rRY=",
+            "pubkey": "fcd74d122f0a212a673839482f69ad973f6d38735faeeb3e57929c2b916492fe",
+            "id": "4a33347d5ab4ec176957487060cdef0a6f642fec21eb58d8ea8974423a6bbb73",
+            "sig": "9e84d416382251472dc494ce1e1b7fb8f18ba7dceb6d07d3742f5af557be879d75ea3ad97ec8118a1f575fe86b5b06f843e43e7ad4774835b8c29d07f789ceaf"
+          }
+        },
+        "output": {
+          "result": null
+        },
+        "expected": {
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          },
+          "result": null
+        }
+      }
+    ],
     "agentOwnership": [
       {
         "name": "valid",

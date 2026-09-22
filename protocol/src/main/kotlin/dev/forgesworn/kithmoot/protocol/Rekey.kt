@@ -19,6 +19,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.security.MessageDigest
 
 const val KIND_ROOM_REKEY = 1462
 const val KIND_EPOCH_REQUEST = 20_468
@@ -28,6 +29,9 @@ const val EPOCH_MAX_AGE_SECONDS = 90L
 
 private const val EPOCH_ID_INFO = "kithmoot/v1/epoch-id"
 private const val EPOCH_KEY_INFO = "kithmoot/v1/epoch-key"
+/** HKDF info for the key an epoch request's admission proof is made under: its own domain, like the media key's. */
+private const val EPOCH_REQUEST_KEY_INFO = "kithmoot/v1/epoch-request-key"
+private const val EPOCH_REQUEST_MESSAGE = "kithmoot/v1/epoch-request:"
 private val HEX64 = Regex("[0-9a-fA-F]{64}")
 private val EPOCH_TAG = Regex("^[1-9][0-9]{0,6}$")
 
@@ -172,9 +176,42 @@ fun decodeRekeyEvent(
     } finally { secret?.fill(0) }
 }.getOrNull()
 
+/**
+ * The key an epoch request's admission proof is computed under: the EPOCH-0 room key,
+ * `deriveRoom(secret).roomKey`, expanded under its own info string. Epoch 0's on purpose:
+ * the device asking is the one that has fallen behind, and epoch 0 is the one key every
+ * admitted device holds however far behind it is.
+ */
+fun deriveEpochRequestKey(roomKey: ByteArray): ByteArray {
+    require(roomKey.size == 32) { "a room key is 32 bytes" }
+    return Digests.hkdfSha256(roomKey, null, EPOCH_REQUEST_KEY_INFO.toByteArray(Charsets.UTF_8), 32)
+}
+
+/**
+ * Proof, inside an epoch request, that the asking device was admitted to the room.
+ *
+ * `HMAC-SHA256(deriveEpochRequestKey(roomKey), "kithmoot/v1/epoch-request:" + roomId + ":" +
+ * authority + ":" + device + ":" + createdAt)` as lower-case hex, the identifiers lower-case
+ * hex. The room id and the authority's pubkey are public on every rekey and a credential is
+ * minted by any participant key, so without this a stranger reading the relay could be
+ * handed an open room's current epoch. Bound to the device and the event's own `created_at`
+ * so a proof lifted from one request is no use in another.
+ */
+fun epochRequestAdmission(roomKey: ByteArray, roomId: String, authority: String, device: String, createdAt: Long): String {
+    require(createdAt >= 0) { "created_at must be a non-negative integer" }
+    val message = EPOCH_REQUEST_MESSAGE + requireHex(roomId, "room id") + ":" + requireHex(authority, "authority pubkey") +
+        ":" + requireHex(device, "device pubkey") + ":" + createdAt
+    val key = deriveEpochRequestKey(roomKey)
+    return try {
+        Digests.hmacSha256(key, message.toByteArray(Charsets.UTF_8)).toHex()
+    } finally { key.fill(0) }
+}
+
 fun encodeEpochRequest(
     roomId: String,
     authority: String,
+    /** The epoch-0 room key, which proves this device was admitted. */
+    roomKey: ByteArray,
     deviceSecretKey: ByteArray,
     credential: NostrEvent,
     now: Long,
@@ -185,10 +222,12 @@ fun encodeEpochRequest(
     require(deviceSecretKey.size == 32)
     val room = requireHex(roomId, "room id")
     val peer = requireHex(authority, "authority pubkey")
+    val admission = epochRequestAdmission(roomKey, room, peer, Schnorr.publicKeyHex(deviceSecretKey), now)
     val body = buildJsonObject {
         put("v", 1)
         put("credential", credential.toJson())
         if (proof != null) put("proof", proof.toJson())
+        put("admission", admission)
     }
     val key = Nip44.conversationKey(deviceSecretKey, peer.hexToBytes())
     return try {
@@ -196,10 +235,17 @@ fun encodeEpochRequest(
     } finally { key.fill(0) }
 }
 
+/**
+ * Null for anything malformed, stale, misaddressed, from a device that cannot prove which
+ * participant it speaks for in this room, or from one that cannot prove it was admitted to
+ * the room at all. A request refused here must not be answered, so a stranger learns nothing.
+ */
 fun decodeEpochRequest(
     event: NostrEvent,
     roomId: String,
     authoritySecretKey: ByteArray,
+    /** The epoch-0 room key the desk checks admission proofs against. */
+    roomKey: ByteArray,
     now: Long,
     policy: RoomPolicy? = null,
     maxAgeSeconds: Long = EPOCH_MAX_AGE_SECONDS,
@@ -215,6 +261,11 @@ fun decodeEpochRequest(
     val credential = (body["credential"] as? JsonObject)?.let(NostrEvent::fromJson) ?: return null
     val verdict = verifyDeviceCredential(credential, room, now) as? CredentialCheck.Valid ?: return null
     if (!verdict.device.hexEquals(event.pubkey)) return null
+    // Admission before policy: a stranger with no room key is turned away
+    // before anything about the room's tiers is consulted.
+    val presented = body["admission"]?.jsonPrimitive?.content?.takeIf { HEX64.matches(it) } ?: return null
+    val expected = epochRequestAdmission(roomKey, room, authority, verdict.device, event.createdAt)
+    if (!MessageDigest.isEqual(presented.hexToBytes(), expected.hexToBytes())) return null
     if (policy != null) {
         val proof = (body["proof"] as? JsonObject)?.let(KindredProof::fromJson)
         if (!evaluateAccess(policy, verdict.participant, proof, now, room).admitted) return null

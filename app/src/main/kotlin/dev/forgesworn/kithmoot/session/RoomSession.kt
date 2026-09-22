@@ -893,7 +893,7 @@ class RoomSession(
         val response = try {
             coroutineScope {
                 val request = encodeEpochRequest(
-                    room.roomId, trusted, identity.deviceSecretKey, identity.credential, now(), proof,
+                    room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
                 )
                 val answer = async(start = CoroutineStart.UNDISPATCHED) {
                     withTimeout(EPOCH_RECOVERY_TIMEOUT_MS) {

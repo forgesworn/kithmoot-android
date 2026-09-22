@@ -2564,7 +2564,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
         }
         val epochResponder = epochAuthorityHost?.let {
-            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, record.policy, ::epochSeconds)
+            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, ::epochSeconds)
         }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }

@@ -96,7 +96,10 @@ Stored admission depends on relay availability and retention. A group link and
 its encrypted envelope provide durable access to epoch 0, including retained
 history. Replacing the link asks cooperative clients to refuse new admission;
 it cannot revoke copies of the key. Managed member removal, later-epoch recovery
-and mobile push are separate features. See the published
+and mobile push are separate features. An epoch request carries an admission
+proof under the epoch-0 room key (the `epochRequestAdmission` vectors), and the
+creator's recovery responder refuses a request without one, so a stranger who
+reads a room id and its authority off a public rekey is never answered. See the published
 [persistent group contract](https://github.com/forgesworn/kithmoot/blob/171de0a0e697add5d7ca0793b6f3980f4242b50c/docs/persistent-groups.md).
 
 The home screen lists rooms saved on this device, with local names, search,
