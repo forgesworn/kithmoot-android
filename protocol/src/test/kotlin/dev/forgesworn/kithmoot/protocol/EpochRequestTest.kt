@@ -1,7 +1,13 @@
 package dev.forgesworn.kithmoot.protocol
 
+import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -48,26 +54,62 @@ class EpochRequestTest {
 
     @Test fun `a credential-bound device asks the authority and malformed or stale requests fail closed`() {
         val request = encodeEpochRequest(
-            room.roomId, authority, deviceSecret, credential, now,
+            room.roomId, authority, room.roomKey, deviceSecret, credential, now,
             nonce = ByteArray(32) { 1 }, auxRand = ByteArray(32) { 2 },
         )
-        val decoded = decodeEpochRequest(request, room.roomId, authoritySecret, now)
+        val decoded = decodeEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now)
         assertEquals(device, decoded?.device)
         assertEquals(credential.pubkey, decoded?.participant)
         assertEquals(request.id, decoded?.request)
-        assertNull(decodeEpochRequest(request, room.roomId, authoritySecret, now + EPOCH_MAX_AGE_SECONDS + 1))
-        assertNull(decodeEpochRequest(request.copy(tags = listOf(listOf("d", "ff".repeat(32)), listOf("p", authority))), room.roomId, authoritySecret, now))
+        assertNull(decodeEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now + EPOCH_MAX_AGE_SECONDS + 1))
+        assertNull(decodeEpochRequest(request.copy(tags = listOf(listOf("d", "ff".repeat(32)), listOf("p", authority))), room.roomId, authoritySecret, room.roomKey, now))
 
         val borrowed = encodeEpochRequest(
-            room.roomId, authority, "0b".repeat(32).hexToBytes(), credential, now,
+            room.roomId, authority, room.roomKey, "0b".repeat(32).hexToBytes(), credential, now,
             nonce = ByteArray(32) { 3 }, auxRand = ByteArray(32) { 4 },
         )
-        assertNull(decodeEpochRequest(borrowed, room.roomId, authoritySecret, now))
+        assertNull(decodeEpochRequest(borrowed, room.roomId, authoritySecret, room.roomKey, now))
+    }
+
+    @Test fun `a request proves admission under the room key and a stranger's request is refused`() {
+        val request = encodeEpochRequest(
+            room.roomId, authority, room.roomKey, deviceSecret, credential, now,
+            nonce = ByteArray(32) { 21 }, auxRand = ByteArray(32) { 22 },
+        )
+        val expected = epochRequestAdmission(room.roomKey, room.roomId, authority, device, now)
+        val body = Json.parseToJsonElement(
+            Nip44.decrypt(request.content, Nip44.conversationKey(authoritySecret, device.hexToBytes())),
+        ).jsonObject
+        assertEquals(expected, body["admission"]?.jsonPrimitive?.content)
+        assertTrue(expected != epochRequestAdmission(room.roomKey, room.roomId, authority, device, now + 1))
+
+        // A desk holding another room key cannot verify it, and a proof made
+        // under another key - a stranger guessing, or a device that used the
+        // current epoch's key instead of epoch 0's - is refused by this desk.
+        val otherKey = ByteArray(32) { 9 }
+        assertNull(decodeEpochRequest(request, room.roomId, authoritySecret, otherKey, now))
+        val strangers = encodeEpochRequest(
+            room.roomId, authority, otherKey, deviceSecret, credential, now,
+            nonce = ByteArray(32) { 23 }, auxRand = ByteArray(32) { 24 },
+        )
+        assertNull(decodeEpochRequest(strangers, room.roomId, authoritySecret, room.roomKey, now))
+
+        // A request from before the proof existed carries no admission and is refused.
+        val bare = buildJsonObject {
+            put("v", 1)
+            put("credential", credential.toJson())
+        }
+        val conversation = Nip44.conversationKey(deviceSecret, authority.hexToBytes())
+        val stripped = Events.sign(
+            deviceSecret, KIND_EPOCH_REQUEST, now, listOf(listOf("d", room.roomId), listOf("p", authority)),
+            Nip44.encrypt(bare.toString(), conversation, ByteArray(32) { 25 }), ByteArray(32) { 26 },
+        )
+        assertNull(decodeEpochRequest(stripped, room.roomId, authoritySecret, room.roomKey, now))
     }
 
     @Test fun `the authority grants the current epoch or returns a terminal refusal to this request only`() {
         val request = encodeEpochRequest(
-            room.roomId, authority, deviceSecret, credential, now,
+            room.roomId, authority, room.roomKey, deviceSecret, credential, now,
             nonce = ByteArray(32) { 5 }, auxRand = ByteArray(32) { 6 },
         )
         val nextSecret = "0c".repeat(32).hexToBytes()

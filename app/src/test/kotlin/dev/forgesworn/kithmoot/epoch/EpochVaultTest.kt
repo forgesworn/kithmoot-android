@@ -118,9 +118,10 @@ class EpochVaultTest {
             "aa".repeat(32), null, 101,
         )
         vault.activate(room, 2, 102)
-        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, null) { 103 }
+        val roomKey = dev.forgesworn.kithmoot.protocol.deriveRoom(initial).roomKey
+        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, roomKey, null) { 103 }
 
-        val retainedRequest = encodeEpochRequest(room, authorityPubkey, retained.deviceSecretKey, retained.credential, 103)
+        val retainedRequest = encodeEpochRequest(room, authorityPubkey, roomKey, retained.deviceSecretKey, retained.credential, 103)
         val retainedAnswer = requireNotNull(responder.answer(retainedRequest))
         val current = assertIs<EpochGrant.Current>(
             decodeEpochGrant(retainedAnswer, room, authorityPubkey, retained.deviceSecretKey, retainedRequest.id, 103),
@@ -128,7 +129,7 @@ class EpochVaultTest {
         assertEquals(2, current.epoch)
         assertArrayEquals(successor, current.secret)
 
-        val removedRequest = encodeEpochRequest(room, authorityPubkey, removed.deviceSecretKey, removed.credential, 103)
+        val removedRequest = encodeEpochRequest(room, authorityPubkey, roomKey, removed.deviceSecretKey, removed.credential, 103)
         val removedAnswer = requireNotNull(responder.answer(removedRequest))
         assertEquals(
             EpochGrant.Refused("removed"),
@@ -136,7 +137,7 @@ class EpochVaultTest {
         )
 
         vault.terminal(room, 2, RekeyNotice(3, emptyList(), null, true, null, 104), "bb".repeat(32), 104)
-        val closedRequest = encodeEpochRequest(room, authorityPubkey, retained.deviceSecretKey, retained.credential, 104)
+        val closedRequest = encodeEpochRequest(room, authorityPubkey, roomKey, retained.deviceSecretKey, retained.credential, 104)
         val closedAnswer = requireNotNull(responder.answer(closedRequest))
         assertEquals(
             EpochGrant.Refused("closed"),

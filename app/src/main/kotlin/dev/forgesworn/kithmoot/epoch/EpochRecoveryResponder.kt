@@ -12,14 +12,17 @@ class EpochRecoveryResponder(
     private val vault: EpochVault,
     private val stableRoom: String,
     authoritySecretKey: ByteArray,
+    /** The epoch-0 room key: what a request has to prove it holds before it is answered. */
+    roomKey: ByteArray,
     private val policy: RoomPolicy?,
     private val now: () -> Long,
 ) {
     private val authoritySecretKey = authoritySecretKey.copyOf()
+    private val roomKey = roomKey.copyOf()
     private val authority = Schnorr.publicKeyHex(authoritySecretKey)
 
     fun answer(event: NostrEvent): NostrEvent? {
-        val request = decodeEpochRequest(event, stableRoom, authoritySecretKey, now(), policy) ?: return null
+        val request = decodeEpochRequest(event, stableRoom, authoritySecretKey, roomKey, now(), policy) ?: return null
         val durable = vault.get(stableRoom) ?: return null
         require(durable.authority == authority) { "room authority conflicts with the recovery signer" }
         val refused = when {

@@ -159,7 +159,7 @@ class RoomEpochTransitionTest {
             stable, identity, relay, authority = authority, epochSettleMs = 1_500,
             epochGate = { _, notice -> committed += notice; EpochGateResult.COMMITTED },
             epochResponder = { event ->
-                val request = decodeEpochRequest(event, stable.roomId, authoritySecret, 0) ?: return@session null
+                val request = decodeEpochRequest(event, stable.roomId, authoritySecret, stable.roomKey, 0) ?: return@session null
                 encodeEpochGrant(
                     stable.roomId, authoritySecret, request.device, request.request, 0,
                     epoch = granted, removed = listOf("55".repeat(32)),
@@ -196,7 +196,7 @@ class RoomEpochTransitionTest {
             stable, identity, relay, authority = authority,
             epochGate = { _, _ -> EpochGateResult.COMMITTED },
             epochResponder = { event ->
-                val request = decodeEpochRequest(event, stable.roomId, authoritySecret, 0) ?: return@session null
+                val request = decodeEpochRequest(event, stable.roomId, authoritySecret, stable.roomKey, 0) ?: return@session null
                 encodeEpochGrant(
                     stable.roomId, authoritySecret, request.device, request.request, 0, refused = "removed",
                 )
