@@ -270,6 +270,7 @@ fun KithMootApp(
                     rooms = model::availableProjectRooms,
                 ),
                 modifier = Modifier.padding(padding),
+                callRoomId = callRoomId,
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,
                     onSignInWithApp = model::signInWithSignerApp,

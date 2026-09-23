@@ -1670,6 +1670,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun forgetRoom(id: String) = changeSavedRooms {
+        if (id == callRoomId) throw RoomRecoveryException("Your call is in this room. Leave the call before forgetting it.")
         if (linkConsents.all().any { it.roomId == id }) {
             throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
