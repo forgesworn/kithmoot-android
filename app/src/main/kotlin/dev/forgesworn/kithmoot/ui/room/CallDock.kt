@@ -32,6 +32,9 @@ import dev.forgesworn.kithmoot.ui.RoomState
 @Composable
 fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit) {
     val others = call.tiles.count { !it.isSelf }
+    // Mute keeps the microphone running and says so separately; either way
+    // nobody hears this device.
+    val heard = call.micOn && !call.micMuted
     val room = call.name.ifBlank { "your room" }
     val summary = when {
         !call.onCall -> "Still in $room."
@@ -47,9 +50,9 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                     onClick = onToggleMic,
                     modifier = Modifier.heightIn(min = 48.dp).semantics {
                         contentDescription = "Microphone"
-                        stateDescription = if (call.micOn) "On" else "Off"
+                        stateDescription = if (heard) "On" else "Off"
                     },
-                ) { Text(if (call.micOn) "Mic on" else "Mic off") }
+                ) { Text(if (heard) "Mic on" else "Mic off") }
                 Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to the call") }
                 if (call.onCall) OutlinedButton(
                     onClick = onLeave,

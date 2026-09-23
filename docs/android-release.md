@@ -2,6 +2,24 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.12 a call that outlives the room on screen
+
+Version code 35. On a call, the room's back arrow no longer leaves the call:
+it shows the rooms under a dock ("On a call in X with one other", Mic, Back
+to the call, Leave call). A room opened from there runs in a second,
+chat-only `RoomViewModel`, so the call's session, engine and notifications
+are never touched while the person reads and writes elsewhere. Leave room in
+the room's details still leaves. Same behaviour as the web and desktop
+clients' dock (kithmoot #148). No wire change.
+
+Checked before release on the owner's Pixel, with a side-by-side debug copy
+(`dev.forgesworn.kithmoot.docktest`, since uninstalled) against a web peer on
+the live relays. The phone's microphone kept reaching the peer while
+docked. A message sent from the second room arrived. Back to the call
+returned with no rejoin. Mute from the dock stopped the audio, and Leave
+call from the dock ended the call. The same run on an emulator held the
+peer connection through 30 seconds of chatting elsewhere.
+
 ## 0.6.11 the secure-update crash and the camera ladder
 
 Published on 22 September 2026 from `b397fa9`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `d02f3cf65d292ee8180b49b678cce44161eff0b38663052c1af4bc6d989e3c18`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.10 on the owner's Pixel 10 Pro XL (version 34 reported, first-install time preserved, launched in about half a second), offered as GitHub pre-release `v0.6.11`, and on the website once kithmoot's release PR merges. A live multi-person video call on this build, and the handset heat measurement, are the checks that remain.
