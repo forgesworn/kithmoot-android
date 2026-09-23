@@ -2,6 +2,23 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.13 four things the web client already did
+
+Version code 36. Brings Android level with the web client on four points.
+Mirror my view, in Room details, turns off the mirrored self-view for this
+device, including your other device's camera seen here; what the room
+receives is never flipped (kithmoot `f7d30e3`). Remove from this phone is no
+longer offered for a docked call's own room, which would strand the call
+(kithmoot `296fd89`; the rooms list already offered it for every room). After
+eight seconds of opening a room, or of waiting for the last one to close, the
+rooms screen offers Stop and go back to your rooms, which cancels the entry
+and closes anything half-opened without showing it (kithmoot `d7edcd9`). The
+screen-share viewer gains Clear marks, sending the web's `clear` operation,
+and drops sub-0.2% finger jitter from strokes as the web viewer does. No wire
+change: strokes and clears were already accepted by both clients.
+
+Not yet checked on a handset.
+
 ## 0.6.12 a call that outlives the room on screen
 
 Version code 35. On a call, the room's back arrow no longer leaves the call:
