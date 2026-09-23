@@ -99,6 +99,8 @@ fun RoomScreen(
     onAddDevice: () -> Unit,
     onRotateInvitation: () -> Unit,
     onLeave: () -> Unit,
+    /** The header's back arrow. Leaves, unless a call should be kept. */
+    onBack: () -> Unit = onLeave,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     /** Choose what is drawn behind this device's camera, or nothing. Defaulted
@@ -231,14 +233,14 @@ fun RoomScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Header(state, onLeave, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
+        Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
         TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
                 Text(if(decisions>0)"Work · $decisions" else "Work")
             })
-            if (!state.anonymous) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
+            if (!state.anonymous && !state.chatOnly) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 // "A call is on" is what the roster says, not what this phone
                 // happens to have negotiated: somebody on the call with
                 // everything switched off is still a call worth a badge.
@@ -259,7 +261,7 @@ fun RoomScreen(
             otherDevicesOn = state.callOtherDevices,
             leaving = state.callChanging,
         )
-        if (!state.anonymous && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        if (!state.anonymous && !state.chatOnly && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -292,7 +294,7 @@ fun RoomScreen(
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
             }
-        } else if (state.anonymous || !callOpen) {
+        } else if (state.anonymous || state.chatOnly || !callOpen) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }

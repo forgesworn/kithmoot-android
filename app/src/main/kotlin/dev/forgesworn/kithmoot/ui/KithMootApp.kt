@@ -10,6 +10,11 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -50,7 +55,21 @@ import dev.forgesworn.kithmoot.ui.start.StartScreen
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPopOut: (() -> Unit)? = null) {
+fun KithMootApp(
+    model: RoomViewModel,
+    inPictureInPicture: Boolean = false,
+    onPopOut: (() -> Unit)? = null,
+    /** Who the account belongs to: the call's instance, when `model` is the
+     *  chat-only one beside it. */
+    accountModel: RoomViewModel = model,
+    /** The call, docked above a chat-only room. See MainActivity. */
+    dock: (@Composable () -> Unit)? = null,
+    /** The docked call's room, which opens by going back to the call. */
+    callRoomId: String? = null,
+    onBackToCall: () -> Unit = {},
+    /** The room's back arrow while on its call: to the rooms, call kept. */
+    onRoomsKeepingCall: (() -> Unit)? = null,
+) {
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
@@ -164,26 +183,33 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
     }
 
     val accountMenu: @Composable () -> Unit = {
-                dev.forgesworn.kithmoot.ui.start.AccountMenu(startState, model.accountRelayChoices(), stage == Stage.ROOM,
+                val account = accountModel
+                val accountState by account.start.collectAsState()
+                dev.forgesworn.kithmoot.ui.start.AccountMenu(accountState, account.accountRelayChoices(), stage == Stage.ROOM,
                     dev.forgesworn.kithmoot.ui.start.AccountActions(
-                        model::refreshSigners, model::signInWithSignerApp, model::signInWithSignet,
-                        model::signInWithBunker, model::cancelSignIn, model::signOut, model::provisionRendezvous, model::dismissSignInError),
+                        account::refreshSigners, account::signInWithSignerApp, account::signInWithSignet,
+                        account::signInWithBunker, account::cancelSignIn, account::signOut, account::provisionRendezvous, account::dismissSignInError),
                     dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
-                        loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
-                        saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
-                        retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
-                        circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
+                        loadProfile = account::loadEditableProfile, publishProfile = account::publishProfile,
+                        saveRelays = account::saveAccountRelays, publishRelays = account::publishAccountRelayList,
+                        retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
+                        circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
-                    notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications) })
+                    notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications) })
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            if (stage != Stage.ROOM) TopAppBar(
-                title = { Text("KithMoot", style = MaterialTheme.typography.titleLarge) },
-                actions = { accountMenu() },
-            )
+            Column {
+                dock?.invoke()
+                if (stage != Stage.ROOM) TopAppBar(
+                    title = { Text("KithMoot", style = MaterialTheme.typography.titleLarge) },
+                    actions = { accountMenu() },
+                    // The dock above has already cleared the status bar.
+                    windowInsets = if (dock != null) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+                )
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
         // Insets are handled per screen: the room's header runs under the status
@@ -201,7 +227,10 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 }
             }
         },
-    ) { padding ->
+    ) { scaffoldPadding ->
+      // Under a dock the room's own header must not clear the status bar again.
+      Box(if (dock != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier) {
+        val padding = scaffoldPadding
         when (stage) {
             Stage.START -> StartScreen(
                 state = startState,
@@ -212,7 +241,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 onPersistentGroupChanged = model::onPersistentGroupChanged,
                 onStartRoom = model::startRoom,
                 onJoin = { model.joinFromUrl(startState.joinUrl) },
-                onReopen = model::reopenRoom,
+                onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                 onForget = model::forgetRoom,
                 onRename = model::renameRoom,
                 onProject = model::setRoomProject,
@@ -316,6 +345,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                     onJoinCall = model::joinCall,
                     onRotateInvitation = model::rotateInvitation,
                     onLeave = model::leave,
+                    onBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() },
                     modifier = Modifier.padding(padding),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions) },
                     chat = {
@@ -344,6 +374,7 @@ fun KithMootApp(model: RoomViewModel, inPictureInPicture: Boolean = false, onPop
                 )
             }
         }
+      }
     }
 
     LaunchedEffect(stage) { if (stage == Stage.START) cardsOpen = false }

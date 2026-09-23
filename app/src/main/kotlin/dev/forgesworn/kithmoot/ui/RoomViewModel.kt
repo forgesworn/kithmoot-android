@@ -386,6 +386,8 @@ data class RoomState(
      * Start or Join, or switch a microphone, camera or screen on.
      */
     val onCall: Boolean = false,
+    /** Opened beside a call in another room: chat and work only, no call. */
+    val chatOnly: Boolean = false,
     val callChanging: Boolean = false,
     /**
      * Audio and video do not exist yet on this device and are still expected.
@@ -576,7 +578,21 @@ internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
  * a relay pool still publishing after the user has left, or a second session
  * opened over the top of a live one.
  */
-class RoomViewModel(application: Application) : AndroidViewModel(application) {
+class RoomViewModel @JvmOverloads constructor(
+    application: Application,
+    /**
+     * A second instance, beside a call running in the first: a room opened
+     * here is for reading and writing only. It never starts media, never
+     * touches the chat notification or screen-share service the call's
+     * instance owns, and borrows that instance's account rather than opening
+     * another. See MainActivity, which decides which instance is on screen.
+     */
+    val chatOnly: Boolean = false,
+) : AndroidViewModel(application) {
+
+    /** The room the call is in, which this chat-only instance must never
+     *  open a second session on. */
+    @Volatile var callRoomId: String? = null
 
     private val _stage = MutableStateFlow(Stage.START)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
@@ -601,8 +617,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val _room = MutableStateFlow(RoomState(background = backgrounds.load()))
     val room: StateFlow<RoomState> = _room.asStateFlow()
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
-    fun notificationReading(reading: Boolean) { notifications.reading = reading; notifications.refresh() }
-    fun notificationForeground(foreground: Boolean) { notifications.foreground = foreground; notifications.refresh() }
+    fun notificationReading(reading: Boolean) { if (chatOnly) return; notifications.reading = reading; notifications.refresh() }
+    fun notificationForeground(foreground: Boolean) { if (chatOnly) return; notifications.foreground = foreground; notifications.refresh() }
     fun openNotificationRoom(id: String) {
         if (!Regex("[a-f0-9]{64}").matches(id)) return
         if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
@@ -754,7 +770,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
     init {
-        viewModelScope.launch {
+        if (!chatOnly) viewModelScope.launch {
             room.collect { value ->
                 notifications.onCall = dev.forgesworn.kithmoot.ui.room.inACall(
                     onCall = value.onCall,
@@ -767,8 +783,10 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         refreshSavedRooms()
-        restoreAccount()
-        viewModelScope.launch {
+        // The call's instance owns the account, its sync and the box checks;
+        // a chat-only one is handed the account by `borrowAccount`.
+        if (!chatOnly) restoreAccount()
+        if (!chatOnly) viewModelScope.launch {
             kotlinx.coroutines.yield()
             withContext(Dispatchers.IO) {
                 while (kotlinx.coroutines.currentCoroutineContext().isActive) {
@@ -777,6 +795,15 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    /** Sign this chat-only instance in as `host` is, without opening a second
+     *  signer connection or a second copy of the account's sync. */
+    fun borrowAccount(host: RoomViewModel) {
+        check(chatOnly) { "Only a chat-only instance borrows an account." }
+        accountSession = host.accountSession
+        signerBridge = host.signerBridge
+        _start.update { it.copy(account = host._start.value.account) }
     }
 
     private fun restoreAccount() {
@@ -2517,6 +2544,9 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         localName: String = "",
         anonymous: Boolean = false,
     ) = gate.withLock {
+        if (chatOnly && derived.roomId == callRoomId) {
+            throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
+        }
         val openBegan = android.os.SystemClock.elapsedRealtime()
         Log.i(
             JOIN_LOG,
@@ -2691,7 +2721,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
-                if (!anonymousProfile) session?.let { current -> startMedia(current, scope, who) }
+                if (!anonymousProfile && !chatOnly) session?.let { current -> startMedia(current, scope, who) }
             },
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
@@ -2730,6 +2760,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             relaysTotal = activeRelays.size,
             lane = if (anonymousProfile) null else laneOfRelays(activeRelays, circleRelaySet()),
             privateConversation = isDmPolicy(policy),
+            chatOnly = chatOnly,
             profilesEnabled = !anonymousProfile && display.getBoolean("publicProfiles", true),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
@@ -2830,11 +2861,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             // over. Claiming rather than assuming is what lets that handover happen.
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
-            notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
-                        notifications.accept(chat)
+                        if (!chatOnly) notifications.accept(chat)
                         // The room's current call is the head of the same list
                         // every other client picks from - see RoomSession.calls.
                         val onCall = callsOf(people).firstOrNull()?.devices.orEmpty()
@@ -2876,7 +2907,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            if (!anonymousProfile) startMedia(live, scope, who)
+            if (!anonymousProfile && !chatOnly) startMedia(live, scope, who)
         }
         val epochAtOpen = live.epochState.value
         if (epochAtOpen is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
@@ -3263,7 +3294,8 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
-        ScreenShareService.stop(getApplication())
+        // Both belong to the call's instance; a chat-only room has neither.
+        if (!chatOnly) ScreenShareService.stop(getApplication())
         engine?.stop()
         engine?.dispose()
         engine = null
@@ -3276,7 +3308,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
         profilePool?.stop()
         profilePool = null
         pool = null
-        notifications.end()
+        if (!chatOnly) notifications.end()
         session = null
         identity = null
         savedRoom = null
@@ -3387,6 +3419,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun joinCall() = act {
+        if (chatOnly) return@act
         val state = _room.value
         val live = session ?: return@act
         when (val decision = joinDecision(
@@ -3430,6 +3463,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
      * [setMicrophoneMuted] - this is only the button's own cycle through it.
      */
     fun toggleMicrophone() = act {
+        if (chatOnly) return@act
         if (!_room.value.mediaRunning) return@act
         val media = engine?.localMedia ?: return@act note("No microphone on this device.")
         val live = session ?: return@act
@@ -3468,6 +3502,7 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleCamera() = act {
+        if (chatOnly) return@act
         if (!_room.value.mediaRunning) return@act
         val media = engine?.localMedia ?: return@act note("No camera on this device.")
         if (_room.value.cameraOn) {
