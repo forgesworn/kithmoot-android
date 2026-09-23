@@ -16,6 +16,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.compose.runtime.saveable.rememberSaveable
+import dev.forgesworn.kithmoot.ui.Stage
 import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
@@ -88,14 +93,38 @@ class MainActivity : ComponentActivity() {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model: RoomViewModel = viewModel()
                 model.signerBridge = signerBridge
+                // Beside a call, another room opens in a second, chat-only
+                // instance, so the call's session, engine and notifications
+                // carry on untouched. Nothing a person navigates to ends a call.
+                val visitor: RoomViewModel = viewModel(key = "chat-only", factory = viewModelFactory {
+                    initializer { RoomViewModel(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]!!, chatOnly = true) }
+                })
+                var visiting by rememberSaveable { mutableStateOf(false) }
+                val callStage by model.stage.collectAsState()
+                val callRoom by model.room.collectAsState()
+                val visitorStage by visitor.stage.collectAsState()
+                // With the call gone and the visited room closed, there is only
+                // one instance left worth showing.
+                LaunchedEffect(visiting, callStage, visitorStage) {
+                    if (visiting && callStage != Stage.ROOM && visitorStage == Stage.START) visiting = false
+                }
+                val backToCall = { if (visitor.stage.value == Stage.ROOM) visitor.leave(); visiting = false }
                 val noticeRoom by notificationRoom.collectAsState()
-                LaunchedEffect(noticeRoom) { noticeRoom?.let { model.start.first { state -> !state.loadingRooms }; model.openNotificationRoom(it); notificationRoom.value = null } }
+                LaunchedEffect(noticeRoom) {
+                    val id = noticeRoom ?: return@LaunchedEffect
+                    notificationRoom.value = null
+                    if (visiting && id == callRoom.roomId) { backToCall(); return@LaunchedEffect }
+                    val target = if (visiting) visitor else model
+                    target.start.first { state -> !state.loadingRooms }
+                    target.openNotificationRoom(id)
+                }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
                     incoming.value = null
-                    model.onJoinUrlChanged(url)
-                    model.joinFromUrl(url)
+                    val target = if (visiting) visitor else model
+                    target.onJoinUrlChanged(url)
+                    target.joinFromUrl(url)
                 }
                 val signet by signetReturn.collectAsState()
                 LaunchedEffect(signet) {
@@ -112,10 +141,25 @@ class MainActivity : ComponentActivity() {
                 val onScreen by visible.collectAsState()
                 LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
                 val inPip by pictureInPicture.collectAsState()
-                KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
+                if (visiting) {
+                    KithMootApp(
+                        visitor,
+                        accountModel = model,
+                        dock = if (callStage == Stage.ROOM) ({
+                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom, onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave)
+                        }) else null,
+                        callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
+                        onBackToCall = backToCall,
+                    )
+                } else KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
                     val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
                     if (!opened) model.showNotice("Picture-in-picture could not open. You can still zoom in fullscreen.")
-                }) else null)
+                }) else null, onRoomsKeepingCall = {
+                    visitor.borrowAccount(model)
+                    visitor.callRoomId = callRoom.roomId
+                    visitor.refreshSavedRooms()
+                    visiting = true
+                })
               }
             }
         }
