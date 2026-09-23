@@ -67,6 +67,7 @@ fun ScreenShareViewer(
                         TextButton(onClick = { setZoom(zoom * 1.25f) }, enabled = track != null && zoom < 8f, modifier = Modifier.semantics { contentDescription = "Zoom in" }) { Text("+") }
                         TextButton(onClick = { setZoom(1f); pan = Offset.Zero }) { Text("Fit to screen") }
                         FilterChip(selected = drawing, onClick = { drawing = !drawing }, enabled = shareId != null && track != null, label = { Text("Draw") })
+                        TextButton(onClick = { shareId?.let { onAnnotation(clearMarks(it)) } }, enabled = shareId != null) { Text("Clear marks") }
                         if (onPopOut != null) TextButton(onClick = onPopOut) { Text("Pop out") }
                         TextButton(onClick = onClose) { Text("Close viewer") }
                     }
@@ -106,7 +107,7 @@ fun ScreenShareViewer(
                 }
             } else Text("Screen sharing has stopped or is reconnecting.", color = Color.White, modifier = Modifier.padding(24.dp))
         }
-        if (!inPictureInPicture) Text(if (drawing) "Draw on the shared image. Everyone sees marks as you move." else "Pinch to zoom. Drag to move around. Fit to screen resets the view.", color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
+        if (!inPictureInPicture) Text(if (drawing) "Draw on the shared screen. Everyone sees your drawing as you move. Marks fade after a couple of seconds." else "Pinch to zoom. Drag to move around. Fit to screen resets the view.", color = Color.White, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
     }
 }
 

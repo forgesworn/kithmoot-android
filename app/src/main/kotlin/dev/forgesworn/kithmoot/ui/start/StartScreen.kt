@@ -58,6 +58,9 @@ fun StartScreen(
     onHomeTabChanged: (String) -> Unit = {},
     projects: ProjectActions = ProjectActions(),
     accountRooms: AccountRoomActions = AccountRoomActions(),
+    /** The docked call's room: forgetting it from under the call would strand it. */
+    callRoomId: String? = null,
+    onStopOpening: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var siteShown by remember { mutableStateOf(false) }
@@ -90,6 +93,12 @@ fun StartScreen(
             }
             if (state.busy || state.loadingRooms) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading rooms" })
+            }
+            // A room that will not open must never be a reason to quit the
+            // app. Offered after a few seconds of waiting; see
+            // `RoomViewModel.stopOpening`.
+            if (state.canStopOpening) {
+                OutlinedButton(onStopOpening, Modifier.heightIn(min = 48.dp)) { Text("Stop and go back to your rooms") }
             }
             if (state.storageError) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {
@@ -191,7 +200,8 @@ fun StartScreen(
                                 if (!room.anonymous && room.id in state.linkGrantOwnerRooms) {
                                     add(ConversationAction("Revoke guest access", "Revoke Bothy guest access for ${room.name}", true) { revokingRoom = room })
                                 }
-                                add(ConversationAction("Remove from this phone", "Forget ${room.name}", true) { forgetting = room })
+                                // Every room but the call's, which is left first.
+                                if (room.id != callRoomId) add(ConversationAction("Remove from this phone", "Forget ${room.name}", true) { forgetting = room })
                             })
                         }
                     }

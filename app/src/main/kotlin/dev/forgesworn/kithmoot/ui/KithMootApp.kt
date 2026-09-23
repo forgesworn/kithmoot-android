@@ -270,6 +270,8 @@ fun KithMootApp(
                     rooms = model::availableProjectRooms,
                 ),
                 modifier = Modifier.padding(padding),
+                callRoomId = callRoomId,
+                onStopOpening = model::stopOpening,
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,
                     onSignInWithApp = model::signInWithSignerApp,
@@ -339,6 +341,7 @@ fun KithMootApp(
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
+                    onMirrorSelf = model::setMirrorSelf,
                     onSetVolume = model::setCallVolume,
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,

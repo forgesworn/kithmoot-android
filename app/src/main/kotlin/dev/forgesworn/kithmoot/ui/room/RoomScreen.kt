@@ -121,6 +121,7 @@ fun RoomScreen(
     accountMenu: @Composable () -> Unit = {},
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
+    onMirrorSelf: (Boolean) -> Unit = {},
     onListenHere: () -> Unit = {},
     onLeaveCall: () -> Unit = {},
     onJoinCall: () -> Unit = {},
@@ -218,6 +219,13 @@ fun RoomScreen(
                         Text("Show public profiles")
                     }
                     Text("Profile lookups share participant keys with room relays and fetch pictures from their hosts. Names and pictures are self-reported.", style = MaterialTheme.typography.bodySmall)
+                    // This device's own view of you, from its camera or your
+                    // other device's. Everybody else always sees it the right way round.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(state.mirrorSelf, onMirrorSelf)
+                        Text("Mirror my view")
+                    }
+                    Text("Show your own camera like a mirror. Others always see it the right way round.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
                     HorizontalDivider()
@@ -332,6 +340,7 @@ fun RoomScreen(
                             profile = state.profiles[tile.participant].takeIf { state.profilesEnabled },
                             selfDevice = state.selfDevice,
                             connectionStates = state.mediaConnections,
+                            mirrorSelf = state.mirrorSelf,
                         )
                     }
                     if (state.mediaFault != null) {
