@@ -19,6 +19,8 @@ change: strokes and clears were already accepted by both clients.
 
 Not yet checked on a handset.
 
+Published on 23 September 2026 from `931fedf`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `f28e48c8b0651b975a7b9ef283d653b8fa1c6002fdc9ff801f631f88d0321fcc`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.12 on the owner's Pixel 10 Pro XL (version 36 reported, first-install time preserved, launched to the rooms list with the account intact), offered as GitHub pre-release `v0.6.13`, and on the website once kithmoot #157 merges. The four new controls on a handset against a web peer, a live multi-person video call and the heat measurement are the checks that remain.
+
 ## 0.6.12 a call that outlives the room on screen
 
 Version code 35. On a call, the room's back arrow no longer leaves the call:
