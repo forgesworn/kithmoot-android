@@ -282,6 +282,8 @@ data class StartState(
     /** A constrained room profile: new local identity, onion relays and Orbot only. */
     val anonymousMode: Boolean = false,
     val busy: Boolean = false,
+    /** A room has been opening for [STOP_OPENING_AFTER_MS]: offer the way out. */
+    val canStopOpening: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
     val roomName: String = "",
@@ -554,6 +556,9 @@ internal const val JOIN_LOG = "KithMootJoin"
 private const val ENTRY_GATE_WAIT_MS = 30_000L
 
 /** Shown on the start screen while a tap is waiting behind a teardown. */
+/** How long a room may take to open before the way out is offered. */
+internal const val STOP_OPENING_AFTER_MS = 8_000L
+
 /** The display preference behind [RoomViewModel.setMirrorSelf]. */
 private const val MIRROR_SELF = "mirrorSelf"
 private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
@@ -688,6 +693,11 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var leavingCall = false
     /** The room tap waiting behind a teardown, if any: always the latest one. */
     private val queuedEnter = LatestRequest<QueuedEnter>()
+    /** The entry under way, a tap waiting for the last room to close, and the
+     *  timer that offers a way out of either. See [stopOpening]. */
+    private var entryJob: Job? = null
+    private var entryWait: Job? = null
+    private var stopOpeningTimer: Job? = null
     private val savedRooms = (application as KithMootApplication).savedRooms
     private var savedRoom: SavedRoom? = null
     /** Kept only in memory, discarded on room/account/session changes. */
@@ -1916,6 +1926,7 @@ class RoomViewModel @JvmOverloads constructor(
             Log.i(JOIN_LOG, "enter refused reason=already-in-a-room")
             return
         }
+        armStopOpening()
         if (entering.tryAcquire()) {
             runEnter(block)
             return
@@ -1935,13 +1946,14 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         Log.i(JOIN_LOG, "enter waiting reason=previous-room-still-closing")
-        viewModelScope.launch {
+        entryWait = viewModelScope.launch {
             var taken = false
             try {
                 taken = entering.awaitAcquire(ENTRY_GATE_WAIT_MS)
                 val latest = queuedEnter.take()
                 if (!taken) {
                     Log.i(JOIN_LOG, "enter refused reason=previous-room-did-not-finish-closing")
+                    disarmStopOpening()
                     _start.update {
                         it.copy(busy = false, notice = null, error = "The last room is still closing. Try that room again in a moment.")
                     }
@@ -1950,6 +1962,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (latest == null || _stage.value != Stage.START) {
                     entering.release()
                     taken = false
+                    disarmStopOpening()
                     _start.update { it.copy(busy = false, notice = null) }
                     Log.i(JOIN_LOG, "enter dropped reason=nothing-left-to-open")
                     return@launch
@@ -1964,13 +1977,49 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Offer a way out of a room that is taking too long to open: a tester's
+     *  old room sat on "Opening" until the app was killed. */
+    private fun armStopOpening() {
+        stopOpeningTimer?.cancel()
+        // Finishing either way disarms this first, so firing means still waiting.
+        stopOpeningTimer = viewModelScope.launch {
+            delay(STOP_OPENING_AFTER_MS)
+            _start.update { it.copy(canStopOpening = true) }
+        }
+    }
+
+    private fun disarmStopOpening() {
+        stopOpeningTimer?.cancel()
+        stopOpeningTimer = null
+        _start.update { it.copy(canStopOpening = false) }
+    }
+
+    /**
+     * Stop and go back to your rooms. A room that will not open must never be
+     * a reason to quit the app. The rooms come back at once; the entry
+     * finishes cancelling behind them, still holding the entry gate, so a
+     * room tapped straight away waits for it as it would for any last room.
+     * A docked call belongs to the other instance and carries on.
+     */
+    fun stopOpening() {
+        if (_stage.value != Stage.START) return
+        Log.i(JOIN_LOG, "enter stopped by the person")
+        queuedEnter.take()
+        entryWait?.cancel()
+        entryWait = null
+        entryJob?.cancel()
+        entryJob = null
+        disarmStopOpening()
+        _start.update { it.copy(busy = false, notice = null) }
+    }
+
     /** "Finishing leaving the last room… Wednesday standup will open next." */
     private fun waitingNotice(label: String): String = "$FINISHING_LAST_ROOM $label will open next."
 
     /** The body of [enter], with the gate already held. */
     private fun runEnter(block: suspend () -> Unit) {
         _start.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        entryJob = viewModelScope.launch(Dispatchers.IO) {
             var opened = false
             try {
                 start.first { !it.loadingRooms }
@@ -1986,13 +2035,24 @@ class RoomViewModel @JvmOverloads constructor(
                     else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
                 }
             } finally {
+                // Stopped by the person: whatever part of the room had opened
+                // is closed again, never shown. See [stopOpening].
+                val stopped = !isActive
+                if (stopped) withContext(NonCancellable) {
+                    gate.withLock { closeSession(); _room.value = RoomState() }
+                }
                 // Publish room controls only once entry has released its guard.
                 // Otherwise a fast Leave tap can be silently rejected. Keep the
                 // unlock and UI transition on Main so a tap cannot interleave.
                 withContext(NonCancellable + Dispatchers.Main.immediate) {
                     entering.release()
-                    _start.update { it.copy(busy = false) }
-                    if (opened && session != null) _stage.value = Stage.ROOM
+                    // A stopped entry already gave the screen back, and a room
+                    // tapped since then owns its busy line and its timer.
+                    if (!stopped) {
+                        disarmStopOpening()
+                        _start.update { it.copy(busy = false) }
+                        if (opened && session != null) _stage.value = Stage.ROOM
+                    }
                 }
             }
         }

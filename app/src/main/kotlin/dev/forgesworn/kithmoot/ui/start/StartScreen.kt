@@ -60,6 +60,7 @@ fun StartScreen(
     accountRooms: AccountRoomActions = AccountRoomActions(),
     /** The docked call's room: forgetting it from under the call would strand it. */
     callRoomId: String? = null,
+    onStopOpening: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var siteShown by remember { mutableStateOf(false) }
@@ -92,6 +93,12 @@ fun StartScreen(
             }
             if (state.busy || state.loadingRooms) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading rooms" })
+            }
+            // A room that will not open must never be a reason to quit the
+            // app. Offered after a few seconds of waiting; see
+            // `RoomViewModel.stopOpening`.
+            if (state.canStopOpening) {
+                OutlinedButton(onStopOpening, Modifier.heightIn(min = 48.dp)) { Text("Stop and go back to your rooms") }
             }
             if (state.storageError) {
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {

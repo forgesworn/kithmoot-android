@@ -271,6 +271,7 @@ fun KithMootApp(
                 ),
                 modifier = Modifier.padding(padding),
                 callRoomId = callRoomId,
+                onStopOpening = model::stopOpening,
                 account = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,
                     onSignInWithApp = model::signInWithSignerApp,
