@@ -339,6 +339,7 @@ fun KithMootApp(
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
+                    onMirrorSelf = model::setMirrorSelf,
                     onSetVolume = model::setCallVolume,
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,

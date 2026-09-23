@@ -57,6 +57,15 @@ import org.webrtc.VideoTrack
  * with one name on it, and the room is never told how many machines they are
  * sitting at unless it is their own card, where it is useful.
  */
+/**
+ * Whether a pane is drawn as a mirror. Only this person's own cameras, and
+ * only while the device keeps its mirrored self-view: a phone filming you,
+ * seen on the tablet beside it, is a self-view too, or left and right swap.
+ * Screens and everybody else's cameras keep their true orientation.
+ */
+internal fun mirroredPane(isSelf: Boolean, role: String, mirrorSelf: Boolean): Boolean =
+    mirrorSelf && isSelf && role == Roles.CAMERA
+
 @Composable
 fun ParticipantTileView(
     tile: ParticipantTile,
@@ -73,6 +82,8 @@ fun ParticipantTileView(
     profile: PublicProfile? = null,
     selfDevice: String = "",
     connectionStates: Map<String, String> = emptyMap(),
+    /** Show this person's own cameras as a mirror. See `RoomState.mirrorSelf`. */
+    mirrorSelf: Boolean = true,
 ) {
     // A muted microphone is still live - hasMic stays true - but disabled at
     // the source, so it never reads as speaking. There is no audio-level
@@ -122,7 +133,7 @@ fun ParticipantTileView(
                                 track = track,
                                 eglBase = eglBase,
                                 modifier = Modifier.fillMaxSize(),
-                                mirror = tile.isSelf && meta.device == selfDevice && meta.role == Roles.CAMERA,
+                                mirror = mirroredPane(tile.isSelf, meta.role, mirrorSelf),
                                 onFirstFrame = { receivedFrame = true },
                                 // A shared screen is fitted, not cropped: the
                                 // edges of a slide are usually where the point is.

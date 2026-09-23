@@ -361,6 +361,9 @@ data class RoomState(
     val privateConversationPeers: List<String> = emptyList(),
     val privateConversationBusy: Boolean = false,
     val profilesEnabled: Boolean = false,
+    /** Whether this device shows its own camera as a mirror. Only the preview:
+     *  what the room receives is never flipped. See [RoomViewModel.setMirrorSelf]. */
+    val mirrorSelf: Boolean = true,
     val profiles: Map<String, PublicProfile> = emptyMap(),
     val selfParticipant: String = "",
     val selfDevice: String = "",
@@ -551,6 +554,8 @@ internal const val JOIN_LOG = "KithMootJoin"
 private const val ENTRY_GATE_WAIT_MS = 30_000L
 
 /** Shown on the start screen while a tap is waiting behind a teardown. */
+/** The display preference behind [RoomViewModel.setMirrorSelf]. */
+private const val MIRROR_SELF = "mirrorSelf"
 private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
 
 /**
@@ -2762,6 +2767,7 @@ class RoomViewModel @JvmOverloads constructor(
             privateConversation = isDmPolicy(policy),
             chatOnly = chatOnly,
             profilesEnabled = !anonymousProfile && display.getBoolean("publicProfiles", true),
+            mirrorSelf = display.getBoolean(MIRROR_SELF, true),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
             secondary = secondary,
@@ -3605,6 +3611,13 @@ class RoomViewModel @JvmOverloads constructor(
         display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
+    }
+
+    /** A self-view shown as a mirror is what most people expect, and some find
+     *  it backwards. Remembered for this device, not the room. */
+    fun setMirrorSelf(enabled: Boolean) {
+        display.edit().putBoolean(MIRROR_SELF, enabled).apply()
+        _room.update { it.copy(mirrorSelf = enabled) }
     }
 
     fun refreshCadence() = cadenceAction { record, who, secondary ->
