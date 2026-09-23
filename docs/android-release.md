@@ -20,6 +20,8 @@ returned with no rejoin. Mute from the dock stopped the audio, and Leave
 call from the dock ended the call. The same run on an emulator held the
 peer connection through 30 seconds of chatting elsewhere.
 
+Published on 23 September 2026 from `3851ac7`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `2130dd3a9b4ea12f5b90ec74c3f37eb666c8dfd96705a5846c350757f6834724`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.11 on the owner's Pixel 10 Pro XL (version 35 reported, first-install time preserved, launched cleanly), offered as GitHub pre-release `v0.6.12`, and on the website from kithmoot release 20260923T145145Z. A live multi-person video call on this build, and the handset heat measurement, are the checks that remain.
+
 ## 0.6.11 the secure-update crash and the camera ladder
 
 Published on 22 September 2026 from `b397fa9`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `d02f3cf65d292ee8180b49b678cce44161eff0b38663052c1af4bc6d989e3c18`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.10 on the owner's Pixel 10 Pro XL (version 34 reported, first-install time preserved, launched in about half a second), offered as GitHub pre-release `v0.6.11`, and on the website once kithmoot's release PR merges. A live multi-person video call on this build, and the handset heat measurement, are the checks that remain.
