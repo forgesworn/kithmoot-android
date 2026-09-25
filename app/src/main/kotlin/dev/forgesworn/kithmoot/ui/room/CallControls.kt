@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,10 +109,20 @@ internal class CallChrome {
 internal fun rememberCallChrome(mayHide: Boolean): CallChrome {
     val chrome = remember { CallChrome() }
     chrome.mayHide = mayHide
+    val context = LocalContext.current
+    // Android's "Time to take action" setting: somebody who asked for longer
+    // gets longer before the controls fade.
+    val hideAfter = remember(context) {
+        context.getSystemService(AccessibilityManager::class.java)
+            ?.getRecommendedTimeoutMillis(
+                CONTROLS_HIDE_AFTER_MS.toInt(),
+                AccessibilityManager.FLAG_CONTENT_CONTROLS or AccessibilityManager.FLAG_CONTENT_ICONS or AccessibilityManager.FLAG_CONTENT_TEXT,
+            )?.toLong() ?: CONTROLS_HIDE_AFTER_MS
+    }
     LaunchedEffect(mayHide, chrome.touches) {
         if (!mayHide) chrome.show()
         else if (chrome.visible) {
-            delay(CONTROLS_HIDE_AFTER_MS)
+            delay(hideAfter)
             chrome.hide()
         }
     }
@@ -119,15 +130,22 @@ internal fun rememberCallChrome(mayHide: Boolean): CallChrome {
 }
 
 /**
- * An accessibility service is running. Any at all, not only TalkBack: the
- * cost of guessing wrong one way is controls that stay put, the other a
- * person who cannot find the button to leave.
+ * A screen reader is running: touch exploration (TalkBack) or any service
+ * giving spoken or braille feedback. Not every accessibility service, since
+ * password managers and automation tools run as one and would pin the
+ * controls for good; people with other needs get a longer fade instead,
+ * through the "Time to take action" setting in [rememberCallChrome].
  */
 @Composable
 internal fun rememberAccessibilityOn(): Boolean {
     val context = LocalContext.current
     val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
-    fun read() = manager != null && (manager.isEnabled || manager.isTouchExplorationEnabled)
+    fun read() = manager != null && (
+        manager.isTouchExplorationEnabled ||
+            manager.getEnabledAccessibilityServiceList(
+                AccessibilityServiceInfo.FEEDBACK_SPOKEN or AccessibilityServiceInfo.FEEDBACK_BRAILLE,
+            ).isNotEmpty()
+        )
     var on by remember { mutableStateOf(read()) }
     DisposableEffect(manager) {
         if (manager == null) return@DisposableEffect onDispose { }
