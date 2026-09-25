@@ -644,6 +644,14 @@ class RoomViewModel @JvmOverloads constructor(
     /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
      *  same as [notifications] above. */
     private val callRinger = dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator(application)
+    // Declared before init, whose collectors run at once on Main.immediate.
+    /** Held by Telecom: a phone call answered over this one. Remote sound is
+     *  silenced (see the remote audio collector in startMedia) and a live
+     *  microphone muted, so neither leaks into or over the phone call. */
+    private val callHeld = MutableStateFlow(false)
+    /** Whether [holdCall] muted the microphone, so [resumeCall] unmutes only that. */
+    @Volatile private var micMutedForHold = false
+
     val callRingBanner: StateFlow<dev.forgesworn.kithmoot.notifications.IncomingCall?> get() = callRinger.banner
     fun dismissCallRingBanner() = callRinger.dismissBanner()
     fun setCallRingForeground(foreground: Boolean) { callRinger.foreground = foreground }
@@ -815,6 +823,29 @@ class RoomViewModel @JvmOverloads constructor(
                     screenOn = value.screenOn,
                 )
                 notifications.refresh()
+            }
+        }
+        // The call as a self-managed Telecom call (see telecom/CallTelecom.kt),
+        // following onCall so every way in and out of a call is covered:
+        // Join, Answer, a remembered join, Leave, leaving the room.
+        if (!chatOnly) viewModelScope.launch {
+            room.map { it.onCall }.distinctUntilChanged().collect { onCall ->
+                if (onCall) {
+                    dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), _room.value.name)
+                } else {
+                    callHeld.value = false
+                    micMutedForHold = false
+                    dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
+                }
+            }
+        }
+        if (!chatOnly) viewModelScope.launch {
+            dev.forgesworn.kithmoot.telecom.CallTelecom.events.collect { event ->
+                when (event) {
+                    dev.forgesworn.kithmoot.telecom.CallTelecomEvent.HANG_UP -> leaveCall()
+                    dev.forgesworn.kithmoot.telecom.CallTelecomEvent.HOLD -> holdCall()
+                    dev.forgesworn.kithmoot.telecom.CallTelecomEvent.RESUME -> resumeCall()
+                }
             }
         }
         refreshSavedRooms()
@@ -3161,8 +3192,9 @@ class RoomViewModel @JvmOverloads constructor(
                     local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack })
                 }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
             }
+            launch { dev.forgesworn.kithmoot.telecom.CallTelecom.audio.collect { media.audioRouting.handToTelecom(it) } }
             launch {
-                combine(media.remoteTracks, live.participants, live.localRoles) { remote, people, roles ->
+                combine(media.remoteTracks, live.participants, live.localRoles, callHeld) { remote, people, roles, held ->
                     val mine = people.firstOrNull { it.participant == who.participant }
                         ?.devices?.map { it.device }?.toSet() ?: emptySet()
                     val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
@@ -3179,7 +3211,7 @@ class RoomViewModel @JvmOverloads constructor(
                     // not keep playing over the live one.
                     remote.filter { it.receiving }.mapNotNull { track ->
                         (track.track as? AudioTrack)?.let { audio ->
-                            val play = shouldPlayRemoteAudio(track.device, mine, listeningHere)
+                            val play = !held && shouldPlayRemoteAudio(track.device, mine, listeningHere)
                             val gain = deviceParticipant[track.device]?.let(callVolume::gainFor) ?: CallVolume.DEFAULT_GAIN
                             Triple(audio, play, gain)
                         }
@@ -3441,6 +3473,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        if (!chatOnly) dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
         boxDiscovery.close()
         super.onCleared()
         closeSession()
@@ -3575,6 +3608,24 @@ class RoomViewModel @JvmOverloads constructor(
         adoptRoomCall()
         if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
         if (micOn) startMicrophoneForJoin(live)
+    }
+
+    private fun holdCall() = act {
+        if (!_room.value.onCall || callHeld.value) return@act
+        callHeld.value = true
+        val state = _room.value
+        if (dev.forgesworn.kithmoot.telecom.holdMutesMic(state.micOn, state.micMuted)) {
+            micMutedForHold = engine?.localMedia?.setMicrophoneMuted(true) == true
+        }
+    }
+
+    private fun resumeCall() = act {
+        if (!callHeld.value) return@act
+        callHeld.value = false
+        if (micMutedForHold) {
+            micMutedForHold = false
+            engine?.localMedia?.setMicrophoneMuted(false)
+        }
     }
 
     fun listenOnThisDevice() { if (_room.value.mediaRunning) session?.claim(Roles.MONITOR) }

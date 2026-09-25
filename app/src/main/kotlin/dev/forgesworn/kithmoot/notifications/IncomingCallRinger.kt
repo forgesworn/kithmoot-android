@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import dev.forgesworn.kithmoot.R
+import dev.forgesworn.kithmoot.telecom.CallTelecom
 import dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity
 import dev.forgesworn.kithmoot.ui.room.callerLabel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +29,9 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * The one thing this never does on its own is decide *whether* to ring -
  * that is [IncomingCallTracker] plus [CallRingSettings], both upstream of
- * every call here.
+ * every call here. [CallTelecom] sits in between: with a self-managed
+ * Telecom call it posts this notification from `onShowIncomingCallUi`,
+ * without one it posts it straight away.
  */
 object IncomingCallRinger {
     const val CHANNEL_ID = "incoming_call_v1"
@@ -124,8 +127,16 @@ object IncomingCallRinger {
         scheduleTimeout(context, roomId, callId)
     }
 
-    /** Stops ringing for whatever call this room is currently showing, if any. */
+    /** Stops ringing for whatever call this room is currently showing, if any,
+     *  and ends a Telecom call still ringing for it. */
     fun stop(context: Context, roomId: String) {
+        // On the main thread, where CallTelecom posts every ring: a stop from
+        // a background thread must not overtake the ring it is stopping.
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post { stop(context, roomId) }
+            return
+        }
+        CallTelecom.ringStopped(roomId)
         cancelTimeout(roomId)
         NotificationManagerCompat.from(context).cancel(roomId, NOTIFICATION_ID)
         if (mutableActive.value?.roomId == roomId) mutableActive.value = null
