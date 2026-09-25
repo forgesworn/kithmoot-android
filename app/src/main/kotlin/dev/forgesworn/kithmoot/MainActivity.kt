@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
      */
     private val visible = MutableStateFlow(true)
     private val notificationRoom = MutableStateFlow<String?>(null)
+    /** A room to open and join the call in, off an Answer press - the
+     *  notification's action or [dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity]. */
+    private val answerCallRoom = MutableStateFlow<String?>(null)
 
     /**
      * Signer intents, one at a time. A NIP-55 signer app is another activity
@@ -84,7 +87,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
-        signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
+        else if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID)
+        } else signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
         setContent {
             var textSize by remember { mutableStateOf(TextSize.load(this)) }
@@ -117,6 +122,19 @@ class MainActivity : ComponentActivity() {
                     val target = if (visiting) visitor else model
                     target.start.first { state -> !state.loadingRooms }
                     target.openNotificationRoom(id)
+                }
+                val answerRoom by answerCallRoom.collectAsState()
+                LaunchedEffect(answerRoom) {
+                    val id = answerRoom ?: return@LaunchedEffect
+                    answerCallRoom.value = null
+                    if (visiting) backToCall()
+                    model.start.first { state -> !state.loadingRooms }
+                    model.openNotificationRoom(id)
+                    // Mic and camera already default off on join; joinCall()
+                    // is a no-op until the room actually reaches Stage.ROOM.
+                    kotlinx.coroutines.flow.combine(model.stage, model.room) { s, r -> s to r.roomId }
+                        .first { (s, roomId) -> s == Stage.ROOM && roomId == id }
+                    model.joinCall()
                 }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
@@ -185,6 +203,9 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
             notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
+        }
+        if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID); return
         }
         signetFrom(intent)?.let { signetReturn.value = it; return }
         linkFrom(intent)?.let { incoming.value = it }

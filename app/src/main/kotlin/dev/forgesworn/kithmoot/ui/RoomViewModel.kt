@@ -629,6 +629,15 @@ class RoomViewModel @JvmOverloads constructor(
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
     fun notificationReading(reading: Boolean) { if (chatOnly) return; notifications.reading = reading; notifications.refresh() }
     fun notificationForeground(foreground: Boolean) { if (chatOnly) return; notifications.foreground = foreground; notifications.refresh() }
+
+    /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
+     *  same as [notifications] above. */
+    private val callRinger = dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator(application)
+    val callRingBanner: StateFlow<dev.forgesworn.kithmoot.notifications.IncomingCall?> get() = callRinger.banner
+    fun dismissCallRingBanner() = callRinger.dismissBanner()
+    fun setCallRingForeground(foreground: Boolean) { callRinger.foreground = foreground }
+    fun callRingMode(roomId: String) = callRinger.modeFor(roomId)
+    fun setCallRingMode(roomId: String, mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = callRinger.setMode(roomId, mode)
     fun openNotificationRoom(id: String) {
         if (!Regex("[a-f0-9]{64}").matches(id)) return
         if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
@@ -2935,7 +2944,17 @@ class RoomViewModel @JvmOverloads constructor(
                         if (!chatOnly) notifications.accept(chat)
                         // The room's current call is the head of the same list
                         // every other client picks from - see RoomSession.calls.
-                        val onCall = callsOf(people).firstOrNull()?.devices.orEmpty()
+                        val current = callsOf(people).firstOrNull()
+                        val onCall = current?.devices.orEmpty()
+                        // The starter: whoever's own call membership carries the
+                        // call's earliest `since`, ties broken on participant -
+                        // exactly how the web client picks who a ring names as
+                        // caller (`renderCallState` in src/main.ts).
+                        val starter = current?.let { call ->
+                            people.filter { it.call?.id == call.id }
+                                .minWithOrNull(compareBy({ it.call!!.since }, { it.participant }))
+                        }?.participant
+                        callRinger.update(record.id, record.name, current?.id, starter, who.participant, onCall.contains(who.devicePubkey))
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -3376,6 +3395,7 @@ class RoomViewModel @JvmOverloads constructor(
         profilePool = null
         pool = null
         if (!chatOnly) notifications.end()
+        callRinger.end()
         session = null
         identity = null
         savedRoom = null

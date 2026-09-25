@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.room.AddDeviceSheet
 import dev.forgesworn.kithmoot.ui.room.ChatPane
 import dev.forgesworn.kithmoot.ui.room.ContactCardsSheet
@@ -76,13 +77,18 @@ fun KithMootApp(
     val videos by model.videos.collectAsState()
 
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    androidx.compose.runtime.DisposableEffect(lifecycle, model) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
-            model.notificationForeground(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+    androidx.compose.runtime.DisposableEffect(lifecycle, model, stage) {
+        fun apply() {
+            val resumed = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+            model.notificationForeground(resumed)
+            // Ringing is redundant for a call in the room already on screen;
+            // see IncomingCallRingCoordinator.foreground.
+            model.setCallRingForeground(resumed && stage == Stage.ROOM)
         }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ -> apply() }
         lifecycle.addObserver(observer)
-        model.notificationForeground(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
-        onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false) }
+        apply()
+        onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false); model.setCallRingForeground(false) }
     }
     val context = LocalContext.current
     val snackbars = remember { SnackbarHostState() }
@@ -195,7 +201,14 @@ fun KithMootApp(
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
-                    notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications) })
+                    notificationSettings = {
+                        val ringRoom = if (stage == Stage.ROOM) object : dev.forgesworn.kithmoot.notifications.CallRingRoom {
+                            override val roomId = roomState.roomId
+                            override fun mode() = model.callRingMode(roomState.roomId)
+                            override fun setMode(mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = model.setCallRingMode(roomState.roomId, mode)
+                        } else null
+                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom)
+                    })
     }
 
     Scaffold(
@@ -374,6 +387,17 @@ fun KithMootApp(
                             onCloseSearch = { searchOpen = false },
                         )
                     },
+                )
+            }
+        }
+        if (stage == Stage.ROOM) {
+            val ringBanner by model.callRingBanner.collectAsState()
+            ringBanner?.let { call ->
+                dev.forgesworn.kithmoot.notifications.IncomingCallBanner(
+                    callerLabel = dev.forgesworn.kithmoot.ui.room.shortId(call.caller),
+                    onAnswer = { model.dismissCallRingBanner(); model.joinCall() },
+                    onDismiss = model::dismissCallRingBanner,
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 12.dp),
                 )
             }
         }

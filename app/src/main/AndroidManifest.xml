@@ -15,9 +15,15 @@
          them, so the service claims all three types. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <!-- Asked for only when a screen share is about to start, because that is
-         the only thing here that needs a notification. -->
+    <!-- Asked for only when a screen share is about to start, or a call the
+         person is not on starts in a room they have open, because those are
+         the only things here that need a notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The incoming-call screen, over the lock screen where Android 14's
+         canUseFullScreenIntent() allows it; otherwise the notification falls
+         back to heads-up. See notifications/IncomingCallRinger.kt. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Neither is required: the application is useful on a device with no
          camera at all, as a screen and a voice. -->
@@ -81,6 +87,17 @@
                 <data android:scheme="kithmoot" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.incoming.IncomingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.KithMoot" />
+
+        <receiver
+            android:name=".notifications.IncomingCallActionReceiver"
+            android:exported="false" />
 
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.images" android:exported="false" android:grantUriPermissions="true">
