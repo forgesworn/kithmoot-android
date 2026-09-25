@@ -1,6 +1,14 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,14 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.automirrored.filled.ScreenShare
-import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExpandMore
@@ -38,20 +40,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Cameraswitch
 import dev.forgesworn.kithmoot.media.effects.SeaScene
-import androidx.compose.material.icons.filled.HideImage
-import androidx.compose.material.icons.filled.Landscape
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Contacts
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.VoiceOverOff
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VideocamOff
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -72,9 +61,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.RoomState
@@ -125,8 +112,16 @@ fun RoomScreen(
     onListenHere: () -> Unit = {},
     onLeaveCall: () -> Unit = {},
     onJoinCall: () -> Unit = {},
+    /** The activity is in system picture-in-picture: only the call's picture. */
+    inPictureInPicture: Boolean = false,
+    /** Opens system picture-in-picture, where the device has it. */
+    onPopOut: (() -> Unit)? = null,
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var preferGrid by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    var swapped by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
         if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
@@ -153,6 +148,41 @@ fun RoomScreen(
     DisposableEffect(view, onCall) {
         view.keepScreenOn = onCall
         onDispose { view.keepScreenOn = false }
+    }
+    if (inPictureInPicture && (state.onCall || callOpen) && state.mediaRunning && !state.chatOnly) {
+        PipCall(state, videos, eglBase, modifier)
+        return
+    }
+    val callShowing = callOpen && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null
+    val chrome = rememberCallChrome(
+        mayHide = callShowing && controlsMayAutoHide(
+            videoShowing = videoShowing(state, videos),
+            // A sheet or dialog takes the window's focus: the controls
+            // stay put under it and are there when it closes.
+            windowFocused = LocalWindowInfo.current.isWindowFocused,
+            accessibilityOn = rememberAccessibilityOn(),
+        ),
+    )
+    val chromeVisible = !callShowing || chrome.visible
+    if (moreOpen && callShowing) {
+        val others = state.tiles.count { !it.isSelf }
+        MoreCallSheet(
+            state = state,
+            layoutToggle = others >= SPEAKER_LAYOUT_FROM,
+            preferGrid = preferGrid,
+            selfHidden = selfHidden,
+            canHideSelf = others > 0,
+            onDismiss = { moreOpen = false },
+            onSwitchCamera = onSwitchCamera,
+            onOpenBackground = { backgroundOpen = true },
+            onToggleScreenShare = onToggleScreenShare,
+            onAddDevice = onAddDevice,
+            onOpenCards = onOpenCards,
+            onToggleLayout = { preferGrid = !preferGrid },
+            onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
+            onToggleAgentsMayHear = onToggleAgentsMayHear,
+            onPopOut = onPopOut,
+        )
     }
     if (backgroundOpen) {
         ModalBottomSheet(
@@ -239,8 +269,21 @@ fun RoomScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            // Any touch on the call, handled or not, starts the controls'
+            // timer again. Observed on the way down, never consumed.
+            .pointerInput(callShowing) {
+                if (!callShowing) return@pointerInput
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        chrome.touched()
+                    }
+                }
+            },
     ) {
+      AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+       Column {
         Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
         TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
@@ -269,7 +312,10 @@ fun RoomScreen(
             otherDevicesOn = state.callOtherDevices,
             leaving = state.callChanging,
         )
-        if (!state.anonymous && !state.chatOnly && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        // On the call view the control bar carries Leave, so the row is only
+        // for joining, and for saying what is happening while it changes.
+        val barLeaves = callShowing && state.onCall && !state.callChanging
+        if (!barLeaves && !state.anonymous && !state.chatOnly && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -297,6 +343,8 @@ fun RoomScreen(
                 RoomUpdatePanel(state.roomUpdate, state.notice, onRetryRoomUpdate)
             }
         }
+       }
+      }
 
         if (!state.anonymous && workOpen) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
@@ -311,63 +359,42 @@ fun RoomScreen(
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (!state.mediaRunning) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
-                else LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 300.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    if (state.tiles.size == 1) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            AlonePanel(state, onRotateInvitation)
+                else CallView(
+                    state = state,
+                    videos = videos,
+                    eglBase = eglBase,
+                    chrome = chrome,
+                    preferGrid = preferGrid,
+                    swapped = swapped,
+                    onSwap = { swapped = !swapped },
+                    hideSelf = selfHidden,
+                    onExpandScreen = onExpandScreen,
+                    onSetVolume = onSetVolume,
+                    alone = { AlonePanel(state, onRotateInvitation) },
+                )
+                Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Only when it is not here: which device plays the call
+                    // is worth a banner when it is surprising, not all day.
+                    if (state.mediaRunning && !state.listeningHere) Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Call audio is on another of your devices", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onListenHere) { Text("Listen here") }
                         }
                     }
-                    // A shared screen takes the whole row: it is what the room came
-                    // to look at, and half a column is too small to read a slide.
-                    items(
-                        state.tiles,
-                        key = { it.participant },
-                        span = { tile -> androidx.compose.foundation.lazy.grid.GridItemSpan(if (tile.isSharingScreen) maxLineSpan else 1) },
-                    ) { tile ->
-                        ParticipantTileView(
-                            tile = tile,
-                            videoFor = { track -> videos["${track.device}|${track.role}"] },
-                            eglBase = eglBase,
-                            onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
-                            shareMarks = state.shareMarks,
-                            onSetVolume = onSetVolume,
-                            profile = state.profiles[tile.participant].takeIf { state.profilesEnabled },
-                            selfDevice = state.selfDevice,
-                            connectionStates = state.mediaConnections,
-                            mirrorSelf = state.mirrorSelf,
-                        )
-                    }
-                    if (state.mediaFault != null) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            FaultPanel(state.mediaFault)
-                        }
-                    }
+                    if (state.mediaFault != null) FaultPanel(state.mediaFault)
                 }
             }
-
-            if (state.mediaRunning) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (state.listeningHere) "Listening on this phone" else "Call audio is on another of your devices",
-                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton(onListenHere) { Text("Listen here") }
-            }
-            if (state.movedOn == null && state.mediaRunning) {
-                Controls(
+            AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                CallControlsBar(
                     state = state,
                     onToggleMic = onToggleMic,
-                    onToggleAgentsMayHear = onToggleAgentsMayHear,
                     onToggleCamera = onToggleCamera,
-                    onSwitchCamera = onSwitchCamera,
-                    onToggleScreenShare = onToggleScreenShare,
-                    onOpenBackground = { backgroundOpen = true },
                     onOpenChat = { callOpen = false },
-                    onAddDevice = onAddDevice,
-                    onOpenCards = onOpenCards,
+                    onMore = { moreOpen = true },
+                    onLeaveCall = { onLeaveCall(); callOpen = false; workOpen = false },
                 )
             }
         }
@@ -581,173 +608,5 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onRetry) { Text("Retry secure update") }
         }
-    }
-}
-
-@Composable
-private fun Controls(
-    state: RoomState,
-    onToggleMic: () -> Unit,
-    onToggleAgentsMayHear: () -> Unit,
-    onToggleCamera: () -> Unit,
-    onSwitchCamera: () -> Unit,
-    onToggleScreenShare: () -> Unit,
-    onOpenBackground: () -> Unit,
-    onOpenChat: () -> Unit,
-    onAddDevice: () -> Unit,
-    onOpenCards: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ControlButton(
-                // Live-and-muted keeps the microphone icon crossed out, same
-                // as off, but is coloured as a warning rather than plain
-                // inactive: the mic is still running, just silenced.
-                icon = if (state.micOn && !state.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
-                label = "Mic",
-                active = state.micOn && !state.micMuted,
-                danger = state.micOn && state.micMuted,
-                contentDescription = when {
-                    !state.micOn -> "Microphone off"
-                    state.micMuted -> "Microphone muted"
-                    else -> "Microphone on"
-                },
-                onClick = onToggleMic,
-            )
-            ControlButton(
-                icon = if (state.cameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
-                label = "Camera",
-                active = state.cameraOn,
-                onClick = onToggleCamera,
-            )
-            if (state.cameraOn) {
-                ControlButton(
-                    icon = Icons.Filled.Cameraswitch,
-                    label = "Flip",
-                    active = false,
-                    onClick = onSwitchCamera,
-                )
-                // Only while the camera is on. A control for hiding what is
-                // behind you, offered when nothing is being published, teaches
-                // somebody the wrong thing about when it is doing anything.
-                ControlButton(
-                    icon = if (state.background.on) Icons.Filled.Landscape else Icons.Filled.HideImage,
-                    label = "Backdrop",
-                    active = state.background.on,
-                    onClick = onOpenBackground,
-                )
-            }
-            ControlButton(
-                icon = if (state.screenOn) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare,
-                label = "Share",
-                active = state.screenOn,
-                onClick = onToggleScreenShare,
-            )
-            ControlButton(
-                icon = Icons.AutoMirrored.Filled.Chat,
-                label = "Chat",
-                active = false,
-                badge = state.chat.size.takeIf { it > 0 },
-                onClick = onOpenChat,
-            )
-            // Only shown when there is an agent in the room: a switch that
-            // governs nothing is a switch that teaches somebody the wrong
-            // thing about what it does. Off means this device's camera and
-            // microphone are never handed to a connection to an agent - the
-            // media does not leave the phone for them.
-            if (state.agentCount > 0) {
-                ControlButton(
-                    icon = if (state.agentsMayHear) Icons.Filled.SmartToy else Icons.Filled.VoiceOverOff,
-                    label = if (state.agentsMayHear) "Agents hear" else "Agents off",
-                    active = state.agentsMayHear,
-                    onClick = onToggleAgentsMayHear,
-                )
-            }
-            if (state.canAddDevice) {
-                ControlButton(
-                    icon = Icons.Filled.PersonAdd,
-                    label = "Device",
-                    active = false,
-                    onClick = onAddDevice,
-                )
-            }
-            ControlButton(
-                icon = Icons.Filled.Contacts,
-                label = "Cards",
-                active = false,
-                badge = state.contacts.size.takeIf { it > 0 },
-                onClick = onOpenCards,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ControlButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    danger: Boolean = false,
-    badge: Int? = null,
-    contentDescription: String = label,
-) {
-    val container = when {
-        danger -> MaterialTheme.colorScheme.error
-        active -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
-    }
-    val content = when {
-        danger -> MaterialTheme.colorScheme.onError
-        active -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .width(64.dp)
-            .heightIn(min = 72.dp),
-    ) {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(16.dp),
-            color = container,
-            contentColor = content,
-            modifier = Modifier.size(width = 58.dp, height = 50.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                BadgedBox(
-                    badge = {
-                        if (badge != null) {
-                            Badge(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary,
-                            ) { Text("$badge") }
-                        }
-                    },
-                ) {
-                    Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(28.dp))
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
     }
 }

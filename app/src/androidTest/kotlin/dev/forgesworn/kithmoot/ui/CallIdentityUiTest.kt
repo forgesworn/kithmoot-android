@@ -36,7 +36,8 @@ class CallIdentityUiTest {
                     onListenHere = { handoffs++; state = state.copy(listeningHere = true) })
             } } }
             ui.onNodeWithText("Call").performClick()
-            ui.onNode(hasScrollAction()).performScrollToNode(hasText("Rowan"))
+            // One other person: they fill the call, name and short key on
+            // the stage, and nothing needs scrolling to.
             ui.onNodeWithText("Rowan").assertIsDisplayed()
             ui.onNodeWithText(shortNpub(other)).assertIsDisplayed()
             ui.onNodeWithText("Connecting video…").assertIsDisplayed()

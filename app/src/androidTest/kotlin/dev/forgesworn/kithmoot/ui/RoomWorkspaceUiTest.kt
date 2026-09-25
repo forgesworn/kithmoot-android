@@ -72,7 +72,7 @@ class RoomWorkspaceUiTest {
             ui.onNodeWithText("Call").performClick()
             ui.onNodeWithText("Say something").assertDoesNotExist()
             ui.runOnIdle { assertEquals(0, mediaRequests) }
-            ui.onNode(hasText("Chat") and hasClickAction()).performClick()
+            ui.onNode(hasText("Chat") and isSelectable()).performClick()
             ui.onNodeWithText("Keep this thought while I check the call").assertIsDisplayed()
             ui.onNodeWithText("release").assertIsDisplayed()
             ui.onNodeWithContentDescription("Send").performClick()
@@ -85,7 +85,7 @@ class RoomWorkspaceUiTest {
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Update 5"))
             ui.onNodeWithText("Update 5").assertIsDisplayed()
             ui.onNodeWithText("Call").performClick()
-            ui.onNode(hasText("Chat") and hasClickAction()).performClick()
+            ui.onNode(hasText("Chat") and isSelectable()).performClick()
             ui.onNodeWithText("Update 5").assertIsDisplayed()
             ui.onNodeWithContentDescription("Close search").performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Sounds good 👍"))

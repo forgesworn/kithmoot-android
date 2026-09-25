@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 import org.webrtc.AudioTrack
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -186,6 +189,26 @@ class WebRtcEngine(
     /** Every track arriving from every remote device, keyed by the device that sent it. */
     val remoteTracks: StateFlow<List<RemoteTrack>> = _remoteTracks.asStateFlow()
 
+    /** This device's microphone, measured on the record thread. See [SpeakingLevels.RMS]. */
+    private val microphoneLevel = LevelMeter()
+    private val _speakingDevices = MutableStateFlow<Set<String>>(emptySet())
+    private val _selfSpeaking = MutableStateFlow(false)
+
+    /** Remote devices whose microphone is currently carrying speech. */
+    val speakingDevices: StateFlow<Set<String>> = _speakingDevices.asStateFlow()
+
+    /** This device's own microphone is carrying speech. Not gated on mute:
+     *  the caller knows whether the microphone is live and muted. */
+    val selfSpeaking: StateFlow<Boolean> = _selfSpeaking.asStateFlow()
+
+    /**
+     * The playback gain this device applies to a remote device, set by the
+     * caller from the per-person volume. libwebrtc measures a receiver's level
+     * after that gain, so a person turned down to half would otherwise have
+     * to shout to light their cue here.
+     */
+    @Volatile var speakingGain: (String) -> Double = { 1.0 }
+
     init {
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
@@ -194,6 +217,9 @@ class WebRtcEngine(
         audioDevice = JavaAudioDeviceModule.builder(context.applicationContext)
             .setSampleRate(48_000)
             .setAudioBufferCallback { buffer, format, channels, rate, bytes, timestamp ->
+                // Measured before any app sound is mixed in, so the speaking
+                // cue follows this person's voice rather than a shared video.
+                if (format == android.media.AudioFormat.ENCODING_PCM_16BIT) runCatching { microphoneLevel.addPcm16(buffer, bytes) }
                 playbackAudio.fill(buffer, format, channels, rate, bytes)
                 timestamp
             }
@@ -256,6 +282,7 @@ class WebRtcEngine(
                 synchronized(lock) { links.values().forEach { it.reportMediaProgress() } }
             }
         }
+        engineScope.launch(MediaDispatcher) { pollSpeaking() }
         // One statistics sample per profile-2 pair every two seconds, which is
         // the whole input to the health ladder. Whether packets are moving is
         // the only honest evidence that a direction is alive: a connection can
@@ -267,6 +294,33 @@ class WebRtcEngine(
                 val sampling = synchronized(lock) { links.values().filter { it.profileTwo } }
                 for (link in sampling) runCatching { link.sampleHealth() }
             }
+        }
+    }
+
+    /**
+     * Who is speaking, a few times a second.
+     *
+     * Remote devices from each connection's receive statistics, this device
+     * from its own record buffers; two scales, two sets of thresholds (see
+     * [SpeakingLevels]). A poll that times out keeps that device's detector
+     * as it was rather than reading as silence.
+     */
+    private suspend fun pollSpeaking() {
+        val remote = SpeakingSet(SpeakingLevels.STATS)
+        val self = SpeakingDetector(SpeakingLevels.RMS)
+        while (kotlin.coroutines.coroutineContext.isActive) {
+            delay(SPEAKING_SAMPLE_MS)
+            val now = android.os.SystemClock.elapsedRealtime()
+            val sampling = synchronized(lock) { if (callActive) links.values() else emptyList() }
+            for (link in sampling) {
+                val level = withTimeoutOrNull(SPEAKING_SAMPLE_MS) { link.speechLevel() } ?: continue
+                val gain = runCatching { speakingGain(link.device) }.getOrDefault(1.0)
+                remote.update(link.device, if (gain > 0.01) level / gain else 0.0, now)
+            }
+            remote.retain(sampling.map { it.device }.toSet())
+            _speakingDevices.value = remote.active()
+            val mic = microphoneLevel.drain()
+            _selfSpeaking.value = if (mic == null) { self.reset(); false } else self.update(mic, now)
         }
     }
 
@@ -519,7 +573,7 @@ class WebRtcEngine(
      * added to it.
      */
     private inner class ManagedLink(
-        private val device: String,
+        val device: String,
         /** Whether this pair speaks fixed media slots. Decided once, at open,
          *  from both ends' roster entries; a pair never changes profile
          *  without the connection being rebuilt. */
@@ -542,6 +596,17 @@ class WebRtcEngine(
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
+
+        /**
+         * Held while a speaking poll starts a statistics read and while
+         * [close] marks the link closed, so the poll never calls into a
+         * connection that is being disposed. Never taken on a WebRTC
+         * callback, and never held across the close itself.
+         */
+        private val statsLock = Any()
+
+        /** Last `totalAudioEnergy` and `totalSamplesDuration` per stats id. */
+        private val audioEnergy = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Double>>()
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
@@ -725,6 +790,55 @@ class WebRtcEngine(
             }
         }
 
+        /**
+         * The loudest microphone this device is sending us, on libwebrtc's
+         * peak-based scale; null when there is no connection or no audio.
+         * A screen share's own sound is left out: a video playing on
+         * somebody's laptop is not them speaking.
+         */
+        suspend fun speechLevel(): Double? = suspendCancellableCoroutine { continuation ->
+            val started = synchronized(statsLock) {
+                val pc = connection
+                !closed && pc != null && runCatching {
+                    pc.getStats { report ->
+                        val level = runCatching { speechLevelFrom(report) }.getOrNull()
+                        if (continuation.isActive) continuation.resume(level)
+                    }
+                }.isSuccess
+            }
+            if (!started && continuation.isActive) continuation.resume(null)
+        }
+
+        private fun speechLevelFrom(report: org.webrtc.RTCStatsReport): Double? {
+            if (closed) return null
+            val remote = _remoteTracks.value.filter { it.device == device }
+            val adverts = session.participants.value.asSequence()
+                .flatMap { it.tracks.asSequence() }
+                .filter { it.device == device }
+                .associate { it.trackId to it.role }
+            var loudest: Double? = null
+            for (stats in report.statsMap.values) {
+                if (stats.type != "inbound-rtp") continue
+                val members = stats.members
+                if ((members["kind"] ?: members["mediaType"]) != "audio") continue
+                val mid = members["mid"] as? String
+                val bound = remote.firstOrNull { mid != null && it.mid == mid }
+                val advertised = bound?.trackId ?: members["trackIdentifier"] as? String
+                val role = bound?.role ?: advertised?.let { adverts[it] }
+                    ?: advertised?.takeIf { it.startsWith("${Roles.SCREEN_AUDIO}-") }?.let { Roles.SCREEN_AUDIO }
+                if (role == Roles.SCREEN_AUDIO) continue
+                val energy = (members["totalAudioEnergy"] as? Number)?.toDouble()
+                val duration = (members["totalSamplesDuration"] as? Number)?.toDouble()
+                val previous = audioEnergy[stats.id]
+                if (energy != null && duration != null) audioEnergy[stats.id] = energy to duration
+                val level = (if (previous != null && energy != null && duration != null) {
+                    levelFromEnergy(previous.first, previous.second, energy, duration)
+                } else null) ?: (members["audioLevel"] as? Number)?.toDouble() ?: continue
+                loudest = maxOf(loudest ?: 0.0, level)
+            }
+            return loudest
+        }
+
         fun reportMediaProgress() {
             if (closed) return
             connection?.getStats { report ->
@@ -827,7 +941,7 @@ class WebRtcEngine(
         }
 
         fun close() {
-            closed = true
+            synchronized(statsLock) { closed = true }
             senders.clear()
             received.clear()
             if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }
@@ -854,6 +968,13 @@ internal const val STREAM_ID: String = "kithmoot"
  * a stopwatch.
  */
 internal const val HEALTH_SAMPLE_MS: Long = 2_000
+
+/**
+ * How often who-is-speaking is read: five times a second. Fast enough that a
+ * cue arrives with the first word, slow enough that a statistics report per
+ * connection is not a cost anybody notices.
+ */
+internal const val SPEAKING_SAMPLE_MS: Long = 200
 
 /** Dispatcher the engine's own work runs on. WebRTC callbacks arrive on their own threads. */
 internal val MediaDispatcher = Dispatchers.Default
