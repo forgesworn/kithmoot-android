@@ -14,7 +14,7 @@ takes its place, matching the web client. The per-peer media log now reports
 audio's own counters (packets, loss, samples, concealment and packets sent),
 where before every audio line read frames=0. No wire change.
 
-Not yet checked on a handset.
+Published on 25 September 2026 from `31c7555`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `4315aa0877ed613937aa9bfda98738d9b5d764a85d6bed16c055e7727620e94c`, certificate `135bcabf…`, lineage `0ccf5ece…`. The first signing attempt failed one unit test with an AbstractMethodError: Kotlin 2.0 incremental compilation had not rebuilt a test fake after `queryAvailable` gained a default body on `RoomTransport`. Clearing `app/build/kotlin` and `app/build/tmp/kotlin-classes` fixed it, and the release classes were checked to carry the method in every implementer. Passed the web repository's publication verifier, installed in place over 0.6.14 on the owner's Pixel 10 Pro XL (first-install time preserved, launched without a crash), offered as GitHub pre-release `v0.6.15`, and on the website from kithmoot #162 (site release 20260925T132552Z, live download hash checked).
 
 ## 0.6.14 a call survives a bad relay
 
