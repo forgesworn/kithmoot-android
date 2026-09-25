@@ -1,7 +1,10 @@
 package dev.forgesworn.kithmoot
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -70,6 +73,31 @@ class MainActivity : ComponentActivity() {
         signerAnswer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
         signerAnswer = null
     }
+
+    /**
+     * RECORD_AUDIO for a call answered straight in, like Signal or WhatsApp -
+     * asked for here rather than through [dev.forgesworn.kithmoot.ui.Permissions],
+     * since answering runs before the room composable's own asker exists for
+     * this room. A refusal joins muted rather than failing the answer.
+     */
+    private var micPermissionAnswer: CompletableDeferred<Boolean>? = null
+    private val micPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        micPermissionAnswer?.complete(granted)
+        micPermissionAnswer = null
+    }
+
+    private suspend fun ensureMicForAnswer(): Boolean {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) return true
+        val answer = CompletableDeferred<Boolean>()
+        micPermissionAnswer = answer
+        return try {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            answer.await()
+        } catch (e: Exception) {
+            micPermissionAnswer = null
+            false
+        }
+    }
     private val signerTurn = Mutex()
     private val signerBridge = Nip55Bridge { intent ->
         signerTurn.withLock {
@@ -130,11 +158,13 @@ class MainActivity : ComponentActivity() {
                     if (visiting) backToCall()
                     model.start.first { state -> !state.loadingRooms }
                     model.openNotificationRoom(id)
-                    // Mic and camera already default off on join; joinCall()
-                    // is a no-op until the room actually reaches Stage.ROOM.
+                    // joinCall() is a no-op until the room actually reaches
+                    // Stage.ROOM, which this waits for below.
                     kotlinx.coroutines.flow.combine(model.stage, model.room) { s, r -> s to r.roomId }
                         .first { (s, roomId) -> s == Stage.ROOM && roomId == id }
-                    model.joinCall()
+                    // Answer means straight in, talking, like a phone call -
+                    // the microphone goes live with the join. Camera stays off.
+                    model.joinCall(micOn = ensureMicForAnswer())
                 }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {

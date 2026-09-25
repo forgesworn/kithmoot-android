@@ -394,10 +394,21 @@ fun KithMootApp(
         }
         if (stage == Stage.ROOM) {
             val ringBanner by model.callRingBanner.collectAsState()
+            // Answering here is the same as answering the notification:
+            // straight in, microphone live. A refused mic joins muted.
+            val answerWithMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                model.joinCall(micOn = granted)
+            }
             ringBanner?.let { call ->
                 dev.forgesworn.kithmoot.notifications.IncomingCallBanner(
                     callerLabel = dev.forgesworn.kithmoot.ui.room.shortId(call.caller),
-                    onAnswer = { model.dismissCallRingBanner(); model.joinCall() },
+                    onAnswer = {
+                        model.dismissCallRingBanner()
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) model.joinCall(micOn = true)
+                        else answerWithMic.launch(Manifest.permission.RECORD_AUDIO)
+                    },
                     onDismiss = model::dismissCallRingBanner,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 12.dp),
                 )
