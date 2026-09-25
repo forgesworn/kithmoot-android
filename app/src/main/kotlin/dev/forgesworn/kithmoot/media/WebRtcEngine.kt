@@ -70,6 +70,39 @@ data class RemoteTrack(
     val role: String? = null,
 )
 
+/** One RTCStats entry, reduced to what [summariseMediaProgress] reads. */
+internal data class StatsEntry(val type: String, val members: Map<String, Any?>)
+
+/**
+ * The per-peer progress line for [WebRtcEngine.PeerLink.reportMediaProgress].
+ *
+ * `framesDecoded` only exists on video inbound-rtp; an audio line built from
+ * it always reads `frames=0`, which once passed for audio not decoding.
+ * Audio gets its own counters instead - packets, loss, samples and
+ * concealment - plus a sender's own packetsSent so a stalled outbound leg is
+ * visible too.
+ */
+internal fun summariseMediaProgress(entries: List<StatsEntry>): String =
+    entries.mapNotNull { entry ->
+        val kind = entry.members["kind"] ?: entry.members["mediaType"]
+        when (entry.type) {
+            "inbound-rtp" -> when (kind) {
+                "audio" -> buildString {
+                    append("audio: packets=${entry.members["packetsReceived"] ?: 0}")
+                    append(", lost=${entry.members["packetsLost"] ?: 0}")
+                    append(", samples=${entry.members["totalSamplesReceived"] ?: 0}")
+                    append(", concealed=${entry.members["concealedSamples"] ?: 0}")
+                    entry.members["silentConcealedSamples"]?.let { append(", silentConcealed=$it") }
+                    entry.members["audioLevel"]?.let { append(", level=$it") }
+                }
+                "video" -> "video: frames=${entry.members["framesDecoded"] ?: 0}, lost=${entry.members["packetsLost"] ?: 0}"
+                else -> "$kind: packets=${entry.members["packetsReceived"] ?: 0}"
+            }
+            "outbound-rtp" -> if (kind == "audio") "audioSent: packets=${entry.members["packetsSent"] ?: 0}" else null
+            else -> null
+        }
+    }.joinToString("; ")
+
 /**
  * The media half of a room: one peer connection per remote **device**.
  *
@@ -696,10 +729,10 @@ class WebRtcEngine(
             if (closed) return
             connection?.getStats { report ->
                 if (closed) return@getStats
-                val incoming = report.statsMap.values.filter { it.type == "inbound-rtp" }
-                val summary = incoming.joinToString("; ") {
-                    "${it.members["kind"] ?: it.members["mediaType"]}: packets=${it.members["packetsReceived"] ?: 0}, frames=${it.members["framesDecoded"] ?: 0}"
-                }
+                val relevant = report.statsMap.values
+                    .filter { it.type == "inbound-rtp" || it.type == "outbound-rtp" }
+                    .map { StatsEntry(it.type, it.members) }
+                val summary = summariseMediaProgress(relevant)
                 // No SDP, network addresses, credentials or message contents.
                 val videos = _remoteTracks.value.count { it.device == device && it.track is VideoTrack }
                 Log.i("KithMootMedia", "peer=${device.take(8)} state=${_connections.value[device]} videoTracks=$videos $summary")
