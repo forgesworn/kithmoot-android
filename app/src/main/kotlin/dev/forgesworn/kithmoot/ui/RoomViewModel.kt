@@ -354,6 +354,10 @@ data class RoomState(
     /** A deliberate, IDs-only comparison with the currently connected circle box. */
     val nip77: Nip77ViewState? = null,
     val tiles: List<ParticipantTile> = emptyList(),
+    /** Participants whose microphone is carrying speech right now, this one
+     *  included while its microphone is live and unmuted. From audio levels:
+     *  see media/Speaking.kt. */
+    val speaking: Set<String> = emptySet(),
     /** Fading screen-share drawing, keyed by the advertised share track id
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
@@ -3094,6 +3098,20 @@ class RoomViewModel @JvmOverloads constructor(
                 adoptRoomCall()
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
+            launch {
+                media.speakingGain = { device ->
+                    live.participants.value.firstOrNull { p -> p.devices.any { it.device == device } }
+                        ?.let { callVolume.gainFor(it.participant).toDouble() } ?: 1.0
+                }
+                val micLive = _room.map { it.micOn && !it.micMuted }.distinctUntilChanged()
+                combine(media.speakingDevices, media.selfSpeaking, micLive, live.participants) { devices, self, micOn, people ->
+                    val mine = self && micOn
+                    people.filter { p -> p.devices.any { it.device in devices } }.map { it.participant }.toSet() +
+                        (if (mine) setOf(who.participant) else emptySet())
+                }.distinctUntilChanged().collect { speaking ->
+                    _room.update { if (session === live) it.copy(speaking = speaking) else it }
+                }
+            }
 
             launch {
                 combine(media.remoteTracks, media.localMedia.tracks, live.participants) { remote, local, people ->
