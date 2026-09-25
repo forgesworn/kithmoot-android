@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.telecom.CallTelecom
 
 /**
  * Answer and Decline off the incoming-call notification (and, by the same
@@ -19,6 +20,8 @@ class IncomingCallActionReceiver : BroadcastReceiver() {
         val roomId = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_ID) ?: return
         val callId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_ID).orEmpty()
         HandledCalls.add(roomId, callId)
+        // Before the stop: an answered Telecom call must outlive the ring.
+        if (intent.action == ACTION_ANSWER) CallTelecom.answeredInApp(roomId) else CallTelecom.declinedInApp(roomId)
         IncomingCallRinger.stop(context, roomId)
         if (intent.action != ACTION_ANSWER) return
         context.startActivity(answerIntent(context, roomId, intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_NAME).orEmpty(), callId))

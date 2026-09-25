@@ -307,6 +307,8 @@ class MainActivity : ComponentActivity() {
         val roomId = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID).orEmpty()
         val callId = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_CALL_ID).orEmpty()
         dev.forgesworn.kithmoot.notifications.HandledCalls.add(roomId, callId)
+        // Before the stop: a ringing Telecom call becomes the answered one rather than a missed one.
+        if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.telecom.CallTelecom.answeredInApp(roomId)
         if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.notifications.IncomingCallRinger.stop(this, roomId)
         showOverLock()
     }
