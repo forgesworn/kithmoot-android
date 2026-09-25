@@ -24,6 +24,12 @@
          canUseFullScreenIntent() allows it; otherwise the notification falls
          back to heads-up. See notifications/IncomingCallRinger.kt. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- The opt-in background call listener: "Ring when KithMoot is closed"
+         in notification settings, off by default. See
+         service/BackgroundCallListenerService.kt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Neither is required: the application is useful on a device with no
          camera at all, as a screen and a voice. -->
@@ -108,5 +114,33 @@
             android:name=".service.ScreenShareService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|camera|microphone" />
+
+        <service
+            android:name=".service.BackgroundCallListenerService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listen for a call starting in a room set to Ring me while KithMoot is closed, so it can still ring" />
+        </service>
+
+        <receiver
+            android:name=".service.BackgroundRingActionReceiver"
+            android:exported="false" />
+
+        <!-- BOOT_COMPLETED and MY_PACKAGE_REPLACED are protected broadcasts: only
+             the system can send them, so this is safe to export.
+             BackgroundRingBootReceiver itself checks the toggle and saved rooms
+             before doing anything. -->
+        <receiver
+            android:name=".service.BackgroundRingBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

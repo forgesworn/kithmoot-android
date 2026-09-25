@@ -142,6 +142,16 @@ fun callsOf(people: Collection<Participant>): List<CallView> {
 }
 
 /**
+ * Whoever's own call membership carries this call's earliest `since`, ties
+ * broken on participant - exactly how the web client picks who a ring names
+ * as caller (`renderCallState` in src/main.ts). Shared by RoomViewModel's
+ * live presence collector and the background call listener so both name the
+ * same caller for the same roster.
+ */
+fun CallView.starter(people: Collection<Participant>): String? =
+    people.filter { it.call?.id == id }.minWithOrNull(compareBy({ it.call!!.since }, { it.participant }))?.participant
+
+/**
  * Folds a flat roster of devices into people.
  *
  * Ordering is stable and derived only from pubkeys, so every client in the room

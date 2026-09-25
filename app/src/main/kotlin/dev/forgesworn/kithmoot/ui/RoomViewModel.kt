@@ -192,6 +192,7 @@ import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.callsOf
+import dev.forgesworn.kithmoot.session.starter
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.decodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.decodePairingLink
@@ -2938,6 +2939,9 @@ class RoomViewModel @JvmOverloads constructor(
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
             if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            // The background call listener (service/BackgroundCallListenerService.kt)
+            // skips any room open here: this coordinator already rings for it.
+            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
@@ -2946,15 +2950,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        // The starter: whoever's own call membership carries the
-                        // call's earliest `since`, ties broken on participant -
-                        // exactly how the web client picks who a ring names as
-                        // caller (`renderCallState` in src/main.ts).
-                        val starter = current?.let { call ->
-                            people.filter { it.call?.id == call.id }
-                                .minWithOrNull(compareBy({ it.call!!.since }, { it.participant }))
-                        }?.participant
-                        callRinger.update(record.id, record.name, current?.id, starter, who.participant, onCall.contains(who.devicePubkey))
+                        callRinger.update(record.id, record.name, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -3396,6 +3392,7 @@ class RoomViewModel @JvmOverloads constructor(
         pool = null
         if (!chatOnly) notifications.end()
         callRinger.end()
+        savedRoom?.let { dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(it.id) }
         session = null
         identity = null
         savedRoom = null

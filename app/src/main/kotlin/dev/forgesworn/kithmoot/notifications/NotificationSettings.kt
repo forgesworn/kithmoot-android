@@ -13,9 +13,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
+import dev.forgesworn.kithmoot.service.BackgroundRingSettings
+import dev.forgesworn.kithmoot.service.requestIgnoreBatteryOptimizations
 
 @Composable
 fun NotificationSettings(
@@ -80,6 +84,25 @@ fun NotificationSettings(
         Text("Only takes effect while message notifications above are on.", style = MaterialTheme.typography.bodySmall)
     }
     Spacer(Modifier.height(12.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(12.dp))
+    val context = LocalContext.current
+    val backgroundRing = remember { BackgroundRingSettings(context) }
+    var backgroundEnabled by remember { mutableStateOf(backgroundRing.enabled()) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Ring when KithMoot is closed", Modifier.weight(1f))
+        Switch(backgroundEnabled, { enabled ->
+            backgroundEnabled = enabled
+            backgroundRing.setEnabled(enabled)
+            if (enabled) {
+                requestIgnoreBatteryOptimizations(context)
+                BackgroundCallListenerService.start(context)
+            } else {
+                BackgroundCallListenerService.stop(context)
+            }
+        }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
+    }
+    Text("Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
 }
 
 /** The room a [NotificationSettings] menu was opened from, and how to read
