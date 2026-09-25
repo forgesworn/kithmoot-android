@@ -189,6 +189,20 @@ class RoomSession(
     private val departed = mutableMapOf<String, Long>()
 
     /**
+     * When each roster entry last arrived, by our clock. Presence is timed
+     * from this rather than from the sender's timestamp, so a peer whose
+     * clock runs slow is not treated as having gone quiet.
+     */
+    private val seenAt = mutableMapOf<String, Long>()
+
+    /**
+     * Whether the call engine has a working connection to a device. Set by
+     * the engine; read under the session lock, so it must only read state,
+     * never wait on the engine.
+     */
+    @Volatile var mediaConnected: (String) -> Boolean = { false }
+
+    /**
      * Deduplication and rate limiting for signalling - two of the three rules
      * §3 of the design says are reused from NIP-AC. The third, staleness, is
      * applied inside [unwrapSignal].
@@ -631,6 +645,10 @@ class RoomSession(
             if (!evaluateAccess(it, entry.participant, entry.proof, now(), room.roomId).admitted) return
         }
         if (entry.device == identity.devicePubkey) return
+        // Presence is timed from arrival, so an entry that was already out of
+        // date when it arrived must not start a fresh window: a relay replaying
+        // an old announce would otherwise bring back a device that has gone.
+        if (entry.updatedAt < now() - timing.presenceTtlSeconds) return
 
         val respond: Boolean
         synchronized(lock) {
@@ -647,6 +665,7 @@ class RoomSession(
                 // rejoin be answered again.
                 departed[entry.device] = entry.updatedAt
                 respondedTo.remove(entry.device)
+                seenAt.remove(entry.device)
                 if (roster.remove(entry.device) == null) return
                 respond = false
             } else {
@@ -658,6 +677,7 @@ class RoomSession(
                     departed.remove(entry.device)
                 }
                 roster[entry.device] = entry
+                seenAt[entry.device] = now()
                 respond = respondedTo.add(entry.device)
             }
         }
@@ -734,9 +754,20 @@ class RoomSession(
             // A farewell only needs remembering for as long as an entry from
             // before it could still be delivered and still be fresh.
             departed.entries.removeAll { it.value < cutoff }
-            val gone = roster.filterValues { it.updatedAt < cutoff }.keys - identity.devicePubkey
+            val lapsed = roster.filter { (device, entry) -> (seenAt[device] ?: entry.updatedAt) < cutoff }.keys - identity.devicePubkey
+            // Media still flowing from a device is stronger evidence that it
+            // is here than a heartbeat carried by someone else's relay. A
+            // relay can hang or drop a socket for a minute while the call
+            // carries on, and closing a working call because the relay went
+            // quiet is what dropped calls on one bad relay out of three. When
+            // the connection really goes, it stops reading connected and the
+            // ordinary timeout takes over. The web client does the same.
+            val gone = lapsed.filterNot { device ->
+                mediaConnected(device).also { alive -> if (alive) seenAt[device] = now() }
+            }
             for (device in gone) {
                 roster.remove(device)
+                seenAt.remove(device)
                 // Forgetting that we answered them is what lets a genuine rejoin
                 // be answered again, later, without opening the loop back up:
                 // they are gone from the roster, so the next thing we hear from

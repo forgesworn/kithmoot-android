@@ -490,7 +490,7 @@ class RelayPoolTest {
         first.drop()
         assertEquals(emptySet(), pool.connected.value)
 
-        advanceTimeBy(60_000)
+        advanceTimeBy(5_000)
         runCurrent()
         assertEquals(2, sockets.opened.size, "the pool should have reopened the socket")
 
@@ -501,6 +501,51 @@ class RelayPoolTest {
         // Subscriptions do not survive a dropped socket. A client that does not
         // re-send them goes silently deaf while still looking connected.
         assertEquals(listOf(subscriptionId), second.requestedSubscriptions())
+        assertEquals(setOf("wss://one.example"), pool.connected.value)
+    }
+
+    @Test
+    fun `a relay that never answers the handshake is abandoned and retried`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        // Two relays answer; the third accepts the connection and goes quiet.
+        sockets.forUrl("wss://one.example").first().open()
+        sockets.forUrl("wss://two.example").first().open()
+        val hung = sockets.forUrl("wss://three.example").single()
+
+        advanceTimeBy(RelayPolicy().openTimeoutMs + 1)
+        runCurrent()
+        assertTrue(hung.closedByPool, "the pool should give up on a socket that never opens")
+        assertEquals("No answer; retrying", pool.health.value.getValue("wss://three.example").connection)
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(2, sockets.forUrl("wss://three.example").size, "and try that relay again")
+        assertEquals(setOf("wss://one.example", "wss://two.example"), pool.connected.value)
+    }
+
+    @Test
+    fun `an abandoned socket that opens late is closed, not used`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        val late = sockets.opened.single()
+        advanceTimeBy(RelayPolicy().openTimeoutMs + 1)
+        runCurrent()
+
+        late.open()
+        late.drop()
+        runCurrent()
+        assertEquals(emptySet(), pool.connected.value, "a written-off socket must not count as connected")
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        val retry = sockets.opened.last()
+        retry.open()
+        runCurrent()
         assertEquals(setOf("wss://one.example"), pool.connected.value)
     }
 

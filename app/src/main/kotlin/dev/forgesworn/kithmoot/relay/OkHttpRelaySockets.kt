@@ -21,14 +21,17 @@ class OkHttpRelaySockets(
 
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
         val request = Request.Builder().url(url).build()
-        val socket = client.newWebSocket(request, Adapter(listener))
+        val adapter = Adapter(listener)
+        val socket = client.newWebSocket(request, adapter)
         return object : RelaySocket {
             override fun send(text: String) {
                 socket.send(text)
             }
 
+            // A socket still waiting on its upgrade has nothing to send a
+            // close frame over; only cancelling ends the attempt.
             override fun close() {
-                socket.close(1000, null)
+                if (adapter.opened) socket.close(1000, null) else socket.cancel()
             }
         }
     }
@@ -36,8 +39,13 @@ class OkHttpRelaySockets(
     /** Collapses OkHttp's four terminal callbacks into the one the pool wants. */
     private class Adapter(private val listener: RelaySocketListener) : WebSocketListener() {
         private var finished = false
+        @Volatile var opened = false
+            private set
 
-        override fun onOpen(webSocket: WebSocket, response: Response) = listener.onOpen()
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            opened = true
+            listener.onOpen()
+        }
 
         override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(text)
 

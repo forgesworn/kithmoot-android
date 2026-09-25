@@ -105,17 +105,25 @@ class OrbotTorRelaySockets(
 ) : RelaySocketFactory {
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
         val request = Request.Builder().url(TorOnlyRelayUrls.normalise(url)).build()
-        val socket = client.newWebSocket(request, Adapter(listener))
+        val adapter = Adapter(listener)
+        val socket = client.newWebSocket(request, adapter)
         return object : RelaySocket {
             override fun send(text: String) { socket.send(text) }
-            override fun close() { socket.close(1000, null) }
+            // A socket still waiting on its upgrade has nothing to send a
+            // close frame over; only cancelling ends the attempt.
+            override fun close() { if (adapter.opened) socket.close(1000, null) else socket.cancel() }
         }
     }
 
     private class Adapter(private val listener: RelaySocketListener) : WebSocketListener() {
         private var finished = false
+        @Volatile var opened = false
+            private set
 
-        override fun onOpen(webSocket: WebSocket, response: Response) = listener.onOpen()
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            opened = true
+            listener.onOpen()
+        }
         override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(text)
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = finish("closed: $code $reason")

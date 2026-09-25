@@ -45,6 +45,12 @@ data class RelayPolicy(
      * backoff on every attempt and be reconnected to in a hot loop.
      */
     val stableAfterMs: Long = 10_000,
+    /**
+     * How long a socket may take to open before it is abandoned and retried.
+     * Generous, because a Tor circuit is slow to build; a relay that has not
+     * answered in this long is not going to.
+     */
+    val openTimeoutMs: Long = 30_000,
     /** How long an unsent publish waits for a relay to come up before it is dropped. */
     val outboxTtlMs: Long = 30_000,
     /** Cap on queued publishes per relay, so a permanently dead relay cannot grow without bound. */

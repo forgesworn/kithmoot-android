@@ -190,6 +190,10 @@ class WebRtcEngine(
      * thread, which is where the input timeout is measured.
      */
     fun start() {
+        // A working connection keeps its device in the roster through a
+        // relay's silence. A plain state read: the session calls this under
+        // its own lock.
+        session.mediaConnected = { device -> _connections.value[device] == "connected" }
         // The set of devices to connect to is derived from the roster, so a
         // device that joins, leaves or lapses is reconciled here rather than
         // being handled as an event.
@@ -275,6 +279,9 @@ class WebRtcEngine(
             links.reconcile(lock, devices) { openLink(it) }
         }
         for ((device, link) in closing) {
+            // The one thing a dropped call's log has to say: the device left
+            // the roster, and in what state its connection was.
+            Log.i("KithMootMedia", "peer=${device.take(8)} closed: left the roster state=${_connections.value[device]}")
             runCatching { link.close() }
             _connections.update { it - device }
             _remoteTracks.update { current -> current.filterNot { it.device == device } }
