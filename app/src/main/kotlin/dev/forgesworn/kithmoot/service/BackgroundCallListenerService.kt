@@ -130,7 +130,7 @@ class BackgroundCallListenerService : Service() {
         val application = application as KithMootApplication
         val ringSettings = CallRingSettings(this)
         val toggle = BackgroundRingSettings(this).enabled()
-        val savedIds = application.savedRooms.list().map { it.id }
+        val savedIds = savedRoomIdsOrNone(application.savedRooms)
         val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (!shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
 

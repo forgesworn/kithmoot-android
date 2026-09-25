@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.service
 
 import android.content.Context
+import dev.forgesworn.kithmoot.storage.RoomRepository
+import dev.forgesworn.kithmoot.storage.RoomStorageException
 
 /**
  * The one switch behind [BackgroundCallListenerService]: "Ring when KithMoot
@@ -38,3 +40,16 @@ class BackgroundRingSettings(context: Context) {
         private const val KEY_ENABLED = "enabled"
     }
 }
+
+/**
+ * Saved room ids, or none when the rooms cannot be read: storage locked or
+ * damaged, or a retained preview identity still awaiting the person's
+ * decision. Ringing is never worth crashing the app, the service or a boot
+ * broadcast over; the next reconcile tries again.
+ */
+internal fun savedRoomIdsOrNone(rooms: RoomRepository): List<String> =
+    try {
+        rooms.list().map { it.id }
+    } catch (_: RoomStorageException) {
+        emptyList()
+    }

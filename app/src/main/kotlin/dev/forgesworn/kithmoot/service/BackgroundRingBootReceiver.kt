@@ -30,7 +30,7 @@ class BackgroundRingBootReceiver : BroadcastReceiver() {
                 val application = context.applicationContext as KithMootApplication
                 val toggle = BackgroundRingSettings(context).enabled()
                 val ringSettings = CallRingSettings(context)
-                val savedIds = application.savedRooms.list().map { it.id }
+                val savedIds = savedRoomIdsOrNone(application.savedRooms)
                 val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
                 if (shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
                     BackgroundCallListenerService.start(context)

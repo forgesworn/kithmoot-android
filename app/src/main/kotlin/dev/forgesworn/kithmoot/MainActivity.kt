@@ -167,7 +167,10 @@ class MainActivity : ComponentActivity() {
                     val app = application as KithMootApplication
                     val toggle = dev.forgesworn.kithmoot.service.BackgroundRingSettings(this@MainActivity).enabled()
                     val ringSettings = dev.forgesworn.kithmoot.notifications.CallRingSettings(this@MainActivity)
-                    val savedIds = app.savedRooms.list().map { it.id }
+                    // Off the main thread: this decrypts the saved rooms.
+                    val savedIds = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        dev.forgesworn.kithmoot.service.savedRoomIdsOrNone(app.savedRooms)
+                    }
                     val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
                     if (dev.forgesworn.kithmoot.service.shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
                         dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(this@MainActivity)
