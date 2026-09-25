@@ -2,6 +2,21 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.14 a call survives a bad relay
+
+Version code 37. A call on Android no longer drops when one of the room's
+relays hangs. The session swept a device out of the roster once its
+heartbeats stopped arriving and the engine then closed its call, even with
+media flowing; on 25 September a hung relay.primal.net did exactly that to
+a working three-way call. As the web client has done since 2 September, a
+device whose connection reads connected is kept, and presence is timed from
+arrival rather than from the sender's clock. A relay that accepts the
+connection and never answers the upgrade is now abandoned after thirty
+seconds and retried, where before it sat on Connecting for good. The engine
+logs each link it closes and the state it was in. No wire change.
+
+Not yet checked on a handset.
+
 ## 0.6.13 four things the web client already did
 
 Version code 36. Brings Android level with the web client on four points.
