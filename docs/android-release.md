@@ -2,6 +2,12 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.16 calls ring like a phone
+
+Incoming calls ring with a CallStyle notification (Answer, Decline, full-screen where Android allows), including while the app is closed, through `BackgroundCallListenerService`: a foreground service holding one relay pool that subscribes only to kind 1464 call bells for the saved rooms' day tags, with a 90 s background ping. On by default; the battery exemption is asked once, after the first call ends. Answering joins with microphone and camera off. The call screen is Signal-style: the other person full screen, a draggable self-view, controls that fade unless a screen reader is on.
+
+Published on 25 September 2026 from `467f175`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `d4292226c40fe9a77dad20f162fdbdfbd795e3c57abb1775380acde89d769b19`, certificate `135bcabf…`, lineage `0ccf5ece…`. `app/build/kotlin` and `app/build/tmp/kotlin-classes` were cleared before signing. Passed the web repository's publication verifier, installed in place over 0.6.15 on the owner's Pixel 10 Pro XL (first-install time preserved, launched without a crash, the listener service running in the foreground), offered as GitHub pre-release `v0.6.16`, and on the website from kithmoot #169. Not yet checked on a handset: a ring reaching a locked phone after long Doze, and battery use over a day with the listener on.
+
 ## 0.6.15 a silent relay no longer stalls ordinary reads
 
 Version code 38. Stored reads that do not decide anything, namely the
