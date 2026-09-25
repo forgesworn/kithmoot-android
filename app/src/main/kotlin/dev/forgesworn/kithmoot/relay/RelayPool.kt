@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -576,8 +577,16 @@ class RelayPool(
             val closed = CompletableDeferred<String>()
             link.closed = closed
             var connectedAt: Long? = null
+            // CONNECTING until the socket opens or the pool gives up on it.
+            // Whichever comes first wins; the loser is ignored.
+            val phase = AtomicInteger(CONNECTING)
+            var socket: RelaySocket? = null
             val listener = object : RelaySocketListener {
                 override fun onOpen() {
+                    if (!phase.compareAndSet(CONNECTING, OPEN)) {
+                        runCatching { socket?.close() }
+                        return
+                    }
                     connectedAt = now()
                     val requiresAuth = authenticators.forUrl(link.url) != null
                     synchronized(lock) {
@@ -589,6 +598,7 @@ class RelayPool(
                 }
 
                 override fun onMessage(text: String) {
+                    if (phase.get() == ABANDONED) return
                     val message = RelayCodec.parse(text)
                     if (message is RelayMessage.Auth) beginAuthentication(link, message.challenge)
                     if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link)
@@ -609,6 +619,8 @@ class RelayPool(
                 }
 
                 override fun onClosed(reason: String) {
+                    // Already written off and already being retried.
+                    if (phase.get() == ABANDONED) return
                     link.authJob?.cancel()
                     link.socketGeneration += 1
                     link.isOpen = false
@@ -620,13 +632,26 @@ class RelayPool(
                 }
             }
 
-            val socket = runCatching { sockets.open(link.url, listener) }.getOrNull()
+            socket = runCatching { sockets.open(link.url, listener) }.getOrNull()
             if (socket == null) {
                 health(link.url) { it.copy(connection = "Connection failed; retrying") }
                 closed.complete("could not open")
             } else {
                 link.socket = socket
+                // A relay can accept the connection and then never answer the
+                // upgrade. Nothing below the pool times that out, and a link
+                // left waiting on it would never be retried, so the pool
+                // abandons it here and tries again like any other drop.
+                val watchdog = launch {
+                    delay(policy.openTimeoutMs)
+                    if (!phase.compareAndSet(CONNECTING, ABANDONED)) return@launch
+                    link.socket = null
+                    runCatching { socket?.close() }
+                    health(link.url) { it.copy(connection = "No answer; retrying") }
+                    closed.complete("no answer within ${policy.openTimeoutMs} ms")
+                }
                 closed.await()
+                watchdog.cancel()
             }
 
             if (!isActive) break
@@ -642,6 +667,12 @@ class RelayPool(
             val ceiling = policy.delayFor(attempt)
             delay(random.nextLong(ceiling + 1))
         }
+    }
+
+    private companion object {
+        const val CONNECTING = 0
+        const val OPEN = 1
+        const val ABANDONED = 2
     }
 
     private inner class RelayLink(val url: String) {
