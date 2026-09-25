@@ -172,7 +172,7 @@ class BackgroundCallListenerService : Service() {
         val newRelays = sharedRelayUrls(wanted)
         if (pool?.relayUrls != newRelays) {
             pool?.stop()
-            pool = if (newRelays.isEmpty()) null else RelayPool(newRelays, OkHttpRelaySockets(), scope).also { it.start() }
+            pool = if (newRelays.isEmpty()) null else RelayPool(newRelays, OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()), scope).also { it.start() }
         }
         watches = wanted
         val activePool = pool ?: return
