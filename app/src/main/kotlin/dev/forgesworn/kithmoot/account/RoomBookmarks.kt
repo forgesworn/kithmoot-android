@@ -142,7 +142,7 @@ class RoomBookmarks(
                     gate.withLock { ready = false; error = "Room sync stopped. Check your signer and relays, then retry."; emit() }
                 }
             }
-            for (event in transport.queryStored(filters)) receive(event)
+            for (event in transport.queryAvailable(filters)) receive(event)
             gate.withLock { live(); ready = collector?.isActive == true; syncing = false; emit() }
         } catch (e: Exception) {
             if (e is CancellationException) throw e

@@ -377,7 +377,7 @@ class QuietTransport(
         while (pages < 1000) {
             pages += 1
             val page = try {
-                (inner as RelayPool).queryStored(listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since, until = until, limit = 500)))
+                (inner as RelayPool).queryAvailable(listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since, until = until, limit = 500)))
             } catch (_: Exception) { return }
             val fresh = page.filter { it.id !in boundary }
             if (fresh.isEmpty()) return

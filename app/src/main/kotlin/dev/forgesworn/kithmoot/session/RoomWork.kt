@@ -75,7 +75,7 @@ class RoomWork(
         }
         // Stored discovery may be absent; the explicit request also reaches a
         // host that joined after this query. History itself is never a job.
-        try {transport.queryStored(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
+        try {transport.queryAvailable(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
         catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         }

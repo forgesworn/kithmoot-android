@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
@@ -47,6 +49,10 @@ interface RoomTransport {
     /** Fails if complete retained history cannot be established. */
     suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
         throw UnsupportedOperationException("This transport cannot verify retained history")
+
+    /** Best effort: whatever the answering relays hold. Never for admission, credentials,
+     *  rosters or any decision where a missing event would count as proof. */
+    suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> = queryStored(filters, timeoutMs)
 
     /**
      * A cold flow of matching events, de-duplicated across relays. Cancelling
@@ -383,6 +389,34 @@ class RelayPool(
         try {
             targets.forEach { it.sendIfOpen(RelayCodec.requestFrame(id, filters)) }
             query.result.await()
+        } finally {
+            synchronized(lock) { storedQueries.remove(id) }
+            targets.forEach { it.sendIfOpen(RelayCodec.closeFrame(id)) }
+        }
+    }
+
+    /** Returns once every targeted relay has answered or gone, [RelayPolicy.storedGraceMs] after the
+     * first EOSE, or at [timeoutMs], with what arrived. Fails only when no relay answered at all. */
+    override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> {
+        check(readRelays.isNotEmpty()) { "No read relay is selected" }
+        val id = "km-stored-${nextSubscriptionId.incrementAndGet()}"
+        var query: StoredQuery? = null
+        var targets = emptyList<RelayLink>()
+        try {
+            withTimeoutOrNull(timeoutMs) {
+                connected.first { connected -> connected.any { it in readRelays } }
+                val q = synchronized(lock) {
+                    targets = links.values.filter { it.isOpen && it.url in readRelays }
+                    check(targets.isNotEmpty()) { "No relay is connected" }
+                    StoredQuery(targets.map { it.url }.toSet(), partial = true).also { query = it; storedQueries[id] = it }
+                }
+                targets.forEach { it.sendIfOpen(RelayCodec.requestFrame(id, filters)) }
+                select<Unit> { q.result.onAwait {}; q.firstEnd.onAwait {} }
+                if (!q.result.isCompleted) withTimeoutOrNull(policy.storedGraceMs) { q.result.await() }
+            }
+            val q = checkNotNull(query) { "No relay is connected" }
+            synchronized(lock) { q.finish() }
+            return q.result.await()
         } finally {
             synchronized(lock) { storedQueries.remove(id) }
             targets.forEach { it.sendIfOpen(RelayCodec.closeFrame(id)) }
@@ -876,13 +910,16 @@ class RelayPool(
         }
     }
 
-    private class StoredQuery(private val targets: Set<String>) {
+    /** Strict unless [partial]: then a relay that sends CLOSED or drops is set aside, not fatal. */
+    private class StoredQuery(private val targets: Set<String>, private val partial: Boolean = false) {
         val result = CompletableDeferred<List<NostrEvent>>()
+        val firstEnd = CompletableDeferred<Unit>()
         private val ended = mutableSetOf<String>()
+        private val gone = linkedMapOf<String, Exception>()
         private val events = linkedMapOf<String, NostrEvent>()
         private var bytes = 0L
         fun event(url: String, event: NostrEvent) {
-            if (url !in targets || url in ended || result.isCompleted) return
+            if (url !in targets || url in ended || url in gone || result.isCompleted) return
             if (!dev.forgesworn.kithmoot.protocol.Events.verify(event)) return
             if (event.id in events) return
             bytes += event.toJson().toString().length * 2L
@@ -891,15 +928,22 @@ class RelayPool(
             } else events[event.id] = event
         }
         fun end(url: String) {
-            if (url in targets) ended.add(url)
+            if (url in targets && url !in gone) { ended.add(url); firstEnd.complete(Unit) }
             if (ended.containsAll(targets)) result.complete(events.values.toList())
+            else if (partial && (ended + gone.keys).containsAll(targets)) finish()
         }
-        fun failed(url: String) {
-            if (url in targets && url !in ended) result.completeExceptionally(IllegalStateException("Stored relay query was interrupted"))
+        fun failed(url: String) = lost(url, IllegalStateException("Stored relay query was interrupted"))
+        fun refused(url: String, reason: String) = lost(url, RelayHistoryException(url, reason.contains("auth-required:", ignoreCase = true)))
+        private fun lost(url: String, error: Exception) {
+            if (url !in targets || url in ended) return
+            if (!partial) { result.completeExceptionally(error); return }
+            gone.putIfAbsent(url, error)
+            if ((ended + gone.keys).containsAll(targets)) finish()
         }
-        fun refused(url: String, reason: String) {
-            if (url in targets && url !in ended) result.completeExceptionally(
-                RelayHistoryException(url, reason.contains("auth-required:", ignoreCase = true)))
+        /** Best effort: settle with what arrived, failing only when no relay answered. */
+        fun finish() {
+            if (ended.isNotEmpty() || events.isNotEmpty()) result.complete(events.values.toList())
+            else result.completeExceptionally(gone.values.firstOrNull() ?: IllegalStateException("No relay answered the stored query"))
         }
     }
 
