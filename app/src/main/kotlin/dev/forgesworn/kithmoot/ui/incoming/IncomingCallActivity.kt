@@ -13,7 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver
 import dev.forgesworn.kithmoot.notifications.IncomingCallRinger
-import dev.forgesworn.kithmoot.ui.room.shortId
+import dev.forgesworn.kithmoot.ui.room.callerLabel
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 
 /**
@@ -55,7 +55,7 @@ class IncomingCallActivity : ComponentActivity() {
                 }
                 IncomingCallScreen(
                     roomName = roomName.ifBlank { "KithMoot" },
-                    callerLabel = shortId(caller),
+                    callerLabel = callerLabel(caller),
                     onAnswer = { sendAction(IncomingCallActionReceiver.ACTION_ANSWER); finish() },
                     onDecline = { sendAction(IncomingCallActionReceiver.ACTION_DECLINE); finish() },
                 )

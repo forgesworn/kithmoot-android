@@ -19,15 +19,15 @@ import dev.forgesworn.kithmoot.R
 import dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
-import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
-import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
+import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
+import dev.forgesworn.kithmoot.protocol.CallBellState
+import dev.forgesworn.kithmoot.protocol.KIND_CALL_BELL
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.decodeCallBellEvent
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
-import dev.forgesworn.kithmoot.session.callsOf
-import dev.forgesworn.kithmoot.session.groupByParticipant
-import dev.forgesworn.kithmoot.session.starter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,20 +36,21 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneOffset
 
 /**
  * Optional, opt-in foreground service: [BackgroundRingSettings]. While it
- * runs, it keeps a read-only subscription open for every saved room set to
- * Ring me that no open `RoomViewModel` already covers (see
- * `roomsToWatch` / `ActiveRoomRegistry`), decodes just enough of each
- * roster event to know whether a call has started and who is on it, and
- * feeds that into the same [IncomingCallRingCoordinator] /
- * `IncomingCallRinger` an open room uses - so the ringing rule is identical
- * whether KithMoot is open or not.
+ * runs, it keeps one shared read-only subscription open across every
+ * relay any saved room set to Ring me uses (see [roomsToWatch] /
+ * [sharedRelayUrls]), listening only for that room's call bell (kind
+ * 1464, `protocol/CallBell.kt`) - never for the roster's 20-second
+ * heartbeat, which a phone with the app closed cannot afford to wake the
+ * radio for.
  *
  * It never publishes anything: no presence, no roster entry, no read
- * receipt, no credential. Each [RelayPool] it opens here is only ever
- * `subscribe`d on, never `publish`ed to.
+ * receipt, no credential. The shared [RelayPool] it opens here is only
+ * ever `subscribe`d on, never `publish`ed to.
  *
  * Modelled on Cambium's `HeartwoodKeepAliveService` (`specialUse` foreground
  * type with a declared subtype, `START_STICKY`, a boot receiver gated on a
@@ -59,14 +60,11 @@ import kotlinx.coroutines.launch
 class BackgroundCallListenerService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loopJob: Job? = null
-    private val sessions = mutableMapOf<String, WatchSession>()
-
-    private class WatchSession(
-        val pool: RelayPool,
-        val job: Job,
-        val roster: BackgroundRoster,
-        val coordinator: IncomingCallRingCoordinator,
-    )
+    private var midnightJob: Job? = null
+    private var subscriptionJob: Job? = null
+    private var pool: RelayPool? = null
+    private var watches: List<BackgroundRoomWatch> = emptyList()
+    private val coordinators = mutableMapOf<String, IncomingCallRingCoordinator>()
 
     override fun onCreate() {
         super.onCreate()
@@ -84,6 +82,7 @@ class BackgroundCallListenerService : Service() {
             return START_NOT_STICKY
         }
         startLoop()
+        startMidnightRefresh()
         return START_STICKY
     }
 
@@ -91,8 +90,10 @@ class BackgroundCallListenerService : Service() {
 
     override fun onDestroy() {
         loopJob?.cancel()
-        sessions.values.forEach { stopWatch(it) }
-        sessions.clear()
+        midnightJob?.cancel()
+        stopSubscription()
+        coordinators.values.forEach { it.end() }
+        coordinators.clear()
         scope.cancel()
         super.onDestroy()
     }
@@ -104,9 +105,23 @@ class BackgroundCallListenerService : Service() {
                 if (!reconcile()) break
                 delay(RECONCILE_INTERVAL_MS)
             }
-            sessions.values.forEach { stopWatch(it) }
-            sessions.clear()
+            stopSubscription()
+            coordinators.values.forEach { it.end() }
+            coordinators.clear()
             stopSelf()
+        }
+    }
+
+    /** Re-subscribes with a fresh tag set at the next UTC midnight, forever
+     *  (while the service runs) - the one thing a mere relay reconnect,
+     *  which [RelayPool] already re-sends the live REQ for, does not cover. */
+    private fun startMidnightRefresh() {
+        midnightJob?.cancel()
+        midnightJob = scope.launch {
+            while (isActive) {
+                delay(millisUntilNextUtcMidnight())
+                if (watches.isNotEmpty()) resubscribe(watches)
+            }
         }
     }
 
@@ -123,65 +138,93 @@ class BackgroundCallListenerService : Service() {
         val wanted = roomsToWatch(candidates, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
         val wantedIds = wanted.map { it.stableRoomId }.toSet()
 
-        sessions.keys.filterNot { it in wantedIds }.forEach { id -> sessions.remove(id)?.let { stopWatch(it) } }
-        for (watch in wanted) {
-            if (!sessions.containsKey(watch.stableRoomId)) sessions[watch.stableRoomId] = startWatch(watch)
-        }
-        updateNotification(sessions.size)
+        coordinators.keys.filterNot { it in wantedIds }.forEach { id -> coordinators.remove(id)?.end() }
+        for (watch in wanted) coordinators.getOrPut(watch.stableRoomId) { IncomingCallRingCoordinator(applicationContext) }
+
+        if (wanted.map { it.stableRoomId }.toSet() != watches.map { it.stableRoomId }.toSet()) resubscribe(wanted)
+        updateNotification(wanted.size)
         return true
     }
 
-    /** The current traffic id and key for a saved room, following any rekey
+    /** The current traffic key for a saved room, following any rekey
      *  recorded in [KithMootApplication.roomEpochs] - the same durable
-     *  journal `RoomViewModel` reads, so this never derives its own key. */
+     *  journal `RoomViewModel` reads, so this never derives its own key.
+     *  The room's own (epoch-0) id - [dev.forgesworn.kithmoot.storage.SavedRoom.id] -
+     *  is what the bell's device signature is bound to, and is used as-is
+     *  regardless of any later rekey; see `protocol/CallBell.kt`. */
     private fun watchFor(application: KithMootApplication, roomId: String): BackgroundRoomWatch? {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
             if (saved.movedOn || saved.retired) return null
             val secret = application.roomEpochs.get(roomId)?.currentSecret ?: saved.secret
-            val room = deriveRoom(secret)
-            BackgroundRoomWatch(saved.id, saved.name, room.roomId, room.roomKey, saved.relays, saved.participant)
+            val epochKey = deriveRoom(secret).roomKey
+            BackgroundRoomWatch(saved.id, saved.name, epochKey, saved.relays, saved.participant, saved.devicePubkey)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun startWatch(watch: BackgroundRoomWatch): WatchSession {
-        val pool = RelayPool(watch.relays, OkHttpRelaySockets(), scope)
-        pool.start()
-        val roster = BackgroundRoster()
-        val coordinator = IncomingCallRingCoordinator(applicationContext)
-        // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
-        // A plain "d" is not a NIP-01 filter field at all, so a relay would have
-        // ignored it and sent every room's roster traffic on that connection -
-        // exactly what "minimal relay subscriptions" rules out.
-        val filter = Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("#d" to listOf(watch.trafficRoomId)))
-        val job = scope.launch {
-            pool.subscribe(listOf(filter)).collect { event ->
-                // Handed over between reconcile ticks: the open room rings now.
-                if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
-                    coordinator.end()
-                    return@collect
-                }
-                val now = System.currentTimeMillis() / 1000
-                val entry = decodeRosterEvent(event, watch.trafficRoomId, watch.roomKey, now) ?: return@collect
-                roster.accept(entry, now)
-                val people = groupByParticipant(roster.current(now))
-                val current = callsOf(people).firstOrNull()
-                // Never on the call from here: this device only listens.
-                coordinator.update(watch.stableRoomId, watch.roomName, current?.id, current?.starter(people), watch.self, joined = false)
-            }
+    /** Tears down the current subscription and, if the relay set changed,
+     *  the shared pool too, then opens a fresh one for [wanted]. */
+    private fun resubscribe(wanted: List<BackgroundRoomWatch>) {
+        subscriptionJob?.cancel()
+        subscriptionJob = null
+        val newRelays = sharedRelayUrls(wanted)
+        if (pool?.relayUrls != newRelays) {
+            pool?.stop()
+            pool = if (newRelays.isEmpty()) null else RelayPool(newRelays, OkHttpRelaySockets(), scope).also { it.start() }
         }
-        return WatchSession(pool, job, roster, coordinator)
+        watches = wanted
+        val activePool = pool ?: return
+        if (wanted.isEmpty()) return
+        val filter = Filter(
+            kinds = listOf(KIND_CALL_BELL),
+            // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
+            tags = mapOf("#d" to callBellFilterTags(wanted, now())),
+            since = now() - CALL_BELL_TTL_SECONDS,
+        )
+        subscriptionJob = scope.launch {
+            activePool.subscribe(listOf(filter)).collect { event -> onBell(event) }
+        }
     }
 
-    private fun stopWatch(session: WatchSession) {
-        session.job.cancel()
-        session.pool.stop()
-        // Clears any ring this session had going, so a hand-over to an
-        // opened RoomViewModel never leaves a stray notification behind.
-        session.coordinator.end()
+    private fun stopSubscription() {
+        subscriptionJob?.cancel()
+        subscriptionJob = null
+        pool?.stop()
+        pool = null
+        watches = emptyList()
     }
+
+    private fun onBell(event: NostrEvent) {
+        val tag = event.tagValue("d") ?: return
+        val now = now()
+        val candidates = watches.filter { tag in callBellTagsFor(it, now) }
+        for (watch in candidates) {
+            val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: continue
+            // Never for this device's own other devices' bells: caught
+            // before anything is shown, exactly as the roster path always
+            // excluded this device's own entries.
+            if (bell.device == watch.selfDevice) return
+            // Handed over between reconcile ticks: the open room rings now.
+            val coordinator = coordinators[watch.stableRoomId] ?: return
+            if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
+                coordinator.end()
+                return
+            }
+            when (bell.state) {
+                CallBellState.START -> {
+                    val caller = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
+                        ?: "Someone in ${watch.roomName}"
+                    coordinator.update(watch.stableRoomId, watch.roomName, bell.call.id, caller, watch.selfParticipant, joined = false)
+                }
+                CallBellState.END -> coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
+            }
+            return
+        }
+    }
+
+    private fun now(): Long = System.currentTimeMillis() / 1000
 
     private fun channel() {
         val ch = NotificationChannel(CHANNEL_ID, "Listening for calls", NotificationManager.IMPORTANCE_LOW)
@@ -210,7 +253,7 @@ class BackgroundCallListenerService : Service() {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = if (watching == 0) "Waiting for a room set to Ring me." else "Watching $watching room${if (watching == 1) "" else "s"} set to Ring me."
+        val text = if (watching == 0) "Waiting for a room set to Ring me." else "Listening for calls in $watching room${if (watching == 1) "" else "s"}."
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_chat_notice)
             .setContentTitle("Listening for calls")
@@ -226,7 +269,7 @@ class BackgroundCallListenerService : Service() {
     companion object {
         private const val CHANNEL_ID = "background_call_listen_v1"
         private const val NOTIFICATION_ID = 4604
-        private const val RECONCILE_INTERVAL_MS = 20_000L
+        private const val RECONCILE_INTERVAL_MS = 60_000L
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, BackgroundCallListenerService::class.java))
@@ -236,4 +279,11 @@ class BackgroundCallListenerService : Service() {
             context.stopService(Intent(context, BackgroundCallListenerService::class.java))
         }
     }
+}
+
+/** Milliseconds from now until the next UTC midnight, at least one second. */
+internal fun millisUntilNextUtcMidnight(now: Instant = Instant.now()): Long {
+    val today = now.atZone(ZoneOffset.UTC).toLocalDate()
+    val nextMidnight = today.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()
+    return maxOf(1_000L, nextMidnight.toEpochMilli() - now.toEpochMilli())
 }

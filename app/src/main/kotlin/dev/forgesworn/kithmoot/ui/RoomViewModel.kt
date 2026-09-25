@@ -2946,6 +2946,10 @@ class RoomViewModel @JvmOverloads constructor(
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
                         if (!chatOnly) notifications.accept(chat)
+                        // Best-effort, for the background call listener's caller
+                        // label while the app is closed - see
+                        // service/BackgroundParticipantCache.kt.
+                        dev.forgesworn.kithmoot.service.BackgroundParticipantCache(getApplication()).remember(record.id, people)
                         // The room's current call is the head of the same list
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()

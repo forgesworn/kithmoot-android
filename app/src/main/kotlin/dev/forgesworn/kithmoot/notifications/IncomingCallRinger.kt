@@ -15,7 +15,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import dev.forgesworn.kithmoot.R
 import dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity
-import dev.forgesworn.kithmoot.ui.room.shortId
+import dev.forgesworn.kithmoot.ui.room.callerLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,7 +88,7 @@ object IncomingCallRinger {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val callerName = shortId(caller)
+        val callerName = callerLabel(caller)
         val style = NotificationCompat.CallStyle.forIncomingCall(
             Person.Builder().setName(callerName).build(), declinePending, answerPending,
         )
