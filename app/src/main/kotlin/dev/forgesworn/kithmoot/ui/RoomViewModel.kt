@@ -415,6 +415,12 @@ data class RoomState(
      */
     val callJoinPending: Boolean = false,
     /**
+     * A remembered [callJoinPending] join asked for the microphone too -
+     * answering a ringing call, rather than a manual Join. Carried out
+     * alongside [callJoinPending] once the engine exists, and cleared with it.
+     */
+    val callJoinMicPending: Boolean = false,
+    /**
      * Devices on the room's current call that are not this one.
      *
      * Own other devices count: a call taken on the laptop is one this phone
@@ -3026,6 +3032,7 @@ class RoomViewModel @JvmOverloads constructor(
                             it.copy(
                                 mediaStarting = false,
                                 callJoinPending = false,
+                                callJoinMicPending = false,
                                 mediaFault = "This room did not finish its secure update, so audio and video could not start. Leave and open it again.",
                             )
                         }
@@ -3050,6 +3057,7 @@ class RoomViewModel @JvmOverloads constructor(
         opening = scope.launch {
             val begun = android.os.SystemClock.elapsedRealtime()
             var remembered = false
+            var rememberedMicOn = false
             val installed = mediaBuild.build(
                 held = { engine },
                 make = {
@@ -3062,6 +3070,7 @@ class RoomViewModel @JvmOverloads constructor(
                         _room.update { it.copy(
                             mediaStarting = false,
                             callJoinPending = false,
+                            callJoinMicPending = false,
                             mediaFault = "Audio and video are unavailable on this device: " +
                                 (failure.message ?: failure::class.java.simpleName),
                         ) }
@@ -3082,10 +3091,11 @@ class RoomViewModel @JvmOverloads constructor(
                         // It was remembered rather than refused, and this is
                         // where it happens - no second tap, no timer.
                         remembered = _room.value.callJoinPending
+                        rememberedMicOn = _room.value.callJoinMicPending
                         val running = _room.value.mediaRunning || remembered
                         media.setCallActive(running)
                         media.start()
-                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, mediaRunning = running) }
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaRunning = running) }
                         true
                     }
                 },
@@ -3096,6 +3106,7 @@ class RoomViewModel @JvmOverloads constructor(
                 Log.i(JOIN_LOG, "remembered join carried out now that media exists")
                 if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
                 adoptRoomCall()
+                if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
             launch {
@@ -3480,7 +3491,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!_room.value.onCall || _room.value.callChanging) return
         // A remembered Join must not survive a Leave; it would put the person
         // straight back on the call they just left.
-        _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false) }
+        _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false) }
         // Shuts the self-heal until this leave has settled. Local media is
         // stopped below before the membership is cleared, but the track list
         // is a flow and its last emission can still be in flight behind us:
@@ -3525,7 +3536,15 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun joinCall() = act {
+    /**
+     * @param micOn Join with the microphone already live - answering a
+     *   ringing call, like a phone call, rather than a manual Join. Camera is
+     *   never turned on here; a manual Join keeps today's default of both off.
+     *   The caller (see [dev.forgesworn.kithmoot.MainActivity]) is responsible
+     *   for the RECORD_AUDIO permission ask; a refusal there still calls this
+     *   with `micOn = false` rather than failing the join.
+     */
+    fun joinCall(micOn: Boolean = false) = act {
         if (chatOnly) return@act
         val state = _room.value
         val live = session ?: return@act
@@ -3544,7 +3563,7 @@ class RoomViewModel @JvmOverloads constructor(
             is JoinDecision.WhenReady -> {
                 // Remembered, not refused. startMedia carries it out.
                 Log.i(JOIN_LOG, "call join remembered reason=media-not-ready-yet")
-                _room.update { it.copy(callJoinPending = true) }
+                _room.update { it.copy(callJoinPending = true, callJoinMicPending = micOn) }
                 return@act
             }
             is JoinDecision.Now -> Unit
@@ -3555,9 +3574,24 @@ class RoomViewModel @JvmOverloads constructor(
         media.setCallActive(true)
         adoptRoomCall()
         if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
+        if (micOn) startMicrophoneForJoin(live)
     }
 
     fun listenOnThisDevice() { if (_room.value.mediaRunning) session?.claim(Roles.MONITOR) }
+
+    /**
+     * The claim-then-start a joining microphone needs, shared by [joinCall]
+     * and the remembered join [startMedia] carries out once the engine
+     * exists. Same shape as [toggleMicrophone]'s Start action.
+     */
+    private fun startMicrophoneForJoin(live: RoomSession) {
+        val media = engine?.localMedia ?: return
+        live.claim(Roles.MIC)
+        if (media.startMicrophone() == null) {
+            live.release(Roles.MIC)
+            note("The microphone would not start.")
+        }
+    }
 
 
     /**

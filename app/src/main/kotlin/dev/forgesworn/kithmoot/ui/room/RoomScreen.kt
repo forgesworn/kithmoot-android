@@ -373,6 +373,7 @@ fun RoomScreen(
                     alone = { AlonePanel(state, onRotateInvitation) },
                 )
                 Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.mediaRunning) SpeakingLine(state, Modifier.align(Alignment.CenterHorizontally))
                     // Only when it is not here: which device plays the call
                     // is worth a banner when it is surprising, not all day.
                     if (state.mediaRunning && !state.listeningHere) Surface(

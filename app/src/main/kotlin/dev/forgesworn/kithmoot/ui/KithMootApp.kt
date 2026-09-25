@@ -397,6 +397,10 @@ fun KithMootApp(
             ringBanner?.let { call ->
                 dev.forgesworn.kithmoot.notifications.IncomingCallBanner(
                     callerLabel = dev.forgesworn.kithmoot.ui.room.shortId(call.caller),
+                    // This banner is a ring surfaced while already inside the
+                    // room, not the notification/lock-screen Answer path, so
+                    // it keeps today's manual-join default (mic off). See
+                    // RoomViewModel.joinCall for the answer-straight-in path.
                     onAnswer = { model.dismissCallRingBanner(); model.joinCall() },
                     onDismiss = model::dismissCallRingBanner,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 12.dp),
