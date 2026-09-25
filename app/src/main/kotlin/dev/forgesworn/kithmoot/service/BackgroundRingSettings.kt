@@ -3,19 +3,28 @@ package dev.forgesworn.kithmoot.service
 import android.content.Context
 
 /**
- * The one opt-in switch behind [BackgroundCallListenerService]: "Ring when
- * KithMoot is closed". Off by default. One switch for the whole app, unlike
- * the per-room Ring me / Notify quietly / Nothing in
+ * The one switch behind [BackgroundCallListenerService]: "Ring when KithMoot
+ * is closed". On by default, same as a saved room's own Ring me default in
  * `notifications/CallRingSettings.kt` - this decides whether anything
  * listens in the background at all, that decides which rooms it listens to.
+ *
+ * [enabled] migrates a pre-existing install the first time it is read: a
+ * phone that never touched this switch has no stored value, and the
+ * migration writes `true` explicitly rather than leaving it to the default
+ * parameter, so the stored state and the switch shown in Settings always
+ * agree. An install that explicitly turned it off keeps that choice.
  */
 class BackgroundRingSettings(context: Context) {
     private val prefs = context.getSharedPreferences("kithmoot.background_ring.v1", Context.MODE_PRIVATE)
 
-    fun enabled(): Boolean = prefs.getBoolean("enabled", false)
+    fun enabled(): Boolean = migrateBackgroundRingEnabled(
+        hasStoredValue = prefs.contains(KEY_ENABLED),
+        storedValue = prefs.getBoolean(KEY_ENABLED, true),
+        write = { prefs.edit().putBoolean(KEY_ENABLED, it).apply() },
+    )
 
     fun setEnabled(value: Boolean) {
-        prefs.edit().putBoolean("enabled", value).apply()
+        prefs.edit().putBoolean(KEY_ENABLED, value).apply()
     }
 
     /** True the first time only: the battery exemption is asked for once, ever. */
@@ -23,5 +32,9 @@ class BackgroundRingSettings(context: Context) {
         if (prefs.getBoolean("batteryAsked", false)) return false
         prefs.edit().putBoolean("batteryAsked", true).apply()
         return true
+    }
+
+    companion object {
+        private const val KEY_ENABLED = "enabled"
     }
 }

@@ -3,6 +3,8 @@ package dev.forgesworn.kithmoot.service
 import dev.forgesworn.kithmoot.notifications.CallRingMode
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_FUTURE_SKEW_SECONDS
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
+import dev.forgesworn.kithmoot.protocol.CallBell
+import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.callBellTag
 
 /**
@@ -45,6 +47,50 @@ fun callBellFilterTags(watches: List<BackgroundRoomWatch>, now: Long): List<Stri
     watches.flatMap { callBellTagsFor(it, now) }.distinct()
 
 /**
+ * The "Ring when KithMoot is closed" default-on migration, in its own pure
+ * function so it is unit-testable without a real `Context` -
+ * [BackgroundRingSettings.enabled] is the only caller. An install that has
+ * never stored a value for the switch is migrated to `true` and that value
+ * is written back, so the stored state and what Settings shows always
+ * agree from the first read on. An install that explicitly chose a value,
+ * on or off, keeps it untouched.
+ */
+fun migrateBackgroundRingEnabled(hasStoredValue: Boolean, storedValue: Boolean, write: (Boolean) -> Unit): Boolean {
+    if (hasStoredValue) return storedValue
+    write(true)
+    return true
+}
+
+/** What a decoded, verified bell should do to the notification for its
+ *  room. Pure - [BackgroundCallListenerService.onBell] is the only caller
+ *  that has a `Context` to act on it with. */
+sealed interface BellOutcome {
+    /** Ring, or update, the incoming-call notification for [watch]. */
+    data class Ring(val watch: BackgroundRoomWatch, val callId: String, val caller: String) : BellOutcome
+    /** Stop any ring for [watch]: the call ended. */
+    data class Stop(val watch: BackgroundRoomWatch) : BellOutcome
+    /** This device's own other device rang it - never shown. */
+    data object Ignore : BellOutcome
+}
+
+/**
+ * The whole decision a bell makes for one room, once decoded and verified:
+ * never for this device's own other devices' bells (compared by device
+ * key, not participant, so it also catches a device this cache has never
+ * resolved a participant for); a `start` rings with the best caller label
+ * available; an `end` stops it. [participant] is a
+ * [BackgroundParticipantCache] hit for [CallBell.device], or null when this
+ * phone has never seen that device live in this room.
+ */
+fun outcomeFor(bell: CallBell, watch: BackgroundRoomWatch, participant: String?): BellOutcome {
+    if (bell.device == watch.selfDevice) return BellOutcome.Ignore
+    return when (bell.state) {
+        CallBellState.START -> BellOutcome.Ring(watch, bell.call.id, participant ?: "Someone in ${watch.roomName}")
+        CallBellState.END -> BellOutcome.Stop(watch)
+    }
+}
+
+/**
  * Which saved rooms the background listener should actually watch: only
  * those set to Ring me, and only while no `RoomViewModel` in this process
  * already has that room open - see `notifications/ActiveRoomRegistry.kt`.
@@ -61,15 +107,21 @@ fun roomsToWatch(
 
 /**
  * Whether the background listener should be running at all: the person has
- * turned it on, and at least one saved room actually wants Ring me. Turning
- * off the last Ring me room stops the service the same as turning the
- * switch off directly - see [BackgroundCallListenerService].
+ * the switch on (on by default - see [BackgroundRingSettings]), at least one
+ * saved room actually wants Ring me (also the default, per room), and
+ * notifications are actually permitted - a service that cannot post the
+ * "Listening for calls" notification cannot legally run as a foreground
+ * service on modern Android, and ringing silently with no notification at
+ * all would be worse. Turning off the last Ring me room, or notifications
+ * being withdrawn, stops the service the same as turning the switch off
+ * directly - see [BackgroundCallListenerService].
  */
 fun shouldRunBackgroundListener(
     toggleEnabled: Boolean,
     savedRoomIds: List<String>,
     ringMode: (roomId: String) -> CallRingMode,
-): Boolean = toggleEnabled && savedRoomIds.any { ringMode(it) == CallRingMode.RING }
+    notificationsPermitted: Boolean = true,
+): Boolean = toggleEnabled && notificationsPermitted && savedRoomIds.any { ringMode(it) == CallRingMode.RING }
 
 /**
  * The relay URLs a set of watches needs subscribed, deduplicated: one

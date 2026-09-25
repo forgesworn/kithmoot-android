@@ -20,7 +20,6 @@ import dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
-import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.KIND_CALL_BELL
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.decodeCallBellEvent
@@ -132,7 +131,8 @@ class BackgroundCallListenerService : Service() {
         val ringSettings = CallRingSettings(this)
         val toggle = BackgroundRingSettings(this).enabled()
         val savedIds = application.savedRooms.list().map { it.id }
-        if (!shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor)) return false
+        val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (!shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
 
         val candidates = savedIds.mapNotNull { id -> watchFor(application, id) }
         val wanted = roomsToWatch(candidates, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
@@ -202,23 +202,19 @@ class BackgroundCallListenerService : Service() {
         val candidates = watches.filter { tag in callBellTagsFor(it, now) }
         for (watch in candidates) {
             val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: continue
-            // Never for this device's own other devices' bells: caught
-            // before anything is shown, exactly as the roster path always
-            // excluded this device's own entries.
-            if (bell.device == watch.selfDevice) return
+            val participant = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
             // Handed over between reconcile ticks: the open room rings now.
             val coordinator = coordinators[watch.stableRoomId] ?: return
             if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
                 coordinator.end()
                 return
             }
-            when (bell.state) {
-                CallBellState.START -> {
-                    val caller = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
-                        ?: "Someone in ${watch.roomName}"
-                    coordinator.update(watch.stableRoomId, watch.roomName, bell.call.id, caller, watch.selfParticipant, joined = false)
-                }
-                CallBellState.END -> coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
+            when (val outcome = outcomeFor(bell, watch, participant)) {
+                is BellOutcome.Ignore -> Unit
+                is BellOutcome.Ring ->
+                    coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false)
+                is BellOutcome.Stop ->
+                    coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
             }
             return
         }

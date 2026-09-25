@@ -31,7 +31,8 @@ class BackgroundRingBootReceiver : BroadcastReceiver() {
                 val toggle = BackgroundRingSettings(context).enabled()
                 val ringSettings = CallRingSettings(context)
                 val savedIds = application.savedRooms.list().map { it.id }
-                if (shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor)) {
+                val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+                if (shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
                     BackgroundCallListenerService.start(context)
                 }
             } finally {

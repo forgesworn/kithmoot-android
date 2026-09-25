@@ -3487,6 +3487,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // in with everything switched off looks the same.
                 runCatching { live.setCall(null) }
                 _videos.value = emptyMap()
+                maybeAskBatteryExemption()
             } finally {
                 // `callChanging` is a latch on the call control: while it is set
                 // the button is disabled and every joinCall() returns without a
@@ -4551,6 +4552,24 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun note(message: String) {
         _room.update { it.copy(notice = message) }
+    }
+
+    /**
+     * The one moment the battery-optimisation exemption behind "Ring when
+     * KithMoot is closed" is ever asked for: after this device's first call
+     * ends, never at first launch and never again once declined - see
+     * `service/BackgroundRingSettings.takeBatteryAsk` and
+     * `service/BatteryOptimisation.kt`. A call just ended is the moment a
+     * person has direct evidence the feature exists and works, rather than
+     * a cold prompt on an app they have not used yet.
+     */
+    private fun maybeAskBatteryExemption() {
+        val context: android.content.Context = getApplication()
+        val settings = dev.forgesworn.kithmoot.service.BackgroundRingSettings(context)
+        if (!settings.enabled()) return
+        if (!settings.takeBatteryAsk()) return
+        note("Ring me rooms can still ring you while KithMoot is closed if Android does not restrict its battery use.")
+        dev.forgesworn.kithmoot.service.requestIgnoreBatteryOptimizations(context)
     }
 
     // --- contact cards -------------------------------------------------------

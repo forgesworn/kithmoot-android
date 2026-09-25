@@ -158,6 +158,21 @@ class MainActivity : ComponentActivity() {
                 }
                 val onScreen by visible.collectAsState()
                 LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
+                // Ring when KithMoot is closed is on by default (see
+                // `service/BackgroundRingSettings.kt`), so most installs
+                // reach the service through here rather than the Settings
+                // switch or a reboot: reconciled once per app start, which
+                // is enough since the running service keeps itself current.
+                LaunchedEffect(Unit) {
+                    val app = application as KithMootApplication
+                    val toggle = dev.forgesworn.kithmoot.service.BackgroundRingSettings(this@MainActivity).enabled()
+                    val ringSettings = dev.forgesworn.kithmoot.notifications.CallRingSettings(this@MainActivity)
+                    val savedIds = app.savedRooms.list().map { it.id }
+                    val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
+                    if (dev.forgesworn.kithmoot.service.shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
+                        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(this@MainActivity)
+                    }
+                }
                 val inPip by pictureInPicture.collectAsState()
                 if (visiting) {
                     KithMootApp(

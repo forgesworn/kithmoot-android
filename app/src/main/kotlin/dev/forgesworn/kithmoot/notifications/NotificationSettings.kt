@@ -19,7 +19,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
 import dev.forgesworn.kithmoot.service.BackgroundRingSettings
-import dev.forgesworn.kithmoot.service.requestIgnoreBatteryOptimizations
 
 @Composable
 fun NotificationSettings(
@@ -95,14 +94,13 @@ fun NotificationSettings(
             backgroundEnabled = enabled
             backgroundRing.setEnabled(enabled)
             if (enabled) {
-                if (backgroundRing.takeBatteryAsk()) requestIgnoreBatteryOptimizations(context)
                 BackgroundCallListenerService.start(context)
             } else {
                 BackgroundCallListenerService.stop(context)
             }
         }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
     }
-    Text("Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
+    Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
 }
 
 /** The room a [NotificationSettings] menu was opened from, and how to read
