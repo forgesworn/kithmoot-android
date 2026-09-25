@@ -100,3 +100,14 @@ fun buildTiles(
  */
 fun shortId(pubkey: String): String =
     if (pubkey.length <= 12) pubkey else "${pubkey.take(6)}…${pubkey.takeLast(4)}"
+
+private val HEX_PUBKEY = Regex("^[0-9a-f]{64}$")
+
+/**
+ * A caller label for an incoming-call notification: [shortId] for a real
+ * pubkey, and the background listener's own fallback text - "Someone in
+ * <room>", when it could not resolve the ringing device to a participant -
+ * shown as written rather than mangled by [shortId]. See
+ * `service/BackgroundCallListenerService.kt`.
+ */
+fun callerLabel(caller: String): String = if (HEX_PUBKEY.matches(caller)) shortId(caller) else caller

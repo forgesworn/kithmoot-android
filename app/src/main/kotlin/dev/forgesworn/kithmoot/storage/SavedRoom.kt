@@ -42,6 +42,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         "account" -> identityJson.text("participant")
         else -> Schnorr.publicKeyHex(identityJson.text("participantKey").keyBytes())
     }
+    /** This device's own device pubkey in this room, readable without a
+     *  signer - unlike [identity], which an "account" room needs one for.
+     *  Used to keep the background call listener from ringing for its own
+     *  other rooms' bells. */
+    val devicePubkey: String get() = Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
     val openedAt: Long get() = json.getValue("openedAt").jsonPrimitive.long
     /** The project this room is filed under on this device, if any. A label
      *  and nothing more: it changes nothing about the room or who is in it. */

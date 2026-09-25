@@ -17,7 +17,10 @@ import dev.forgesworn.kithmoot.protocol.encodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.CallMembership
+import dev.forgesworn.kithmoot.protocol.EncodeCallBellOptions
+import dev.forgesworn.kithmoot.protocol.encodeCallBellEvent
 import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
@@ -161,6 +164,12 @@ class RoomSession(
      * verified outer events. It is deliberately not a relay operation.
      */
     private val onVerifiedOwnEvent: (NostrEvent) -> Unit = {},
+    /**
+     * `false` never publishes a call bell (kind 1464) when this device is
+     * the first onto a call or the last off it - a test-only escape hatch,
+     * mirroring the web client's `callBell` option in `session.ts`.
+     */
+    private val callBellEnabled: Boolean = true,
 ) {
 
     private val lock = Any()
@@ -386,6 +395,7 @@ class RoomSession(
         val cancelling: List<Job>
         val traffic: List<Job>
         val farewell: Boolean
+        var offCall: CallMembership? = null
         synchronized(lock) {
             if (!joined) return
             farewell = publicationAllowed
@@ -394,13 +404,17 @@ class RoomSession(
             tracks = emptyList()
             claims = emptyMap()
             // A farewell is never on a call. Leaving the room is leaving
-            // everything in it.
+            // everything in it. The last device off a call rings it closed,
+            // decided on the presence as it stood before this farewell.
+            val leaving = call
+            if (leaving != null && !othersOnCallLocked(leaving.id)) offCall = leaving
             call = null
             cancelling = jobs.toList()
             jobs.clear()
             traffic = trafficJobs.toList()
             trafficJobs.clear()
         }
+        offCall?.let { ringBell(CallBellState.END, it) }
         if (farewell) publishAnnouncement(reply = true, left = true)
         responseJob?.cancel()
         for (job in cancelling) job.cancel()
@@ -480,14 +494,66 @@ class RoomSession(
      * Mirrors `Session.setCall` in the web client's `src/session.ts`.
      */
     fun setCall(membership: CallMembership?) {
-        synchronized(lock) {
-            call = membership?.let { CallMembership(it.id.lowercase(), it.since) }
+        val bells = synchronized(lock) {
+            val previous = call
+            val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
+            call = next
+            bellsFor(previous, next)
         }
         announce(reply = true)
+        for ((state, on) in bells) ringBell(state, on)
     }
 
     /** The call this device says it is on, if any. */
     fun currentCall(): CallMembership? = synchronized(lock) { call }
+
+    /**
+     * Decided on the presence as it stood before the change: the bell is
+     * for the first device on a call and the last one off it. Must be
+     * called under [lock], since it reads [roster]. Mirrors `Session.setCall`
+     * in the web client's `src/session.ts`.
+     */
+    private fun bellsFor(previous: CallMembership?, next: CallMembership?): List<Pair<CallBellState, CallMembership>> {
+        val bells = mutableListOf<Pair<CallBellState, CallMembership>>()
+        if (previous != null && previous.id != next?.id && !othersOnCallLocked(previous.id)) {
+            bells += CallBellState.END to previous
+        }
+        if (next != null && next.id != previous?.id && !othersOnCallLocked(next.id)) {
+            bells += CallBellState.START to next
+        }
+        return bells
+    }
+
+    /** Whether any other present endpoint - another device, or another page
+     *  session of this one - says it is on [id]. Must be called under [lock]. */
+    private fun othersOnCallLocked(id: String): Boolean =
+        roster.values.any { it.device != identity.devicePubkey && !it.left && it.call?.id == id }
+
+    /**
+     * Publish one call bell (kind 1464) for a phone waiting with the app
+     * closed - see `protocol/CallBell.kt`. Fire and forget: it never holds
+     * up going on or off a call, and a failure costs only the ring, so it
+     * is swallowed.
+     */
+    private fun ringBell(state: CallBellState, call: CallMembership) {
+        if (!callBellEnabled) return
+        try {
+            val epoch = epochKeys()
+            val event = encodeCallBellEvent(
+                EncodeCallBellOptions(
+                    roomId = room.roomId,
+                    key = epoch.key,
+                    deviceSecretKey = identity.deviceSecretKey,
+                    state = state,
+                    call = call,
+                    createdAt = now(),
+                ),
+            )
+            transport.publish(event)
+        } catch (_: Exception) {
+            // Only the ring is lost; going on or off the call already happened.
+        }
+    }
 
     /**
      * The calls in progress in this room, best first. See [callsOf].

@@ -15,9 +15,21 @@
          them, so the service claims all three types. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <!-- Asked for only when a screen share is about to start, because that is
-         the only thing here that needs a notification. -->
+    <!-- Asked for only when a screen share is about to start, or a call the
+         person is not on starts in a room they have open, because those are
+         the only things here that need a notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The incoming-call screen, over the lock screen where Android 14's
+         canUseFullScreenIntent() allows it; otherwise the notification falls
+         back to heads-up. See notifications/IncomingCallRinger.kt. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- The opt-in background call listener: "Ring when KithMoot is closed"
+         in notification settings, off by default. See
+         service/BackgroundCallListenerService.kt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Neither is required: the application is useful on a device with no
          camera at all, as a screen and a voice. -->
@@ -82,6 +94,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.incoming.IncomingCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.KithMoot" />
+
+        <receiver
+            android:name=".notifications.IncomingCallActionReceiver"
+            android:exported="false" />
+
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.images" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/image_paths" />
@@ -91,5 +114,33 @@
             android:name=".service.ScreenShareService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|camera|microphone" />
+
+        <service
+            android:name=".service.BackgroundCallListenerService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listen for a call starting in a room set to Ring me while KithMoot is closed, so it can still ring" />
+        </service>
+
+        <receiver
+            android:name=".service.BackgroundRingActionReceiver"
+            android:exported="false" />
+
+        <!-- BOOT_COMPLETED and MY_PACKAGE_REPLACED are protected broadcasts: only
+             the system can send them, so this is safe to export.
+             BackgroundRingBootReceiver itself checks the toggle and saved rooms
+             before doing anything. -->
+        <receiver
+            android:name=".service.BackgroundRingBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

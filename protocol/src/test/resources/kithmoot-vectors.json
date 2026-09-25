@@ -8343,6 +8343,368 @@
         }
       }
     ],
+    "callBell": [
+      {
+        "name": "tag-for-day",
+        "kind": "positive",
+        "note": "The `d` tag: HMAC-SHA256 keyed with HKDF-SHA256(room/epoch key, empty salt, `kithmoot/v1/call-bell-tag`, 32), over `kithmoot-call-bell-v1|` + the UTC day of created_at as yyyy-mm-dd, hex, first 32 characters. The NIP-44 content key is HKDF-SHA256 of the same key with info `kithmoot/v1/call-bell-key`. Neither is the roster `d` or the roster key.",
+        "input": {
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "at": 1800000000,
+          "day": "2027-01-15",
+          "nextDayAt": 1800086400
+        },
+        "output": {
+          "tag": "03f134951991ad35b97b600c476817f4",
+          "nextDayTag": "a8c0d1875899c77f46bd69b0c77fe5a5",
+          "contentKeyHex": "0e5dafbdd9f808b0e9a4d100056ea1b596697c99dfc923adc4b7d12d785614da"
+        }
+      },
+      {
+        "name": "valid-start",
+        "kind": "positive",
+        "note": "A call starting: kind 1464 signed by a throwaway key, tags `d` and `expiration` (created_at + 120) and nothing else, content NIP-44 v2 of `{v:1,state,call:{id,since},device,sig}`. `sig` is BIP-340 by the device key over sha256 of `kithmoot/v1/call-bell:` + room id + `:` + state + `:` + call id + `:` + since + `:` + created_at.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "Am42A6BtnCPmatUrMSPr9VuAYGr/K9G565TklwroQ65vmelcz6k2hFroj5XSqKUGvh85Sdvuykrlys69Asa9g7aMkGWO62oFwe6WdizuRfbOJVGoqgLVkoYIosK9bZZchLnJNX8roRl+CwDF11dvaMqM4IEeUJMZ6Yi9mg+LhboGo8B3Y42s464RQK9xD6ycIsoiPadd5F/B79uhWU4F4j8DM5RLO436IJwB5Tc4U3bhTExr13J9FJHVSpEO+kR3KnXCaF69OI6kN6J5lZ2aEyc9nLcuIxs3aORESxewyGS1WCVnw4p6mcxsKETOoVDzF8gBktU/JXL2yoIaWFMiNzjf3tZ77fyiESeCiNIobx0jDenxXpm1nNJpr4Zr8xvn+9lYmSsR3KqLyZTvljzT0jbtALG40c5kWqW3UvSJruLd3w7SEeolknCyS7opuma5SHdzjv4eUuqmomWIdt3ft53xuGoa7s+tn4/rl+KDTMNv0TutVydPDlThu93v9GgrqnzN",
+            "pubkey": "3613c1fdf37000ad4514d4112a96a8971f7b43d0812fd740e35a87e410e29408",
+            "id": "2ac7195d8aa7a2e99c225a934dce22d39f4d197b6b217acc0d4dec89a1a8d437",
+            "sig": "0001487376f6ff67a8223bdeb7ce447c2903aca5472712d954de08f9944942736d0fb31253724d5b1f22b1e8a6414771bd67e3af0eea6415baf1e4af3c544e68"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"5883b6d0fd809b8c5ecce4767b320dc1389ce9df5013555971b0e513a636393079c04cde211a73d8c1178c24abea161c4f3d44de3be1f7fa46c69124d7bb8719\"}",
+          "throwawaySkHex": "fdcdf77ca74087c56b51c8651c83140d292ef885c9594d985b976889706197e0",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "f78e47e17841e228ed8987325844b20ac20b8e25aaca37a2d5c4d4e88aeb4ca0",
+          "nonceHex": "6e3603a06d9c23e66ad52b3123ebf55b80606aff2bd1b9eb94e4970ae843ae6f",
+          "auxRandHex": "1fcc77a5a7f7ac578d3a449168156f39ad6e94bb063e826dd623d4f32a1dd404",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "state": "start",
+            "call": {
+              "id": "c0ffee00000000000000000000000000",
+              "since": 1800000000
+            },
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "createdAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "valid-end",
+        "kind": "positive",
+        "note": "The last device off an hour-long call rings it closed. `since` is when the call began, well before created_at; for an end that is allowed up to 30 days.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800003600,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800003720"
+              ]
+            ],
+            "content": "AjBsWwQJ8E78rPe3Ku7jGxTBElXLdQzOhvMmDG+lToNU63SZHgHnbCHbvj3J7pU6IVFxvucHukXYkKtho6eByYJa2zGFZ8A7VKQ6/PgGhyypg1kxmXGiWPV5Dnlwh1mYEJC6zhwau3NoOWdcg89C1TwHV4FlkOUG0UYRIk1xKi6TC1lMJfoHjHv9EqqTvwf/hWho0vwAJZUDRr0145o2+URtkEJZ5RjnqDsALE5DdPJBVUAx5aIm7WQbqOredbG90sLTUnq0tb9XL7rFHtGPafIxoD5f4tYmyXebfcklUC65GRYdhchU2Lukq3h7Y8/mmxlIo0Oy/ryah/c9QlhoNyjGhbJic3kqoH8EsL4NtiyW2KRdSDr+RvBeCX1ooTG/dP/B69BhcHpc152yi4gAuIiBbaAbtqmHdesM+pjavDob4XbrocFPO3tidYWKZ1uOVK5i8/n+w3Rho625FpXZl3w8T8Jxv80cgL7168ZRFSqlpHbocD5MmhQXGogyD6xSYtoT",
+            "pubkey": "b07d69a1cd5bf0fe6a0b30cf756f0017e106b83824ef2b0865658ab71e5d0dce",
+            "id": "b81584df6a7ed23a94b618111c827ff29794fdcc61b4f16ddafc95a89d39433b",
+            "sig": "f5828748eb509e935dda853e4bb4258adb58c8b67c663fb3d9c4c1087fccfcec312675f727e9ab8c8be69ae3661cfcd2029881e0a20b183ba14ea7cd3c59b46e"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"end\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"c96fd8d523a0f1e04566750eece497e5c3b2c9439f7ab288204f88ff29d8eb3ad1b4fd5b1a2954a8ae08bde1931d9641d091003eabcef2608cd0ad4d2a0cc0dd\"}",
+          "throwawaySkHex": "eb5769eaaf56d4f38eea132dd8674061f0b78a57633d3cf7aced7b26c5990d41",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "dcbf9844a81bed01f14896ea38ae4d858da1be724460a666c5464f120add9072",
+          "nonceHex": "306c5b0409f04efcacf7b72aeee31b14c11255cb750cce86f3260c6fa54e8354",
+          "auxRandHex": "69db101410250353985d084c51151af6ff3185739993430d10b99fa5d15a247f",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800003600
+          }
+        },
+        "output": {
+          "result": {
+            "state": "end",
+            "call": {
+              "id": "c0ffee00000000000000000000000000",
+              "since": 1800000000
+            },
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "createdAt": 1800003600
+          }
+        }
+      },
+      {
+        "name": "wrong-room-key",
+        "kind": "negative",
+        "note": "The valid start read with another room's key: the tag does not match that room's day tag, and nothing is decrypted.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "Am42A6BtnCPmatUrMSPr9VuAYGr/K9G565TklwroQ65vmelcz6k2hFroj5XSqKUGvh85Sdvuykrlys69Asa9g7aMkGWO62oFwe6WdizuRfbOJVGoqgLVkoYIosK9bZZchLnJNX8roRl+CwDF11dvaMqM4IEeUJMZ6Yi9mg+LhboGo8B3Y42s464RQK9xD6ycIsoiPadd5F/B79uhWU4F4j8DM5RLO436IJwB5Tc4U3bhTExr13J9FJHVSpEO+kR3KnXCaF69OI6kN6J5lZ2aEyc9nLcuIxs3aORESxewyGS1WCVnw4p6mcxsKETOoVDzF8gBktU/JXL2yoIaWFMiNzjf3tZ77fyiESeCiNIobx0jDenxXpm1nNJpr4Zr8xvn+9lYmSsR3KqLyZTvljzT0jbtALG40c5kWqW3UvSJruLd3w7SEeolknCyS7opuma5SHdzjv4eUuqmomWIdt3ft53xuGoa7s+tn4/rl+KDTMNv0TutVydPDlThu93v9GgrqnzN",
+            "pubkey": "3613c1fdf37000ad4514d4112a96a8971f7b43d0812fd740e35a87e410e29408",
+            "id": "2ac7195d8aa7a2e99c225a934dce22d39f4d197b6b217acc0d4dec89a1a8d437",
+            "sig": "0001487376f6ff67a8223bdeb7ce447c2903aca5472712d954de08f9944942736d0fb31253724d5b1f22b1e8a6414771bd67e3af0eea6415baf1e4af3c544e68"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"5883b6d0fd809b8c5ecce4767b320dc1389ce9df5013555971b0e513a636393079c04cde211a73d8c1178c24abea161c4f3d44de3be1f7fa46c69124d7bb8719\"}",
+          "throwawaySkHex": "fdcdf77ca74087c56b51c8651c83140d292ef885c9594d985b976889706197e0",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "f78e47e17841e228ed8987325844b20ac20b8e25aaca37a2d5c4d4e88aeb4ca0",
+          "nonceHex": "6e3603a06d9c23e66ad52b3123ebf55b80606aff2bd1b9eb94e4970ae843ae6f",
+          "auxRandHex": "1fcc77a5a7f7ac578d3a449168156f39ad6e94bb063e826dd623d4f32a1dd404",
+          "decode": {
+            "roomId": "fcdc853ddc1be7f7d978367e1a5156b55f11e4c22a49db949f5bb939a303762a",
+            "keyHex": "deb56b230478ea80360cf944c2f67e3ff54bbeed6bc177419cc81ac66d0c3cfa",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "bad-signature",
+        "kind": "negative",
+        "note": "The body names device A but the signature is by device B: refused, so a bell cannot be pinned on a device that did not ring it.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "ArEUUe7+wSTPcBrfTs9UxNVDcfbdYLQEDD2hKjbbgc7VIKevuqnOkcWwRVO4dpKDoYhUaUc2YLVwf9rNtLZHhfkD3VY1LnO6LBzyXiIWYToq6SMNBI5oT49voDhRlp98kue+E2GQbOlLd6uz+w44FBFdBZRYRk9V1PdnwSuxb3f4b3qkoKfulfIbRPFkjDWUS8kcYdmxA/Zn/JqQak8xgvrlySTi6Uo/yNyRFkyVn5qnwzHHh6pncGfYTGeP1ymSx3G1j1wSAzDazMCXi9XRe1/z5b4Z8koDflGDftysTizWNuSFcBSSd/WEfOYZMLBCBEG8HkR+iQm+RkQiUCGnHkHY5MgobCProLQvDC3SmiaDHa25HBBJ1Y3OhM0iWlraliFHceJKmcBIqghkpICVx8ldPJxt5HtAthWjVJLdwVhUjiqH12+zR1cEB5kwNiBbt0hEKm/1Z/6/0Qm88sh+3la6Crqfuzwpdwh+sluifpxyVHw/0klsx5bTQrLOqlP1vFFa",
+            "pubkey": "262ba76f553b081f3ce9fed68fa1a002f4af92264f2edfce48bb89a331db4a5a",
+            "id": "467cbfbfc9cc56eb066d45f2d9831f37c9b2c681db5d8726903f27c8cacff0ec",
+            "sig": "23161d84837074e1efe788732f18b745758ea98bd149c3979b1c3effb2151d05d32ef7bf170701093c0bcccdbcc666f5a97a07c40f353aa8f0d47bd68b6e7339"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"8dd9670c0283085b25a9f8a6468075537eda7dad9b9e742ae703c65f3e1f74ce2f839b5fcd031229e849c1a8c724bf7eda3460140b2ab861e0c9259ce3128815\"}",
+          "throwawaySkHex": "4477f6d4497e36bdeb34532dcaeb610859c8a040b44b7655ff99d198681d6504",
+          "deviceSkHex": "6eb6328a27ba12439e43acb5cc0a33141972bf3de2ea7e761df9d8bc17a8e3aa",
+          "deviceAuxRandHex": "63d1fe356534770dd7270ebac22d912ba847eb592c85df7a977d518765d26db0",
+          "nonceHex": "b11451eefec124cf701adf4ecf54c4d54371f6dd60b4040c3da12a36db81ced5",
+          "auxRandHex": "4c4d6a70700c3410079c38a263257c3b90bb5b42e9de9f0b3eae628801a54102",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "expired",
+        "kind": "negative",
+        "note": "The valid start read 121 seconds after created_at: past its expiration, a phone must not ring for it.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "Am42A6BtnCPmatUrMSPr9VuAYGr/K9G565TklwroQ65vmelcz6k2hFroj5XSqKUGvh85Sdvuykrlys69Asa9g7aMkGWO62oFwe6WdizuRfbOJVGoqgLVkoYIosK9bZZchLnJNX8roRl+CwDF11dvaMqM4IEeUJMZ6Yi9mg+LhboGo8B3Y42s464RQK9xD6ycIsoiPadd5F/B79uhWU4F4j8DM5RLO436IJwB5Tc4U3bhTExr13J9FJHVSpEO+kR3KnXCaF69OI6kN6J5lZ2aEyc9nLcuIxs3aORESxewyGS1WCVnw4p6mcxsKETOoVDzF8gBktU/JXL2yoIaWFMiNzjf3tZ77fyiESeCiNIobx0jDenxXpm1nNJpr4Zr8xvn+9lYmSsR3KqLyZTvljzT0jbtALG40c5kWqW3UvSJruLd3w7SEeolknCyS7opuma5SHdzjv4eUuqmomWIdt3ft53xuGoa7s+tn4/rl+KDTMNv0TutVydPDlThu93v9GgrqnzN",
+            "pubkey": "3613c1fdf37000ad4514d4112a96a8971f7b43d0812fd740e35a87e410e29408",
+            "id": "2ac7195d8aa7a2e99c225a934dce22d39f4d197b6b217acc0d4dec89a1a8d437",
+            "sig": "0001487376f6ff67a8223bdeb7ce447c2903aca5472712d954de08f9944942736d0fb31253724d5b1f22b1e8a6414771bd67e3af0eea6415baf1e4af3c544e68"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"5883b6d0fd809b8c5ecce4767b320dc1389ce9df5013555971b0e513a636393079c04cde211a73d8c1178c24abea161c4f3d44de3be1f7fa46c69124d7bb8719\"}",
+          "throwawaySkHex": "fdcdf77ca74087c56b51c8651c83140d292ef885c9594d985b976889706197e0",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "f78e47e17841e228ed8987325844b20ac20b8e25aaca37a2d5c4d4e88aeb4ca0",
+          "nonceHex": "6e3603a06d9c23e66ad52b3123ebf55b80606aff2bd1b9eb94e4970ae843ae6f",
+          "auxRandHex": "1fcc77a5a7f7ac578d3a449168156f39ad6e94bb063e826dd623d4f32a1dd404",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000121
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "future",
+        "kind": "negative",
+        "note": "The valid start read 61 seconds before created_at: stamped further ahead than the 60 seconds of clock skew allowed.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "Am42A6BtnCPmatUrMSPr9VuAYGr/K9G565TklwroQ65vmelcz6k2hFroj5XSqKUGvh85Sdvuykrlys69Asa9g7aMkGWO62oFwe6WdizuRfbOJVGoqgLVkoYIosK9bZZchLnJNX8roRl+CwDF11dvaMqM4IEeUJMZ6Yi9mg+LhboGo8B3Y42s464RQK9xD6ycIsoiPadd5F/B79uhWU4F4j8DM5RLO436IJwB5Tc4U3bhTExr13J9FJHVSpEO+kR3KnXCaF69OI6kN6J5lZ2aEyc9nLcuIxs3aORESxewyGS1WCVnw4p6mcxsKETOoVDzF8gBktU/JXL2yoIaWFMiNzjf3tZ77fyiESeCiNIobx0jDenxXpm1nNJpr4Zr8xvn+9lYmSsR3KqLyZTvljzT0jbtALG40c5kWqW3UvSJruLd3w7SEeolknCyS7opuma5SHdzjv4eUuqmomWIdt3ft53xuGoa7s+tn4/rl+KDTMNv0TutVydPDlThu93v9GgrqnzN",
+            "pubkey": "3613c1fdf37000ad4514d4112a96a8971f7b43d0812fd740e35a87e410e29408",
+            "id": "2ac7195d8aa7a2e99c225a934dce22d39f4d197b6b217acc0d4dec89a1a8d437",
+            "sig": "0001487376f6ff67a8223bdeb7ce447c2903aca5472712d954de08f9944942736d0fb31253724d5b1f22b1e8a6414771bd67e3af0eea6415baf1e4af3c544e68"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"5883b6d0fd809b8c5ecce4767b320dc1389ce9df5013555971b0e513a636393079c04cde211a73d8c1178c24abea161c4f3d44de3be1f7fa46c69124d7bb8719\"}",
+          "throwawaySkHex": "fdcdf77ca74087c56b51c8651c83140d292ef885c9594d985b976889706197e0",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "f78e47e17841e228ed8987325844b20ac20b8e25aaca37a2d5c4d4e88aeb4ca0",
+          "nonceHex": "6e3603a06d9c23e66ad52b3123ebf55b80606aff2bd1b9eb94e4970ae843ae6f",
+          "auxRandHex": "1fcc77a5a7f7ac578d3a449168156f39ad6e94bb063e826dd623d4f32a1dd404",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1799999939
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "malformed-call-id",
+        "kind": "negative",
+        "note": "A call id in upper case: call ids are exactly 32 lower-case hex characters on this kind, and a bell with any other is refused whole.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "As0Ea0Lb+3FqKG33sQb+5zuJZIL1xJtAmHT7ZVubaatjX6p949HlET1jKCs5WBv9ViEAIsD5oazMaw8e8F8D3Rwm3681hENDIh4cX1vh0FQcod47QkPtyXmkYusw29nmwBAM3EqTioRb27gVHpuUNRiKRLHHNgKLCshadndkoTsUvw9bUwk8QiRD+N0kxVAFv3AFgKjmHZEsaPZfit21F/vBZmxiPoJa8vWyFQfJZQ8wX7+tQp12+WGJfL1MgZEGl7j9RHzUC7Xkz+11iJMvW1z52E3o4GMVeTr9vBoT9MJlNzuMYURx9GGpixvZNm7F1cgFukuA6DHGbrW0GMxdUXbWbf7z55UUbMSVBR3Vpi2Xp3MdFJ8GXaIprusLm3PHBJ7YZgBuLtpPOu8hQUkSU6ZC4KjdUip5dRGw3Cm6qQ/M/2PVk2TcO5DHTU6UZsyKNPYVBeJ2orWFKg37/rjJ3cTtvfoJEm3gHFq6ErZRyyoGSCsqfZ7m6pZnI9vs9JKr4d83",
+            "pubkey": "d12975afd6569cef2f09dd62b12a4b34e4a9a3e4f0d2b5e1d0c14d03f56509b9",
+            "id": "dd27aa29411877abe3428c84d281cbc4cf51e92eeb3b48f9a1bcb8371a003e33",
+            "sig": "408e629ba8507bcb95819ae580ce01a30f253d5640becbe12124bc7e1f24837d88e9f01cd33d0662db5cd92d41346a11773c491af33ced9e3d5fabb6c34be8f8"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"C0FFEE00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"2bb992c3991bb244fd40fc5cb32712c32d2748422a8b5e2762834c88ded43b76746744965f6076c86b286298b0462724494c4b3d35f56bad9b439f97c23d8279\"}",
+          "throwawaySkHex": "2bac838970db6fd39bf7b42b2aafdf3241201583a5117e3df60b1867e0debad2",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "594123d5c07c1022b3d8aa098db16e09f0beb68a8d91c5e924b5cc69aad56182",
+          "nonceHex": "cd046b42dbfb716a286df7b106fee73b896482f5c49b409874fb655b9b69ab63",
+          "auxRandHex": "89feb1b0333f9addcdd476364918a830ec14ca382b7b16f8c7d9e7825019eee9",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      },
+      {
+        "name": "wrong-version",
+        "kind": "negative",
+        "note": "A body with `v:2`, otherwise correctly signed: an unknown version is refused, never guessed at.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "AnvdVJjZeYJT+YvT1x8p1gBEMKRdfmlrD6U5v/0qHLYVhkS3AGRgba5RDnw022Z/TaeqMaucNHgx3/B+dUnXoSb5ktuTHBIISUyKgfc3EOBEvgKn2TNnahxh1hw/XbMPYszPlIHsKAkAnzBEeAfdTUlDOuzq5odWObtoV9tS72o+7/N3pZBE2rNxadWEPG53SHQUybBp7RHRoEBLauVX5QvC1DrGqEmb+uqmzchgGHZSexQu/ycf8KLMddoQOsC2cxIA8nuYluWIji0XHZHmYB7HNiPU+MFelwjLyPoxWSOzT9ipEBJlvce1iA7AK+f049IQkguHAg5zGTXwCB8mCanCktO4X2FJwwQ8Y3Oi/5ciIVH9wStNUsvu37A3F9khuW+gR9aBd0fTECJxgCXuv4QVTN9hTh4y3rSkuJBIWVRAqKQB4A6LdvHkOAjeetAoYF6beVTbxSLcONZeYB0KzU0Rtva/UxyIzRx2fUnqZe2SgvK6Fqnwi2GQYobRr0a5ij5M",
+            "pubkey": "0e3e8d7754d84fef2d7c47b8c4c9b77ce8de0cba5a93d4ac6b819d37d1e477e7",
+            "id": "9942dbc5d101b967c550f088e38b3edda6563aef375da872a797b009880296c3",
+            "sig": "45ad98f96a75b5483f58eb9e1936a63d32c2b450fc1caa7e0505760eda6bb47a2ca1d9e19e1ce4616d4210d8d9ea1654edf6b6f6686bbf74618d3ce8e4c55ba6"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":2,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"43faf67dd37b0283e29ef0e2d64c27e6b5467a8093160221819a9d5be33530715e0793dec84d0b640a8be5db68f9fdfe580085130218dcbbc97f5e7717b4236e\"}",
+          "throwawaySkHex": "92df836a206ff19f4ff628a6184fc74b13b14e61ca13bc5065005217af3e93e2",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "4348d99cdce8502d288eb7331cd050b00060fcd77c93491d1100c9734925b3a1",
+          "nonceHex": "7bdd5498d9798253f98bd3d71f29d6004430a45d7e696b0fa539bffd2a1cb615",
+          "auxRandHex": "a2b21d777954e264525d1d9747f45ec284f13de7c38e5b74524b33cda3a7c678",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",

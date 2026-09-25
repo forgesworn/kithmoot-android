@@ -262,12 +262,18 @@ fun ChatPane(
         } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
     reactionTarget?.let { target ->
         val resolvedTarget = resolved.stream.flatMap { listOf(it) + it.replies }.find { it.original.id == target.id }
+        val bodyText = if (resolvedTarget?.retracted == true) null else resolvedTarget?.shown?.body ?: target.body
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+        val context = androidx.compose.ui.platform.LocalContext.current
         AlertDialog(onDismissRequest = { reactionTarget = null }, title = { Text("Message") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if (target.participant == selfParticipant) "You" else target.name ?: profiles[target.participant]?.name ?: "Participant", style = MaterialTheme.typography.titleSmall)
                 Text(npubOf(target.participant), style = MaterialTheme.typography.bodySmall)
                 Text(messageTime(target.sentAt), style = MaterialTheme.typography.bodySmall)
                 target.lane?.let { Text(it.meaning, style = MaterialTheme.typography.bodySmall) }
+                if (bodyText != null) androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(bodyText, style = MaterialTheme.typography.bodyMedium)
+                }
                 if (canSend && resolvedTarget?.retracted != true) FlowRow {
                     REACTION_EMOJIS.forEach { emoji ->
                         val active = reactionUpdates(messages, target).filter { it.reaction!!.emoji == emoji && it.reaction.active }
@@ -277,6 +283,16 @@ fun ChatPane(
                     }
                 }
             }
+        }, dismissButton = {
+            if (bodyText != null) TextButton(onClick = {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(bodyText))
+                // Android 13+ shows its own clipboard confirmation toast; a
+                // second one here would just be noise.
+                if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                    android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                reactionTarget = null
+            }) { Text("Copy text") }
         }, confirmButton = { TextButton(onClick = { reactionTarget = null }) { Text("Done") } })
     }
 }

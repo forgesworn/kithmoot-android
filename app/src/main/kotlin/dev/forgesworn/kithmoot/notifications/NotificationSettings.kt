@@ -4,18 +4,29 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
+import dev.forgesworn.kithmoot.service.BackgroundRingSettings
 
 @Composable
-fun NotificationSettings(notices: ChatNotifications) {
+fun NotificationSettings(
+    notices: ChatNotifications,
+    /** The room this menu was opened from, if any: only then is there a
+     *  call to ring for. See RoomViewModel.callRingMode / setCallRingMode. */
+    room: CallRingRoom? = null,
+) {
     val value by notices.settings.collectAsState()
     var allowed by remember { mutableStateOf(notices.allowed()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -48,5 +59,55 @@ fun NotificationSettings(notices: ChatNotifications) {
     }
     Text("Off by default. Alerts name the room and sender; message text stays inside KithMoot. Lock-screen alerts hide these details unless Android permits them.", style = MaterialTheme.typography.bodySmall)
     TextButton({ notices.systemSettings() }) { Text("Android notification settings") }
+    if (room != null) {
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(12.dp))
+        Text("Incoming calls in this room", style = MaterialTheme.typography.titleSmall)
+        var mode by remember(room.roomId) { mutableStateOf(room.mode()) }
+        Column(Modifier.selectableGroup()) {
+            CallRingMode.entries.forEach { option ->
+                Row(
+                    Modifier.fillMaxWidth().selectable(selected = mode == option, onClick = {
+                        mode = option
+                        room.setMode(option)
+                    }).padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = mode == option, onClick = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(option.label)
+                }
+            }
+        }
+        Text("Only takes effect while message notifications above are on.", style = MaterialTheme.typography.bodySmall)
+    }
     Spacer(Modifier.height(12.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(12.dp))
+    val context = LocalContext.current
+    val backgroundRing = remember { BackgroundRingSettings(context) }
+    var backgroundEnabled by remember { mutableStateOf(backgroundRing.enabled()) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Ring when KithMoot is closed", Modifier.weight(1f))
+        Switch(backgroundEnabled, { enabled ->
+            backgroundEnabled = enabled
+            backgroundRing.setEnabled(enabled)
+            if (enabled) {
+                BackgroundCallListenerService.start(context)
+            } else {
+                BackgroundCallListenerService.stop(context)
+            }
+        }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
+    }
+    Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
+}
+
+/** The room a [NotificationSettings] menu was opened from, and how to read
+ *  and change its incoming-call setting. Kept as an interface rather than
+ *  a `RoomViewModel` reference so this file does not depend on it. */
+interface CallRingRoom {
+    val roomId: String
+    fun mode(): CallRingMode
+    fun setMode(mode: CallRingMode)
 }

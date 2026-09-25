@@ -71,5 +71,20 @@ class OkHttpRelaySockets(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
+
+        /**
+         * For the closed-app call listener. Every ping wakes the phone's
+         * radio, and at 20 s across three relays that is nine wake-ups a
+         * minute for a socket that is otherwise silent. 90 s keeps a dead
+         * socket found and replaced inside the bell's 120 s lifetime, so a
+         * reconnect's `since` still catches a bell rung while it was down.
+         */
+        fun backgroundClient(): OkHttpClient = OkHttpClient.Builder()
+            .pingInterval(BACKGROUND_PING_SECONDS, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+
+        const val BACKGROUND_PING_SECONDS = 90L
     }
 }

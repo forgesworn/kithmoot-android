@@ -192,6 +192,7 @@ import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.session.mediaAudience
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.callsOf
+import dev.forgesworn.kithmoot.session.starter
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.decodeInvitationPairingLink
 import dev.forgesworn.kithmoot.session.decodePairingLink
@@ -633,6 +634,15 @@ class RoomViewModel @JvmOverloads constructor(
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
     fun notificationReading(reading: Boolean) { if (chatOnly) return; notifications.reading = reading; notifications.refresh() }
     fun notificationForeground(foreground: Boolean) { if (chatOnly) return; notifications.foreground = foreground; notifications.refresh() }
+
+    /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
+     *  same as [notifications] above. */
+    private val callRinger = dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator(application)
+    val callRingBanner: StateFlow<dev.forgesworn.kithmoot.notifications.IncomingCall?> get() = callRinger.banner
+    fun dismissCallRingBanner() = callRinger.dismissBanner()
+    fun setCallRingForeground(foreground: Boolean) { callRinger.foreground = foreground }
+    fun callRingMode(roomId: String) = callRinger.modeFor(roomId)
+    fun setCallRingMode(roomId: String, mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = callRinger.setMode(roomId, mode)
     fun openNotificationRoom(id: String) {
         if (!Regex("[a-f0-9]{64}").matches(id)) return
         if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
@@ -2933,13 +2943,22 @@ class RoomViewModel @JvmOverloads constructor(
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
             if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            // The background call listener (service/BackgroundCallListenerService.kt)
+            // skips any room open here: this coordinator already rings for it.
+            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
                         if (!chatOnly) notifications.accept(chat)
+                        // Best-effort, for the background call listener's caller
+                        // label while the app is closed - see
+                        // service/BackgroundParticipantCache.kt.
+                        dev.forgesworn.kithmoot.service.BackgroundParticipantCache(getApplication()).remember(record.id, people)
                         // The room's current call is the head of the same list
                         // every other client picks from - see RoomSession.calls.
-                        val onCall = callsOf(people).firstOrNull()?.devices.orEmpty()
+                        val current = callsOf(people).firstOrNull()
+                        val onCall = current?.devices.orEmpty()
+                        callRinger.update(record.id, record.name, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -3394,6 +3413,8 @@ class RoomViewModel @JvmOverloads constructor(
         profilePool = null
         pool = null
         if (!chatOnly) notifications.end()
+        callRinger.end()
+        savedRoom?.let { dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(it.id) }
         session = null
         identity = null
         savedRoom = null
@@ -3484,6 +3505,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // in with everything switched off looks the same.
                 runCatching { live.setCall(null) }
                 _videos.value = emptyMap()
+                maybeAskBatteryExemption()
             } finally {
                 // `callChanging` is a latch on the call control: while it is set
                 // the button is disabled and every joinCall() returns without a
@@ -4548,6 +4570,24 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun note(message: String) {
         _room.update { it.copy(notice = message) }
+    }
+
+    /**
+     * The one moment the battery-optimisation exemption behind "Ring when
+     * KithMoot is closed" is ever asked for: after this device's first call
+     * ends, never at first launch and never again once declined - see
+     * `service/BackgroundRingSettings.takeBatteryAsk` and
+     * `service/BatteryOptimisation.kt`. A call just ended is the moment a
+     * person has direct evidence the feature exists and works, rather than
+     * a cold prompt on an app they have not used yet.
+     */
+    private fun maybeAskBatteryExemption() {
+        val context: android.content.Context = getApplication()
+        val settings = dev.forgesworn.kithmoot.service.BackgroundRingSettings(context)
+        if (!settings.enabled()) return
+        if (!settings.takeBatteryAsk()) return
+        note("Ring me rooms can still ring you while KithMoot is closed if Android does not restrict its battery use.")
+        dev.forgesworn.kithmoot.service.requestIgnoreBatteryOptimizations(context)
     }
 
     // --- contact cards -------------------------------------------------------

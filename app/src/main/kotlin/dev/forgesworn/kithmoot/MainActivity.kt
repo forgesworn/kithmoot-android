@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
      */
     private val visible = MutableStateFlow(true)
     private val notificationRoom = MutableStateFlow<String?>(null)
+    /** A room to open and join the call in, off an Answer press - the
+     *  notification's action or [dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity]. */
+    private val answerCallRoom = MutableStateFlow<String?>(null)
 
     /**
      * Signer intents, one at a time. A NIP-55 signer app is another activity
@@ -84,7 +87,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
-        signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
+        else if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID)
+        } else signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
         setContent {
             var textSize by remember { mutableStateOf(TextSize.load(this)) }
@@ -118,6 +123,19 @@ class MainActivity : ComponentActivity() {
                     target.start.first { state -> !state.loadingRooms }
                     target.openNotificationRoom(id)
                 }
+                val answerRoom by answerCallRoom.collectAsState()
+                LaunchedEffect(answerRoom) {
+                    val id = answerRoom ?: return@LaunchedEffect
+                    answerCallRoom.value = null
+                    if (visiting) backToCall()
+                    model.start.first { state -> !state.loadingRooms }
+                    model.openNotificationRoom(id)
+                    // Mic and camera already default off on join; joinCall()
+                    // is a no-op until the room actually reaches Stage.ROOM.
+                    kotlinx.coroutines.flow.combine(model.stage, model.room) { s, r -> s to r.roomId }
+                        .first { (s, roomId) -> s == Stage.ROOM && roomId == id }
+                    model.joinCall()
+                }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
@@ -140,6 +158,24 @@ class MainActivity : ComponentActivity() {
                 }
                 val onScreen by visible.collectAsState()
                 LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
+                // Ring when KithMoot is closed is on by default (see
+                // `service/BackgroundRingSettings.kt`), so most installs
+                // reach the service through here rather than the Settings
+                // switch or a reboot: reconciled once per app start, which
+                // is enough since the running service keeps itself current.
+                LaunchedEffect(Unit) {
+                    val app = application as KithMootApplication
+                    val toggle = dev.forgesworn.kithmoot.service.BackgroundRingSettings(this@MainActivity).enabled()
+                    val ringSettings = dev.forgesworn.kithmoot.notifications.CallRingSettings(this@MainActivity)
+                    // Off the main thread: this decrypts the saved rooms.
+                    val savedIds = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        dev.forgesworn.kithmoot.service.savedRoomIdsOrNone(app.savedRooms)
+                    }
+                    val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
+                    if (dev.forgesworn.kithmoot.service.shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
+                        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(this@MainActivity)
+                    }
+                }
                 val inPip by pictureInPicture.collectAsState()
                 if (visiting) {
                     KithMootApp(
@@ -185,6 +221,9 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
             notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
+        }
+        if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID); return
         }
         signetFrom(intent)?.let { signetReturn.value = it; return }
         linkFrom(intent)?.let { incoming.value = it }
