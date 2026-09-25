@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.notifications
 
 import android.content.Context
+import dev.forgesworn.kithmoot.telecom.CallTelecom
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -8,8 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Glues [IncomingCallTracker]'s pure ring/stop decision to this device: the
  * per-room choice in [CallRingSettings], whether this room is the one on
- * screen right now, and posting or cancelling the notification through
- * [IncomingCallRinger].
+ * screen right now, and ringing through [CallTelecom] (which posts
+ * [IncomingCallRinger]'s notification either way) or cancelling it.
  *
  * One instance per open room (see `RoomViewModel`), same as
  * [ChatNotifications] - a call starting in a visited chat-only room rings
@@ -54,8 +55,9 @@ class IncomingCallRingCoordinator(private val context: Context) {
                 mutableBanner.value = null
                 when (settings.modeFor(roomId)) {
                     CallRingMode.NOTHING -> Unit
-                    CallRingMode.QUIET -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = true)
-                    CallRingMode.RING -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = false)
+                    // Through Telecom where it can, the notification alone where it cannot.
+                    CallRingMode.QUIET -> CallTelecom.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = true)
+                    CallRingMode.RING -> CallTelecom.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = false)
                 }
             }
         }

@@ -19,6 +19,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
 import dev.forgesworn.kithmoot.service.BackgroundRingSettings
+import dev.forgesworn.kithmoot.telecom.CallTelecom
+import dev.forgesworn.kithmoot.telecom.TelecomSettings
 
 @Composable
 fun NotificationSettings(
@@ -101,6 +103,18 @@ fun NotificationSettings(
         }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
     }
     Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
+    Spacer(Modifier.height(12.dp))
+    val telecom = remember { TelecomSettings(context) }
+    var telecomEnabled by remember { mutableStateOf(telecom.enabled()) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Phone call controls", Modifier.weight(1f))
+        Switch(telecomEnabled, { enabled ->
+            telecomEnabled = enabled
+            telecom.setEnabled(enabled)
+            if (!enabled) CallTelecom.unregister(context)
+        }, Modifier.semantics { contentDescription = "Phone call controls" })
+    }
+    Text("On by default. Headsets and car kits can answer and hang up, and a phone call holds a KithMoot call. Calls stay out of the phone's call history. Turn off if calls misbehave on this phone; it applies from the next call.", style = MaterialTheme.typography.bodySmall)
 }
 
 /** The room a [NotificationSettings] menu was opened from, and how to read
