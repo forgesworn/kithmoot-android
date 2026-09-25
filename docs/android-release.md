@@ -15,7 +15,7 @@ connection and never answers the upgrade is now abandoned after thirty
 seconds and retried, where before it sat on Connecting for good. The engine
 logs each link it closes and the state it was in. No wire change.
 
-Not yet checked on a handset.
+Published on 25 September 2026 from `ce54e03`: owner-signed on the M4 with the production key and lineage (v3 only), APK SHA-256 `630c1b0e7d837930f9afd3849a4c2fbb2fbd74f4f72f76c2054e2be7dca1ccca`, certificate `135bcabf…`, lineage `0ccf5ece…`. Passed the web repository's publication verifier, installed in place over 0.6.13 on the owner's Pixel 10 Pro XL (version 37 reported, first-install time preserved, launched to the rooms list with the account intact), offered as GitHub pre-release `v0.6.14`, and on the website from kithmoot #158 (site release 20260925T113450Z, live download hash checked). A call through a hung relay on a handset is the check that remains.
 
 ## 0.6.13 four things the web client already did
 
