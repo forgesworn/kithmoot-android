@@ -95,7 +95,7 @@ fun NotificationSettings(
             backgroundEnabled = enabled
             backgroundRing.setEnabled(enabled)
             if (enabled) {
-                requestIgnoreBatteryOptimizations(context)
+                if (backgroundRing.takeBatteryAsk()) requestIgnoreBatteryOptimizations(context)
                 BackgroundCallListenerService.start(context)
             } else {
                 BackgroundCallListenerService.stop(context)

@@ -154,6 +154,11 @@ class BackgroundCallListenerService : Service() {
         val filter = Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("d" to listOf(watch.trafficRoomId)))
         val job = scope.launch {
             pool.subscribe(listOf(filter)).collect { event ->
+                // Handed over between reconcile ticks: the open room rings now.
+                if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
+                    coordinator.end()
+                    return@collect
+                }
                 val now = System.currentTimeMillis() / 1000
                 val entry = decodeRosterEvent(event, watch.trafficRoomId, watch.roomKey, now) ?: return@collect
                 roster.accept(entry, now)

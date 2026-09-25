@@ -17,4 +17,11 @@ class BackgroundRingSettings(context: Context) {
     fun setEnabled(value: Boolean) {
         prefs.edit().putBoolean("enabled", value).apply()
     }
+
+    /** True the first time only: the battery exemption is asked for once, ever. */
+    fun takeBatteryAsk(): Boolean {
+        if (prefs.getBoolean("batteryAsked", false)) return false
+        prefs.edit().putBoolean("batteryAsked", true).apply()
+        return true
+    }
 }
