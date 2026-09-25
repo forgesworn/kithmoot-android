@@ -2,6 +2,20 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.15 a silent relay no longer stalls ordinary reads
+
+Version code 38. Stored reads that do not decide anything, namely the
+account relay list timestamp, room bookmarks, agent action discovery and
+quiet gift-wrap backfill, now settle three seconds after the first relay
+finishes instead of waiting fifteen for every relay and failing. Admission,
+rosters, profile edits, shared projects and the assignment journal still
+need every relay. The operator-run relay leaves the defaults; nostr.mom
+takes its place, matching the web client. The per-peer media log now reports
+audio's own counters (packets, loss, samples, concealment and packets sent),
+where before every audio line read frames=0. No wire change.
+
+Not yet checked on a handset.
+
 ## 0.6.14 a call survives a bad relay
 
 Version code 37. A call on Android no longer drops when one of the room's
