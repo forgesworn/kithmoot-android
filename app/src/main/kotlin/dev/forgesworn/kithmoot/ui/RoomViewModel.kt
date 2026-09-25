@@ -2170,7 +2170,7 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(profileBusy = true, profileMessage = null) }
         viewModelScope.launch(Dispatchers.IO) {
             try { withAccountRelayPool(actor) { pool ->
-                val latest = pool.queryStored(listOf(Filter(kinds = listOf(10002), authors = listOf(actor.pubkey), limit = 1)))
+                val latest = pool.queryAvailable(listOf(Filter(kinds = listOf(10002), authors = listOf(actor.pubkey), limit = 1)))
                     .filter { it.kind == 10002 && it.pubkey == actor.pubkey && it.createdAt <= epochSeconds() + 60 && Events.verify(it) }
                     .maxOfOrNull { it.createdAt } ?: 0
                 val at = maxOf(epochSeconds(), latest + 1)

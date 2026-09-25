@@ -55,6 +55,8 @@ data class RelayPolicy(
     val outboxTtlMs: Long = 30_000,
     /** Cap on queued publishes per relay, so a permanently dead relay cannot grow without bound. */
     val outboxLimit: Int = 64,
+    /** How long a best-effort stored read waits for the other relays once one has sent EOSE. */
+    val storedGraceMs: Long = 3_000,
 ) {
     fun delayFor(attempt: Int): Long {
         val exponent = attempt.coerceIn(0, 16)

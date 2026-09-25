@@ -66,6 +66,62 @@ class StoredRelayTest {
         pool.stop()
     }
 
+    @Test fun `strict history fails when one relay stays silent while best effort returns what answered after the grace`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one", "wss://two"), sockets, backgroundScope)
+        pool.start(); runCurrent(); sockets.openAll()
+        val strict = async { runCatching { pool.queryStored(listOf(Filter(kinds = listOf(1463))), 10_000) } }
+        val available = async { pool.queryAvailable(listOf(Filter(kinds = listOf(1463))), 10_000) }
+        runCurrent()
+        for (id in sockets.opened[0].requestedSubscriptions()) {
+            sockets.opened[0].deliverEvent(id, event); sockets.opened[0].deliverRaw("""["EOSE","$id"]""")
+        }
+        advanceTimeBy(RelayPolicy().storedGraceMs - 1); runCurrent()
+        assertFalse(available.isCompleted)
+        advanceTimeBy(2); runCurrent()
+        assertEquals(listOf(event), available.await())
+        assertEquals(RelayPolicy().storedGraceMs + 1, currentTime)
+        assertFalse(strict.isCompleted)
+        advanceTimeBy(10_000); runCurrent()
+        assertTrue(strict.await().isFailure)
+        pool.stop()
+    }
+
+    @Test fun `best effort returns at once when every relay answers or goes, deduplicated`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one", "wss://two", "wss://three"), sockets, backgroundScope)
+        pool.start(); runCurrent(); sockets.openAll()
+        val result = async { pool.queryAvailable(listOf(Filter(kinds = listOf(1463)))) }
+        runCurrent()
+        val id = sockets.opened.first().requestedSubscriptions().single()
+        sockets.opened.take(2).forEach { it.deliverEvent(id, event); it.deliverRaw("""["EOSE","$id"]""") }
+        sockets.opened[2].deliverRaw("""["CLOSED","$id","denied"]""")
+        runCurrent()
+        assertEquals(listOf(event), result.await())
+        assertEquals(0, currentTime)
+        assertTrue(sockets.opened.take(2).all { socket -> socket.sent.any { it.startsWith("[\"CLOSE\"") } })
+        pool.stop()
+    }
+
+    @Test fun `best effort fails when no relay answers`() = runTest {
+        for (failure in listOf("timeout", "closed")) {
+            val sockets = FakeSocketFactory()
+            val pool = RelayPool(listOf("wss://one", "wss://two"), sockets, backgroundScope)
+            pool.start(); runCurrent(); sockets.openAll()
+            val result = async { runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(1463))), 500) } }
+            runCurrent()
+            val id = sockets.opened.first().requestedSubscriptions().single()
+            if (failure == "closed") sockets.opened.forEach { it.deliverRaw("""["CLOSED","$id","auth-required: sign in"]""") }
+            else advanceTimeBy(501)
+            runCurrent()
+            val error = result.await().exceptionOrNull()
+            assertNotNull(error, failure)
+            assertFalse(error is CancellationException, failure)
+            if (failure == "closed") assertTrue(assertIs<RelayHistoryException>(error).authenticationRequired)
+            pool.stop()
+        }
+    }
+
     @Test fun `publication requires the matching OK and can succeed after another relay rejects`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(listOf("wss://one", "wss://two"), sockets, backgroundScope)
