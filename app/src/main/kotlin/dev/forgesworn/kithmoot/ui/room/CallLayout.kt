@@ -122,6 +122,10 @@ class ActiveSpeaker(private val holdMs: Long = 1_500) {
     var current: String? = null
         private set
     private var candidate: String? = null
+
+    /** Somebody is working towards the stage: only then does the answer
+     *  change with time alone, and only then does a caller need to tick. */
+    val pending: Boolean get() = candidate != null
     private var candidateSince = 0L
 
     fun update(speaking: Set<String>, present: List<String>, now: Long): String? {

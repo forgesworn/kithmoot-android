@@ -142,6 +142,20 @@ class CallLayoutTest {
     }
 
     @Test
+    fun `only a waiting challenger needs the clock`() {
+        val speaker = ActiveSpeaker(holdMs = 1_500)
+        val present = listOf("a", "b")
+        speaker.update(setOf("a"), present, 0)
+        assertFalse(speaker.pending, "a settled stage needs no ticking")
+        speaker.update(setOf("b"), present, 100)
+        assertTrue(speaker.pending)
+        speaker.update(setOf("b"), present, 1_600)
+        assertFalse(speaker.pending, "the challenger took the stage")
+        speaker.update(emptySet(), present, 1_700)
+        assertFalse(speaker.pending)
+    }
+
+    @Test
     fun `a departing speaker hands the stage on at once`() {
         val speaker = ActiveSpeaker()
         speaker.update(setOf("a"), listOf("a", "b", "c"), 0)

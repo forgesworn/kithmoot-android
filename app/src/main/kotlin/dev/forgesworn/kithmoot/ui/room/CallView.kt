@@ -59,12 +59,14 @@ internal fun rememberActiveSpeaker(speaking: Set<String>, present: List<String>)
     val latestSpeaking by rememberUpdatedState(speaking)
     val latestPresent by rememberUpdatedState(present)
     var current by remember { mutableStateOf(tracker.update(speaking, present, android.os.SystemClock.elapsedRealtime())) }
-    // The hold is measured in time, not in changes to who is speaking, so
-    // this ticks rather than waiting to be told something moved.
-    LaunchedEffect(tracker) {
-        while (true) {
-            current = tracker.update(latestSpeaking, latestPresent, android.os.SystemClock.elapsedRealtime())
+    // Driven by changes to who is speaking. The hold is measured in time, so
+    // it ticks as well, but only while a challenger is waiting: a quiet call
+    // leaves nothing running and nothing to recompose.
+    LaunchedEffect(speaking, present) {
+        current = tracker.update(latestSpeaking, latestPresent, android.os.SystemClock.elapsedRealtime())
+        while (tracker.pending) {
             delay(250)
+            current = tracker.update(latestSpeaking, latestPresent, android.os.SystemClock.elapsedRealtime())
         }
     }
     return current?.takeIf { it in present }

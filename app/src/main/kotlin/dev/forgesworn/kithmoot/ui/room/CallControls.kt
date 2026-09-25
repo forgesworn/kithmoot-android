@@ -103,6 +103,13 @@ internal class CallChrome {
     internal fun hide() {
         visible = false
     }
+
+    /** Shows without restarting the timer. The timer's own effect is keyed
+     *  on [touches], so bumping it from there would relaunch it forever and
+     *  keep Compose busy on every frame. */
+    internal fun reveal() {
+        visible = true
+    }
 }
 
 @Composable
@@ -120,7 +127,7 @@ internal fun rememberCallChrome(mayHide: Boolean): CallChrome {
             )?.toLong() ?: CONTROLS_HIDE_AFTER_MS
     }
     LaunchedEffect(mayHide, chrome.touches) {
-        if (!mayHide) chrome.show()
+        if (!mayHide) chrome.reveal()
         else if (chrome.visible) {
             delay(hideAfter)
             chrome.hide()
