@@ -520,7 +520,7 @@ private data class Nip77ReconciliationPlan(
 // NostrRelayPool), so a third default relay only adds redundancy - it is not
 // a single point either client depends on. Matches the web client's default
 // list (`src/agent.ts` `DEFAULT_RELAYS`).
-val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net", "wss://relay.trotters.cc")
+val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom")
 
 /**
  * Where a kind-0 profile is looked for, beyond the room's own relays.
