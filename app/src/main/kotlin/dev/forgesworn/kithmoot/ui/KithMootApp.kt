@@ -347,6 +347,8 @@ fun KithMootApp(
                     onLeaveCall = model::leaveCall,
                     onJoinCall = model::joinCall,
                     onRotateInvitation = model::rotateInvitation,
+                    inPictureInPicture = inPictureInPicture,
+                    onPopOut = onPopOut,
                     onLeave = model::leave,
                     onBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() },
                     modifier = Modifier.padding(padding),

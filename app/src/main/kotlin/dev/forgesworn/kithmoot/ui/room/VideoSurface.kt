@@ -24,9 +24,13 @@ fun VideoSurface(
     modifier: Modifier = Modifier,
     mirror: Boolean = false,
     fill: Boolean = true,
+    /** Drawn over another video surface, as the floating picture is. Fixed
+     *  for the life of the renderer: Android reads it only before the
+     *  surface is attached. */
+    overlay: Boolean = false,
     onFirstFrame: () -> Unit = {},
 ) {
-    val renderer = rememberRenderer(eglBase, mirror, fill)
+    val renderer = rememberRenderer(eglBase, mirror, fill, overlay)
 
     val firstFrame = androidx.compose.runtime.rememberUpdatedState(onFirstFrame)
     DisposableEffect(track, renderer) {
@@ -43,10 +47,13 @@ fun VideoSurface(
 }
 
 @Composable
-private fun rememberRenderer(eglBase: EglBase, mirror: Boolean, fill: Boolean): SurfaceViewRenderer {
+private fun rememberRenderer(eglBase: EglBase, mirror: Boolean, fill: Boolean, overlay: Boolean): SurfaceViewRenderer {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val renderer = androidx.compose.runtime.remember(eglBase) {
+    val renderer = androidx.compose.runtime.remember(eglBase, overlay) {
         SurfaceViewRenderer(context).apply {
+            // Two surfaces that overlap have no defined order unless one of
+            // them says it sits on top.
+            if (overlay) setZOrderMediaOverlay(true)
             runCatching { init(eglBase.eglBaseContext, null) }
             setEnableHardwareScaler(true)
         }
