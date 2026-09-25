@@ -151,7 +151,11 @@ class BackgroundCallListenerService : Service() {
         pool.start()
         val roster = BackgroundRoster()
         val coordinator = IncomingCallRingCoordinator(applicationContext)
-        val filter = Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("d" to listOf(watch.trafficRoomId)))
+        // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
+        // A plain "d" is not a NIP-01 filter field at all, so a relay would have
+        // ignored it and sent every room's roster traffic on that connection -
+        // exactly what "minimal relay subscriptions" rules out.
+        val filter = Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("#d" to listOf(watch.trafficRoomId)))
         val job = scope.launch {
             pool.subscribe(listOf(filter)).collect { event ->
                 // Handed over between reconcile ticks: the open room rings now.
