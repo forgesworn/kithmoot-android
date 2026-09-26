@@ -22,7 +22,16 @@ import kotlin.coroutines.resumeWithException
  */
 class WebRtcPeerConnection(
     private val connection: PeerConnection,
-    private val onRemoteApplied: () -> Unit = {},
+    /**
+     * Re-read the remote tracks and their transceiver `currentDirection`.
+     *
+     * `currentDirection` only settles once an answer is applied - ours or the
+     * far end's - so this fires after both [setRemoteDescription] (the far
+     * end's answer, or its offer on the answering side) and, from
+     * [setLocalDescription], our own answer. Skipping either leaves a track
+     * that arrived on that description marked "not receiving".
+     */
+    private val onDescriptionApplied: () -> Unit = {},
     /**
      * What this connection is sending, by track id.
      *
@@ -51,13 +60,19 @@ class WebRtcPeerConnection(
     override suspend fun setLocalDescription(): SdpData {
         awaitSet { observer -> connection.setLocalDescription(observer) }
         val local = connection.localDescription ?: throw IllegalStateException("no local description after setting one")
+        // A transceiver's current direction only settles when an answer is
+        // applied. On the answering side that answer is our own, so the
+        // remote tracks must be re-read here too - otherwise a far-end offer
+        // leaves its new tracks marked "not receiving" and the tile never
+        // gets its video.
+        if (local.type == SessionDescription.Type.ANSWER) onDescriptionApplied()
         return SdpData(local.type.canonicalForm(), local.description)
     }
 
     override suspend fun setRemoteDescription(sdp: SdpData) {
         val description = SessionDescription(SessionDescription.Type.fromCanonicalForm(sdp.type), sdp.sdp)
         awaitSet { observer -> connection.setRemoteDescription(observer, description) }
-        onRemoteApplied()
+        onDescriptionApplied()
     }
 
     override suspend fun rollbackLocalDescription() {
