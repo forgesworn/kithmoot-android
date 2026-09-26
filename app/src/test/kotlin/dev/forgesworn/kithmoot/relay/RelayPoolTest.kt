@@ -583,6 +583,75 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `only targets the REQ to the named relays, never the rest of the pool`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        sockets.openAll()
+
+        backgroundScope.launch {
+            pool.subscribe({ listOf(Filter(kinds = listOf(1460))) }, only = setOf("wss://one.example")).collect { }
+        }
+        runCurrent()
+
+        assertEquals(1, sockets.forUrl("wss://one.example").single().requestedSubscriptions().size)
+        assertTrue(sockets.forUrl("wss://two.example").single().requestedSubscriptions().isEmpty())
+        assertTrue(sockets.forUrl("wss://three.example").single().requestedSubscriptions().isEmpty())
+    }
+
+    @Test
+    fun `the filter provider is re-evaluated on every reconnect, so since can advance`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        sockets.opened.first().open()
+
+        var since = 100L
+        backgroundScope.launch {
+            pool.subscribe({ listOf(Filter(kinds = listOf(1460), since = since)) }).collect { }
+        }
+        runCurrent()
+        val first = sockets.opened.first()
+        assertTrue(first.sent.single { it.startsWith("[\"REQ\"") }.contains("\"since\":100"))
+
+        since = 200L
+        first.drop()
+        advanceTimeBy(5_000)
+        runCurrent()
+        val second = sockets.opened[1]
+        second.open()
+        runCurrent()
+
+        // A reconnect must re-request with whatever `since` the caller has
+        // advanced to by then, not the value captured at the original send.
+        assertTrue(second.sent.single { it.startsWith("[\"REQ\"") }.contains("\"since\":200"))
+    }
+
+    @Test
+    fun `onEose fires per subscription and per relay that answers`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        sockets.openAll()
+
+        val ended = mutableListOf<String>()
+        backgroundScope.launch {
+            pool.subscribe({ listOf(Filter(kinds = listOf(1460))) }, onEose = { url -> ended += url }).collect { }
+        }
+        runCurrent()
+        val subscriptionId = sockets.opened.first().requestedSubscriptions().single()
+
+        sockets.forUrl("wss://one.example").single().deliverRaw("[\"EOSE\",\"$subscriptionId\"]")
+        sockets.forUrl("wss://two.example").single().deliverRaw("[\"EOSE\",\"$subscriptionId\"]")
+        runCurrent()
+
+        assertEquals(listOf("wss://one.example", "wss://two.example"), ended)
+    }
+
+    @Test
     fun `a hostile frame does not kill the socket`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(
