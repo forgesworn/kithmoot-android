@@ -2,6 +2,12 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.17 answer straight in
+
+Answer (notification, lock screen, `IncomingCallActivity` or the in-room ring banner) joins with the microphone live and the camera off, like a phone call; `joinCall(micOn = true)` carries it through a remembered join. RECORD_AUDIO is asked for as part of answering and a refusal joins muted. Manual joins keep the mic-off default. The call screen shows one plain "Speaking: A, B" line, held about a second, with no live-region semantics.
+
+Published on 26 September 2026 from `a09ae4a`: owner-signed on the M4 with the production key and lineage, APK SHA-256 `1485d0a9940af128067de31cbd915f6684b847bddecb156b58c1091bf6651df2`, certificate `135bcabf…`, lineage `0ccf5ece…`. `app/build/kotlin` was cleared before signing. Passed the web repository's publication verifier, offered as GitHub pre-release `v0.6.17`, and on the website from kithmoot #172. Not yet installed on a handset: the Pixel was not attached to the M4 at release time.
+
 ## 0.6.16 calls ring like a phone
 
 Incoming calls ring with a CallStyle notification (Answer, Decline, full-screen where Android allows), including while the app is closed, through `BackgroundCallListenerService`: a foreground service holding one relay pool that subscribes only to kind 1464 call bells for the saved rooms' day tags, with a 90 s background ping. On by default; the battery exemption is asked once, after the first call ends. Answering joins with microphone and camera off. The call screen is Signal-style: the other person full screen, a draggable self-view, controls that fade unless a screen reader is on.
