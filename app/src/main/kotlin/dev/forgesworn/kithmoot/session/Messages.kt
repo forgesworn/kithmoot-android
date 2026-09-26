@@ -23,6 +23,18 @@ const val MAX_MENTIONS: Int = 32
 const val EVERYONE: String = "everyone"
 const val MAX_INVITE_LINK_LENGTH: Int = 8192
 
+/**
+ * Explicit room calls only: ordinary prose and email addresses do not
+ * broadcast. A port of `ROOM_MENTION_PATTERN` in the reference
+ * implementation's `src/messages.ts`; the `chatMention` vectors match byte
+ * for byte between the two repositories and contain no legacy `@all` case,
+ * so this is a reader-parity fix, not a vector change.
+ */
+private val ROOM_MENTION_PATTERN = Regex(
+    "(?<![\\p{L}\\p{N}_@.+-])@(?:all|everyone)(?![\\p{L}\\p{N}_@-]|\\.[\\p{L}\\p{N}_])",
+    RegexOption.IGNORE_CASE,
+)
+
 fun validMessageId(id: String?): Boolean = id != null && id.isNotEmpty() && id.length <= MAX_MESSAGE_ID_LENGTH
 
 /** A message named by its id AND its author: the pair no third party can forge. */
@@ -80,13 +92,23 @@ fun namesInText(text: String, name: String): Boolean {
     return pattern.containsMatchIn(text)
 }
 
-data class Named(val participant: String, val name: String?)
+data class Named(val participant: String, val name: String?, val agent: Boolean = false)
 
-/** Who a message addresses: the wire field when there is one, the roster
- *  names found in the text when there is not. */
+/**
+ * Who a message addresses: the wire field when there is one; otherwise the
+ * legacy text reading - `ROOM_MENTION_PATTERN` (`@all` / `@everyone`) for
+ * `everyone`, then the roster names found in the text. Ported from the
+ * reference implementation's `mentionsOf`; see its `messages.test.ts` table.
+ */
 fun mentionsOf(message: ChatMessage, roster: List<Named> = emptyList()): List<String> {
     message.mentions?.let { return it }
     val out = mutableListOf<String>()
+    if (ROOM_MENTION_PATTERN.containsMatchIn(message.body)) out.add(EVERYONE)
+    // Name the currently present agents as well, so a new composer can reach
+    // older agent clients that treated the room sentinel as people-only.
+    if (EVERYONE in out) {
+        for (entry in roster) if (entry.agent && entry.participant !in out) out.add(entry.participant)
+    }
     for (entry in roster) {
         val name = entry.name ?: continue
         if (namesInText(message.body, name) && entry.participant !in out) out.add(entry.participant)
