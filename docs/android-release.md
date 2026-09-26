@@ -2,6 +2,12 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.18 call bell on the current key
+
+The background call bell listener derives its key through `activeEpochFor`, shared with `RoomViewModel`, so a rekeyed room keeps ringing; REMOVED, CLOSED and anonymous (Tor-only) rooms are not watched. The listener opens one subscription per relay (`RelayPool.subscribe(filters, only)`), so a relay learns only the day tags of rooms that list it, and the filter is rebuilt on every reconnect. The legacy mention reader recognises `@all` and `@everyone`. From kithmoot-android #91.
+
+Published on 26 September 2026 from `87dccd6`: owner-signed on the M4 with the production key and lineage, APK SHA-256 `68c23f332948dd51f30fc05d5172478b84eb37038a09f6903371bd212afc327b`, certificate `135bcabf…`, lineage `0ccf5ece…`. `app/build/kotlin` was cleared before signing. Passed the web repository's publication verifier, offered as GitHub pre-release `v0.6.18`, and on the website from kithmoot #176. Installed in place over 0.6.17 on the Pixel 10 Pro XL; account and rooms intact.
+
 ## 0.6.17 answer straight in
 
 Answer (notification, lock screen, `IncomingCallActivity` or the in-room ring banner) joins with the microphone live and the camera off, like a phone call; `joinCall(micOn = true)` carries it through a remembered join. RECORD_AUDIO is asked for as part of answering and a refusal joins muted. Manual joins keep the mic-off default. The call screen shows one plain "Speaking: A, B" line, held about a second, with no live-region semantics.
