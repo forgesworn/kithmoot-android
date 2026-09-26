@@ -67,22 +67,21 @@ internal fun rememberHeldSpeaking(speaking: Set<String>, present: Set<String>): 
 /**
  * The names to show for who is speaking, in the room's own tile order.
  *
- * Self reads "You" rather than whatever name is on record, matching every
- * other self-referring label on the call screen. A pure function so the
+ * This device's own person is left out entirely: their tile already carries
+ * a speaking ring, and naming yourself on a line you are reading while you
+ * talk is pointless. When only this device's own person is speaking, the
+ * result is empty, exactly as when nobody is. A pure function so the
  * formatting can be tested without Compose.
  */
 internal fun speakingNames(
     held: Set<String>,
     tiles: List<ParticipantTile>,
     profiles: Map<String, PublicProfile>,
-): List<String> = tiles.filter { it.participant in held }.map { tile ->
-    when {
-        tile.isSelf -> "You"
-        else -> profiles[tile.participant]?.name
-            ?: tile.cardName?.takeIf { it.isNotBlank() }
-            ?: tile.name
-            ?: shortNpub(tile.participant)
-    }
+): List<String> = tiles.filter { it.participant in held && !it.isSelf }.map { tile ->
+    profiles[tile.participant]?.name
+        ?: tile.cardName?.takeIf { it.isNotBlank() }
+        ?: tile.name
+        ?: shortNpub(tile.participant)
 }
 
 /** "Speaking: Daz, Donkey", or empty when nobody is. */
