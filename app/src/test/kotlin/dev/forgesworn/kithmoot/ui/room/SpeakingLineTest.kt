@@ -22,9 +22,9 @@ class SpeakingLineTest {
     }
 
     @Test
-    fun `self speaking reads You, never a name`() {
+    fun `self speaking alone gives an empty list, never a name or You`() {
         val tiles = listOf(person("me", self = true, name = "Daz"))
-        assertEquals(listOf("You"), speakingNames(setOf("me"), tiles, mapOf("me" to profile("Daz"))))
+        assertEquals(emptyList(), speakingNames(setOf("me"), tiles, mapOf("me" to profile("Daz"))))
     }
 
     @Test
@@ -50,16 +50,16 @@ class SpeakingLineTest {
     }
 
     @Test
-    fun `order follows the room's tile order, not the speaking set's`() {
+    fun `order follows the room's tile order, not the speaking set's, and self is left out`() {
         val tiles = listOf(person("me", self = true), person("p1", name = "Daz"), person("p2", name = "Donkey"))
         val names = speakingNames(setOf("p2", "me", "p1"), tiles, emptyMap())
-        assertEquals(listOf("You", "Daz", "Donkey"), names)
+        assertEquals(listOf("Daz", "Donkey"), names)
     }
 
     @Test
     fun `a speaker no longer in the room is left out`() {
-        val tiles = listOf(person("me", self = true))
-        assertEquals(listOf("You"), speakingNames(setOf("me", "left-the-call"), tiles, emptyMap()))
+        val tiles = listOf(person("me", self = true), person("p1", name = "Daz"))
+        assertEquals(listOf("Daz"), speakingNames(setOf("me", "p1", "left-the-call"), tiles, emptyMap()))
     }
 
     // --- speakingLine: the label text ------------------------------------------
@@ -71,7 +71,7 @@ class SpeakingLineTest {
 
     @Test
     fun `one name`() {
-        assertEquals("Speaking: You", speakingLine(listOf("You")))
+        assertEquals("Speaking: Daz", speakingLine(listOf("Daz")))
     }
 
     @Test
