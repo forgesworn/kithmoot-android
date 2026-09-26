@@ -616,10 +616,12 @@ class WebRtcEngine(
 
         val observer = object : PeerConnection.Observer {
             // currentDirection settling is driven by WebRtcPeerConnection's
-            // `onRemoteApplied` hook below, which fires right after
-            // setRemoteDescription - earlier and more precisely than waiting
-            // for `stable`, which the answerer's own offer application never
-            // reaches until it has answered. See refreshRemoteTracks.
+            // `onDescriptionApplied` hook below, which fires right after
+            // setRemoteDescription and, on the answering side, after our own
+            // setLocalDescription applies the answer - earlier and more
+            // precisely than waiting for `stable`, which the answerer's own
+            // offer application never reaches until it has answered. See
+            // refreshRemoteTracks.
             override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
                 if (state != null) updateConnectionState(state.name.lowercase())
