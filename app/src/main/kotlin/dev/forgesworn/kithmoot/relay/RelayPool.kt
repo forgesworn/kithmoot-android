@@ -484,9 +484,29 @@ class RelayPool(
         links[url]?.let { it.isOpen && it.authState == AuthState.READY } == true
     }
 
-    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+    /** Every relay in the pool subscribes with the same, fixed filter set. */
+    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = subscribe({ filters })
+
+    /**
+     * A cold flow of matching events, de-duplicated across relays, with two
+     * additions the fixed-filter overload cannot offer:
+     *
+     * - [filters] is evaluated fresh every time a REQ is actually sent - on
+     *   first subscribe, and again on every reconnect - so a caller that
+     *   advances a `since` watermark as events arrive never re-requests
+     *   history it has already seen. The plain `List<Filter>` overload
+     *   captures its argument once and re-sends the same frame forever,
+     *   which is fine for a subscription with no watermark.
+     * - [only], when given, restricts the REQ (and its CLOSE) to that subset
+     *   of [readRelays] - never to a relay that would otherwise see it, so a
+     *   relay that does not list a room never learns anything about it.
+     * - [onEose] is called with the relay's URL each time that relay sends
+     *   EOSE for this subscription, so a caller can tell "at least one
+     *   relay has answered" apart from "every relay has".
+     */
+    fun subscribe(filters: () -> List<Filter>, only: Set<String>? = null, onEose: (url: String) -> Unit = {}): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
-        val subscription = PoolSubscription(id, filters)
+        val subscription = PoolSubscription(id, filters, only, onEose)
         // The REQ goes out only once the collector is attached. Sending it in
         // `subscribe` instead would open a window where events arrive with
         // nobody listening, and a shared flow drops those on the floor - which
@@ -496,13 +516,17 @@ class RelayPool(
             .onCompletion { close(subscription) }
     }
 
+    private fun subscriptionTargets(subscription: PoolSubscription): List<RelayLink> = synchronized(lock) {
+        links.values.filter { it.url in readRelays && (subscription.only == null || it.url in subscription.only) }
+    }
+
     private fun open(subscription: PoolSubscription) {
-        val frame = RelayCodec.requestFrame(subscription.id, subscription.filters)
         val targets: List<RelayLink>
         synchronized(lock) {
             subscriptions[subscription.id] = subscription
-            targets = links.values.filter { it.url in readRelays }
         }
+        targets = subscriptionTargets(subscription)
+        val frame = RelayCodec.requestFrame(subscription.id, subscription.filters())
         // A REQ is not queued if the relay is down: on reconnect every live
         // subscription is re-sent wholesale, so queueing it here would only
         // send it twice.
@@ -510,12 +534,9 @@ class RelayPool(
     }
 
     private fun close(subscription: PoolSubscription) {
+        val targets = subscriptionTargets(subscription)
+        synchronized(lock) { subscriptions.remove(subscription.id) }
         val frame = RelayCodec.closeFrame(subscription.id)
-        val targets: List<RelayLink>
-        synchronized(lock) {
-            subscriptions.remove(subscription.id)
-            targets = links.values.filter { it.url in readRelays }
-        }
         for (link in targets) link.sendIfOpen(frame)
     }
 
@@ -524,13 +545,24 @@ class RelayPool(
         subscription.offer(event)
     }
 
+    private fun subscriptionEose(url: String, subscriptionId: String) {
+        val subscription = synchronized(lock) { subscriptions[subscriptionId] } ?: return
+        subscription.onEose(url)
+    }
+
     private fun onLinkOpen(link: RelayLink) {
         val live: List<PoolSubscription>
         synchronized(lock) { live = subscriptions.values.toList() }
         // Subscriptions do not survive a dropped socket, so re-send every live
         // REQ before anything else. Skipping this is how a client silently goes
-        // deaf after a relay restart while still looking connected.
-        if (link.url in readRelays) for (subscription in live) link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters))
+        // deaf after a relay restart while still looking connected. Filters are
+        // re-evaluated here, not read from a stored frame, so a subscription
+        // that advances its own `since` as events arrive re-REQs from where it
+        // left off rather than replaying everything since the original send.
+        if (link.url in readRelays) for (subscription in live) {
+            if (subscription.only != null && link.url !in subscription.only) continue
+            link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+        }
         if (link.url in writeRelays) link.flushOutbox(now())
         health(link.url) { it.copy(connection = "Connected") }
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
@@ -641,7 +673,10 @@ class RelayPool(
                     nip77FetchMessage(link.url, message)
                     when (message) {
                         is RelayMessage.Event -> if (link.url in readRelays) deliver(message.subscriptionId, message.event)
-                        is RelayMessage.EndOfStoredEvents -> health(link.url) { it.copy(read = "History read confirmed") }
+                        is RelayMessage.EndOfStoredEvents -> {
+                            health(link.url) { it.copy(read = "History read confirmed") }
+                            subscriptionEose(link.url, message.subscriptionId)
+                        }
                         is RelayMessage.Closed -> health(link.url) { it.copy(read = if (message.message.contains("auth-required")) "Authentication required" else "Read refused") }
                         is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else "Write refused") }
                         is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
@@ -953,7 +988,12 @@ class RelayPool(
      * The [SeenEvents] here is what makes "publish everywhere" survivable: the
      * same event arrives once per relay, and the room must see it once.
      */
-    private class PoolSubscription(val id: String, val filters: List<Filter>) {
+    private class PoolSubscription(
+        val id: String,
+        val filters: () -> List<Filter>,
+        val only: Set<String>?,
+        val onEose: (url: String) -> Unit,
+    ) {
         private val seen = SeenEvents()
         private val _events = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 256)
         val events: SharedFlow<NostrEvent> = _events.asSharedFlow()

@@ -70,6 +70,7 @@ import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
 import dev.forgesworn.kithmoot.cadence.StoredCadenceLease
 import dev.forgesworn.kithmoot.epoch.CadenceEpochCoordinate
 import dev.forgesworn.kithmoot.epoch.EpochPhase
+import dev.forgesworn.kithmoot.epoch.activeEpochFor
 import dev.forgesworn.kithmoot.epoch.EpochVault
 import dev.forgesworn.kithmoot.epoch.EpochRecoveryResponder
 import dev.forgesworn.kithmoot.epoch.StoredRoomEpoch
@@ -1484,15 +1485,9 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun activeRoomEpoch(record: SavedRoom): EpochKeys {
         val stored = record.authority?.let { roomEpochs.get(record.id) }
-        return if (stored == null) {
-            val room = deriveRoom(record.secret)
-            EpochKeys(0, room.roomId, room.roomKey)
-        } else {
-            require(stored.phase == EpochPhase.ACTIVE || stored.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
-                if (stored.phase == EpochPhase.CLOSED) "This room was closed" else "You were removed from this room"
-            }
-            deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
-        }
+        return activeEpochFor(record, stored) ?: throw IllegalArgumentException(
+            if (stored?.phase == EpochPhase.CLOSED) "This room was closed" else "You were removed from this room"
+        )
     }
 
     private fun cadenceAccess(record: SavedRoom, who: RoomIdentity, secondary: Boolean): CadenceAccess {

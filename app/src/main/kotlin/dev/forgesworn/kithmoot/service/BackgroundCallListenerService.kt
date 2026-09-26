@@ -22,8 +22,8 @@ import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.KIND_CALL_BELL
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.epoch.activeEpochFor
 import dev.forgesworn.kithmoot.protocol.decodeCallBellEvent
-import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
@@ -147,18 +147,23 @@ class BackgroundCallListenerService : Service() {
     }
 
     /** The current traffic key for a saved room, following any rekey
-     *  recorded in [KithMootApplication.roomEpochs] - the same durable
-     *  journal `RoomViewModel` reads, so this never derives its own key.
-     *  The room's own (epoch-0) id - [dev.forgesworn.kithmoot.storage.SavedRoom.id] -
-     *  is what the bell's device signature is bound to, and is used as-is
-     *  regardless of any later rekey; see `protocol/CallBell.kt`. */
+     *  recorded in [KithMootApplication.roomEpochs] via the shared, tested
+     *  [activeEpochFor] - the same derivation `RoomViewModel` uses, so this
+     *  never drifts onto a stale (pre-rekey) key the way deriving directly
+     *  from the room secret used to. The room's own (epoch-0) id -
+     *  [dev.forgesworn.kithmoot.storage.SavedRoom.id] - is what the bell's
+     *  device signature is bound to, and is used as-is regardless of any
+     *  later rekey; see `protocol/CallBell.kt`. Returns null (watch
+     *  nothing) once the room's epoch has been REMOVED or CLOSED, and for
+     *  an anonymous (Tor-only) room, which this clearnet listener must
+     *  never dial. */
     private fun watchFor(application: KithMootApplication, roomId: String): BackgroundRoomWatch? {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
-            if (saved.movedOn || saved.retired) return null
-            val secret = application.roomEpochs.get(roomId)?.currentSecret ?: saved.secret
-            val epochKey = deriveRoom(secret).roomKey
-            BackgroundRoomWatch(saved.id, saved.name, epochKey, saved.relays, saved.participant, saved.devicePubkey)
+            if (saved.movedOn || saved.retired || saved.anonymous) return null
+            val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
+            val epoch = activeEpochFor(saved, stored) ?: return null
+            BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey)
         } catch (_: Exception) {
             null
         }
@@ -177,14 +182,30 @@ class BackgroundCallListenerService : Service() {
         watches = wanted
         val activePool = pool ?: return
         if (wanted.isEmpty()) return
-        val filter = Filter(
-            kinds = listOf(KIND_CALL_BELL),
-            // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
-            tags = mapOf("#d" to callBellFilterTags(wanted, now())),
-            since = now() - CALL_BELL_TTL_SECONDS,
-        )
+        // One subscription per relay, each targeted with `only` at exactly
+        // the relays that room actually lists: a relay used by room X must
+        // never learn room Y's day tags just because both share this one
+        // pool. The filter is rebuilt from the room set at every send -
+        // first REQ and every reconnect alike - so a relay that drops and
+        // returns gets today's tags, not whatever they were at start-up.
         subscriptionJob = scope.launch {
-            activePool.subscribe(listOf(filter)).collect { event -> onBell(event) }
+            for (url in newRelays) {
+                val watchesForUrl = wanted.filter { url in it.relays }
+                if (watchesForUrl.isEmpty()) continue
+                launch {
+                    activePool.subscribe(
+                        filters = {
+                            listOf(Filter(
+                                kinds = listOf(KIND_CALL_BELL),
+                                // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
+                                tags = mapOf("#d" to callBellFilterTags(watchesForUrl, now())),
+                                since = now() - CALL_BELL_TTL_SECONDS,
+                            ))
+                        },
+                        only = setOf(url),
+                    ).collect { event -> onBell(event) }
+                }
+            }
         }
     }
 
