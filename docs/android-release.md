@@ -2,6 +2,12 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.19 remote video after answering, Speaking line
+
+After Android answers an offer, the browser's tracks are marked receiving once the local answer is applied, so a web or desktop peer's video no longer stays blank on the phone until they rejoin; pinned by `nativeMarksBrowserTracksReceivingAfterAnsweringOnly`. The "Speaking:" line leaves out yourself and sits at the bottom of the call above the controls instead of behind the camera. From kithmoot-android #94 and #95.
+
+Published on 26 September 2026 from `dddd075`: owner-signed on the M4 with the production key and lineage, APK SHA-256 `1669891e5b1ae0e2df5b2f4abba550efd53227eb2d0db59f54972f28a7bd0878`, certificate `135bcabf…`, lineage `0ccf5ece…`. `app/build/kotlin` was cleared before signing. Passed the web repository's publication verifier, offered as GitHub pre-release `v0.6.19`, and on the website from kithmoot #180. Installed in place over 0.6.18 on the Pixel 10 Pro XL.
+
 ## 0.6.18 call bell on the current key
 
 The background call bell listener derives its key through `activeEpochFor`, shared with `RoomViewModel`, so a rekeyed room keeps ringing; REMOVED, CLOSED and anonymous (Tor-only) rooms are not watched. The listener opens one subscription per relay (`RelayPool.subscribe(filters, only)`), so a relay learns only the day tags of rooms that list it, and the filter is rebuilt on every reconnect. The legacy mention reader recognises `@all` and `@everyone`. From kithmoot-android #91.
