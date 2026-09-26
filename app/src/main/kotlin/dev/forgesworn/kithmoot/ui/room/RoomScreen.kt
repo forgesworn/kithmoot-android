@@ -21,6 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -372,8 +378,20 @@ fun RoomScreen(
                     onSetVolume = onSetVolume,
                     alone = { AlonePanel(state, onRotateInvitation) },
                 )
-                Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (state.mediaRunning) SpeakingLine(state, Modifier.align(Alignment.CenterHorizontally))
+                // Bottom centre, clear of the front camera's cutout and above
+                // the name plate each tile draws in its bottom corner.
+                if (state.mediaRunning) SpeakingLine(
+                    state,
+                    Modifier.align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 72.dp),
+                )
+                Column(
+                    Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     // Only when it is not here: which device plays the call
                     // is worth a banner when it is surprising, not all day.
                     if (state.mediaRunning && !state.listeningHere) Surface(
