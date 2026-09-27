@@ -80,26 +80,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
             .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (page) {
                 "signin" -> AccountSection(state, signIn, !inRoom && !state.busy)
-                "profile" -> {
-                    Text("Edit public profile", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-                    Text("These details are public on Nostr. Publishing updates your kind-0 profile for other clients too.", style = MaterialTheme.typography.bodySmall)
-                    if (state.profileBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    val metadata = state.profileMetadata
-                    if (metadata != null) key(account?.pubkey, state.profileBaseId) {
-                        var values by remember { mutableStateOf(ProfileMetadata.fields.associateWith {
-                            (metadata[it] as? JsonPrimitive)?.takeIf { p -> p.isString }?.content.orEmpty()
-                        }) }
-                        val labels = listOf("name" to "Username", "display_name" to "Display name", "about" to "About",
-                            "picture" to "Profile image URL", "banner" to "Banner image URL", "website" to "Website",
-                            "nip05" to "Nostr address (NIP-05)", "lud16" to "Lightning address")
-                        for ((field, label) in labels) OutlinedTextField(values[field].orEmpty(), { values = values + (field to it) },
-                            Modifier.fillMaxWidth(), label = { Text(label) }, enabled = !state.profileBusy,
-                            singleLine = field != "about", minLines = if (field == "about") 2 else 1)
-                        Button({ actions.publishProfile(values) }, enabled = !state.profileBusy, modifier = Modifier.fillMaxWidth()) { Text("Publish profile") }
-                    }
-                    state.profileMessage?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-                    TextButton(actions.loadProfile, enabled = !state.profileBusy) { Text("Reload profile") }
-                }
+                "profile" -> ProfileEditorFields(state, actions)
                 "notifications" -> notificationSettings()
                 "relays" -> RelayEditor(state, choices, inRoom, actions)
             }
@@ -112,8 +93,33 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
         dismissButton = { TextButton({ leaving = false }) { Text("Cancel") } })
 }
 
+/** Editing a public Nostr profile: extracted so Settings can host the same
+ *  fields in its own sheet (design-home-rooms.md section 11), reusing this
+ *  in-room account menu's behaviour unchanged. */
 @Composable
-private fun RelayEditor(state: StartState, choices: List<RelayChoice>, inRoom: Boolean, actions: AccountSettingsActions) {
+internal fun ProfileEditorFields(state: StartState, actions: AccountSettingsActions) {
+    Text("Edit public profile", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+    Text("These details are public on Nostr. Publishing updates your kind-0 profile for other clients too.", style = MaterialTheme.typography.bodySmall)
+    if (state.profileBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    val metadata = state.profileMetadata
+    if (metadata != null) key(state.account?.pubkey, state.profileBaseId) {
+        var values by remember { mutableStateOf(ProfileMetadata.fields.associateWith {
+            (metadata[it] as? JsonPrimitive)?.takeIf { p -> p.isString }?.content.orEmpty()
+        }) }
+        val labels = listOf("name" to "Username", "display_name" to "Display name", "about" to "About",
+            "picture" to "Profile image URL", "banner" to "Banner image URL", "website" to "Website",
+            "nip05" to "Nostr address (NIP-05)", "lud16" to "Lightning address")
+        for ((field, label) in labels) OutlinedTextField(values[field].orEmpty(), { values = values + (field to it) },
+            Modifier.fillMaxWidth(), label = { Text(label) }, enabled = !state.profileBusy,
+            singleLine = field != "about", minLines = if (field == "about") 2 else 1)
+        Button({ actions.publishProfile(values) }, enabled = !state.profileBusy, modifier = Modifier.fillMaxWidth()) { Text("Publish profile") }
+    }
+    state.profileMessage?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    TextButton(actions.loadProfile, enabled = !state.profileBusy) { Text("Reload profile") }
+}
+
+@Composable
+internal fun RelayEditor(state: StartState, choices: List<RelayChoice>, inRoom: Boolean, actions: AccountSettingsActions) {
     var draft by remember { mutableStateOf(choices) }
     var adding by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }

@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.storage
 
+import androidx.compose.ui.test.onNodeWithContentDescription
 import android.content.Context
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -66,12 +67,16 @@ class SigningLineageVerifyTest {
 
     @Test fun release_shows_the_retained_preview_identity_without_deleting_it() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            ui.onNodeWithText("Sign in").performClick()
-            ui.onNodeWithText("Sign in with Nostr").performClick()
-            ui.waitUntil(10_000) {
-                runCatching { ui.onNodeWithText("Keep your preview account").fetchSemanticsNode() }.isSuccess
+            // The rollback fixtures leave saved rooms unreadable, so home shows
+            // its storage error; the account is reached from Settings.
+            ui.waitUntil(20_000) {
+                runCatching { ui.onNodeWithContentDescription("Settings").fetchSemanticsNode() }.isSuccess
             }
-            ui.onNodeWithText("Keep your preview account").assertExists()
+            ui.onNodeWithContentDescription("Settings").performClick()
+            ui.waitUntil(10_000) {
+                runCatching { ui.onNodeWithText("Preview account").fetchSemanticsNode() }.isSuccess
+            }
+            ui.onNodeWithText("Preview account").assertExists()
             ui.onNodeWithText(npubOf(ACCOUNT_PUBKEY)).assertExists()
             ui.onNodeWithText("A different account is refused", substring = true).assertExists()
         }

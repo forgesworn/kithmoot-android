@@ -9,7 +9,6 @@ import androidx.test.espresso.action.ViewActions.swipeDown
 import androidx.test.espresso.action.ViewActions.swipeUp
 import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.Assert.assertTrue
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
@@ -103,10 +102,15 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     }
 
     fun replace(label: String, value: String) {
-        val target = reveal { field(label) }
-        assertTrue("$label must accept text", target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
-        }))
+        reveal { field(label) }
+        // As with click: a field found mid-recomposition, or while home is
+        // briefly busy, can refuse the first attempt. Re-query until it takes.
+        await("$label to accept text") {
+            val target = field(label)
+            target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+            })
+        }
     }
 
     fun assertEnabled(text: String, enabled: Boolean) {

@@ -1,35 +1,42 @@
 package dev.forgesworn.kithmoot.ui.start
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
-import dev.forgesworn.kithmoot.R
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import dev.forgesworn.kithmoot.account.shortNpub
+import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
-import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
-import dev.forgesworn.kithmoot.ui.theme.TextSize
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
+import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
+import kotlin.math.roundToInt
 
+/**
+ * Home: one destination with two states (design-home-rooms.md section 4).
+ * Somebody with rooms taps the one that matters; somebody with none starts a
+ * room and sends its link.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartScreen(
     state: StartState,
@@ -50,308 +57,181 @@ fun StartScreen(
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Kept for callers that still build it; home no longer shows an account
+     *  entry point itself (Q6) - the account lives in Settings and the
+     *  sign-in sheet, both hosted above this screen. */
     account: AccountActions = AccountActions.None,
     onAddOfferedCard: () -> Unit = {},
     onDismissCardOffer: () -> Unit = {},
-    onCircleBoxesChanged: (String) -> Unit = {},
-    onWebAppAddressChanged: (String) -> Boolean = { false },
-    onHomeTabChanged: (String) -> Unit = {},
     projects: ProjectActions = ProjectActions(),
     accountRooms: AccountRoomActions = AccountRoomActions(),
     /** The docked call's room: forgetting it from under the call would strand it. */
     callRoomId: String? = null,
     onStopOpening: () -> Unit = {},
+    onOpenProjects: () -> Unit = {},
+    onShareInvite: (String) -> Unit = {},
+    onSignIn: () -> Unit = {},
 ) {
     val context = LocalContext.current
-    var siteShown by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
+    val zone = remember { java.time.ZoneId.systemDefault() }
+    val locale = remember { java.util.Locale.getDefault() }
+    val prefs = remember { context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE) }
+
+    var query by rememberSaveable { mutableStateOf("") }
+    var projectTab by rememberSaveable { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
+    var newRoomOpen by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var renamed by remember { mutableStateOf("") }
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     var scanningPairingCode by remember { mutableStateOf(false) }
-    var scanningInvitation by remember { mutableStateOf(false) }
     var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
-    // The project tab in view, remembered on the device so the phone opens
-    // on the project the person was last working in.
-    val prefs = context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
-    var projectTab by remember { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
-    var renamed by remember { mutableStateOf("") }
+    var removingAccountRoom by remember { mutableStateOf<AccountRoom?>(null) }
     var resetting by remember { mutableStateOf(false) }
+
     val enabled = !state.busy && !state.loadingRooms && !state.storageError
+    val signedIn = state.account != null
 
-    Box(modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().navigationBarsPadding().imePadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(if (state.savedRooms.isEmpty()) "Make room for a conversation." else "Pick up the conversation.",
-                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (state.busy || state.loadingRooms) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Loading rooms" })
-            }
-            // A room that will not open must never be a reason to quit the
-            // app. Offered after a few seconds of waiting; see
-            // `RoomViewModel.stopOpening`.
-            if (state.canStopOpening) {
-                OutlinedButton(onStopOpening, Modifier.heightIn(min = 48.dp)) { Text("Stop and go back to your rooms") }
-            }
-            if (state.storageError) {
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Saved rooms are unavailable", style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                        Text("Your saved data has been kept. Try again before deleting anything.")
-                        OutlinedButton(onRetryStorage, enabled = !state.busy && !state.loadingRooms) { Text("Try again") }
-                        TextButton({ resetting = true }, enabled = !state.busy && !state.loadingRooms) { Text("Delete saved rooms…") }
-                    }
-                }
-            } else if (state.error != null) {
-                Text(state.error, color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-            }
-            state.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn) {
+        mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn)
+    }
+    val returning = isReturning(homeRooms, signedIn)
+    val sortedIds = remember(homeRooms) { sortByActivity(homeRooms) { null }.map { it.id } }
+    var previousOrder by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    val listState = rememberLazyListState()
+    // The full hold-order rule (design-home-rooms.md section 6) also freezes
+    // while a row's menu is open or the list has focus, and releases on
+    // TalkBack's own schedule; this covers the scrolling case, the one a
+    // finger notices most, and is simplest to build without wiring a shared
+    // "any menu open" signal through every row.
+    val held = listState.isScrollInProgress
+    val orderedIds = holdOrder(previousOrder, sortedIds, held)
+    SideEffect { previousOrder = orderedIds }
+    val byId = remember(homeRooms) { homeRooms.associateBy { it.id } }
+    val orderedRooms = orderedIds.mapNotNull(byId::get)
 
-            // A contact card opened as a link: said for what it is, and kept
-            // only on a press. Nothing is kept by merely opening the link.
-            val offer = state.cardOffer
-            if (offer != null) {
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("This is a contact card", style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
-                        val who = offer.name?.let { "From $it" } ?: "From a person with no name on their card"
-                        val boxes = when (offer.boxes) { 0 -> "no box"; 1 -> "one box"; else -> "${offer.boxes} boxes" }
-                        Text(if (offer.added) "${offer.name ?: "They"} ${if (offer.name != null) "is" else "are"} in your contacts on this phone. Their card is kept on this phone."
-                            else "$who, naming $boxes. Add the card to keep their details on this phone.")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!offer.added) Button(onAddOfferedCard, Modifier.heightIn(min = 48.dp)) { Text("Add to contacts") }
-                            OutlinedButton(onDismissCardOffer, Modifier.heightIn(min = 48.dp)) { Text(if (offer.added) "Done" else "Not now") }
-                        }
-                    }
-                }
-            }
+    val savedById = remember(state.savedRooms) { state.savedRooms.associateBy { it.id } }
+    val bookmarksById = remember(state.roomBookmarks.rooms) { state.roomBookmarks.rooms.associateBy { it.roomId } }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                for ((key, label) in listOf("chats" to "Chats", "projects" to "Projects")) {
-                    FilterChip(state.homeTab == key, { onHomeTabChanged(key) }, label = { Text(label) },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "$label tab" })
-                }
-            }
-            if (state.homeTab == "projects") ProjectsPanel(state, projects)
-            else {
-            if (state.account != null) {
-                val accountSaved = state.savedRooms.filter { it.account == state.account.pubkey }
-                AccountRoomsPanel(state.roomBookmarks, accountSaved.map { it.id }.toSet(),
-                    accountSaved.count { saved -> state.roomBookmarks.rooms.none { it.roomId == saved.id } },
-                    enabled && !state.roomSyncBusy, accountRooms)
-                state.roomSyncError?.let { Text(it, color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-            }
-            if (state.savedRooms.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("On this phone", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                    Text("Saved on this device. Reopen as the same person.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
-                        label = { Text("Find a saved room") },
-                        trailingIcon = { if (query.isNotEmpty()) TextButton({ query = "" }) { Text("Clear") } })
-                    // Projects, as a row of tabs, once any room has been filed under
-                    // one. "All" is first and is the tab a phone with no projects
-                    // never needs to see.
-                    val projects = state.savedRooms.mapNotNull { it.project }.distinct().sorted()
-                    val tab = if (projectTab.isNotEmpty() && projectTab != "\u0000none" && projectTab !in projects) "" else projectTab
-                    if (projects.isNotEmpty()) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val tabs = listOf("" to "All") + projects.map { it to it } + listOf("\u0000none" to "No project")
-                            for ((value, label) in tabs) {
-                                val chosen = value == tab
-                                val modifier = Modifier.heightIn(min = 44.dp).semantics { contentDescription = "$label rooms" + if (chosen) ", selected" else "" }
-                                val pick = { projectTab = value; prefs.edit().putString("projectTab", value).apply() }
-                                if (chosen) Button(pick, modifier) { Text(label) } else OutlinedButton(pick, modifier) { Text(label) }
-                            }
-                        }
-                    }
-                    val found = state.savedRooms
-                        .filter { tab.isEmpty() || (if (tab == "\u0000none") it.project == null else it.project == tab) }
-                        .filter { it.name.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
-                    if (found.isEmpty()) Text(if (tab.isEmpty()) "No rooms match your search." else "No rooms in this project match.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    for (room in found) {
-                        key(room.id) {
-                            val who = room.account?.let { pubkey ->
-                                val me = state.account
-                                if (me != null && me.pubkey == pubkey) (me.profile?.name ?: me.name ?: "you") else shortNpub(pubkey)
-                            }
-                            val detail = listOfNotNull(who?.let { "As $it" }, room.project,
-                                if (room.anonymous) "Anonymous carrier" else null,
-                                if (room.secondary) "Paired device" else null).joinToString(" · ").ifEmpty { "Saved on this phone" }
-                            ConversationRow(room.name, detail, enabled, { onReopen(room.id) }, buildList {
-                                add(ConversationAction("Rename", "Rename ${room.name}") { renaming = room; renamed = room.name })
-                                add(ConversationAction("Project", "Project for ${room.name}") { filing = room; filedAs = room.project.orEmpty() })
-                                if (!room.anonymous && room.account == state.account?.pubkey) {
-                                    if (room.id in state.linkConnectedRooms) {
-                                        add(ConversationAction("Disconnect Bothy", "Disconnect Bothy from ${room.name}") { disconnectingRoom = room })
-                                    } else add(ConversationAction("Connect Bothy", "Connect Bothy to ${room.name}") { pairingRoom = room; pairingCode = "" })
-                                }
-                                if (!room.anonymous && room.id in state.linkGrantOwnerRooms) {
-                                    add(ConversationAction("Revoke guest access", "Revoke Bothy guest access for ${room.name}", true) { revokingRoom = room })
-                                }
-                                // Every room but the call's, which is left first.
-                                if (room.id != callRoomId) add(ConversationAction("Remove from this phone", "Forget ${room.name}", true) { forgetting = room })
-                            })
-                        }
-                    }
-                }
-            }
+    fun openRoom(room: HomeRoom) {
+        val bookmark = bookmarksById[room.id]
+        if (room.source == RoomSource.ACCOUNT && bookmark != null) accountRooms.open(bookmark) else onReopen(room.id)
+    }
 
-            pairingRoom?.let { room ->
-                AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
-                    text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. If this account created the conversation, KithMoot asks your signer for a 30-day, revocable message grant for the other person's current signed device. Otherwise, the creator must already have issued your grant. KithMoot switches only after Bothy confirms access.")
-                        OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
-                        TextButton(
-                            onClick = { clipboardText(context)?.let { pairingCode = it } },
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste Bothy pairing code from clipboard" },
-                        ) { Text("Paste from clipboard") }
-                        OutlinedButton(
-                            onClick = { scanningPairingCode = true },
-                            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Scan Bothy QR" },
-                        ) { Text("Scan Bothy QR") }
-                    } },
-                    confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Connect and verify") } },
-                    dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
+    fun actionsFor(room: HomeRoom): List<ConversationAction> = buildList {
+        if (room.canShareInvite) add(ConversationAction("Share invite link") { onShareInvite(room.id) })
+        val saved = savedById[room.id]
+        if (saved != null) {
+            add(ConversationAction("Rename") { renaming = saved; renamed = saved.name })
+            add(ConversationAction(if (saved.project != null) "Change project" else "Add to a project") { filing = saved; filedAs = saved.project.orEmpty() })
+            if (!saved.anonymous && saved.account == state.account?.pubkey) {
+                if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
+                else add(ConversationAction("Connect Bothy") { pairingRoom = saved; pairingCode = "" })
             }
-            if (scanningPairingCode) {
-                Dialog(onDismissRequest = { scanningPairingCode = false }) {
-                    Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Scan Bothy QR", style = MaterialTheme.typography.titleLarge)
-                            Text("Point at the code Bothy is showing. KithMoot will still verify it before changing this room's route.")
-                            QrScanner(
-                                accept = { it.trim().startsWith("bothy:") },
-                                onDecoded = { pairingCode = it; scanningPairingCode = false },
-                                prompt = "KithMoot needs the camera to scan Bothy's pairing QR.",
-                            )
-                            TextButton({ scanningPairingCode = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
-                        }
-                    }
-                }
-            }
-            disconnectingRoom?.let { room ->
-                AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
-                    text = { Text(if (room.id in state.linkGrantOwnerRooms)
-                        "KithMoot will ask Bothy to revoke this room's guest-device grants, wait for confirmation, then return ${room.name} to its earlier relays and remove the local Link route."
-                    else "${room.name} will return to its earlier relays and this device's local Link route will be removed. Any remote grant issued by the conversation creator remains under their control until they revoke it or it expires.") },
-                    confirmButton = { Button({ onDisconnectBothy(room.id); disconnectingRoom = null }, enabled = enabled) { Text("Disconnect") } },
-                    dismissButton = { TextButton({ disconnectingRoom = null }) { Text("Cancel") } })
-            }
-            revokingRoom?.let { room ->
-                AlertDialog(onDismissRequest = { revokingRoom = null }, title = { Text("Revoke guest access?") },
-                    text = { Text("Bothy will close the other person's live subscriptions and refuse their next reads and writes. This device stays connected and keeps the room's acknowledged ciphertext.") },
-                    confirmButton = { Button({ onRevokeBothyGuests(room.id); revokingRoom = null }, enabled = enabled) { Text("Revoke access") } },
-                    dismissButton = { TextButton({ revokingRoom = null }) { Text("Cancel") } })
-            }
-
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Start a room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                    OutlinedTextField(state.roomName, onRoomNameChanged, Modifier.fillMaxWidth(), enabled = enabled,
-                        label = { Text("Room name (optional)") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = { if (enabled) onStartRoom() }))
-                    Text("People can join while everyone is away.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Switch(
-                            checked = state.anonymousMode,
-                            onCheckedChange = onAnonymousModeChanged,
-                            enabled = enabled,
-                            modifier = Modifier.semantics { contentDescription = "Anonymous room mode" },
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Anonymous room (Orbot)", style = MaterialTheme.typography.titleSmall)
-                            Text("Onion relays only; a fresh local identity. This room does not use your account, Bothy, profiles, agents or audio/video.",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    Button(onStartRoom, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Start a room") }
-                    Text("The name is yours to recognise this room on this device.", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Have an invitation?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                    OutlinedTextField(state.joinUrl, onJoinUrlChanged, Modifier.fillMaxWidth(), enabled = enabled,
-                        label = { Text("Invitation link") }, maxLines = 3,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = { if (enabled) onJoin() }))
-                    OutlinedButton(
-                        onClick = { scanningInvitation = true },
-                        enabled = enabled,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .semantics { contentDescription = "Scan KithMoot invitation QR" },
-                    ) { Text("Scan invitation QR") }
-                    OutlinedButton(onJoin, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Join room") }
-                    Text("Only share invitations with people you want in the room. Your camera and microphone start off.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            }
-            // Text size: one tap, remembered, applied everywhere. Above the
-            // relay settings because it is the one everybody may want.
-            val textSetting = LocalTextSizeSetting.current
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Text size", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    for (size in TextSize.entries) {
-                        val chosen = size == textSetting.size
-                        val label: @Composable RowScope.() -> Unit = { Text(size.label) }
-                        val modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "${size.label} text" + if (chosen) ", selected" else "" }
-                        if (chosen) Button({ }, modifier, content = label)
-                        else OutlinedButton({ textSetting.set(size) }, modifier, content = label)
-                    }
-                }
-            }
-            TextButton({ siteShown = true }, enabled = enabled && !state.signingIn) { Text("Site settings") }
-            Text("Saved room access and identities are encrypted on this device and excluded from backups. " +
-                "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!saved.anonymous && saved.id in state.linkGrantOwnerRooms) add(ConversationAction("Revoke guest access", destructive = true) { revokingRoom = saved })
+            if (saved.id != callRoomId) add(ConversationAction("Remove from this phone", destructive = true) { forgetting = saved })
+        }
+        if (room.source == RoomSource.ACCOUNT) bookmarksById[room.id]?.let { bookmark ->
+            add(ConversationAction("Remove from account", destructive = true) { removingAccountRoom = bookmark })
         }
     }
 
-    if (siteShown) {
-        SiteAddressDialog(state.webAppAddress, onWebAppAddressChanged, onDismiss = { siteShown = false })
+    val loadingFirst = state.loadingRooms && state.savedRooms.isEmpty() && !state.storageError
+
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val layout = homeLayout(maxWidth.value.roundToInt(), maxHeight.value.roundToInt())
+        when {
+            loadingFirst -> LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                .semantics { contentDescription = "Loading rooms" })
+
+            state.storageError -> StorageErrorContent(state, onRetryStorage, onResetStorage, resetting = resetting,
+                onResettingChanged = { resetting = it })
+
+            !returning -> ColdContent(
+                layout = layout, state = state, enabled = enabled,
+                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onAddOfferedCard = onAddOfferedCard,
+                onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
+            )
+
+            else -> ReturningContent(
+                layout = layout, state = state, enabled = enabled, homeRooms = homeRooms, orderedRooms = orderedRooms,
+                query = query, onQueryChanged = { query = it }, projectTab = projectTab,
+                onProjectTabChanged = { projectTab = it; prefs.edit().putString("projectTab", it).apply() },
+                openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
+                now = System.currentTimeMillis() / 1000, zone = zone, locale = locale, is24Hour = is24Hour,
+                listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
+                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
+                onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
+            )
+        }
     }
 
-    if (scanningInvitation) {
-        Dialog(onDismissRequest = { scanningInvitation = false }) {
+    pairingRoom?.let { room ->
+        AlertDialog(onDismissRequest = { pairingRoom = null }, title = { Text("Connect Bothy") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Paste the Bothy pairing code. Bothy will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. If this account created the conversation, KithMoot asks your signer for a 30-day, revocable message grant for the other person's current signed device. Otherwise, the creator must already have issued your grant. KithMoot switches only after Bothy confirms access.")
+                OutlinedTextField(pairingCode, { pairingCode = it }, Modifier.fillMaxWidth(), label = { Text("Bothy pairing code") }, minLines = 3)
+                TextButton(
+                    onClick = { clipboardText(context)?.let { pairingCode = it } },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Paste Bothy pairing code from clipboard" },
+                ) { Text("Paste from clipboard") }
+                OutlinedButton(
+                    onClick = { scanningPairingCode = true },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Scan Bothy QR" },
+                ) { Text("Scan Bothy QR") }
+            } },
+            confirmButton = { Button({ onPairBothy(room.id, pairingCode); pairingRoom = null }, enabled = enabled && pairingCode.isNotBlank()) { Text("Connect and verify") } },
+            dismissButton = { TextButton({ pairingRoom = null }) { Text("Cancel") } })
+    }
+    if (scanningPairingCode) {
+        Dialog(onDismissRequest = { scanningPairingCode = false }) {
             Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Scan invitation QR", style = MaterialTheme.typography.titleLarge)
-                    Text("Point at a KithMoot room invitation. Check it, then choose Join room yourself.")
+                    Text("Scan Bothy QR", style = MaterialTheme.typography.titleLarge)
+                    Text("Point at the code Bothy is showing. KithMoot will still verify it before changing this room's route.")
                     QrScanner(
-                        accept = ::looksLikeKithMootInvitation,
-                        onDecoded = { onJoinUrlChanged(it); scanningInvitation = false },
-                        prompt = "KithMoot needs the camera to scan an invitation QR.",
+                        accept = { it.trim().startsWith("bothy:") },
+                        onDecoded = { pairingCode = it; scanningPairingCode = false },
+                        prompt = "KithMoot needs the camera to scan Bothy's pairing QR.",
                     )
-                    TextButton({ scanningInvitation = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
+                    TextButton({ scanningPairingCode = false }, Modifier.heightIn(min = 48.dp)) { Text("Cancel scan") }
                 }
             }
         }
     }
-
+    disconnectingRoom?.let { room ->
+        AlertDialog(onDismissRequest = { disconnectingRoom = null }, title = { Text("Disconnect Bothy?") },
+            text = { Text(if (room.id in state.linkGrantOwnerRooms)
+                "KithMoot will ask Bothy to revoke this room's guest-device grants, wait for confirmation, then return ${room.name} to its earlier relays and remove the local Link route."
+            else "${room.name} will return to its earlier relays and this device's local Link route will be removed. Any remote grant issued by the conversation creator remains under their control until they revoke it or it expires.") },
+            confirmButton = { Button({ onDisconnectBothy(room.id); disconnectingRoom = null }, enabled = enabled) { Text("Disconnect") } },
+            dismissButton = { TextButton({ disconnectingRoom = null }) { Text("Cancel") } })
+    }
+    revokingRoom?.let { room ->
+        AlertDialog(onDismissRequest = { revokingRoom = null }, title = { Text("Revoke guest access?") },
+            text = { Text("Bothy will close the other person's live subscriptions and refuse their next reads and writes. This device stays connected and keeps the room's acknowledged ciphertext.") },
+            confirmButton = { Button({ onRevokeBothyGuests(room.id); revokingRoom = null }, enabled = enabled) { Text("Revoke access") } },
+            dismissButton = { TextButton({ revokingRoom = null }) { Text("Cancel") } })
+    }
     forgetting?.let { room ->
         AlertDialog(onDismissRequest = { forgetting = null }, title = { Text("Remove ${room.name} from this phone?") },
             text = { Text("Remove this room and your identity for it from this device. Creator controls saved here will be lost. " +
                 "Your synced account bookmark and other members are unaffected. Returning needs a working saved invitation or pairing link.") },
             confirmButton = { TextButton({ forgetting = null; onForget(room.id) }) { Text("Remove from this phone") } },
             dismissButton = { TextButton({ forgetting = null }) { Text("Keep room") } })
+    }
+    removingAccountRoom?.let { room ->
+        AlertDialog(onDismissRequest = { removingAccountRoom = null }, title = { Text("Remove ${room.label} from your account?") },
+            text = { Text("This removes its bookmark from your synced account list on all devices. It does not delete messages, revoke access or erase rooms saved on this phone.") },
+            confirmButton = { TextButton({ removingAccountRoom = null; accountRooms.remove(room.roomId) }) { Text("Remove from account") } },
+            dismissButton = { TextButton({ removingAccountRoom = null }) { Text("Cancel") } })
     }
     filing?.let { room ->
         val existing = state.savedRooms.mapNotNull { it.project }.distinct().sorted()
@@ -368,26 +248,241 @@ fun StartScreen(
             confirmButton = { TextButton({ filing = null; onProject(room.id, filedAs) }) { Text("Save") } },
             dismissButton = { TextButton({ filing = null }) { Text("Cancel") } })
     }
-
     renaming?.let { room ->
         AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Name on this device") },
             text = { OutlinedTextField(renamed, { renamed = it.take(80) }, label = { Text("Room name") }, singleLine = true) },
             confirmButton = { TextButton({ renaming = null; onRename(room.id, renamed) }, enabled = renamed.isNotBlank()) { Text("Save name") } },
             dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } })
     }
+}
+
+@Composable
+private fun StorageErrorContent(state: StartState, onRetryStorage: () -> Unit, onResetStorage: () -> Unit,
+    resetting: Boolean, onResettingChanged: (Boolean) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.errorContainer) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Saved rooms are unavailable", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                Text("Your saved data has been kept. Try again before deleting anything.")
+                OutlinedButton(onRetryStorage, enabled = !state.busy && !state.loadingRooms) { Text("Try again") }
+                TextButton({ onResettingChanged(true) }, enabled = !state.busy && !state.loadingRooms) { Text("Delete saved rooms…") }
+            }
+        }
+        NewRoomForm(state.roomName, {}, state.anonymousMode, {}, enabled = false, busy = false, error = null, onStartRoom = {})
+    }
     if (resetting) {
-        AlertDialog(onDismissRequest = { resetting = false }, title = { Text("Delete all saved rooms?") },
+        AlertDialog(onDismissRequest = { onResettingChanged(false) }, title = { Text("Delete all saved rooms?") },
             text = { Text("Permanently remove every saved room and identity from this device. You may lose access to rooms you created. " +
                 "Other members and relay messages are unaffected. This cannot be undone.") },
-            confirmButton = { TextButton({ resetting = false; onResetStorage() }) { Text("Delete saved rooms") } },
-            dismissButton = { TextButton({ resetting = false }) { Text("Keep saved data") } })
+            confirmButton = { TextButton({ onResettingChanged(false); onResetStorage() }) { Text("Delete saved rooms") } },
+            dismissButton = { TextButton({ onResettingChanged(false) }) { Text("Keep saved data") } })
     }
 }
 
-/** Keeps camera input narrow; the existing join action still parses the full link. */
-private fun looksLikeKithMootInvitation(value: String): Boolean {
-    val text = value.trim()
-    if (text.length !in 1..8192) return false
-    return text.startsWith("kithmoot:", ignoreCase = true) ||
-        Regex("^https://[^/?#]+/j(?:/|[?#])", RegexOption.IGNORE_CASE).containsMatchIn(text)
+/** The preamble every state shares: busy and opening progress, errors and
+ *  the contact-card offer, above whichever body follows. */
+@Composable
+private fun ColumnScope.Preamble(state: StartState, onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit) {
+    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Opening room" })
+    // A room that will not open must never be a reason to quit the app.
+    if (state.canStopOpening) OutlinedButton(onStopOpening, Modifier.heightIn(min = 48.dp)) { Text("Stop and go back to your rooms") }
+    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    state.notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    val offer = state.cardOffer
+    if (offer != null) {
+        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("This is a contact card", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
+                val who = offer.name?.let { "From $it" } ?: "From a person with no name on their card"
+                val boxes = when (offer.boxes) { 0 -> "no box"; 1 -> "one box"; else -> "${offer.boxes} boxes" }
+                Text(if (offer.added) "${offer.name ?: "They"} ${if (offer.name != null) "is" else "are"} in your contacts on this phone. Their card is kept on this phone."
+                    else "$who, naming $boxes. Add the card to keep their details on this phone.")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!offer.added) Button(onAddOfferedCard, Modifier.heightIn(min = 48.dp)) { Text("Add to contacts") }
+                    OutlinedButton(onDismissCardOffer, Modifier.heightIn(min = 48.dp)) { Text(if (offer.added) "Done" else "Not now") }
+                }
+            }
+        }
+    }
 }
+
+@Composable
+private fun BoxWithConstraintsScope.ColdContent(
+    layout: HomeLayout, state: StartState, enabled: Boolean,
+    onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit,
+    onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
+) {
+    val twoColumn = layout == HomeLayout.SHORT || layout == HomeLayout.EXPANDED
+    val maxContentWidth = if (layout == HomeLayout.MEDIUM) 560.dp else Dp.Unspecified
+
+    @Composable
+    fun Intro() {
+        Text("Start a room, then send the link.", style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.semantics { heading() })
+        Text("A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.",
+            style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    @Composable
+    fun Foot() {
+        InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin)
+        if (state.account == null) TextButton(onSignIn, Modifier.heightIn(min = 48.dp)) { Text("Already on Nostr? Sign in") }
+    }
+
+    if (twoColumn) {
+        Row(Modifier.fillMaxSize().widthIn(max = 960.dp).align(Alignment.TopCenter).padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
+                Intro()
+            }
+            Column(Modifier.weight(1f).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
+                    enabled, state.busy, state.error, onStartRoom)
+                Foot()
+            }
+        }
+    } else {
+        Column(
+            Modifier.fillMaxSize().let { if (maxContentWidth != Dp.Unspecified) it.widthIn(max = maxContentWidth) else it }
+                .align(Alignment.TopCenter).navigationBarsPadding().imePadding()
+                .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
+            Intro()
+            NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
+                enabled, state.busy, state.error, onStartRoom)
+            Foot()
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun BoxWithConstraintsScope.ReturningContent(
+    layout: HomeLayout, state: StartState, enabled: Boolean, homeRooms: List<HomeRoom>, orderedRooms: List<HomeRoom>,
+    query: String, onQueryChanged: (String) -> Unit, projectTab: String, onProjectTabChanged: (String) -> Unit,
+    openRoom: (HomeRoom) -> Unit, actionsFor: (HomeRoom) -> List<ConversationAction>, callRoomId: String?,
+    now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
+    onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
+    onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
+) {
+    val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
+    val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
+    val byProject = orderedRooms.filter { tab.isEmpty() || (if (tab == NO_PROJECT_TAB) it.project == null else it.project == tab) }
+    val filtered = byProject.filter { query.isBlank() || it.label.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
+    val showSearch = homeRooms.size >= 8
+
+    val expanded = layout == HomeLayout.EXPANDED
+    val maxListWidth = when (layout) { HomeLayout.MEDIUM -> 640.dp; HomeLayout.EXPANDED -> 640.dp; else -> Dp.Unspecified }
+
+    @Composable
+    fun ListPane(modifier: Modifier) {
+        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() })
+                        if (state.account != null) TextButton(onOpenProjects) { Text("Projects") }
+                    }
+                    if (showSearch) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Find a room") },
+                        trailingIcon = { if (query.isNotEmpty()) IconButton({ onQueryChanged("") }) {
+                            Icon(Icons.Filled.Close, "Clear search")
+                        } })
+                    if (query.isNotBlank()) {
+                        val label = if (filtered.isEmpty()) "No rooms match “${query.trim()}”."
+                            else if (filtered.size == 1) "1 room found" else "${filtered.size} rooms found"
+                        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    } else if (tab.isNotEmpty() && filtered.isEmpty()) {
+                        Text("No rooms in this project.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    }
+                    if (projectsAvailable.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val tabs = listOf("" to "All") + projectsAvailable.map { it to it } + listOf(NO_PROJECT_TAB to "No project")
+                            for ((value, label) in tabs) FilterChip(
+                                selected = value == tab, onClick = { onProjectTabChanged(value) }, label = { Text(label) },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                            )
+                        }
+                    }
+                    if (state.account != null && homeRooms.isEmpty()) {
+                        val syncing = state.roomBookmarks.syncing
+                        val error = state.roomSyncError ?: state.roomBookmarks.error
+                        when {
+                            syncing -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Looking for rooms saved to your account…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
+                            }
+                            error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                                OutlinedButton(onRetrySync) { Text("Try again") }
+                            }
+                            else -> Text("No rooms yet. Start one, or open an invite link you were sent.",
+                                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            items(filtered, key = { it.id }) { room ->
+                val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
+                RoomRow(room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room))
+            }
+            item {
+                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin)
+                    if (state.account == null) TextButton(onSignIn, Modifier.heightIn(min = 48.dp)) { Text("Already on Nostr? Sign in") }
+                }
+            }
+        }
+    }
+
+    if (expanded) {
+        Row(Modifier.fillMaxSize().widthIn(max = 1040.dp).align(Alignment.TopCenter).padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            ListPane(Modifier.weight(1f).widthIn(max = maxListWidth))
+            Column(Modifier.width(360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
+                    enabled, state.busy, state.error, onStartRoom)
+            }
+        }
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            ListPane(Modifier.fillMaxSize().align(Alignment.TopCenter)
+                .let { if (maxListWidth != Dp.Unspecified) it.widthIn(max = maxListWidth) else it }
+                .padding(horizontal = if (layout == HomeLayout.COMPACT) 16.dp else 24.dp))
+            // The text/icon overload clears its label's semantics, so TalkBack
+            // and UI Automator saw an unlabelled button; this overload keeps it.
+            ExtendedFloatingActionButton(
+                onClick = { onNewRoomOpenChanged(true) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).navigationBarsPadding(),
+            ) {
+                Icon(Icons.Filled.Add, null)
+                Spacer(Modifier.width(12.dp))
+                Text("New room")
+            }
+        }
+    }
+
+    if (newRoomOpen) {
+        ModalBottomSheet(onDismissRequest = { onNewRoomOpenChanged(false) }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
+                    enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) })
+            }
+        }
+    }
+}
+
+private const val NO_PROJECT_TAB = "\u0000none"

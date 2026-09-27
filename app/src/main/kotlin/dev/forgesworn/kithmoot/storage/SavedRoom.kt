@@ -20,7 +20,11 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** The signed-in account this room was joined as, when it was; such a room opens only while that account is signed in. */
     val account: String? = null,
     /** This room has a locally-created identity and may use only the Tor carrier. */
-    val anonymous: Boolean = false)
+    val anonymous: Boolean = false,
+    /** The room's invitation has been retired, or its keys have moved on: it still opens (the error explains), but nothing new can join it. */
+    val ended: Boolean = false,
+    /** There is a link worth sharing: not ended, not a paired secondary device, and the saved link holds an invitation payload. */
+    val canShareInvite: Boolean = false)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -56,7 +60,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
-    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous)
+    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
+        ended = retired || movedOn, canShareInvite = !retired && !movedOn && !secondary && joinUrl.substringAfter('#', "").isNotBlank())
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
     fun identity(now: Long): RoomIdentity {

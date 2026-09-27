@@ -29,12 +29,13 @@ class SiteAddressUiTest {
     @Test fun a_choose_site() {
         ui.home()
         activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
-        ui.click("Site settings")
+        ui.click("Settings")
+        ui.click("KithMoot site")
         ui.replace("Site address", "http://insecure.example")
         ui.assertEnabled("Save site", false)
         ui.click("Cancel")
         activity.scenario.onActivity { assertEquals(WebAppAddress.DEFAULT_ORIGIN, ViewModelProvider(it)[RoomViewModel::class.java].start.value.webAppAddress) }
-        ui.click("Site settings")
+        ui.click("KithMoot site")
         ui.replace("Site address", origin)
         ui.await("chosen site to appear") { ui.hasText(origin) }
         val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
@@ -43,6 +44,7 @@ class SiteAddressUiTest {
         }
         screenshot.recycle()
         ui.click("Save site")
+        ui.click("Back")
         activity.scenario.onActivity { assertEquals(origin, ViewModelProvider(it)[RoomViewModel::class.java].start.value.webAppAddress) }
         app.savedRooms.reset()
         seedLegacyRoom(app, "Self hosted workshop")

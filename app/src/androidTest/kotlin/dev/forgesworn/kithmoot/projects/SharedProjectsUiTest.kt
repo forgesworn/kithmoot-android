@@ -79,10 +79,10 @@ class SharedProjectsUiTest {
         app.savedRooms.reset()
         activity.scenario.onActivity { model.refreshSavedRooms() }
         asAccount(1, relay)
-        ui.click("Chats tab"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
+        ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
-        ui.click("Leave room"); ui.home(); ui.click("Projects tab")
+        ui.click("Leave room"); ui.home(); ui.click("Projects")
         create("Kithmoot", member, agent, room = true)
         create("Bothy", other, agent)
         create("Research", member, secondAgent)
@@ -109,22 +109,21 @@ class SharedProjectsUiTest {
         ui.click("Open Build room in Kithmoot")
         ui.await("wrong saved identity refused") { model.start.value.error?.startsWith("This room is saved under another identity") == true }
         assertEquals(owner.pubkey, app.savedRooms.get(saved.id)!!.participant)
+        ui.click("Back")
         ui.home()
-        ui.click("Chats tab")
-        ui.await("Chats selected after the refused admission") { model.start.value.homeTab == "chats" && !model.start.value.busy }
-        ui.click("Options for Build room")
-        ui.click("Forget Build room")
+        ui.await("home ready after the refused admission") { !model.start.value.busy }
+        ui.click("More options for Build room")
+        ui.click("Remove from this phone")
         ui.await("local removal confirmation rendered") { ui.hasText("Remove Build room from this phone?") }
         ui.click("Remove from this phone")
         ui.await("explicit local identity removal") { model.start.value.savedRooms.isEmpty() }
-        ui.click("Projects tab"); ui.click("Open Build room in Kithmoot"); ui.room()
+        ui.click("Projects"); ui.click("Open Build room in Kithmoot"); ui.room()
         assertEquals(saved.id, model.room.value.roomId)
         assertEquals(member.pubkey, model.room.value.selfParticipant)
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         assertEquals(member.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("project-room-admission.png")
-        ui.click("Leave room"); ui.home()
-        assertEquals("projects", model.start.value.homeTab)
+        ui.click("Leave room"); ui.await("back on the Projects page") { ui.hasText("New project") }
 
         // A signed directory may name a room id that its invitation does not actually admit.
         val badRoom = ProjectRoomChoice("ab".repeat(32), "Wrong room", saved.joinUrl)

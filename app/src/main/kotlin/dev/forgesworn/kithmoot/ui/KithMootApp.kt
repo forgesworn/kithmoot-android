@@ -35,15 +35,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.forgesworn.kithmoot.ui.room.AddDeviceSheet
 import dev.forgesworn.kithmoot.ui.room.ChatPane
 import dev.forgesworn.kithmoot.ui.room.ContactCardsSheet
 import dev.forgesworn.kithmoot.ui.room.RoomScreen
+import dev.forgesworn.kithmoot.ui.start.ProjectsScreen
+import dev.forgesworn.kithmoot.ui.start.SettingsScreen
+import dev.forgesworn.kithmoot.ui.start.SignInSheet
 import dev.forgesworn.kithmoot.ui.start.StartScreen
+import kotlinx.coroutines.launch
+
+/** Which page home shows: the rooms list, or one of the two full-screen
+ *  pages reached from it (design-home-rooms.md section 4). */
+enum class HomePage { ROOMS, SETTINGS, PROJECTS }
 
 /**
  * The whole application: two screens, two sheets, and the permission asks.
@@ -75,6 +88,20 @@ fun KithMootApp(
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
     val videos by model.videos.collectAsState()
+
+    // System back inside a room does what the room's own back arrow does,
+    // rather than sending the app to the background: on Android 12 and
+    // later a root activity is moved back rather than finished, so nothing
+    // was lost, but back did not go up a level (design-home-rooms.md Q11).
+    val roomBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() }
+    androidx.activity.compose.BackHandler(enabled = stage == Stage.ROOM && !inPictureInPicture, onBack = roomBack)
+
+    // Settings and Projects are pushed over home; back returns to the rooms
+    // list rather than leaving the app (design-home-rooms.md section 7).
+    var homePage by rememberSaveable { mutableStateOf(HomePage.ROOMS) }
+    androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) { homePage = HomePage.ROOMS }
+    var signInSheetOpen by remember { mutableStateOf(false) }
+    val homeCoroutines = rememberCoroutineScope()
 
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     androidx.compose.runtime.DisposableEffect(lifecycle, model, stage) {
@@ -216,9 +243,21 @@ fun KithMootApp(
         topBar = {
             Column {
                 dock?.invoke()
-                if (stage != Stage.ROOM) TopAppBar(
-                    title = { Text("KithMoot", style = MaterialTheme.typography.titleLarge) },
-                    actions = { accountMenu() },
+                // Settings and Projects bring their own app bar; home's stays
+                // hidden underneath so there is only ever one visible.
+                if (stage == Stage.START && homePage == HomePage.ROOMS) TopAppBar(
+                    title = {
+                        // Capped so the in-app text size (up to 1.5x) never
+                        // clips inside the 64 dp bar at the top of its range (F13).
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        val cappedSize = (22f * minOf(density.fontScale, 1.5f) / density.fontScale)
+                        Text("KithMoot", style = MaterialTheme.typography.titleLarge.copy(fontSize = cappedSize.sp), maxLines = 1)
+                    },
+                    actions = {
+                        androidx.compose.material3.IconButton({ homePage = HomePage.SETTINGS }) {
+                            androidx.compose.material3.Icon(Icons.Filled.Settings, "Settings")
+                        }
+                    },
                     // The dock above has already cleared the status bar.
                     windowInsets = if (dock != null) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                 )
@@ -245,47 +284,8 @@ fun KithMootApp(
       Box(if (dock != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier) {
         val padding = scaffoldPadding
         when (stage) {
-            Stage.START -> StartScreen(
-                state = startState,
-                onRoomNameChanged = model::onRoomNameChanged,
-                onJoinUrlChanged = model::onJoinUrlChanged,
-                onRelaysChanged = model::onRelaysChanged,
-                onAnonymousModeChanged = model::onAnonymousModeChanged,
-                onPersistentGroupChanged = model::onPersistentGroupChanged,
-                onStartRoom = model::startRoom,
-                onJoin = { model.joinFromUrl(startState.joinUrl) },
-                onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
-                onForget = model::forgetRoom,
-                onRename = model::renameRoom,
-                onProject = model::setRoomProject,
-                onPairBothy = model::pairBothy,
-                onDisconnectBothy = model::disconnectBothy,
-                onRevokeBothyGuests = model::revokeBothyGuests,
-                onRetryStorage = model::refreshSavedRooms,
-                onAddOfferedCard = model::addOfferedCard,
-                onDismissCardOffer = model::dismissCardOffer,
-                onCircleBoxesChanged = model::onCircleBoxesChanged,
-                onWebAppAddressChanged = model::onWebAppAddressChanged,
-                onResetStorage = model::resetSavedRooms,
-                onHomeTabChanged = model::showHomeTab,
-                accountRooms = dev.forgesworn.kithmoot.ui.start.AccountRoomActions(
-                    refresh = model::refreshRoomBookmarks,
-                    open = model::openAccountRoom,
-                    remove = model::removeAccountRoom,
-                    importRooms = model::importAccountRooms,
-                ),
-                projects = dev.forgesworn.kithmoot.ui.start.ProjectActions(
-                    refresh = model::refreshSharedProjects,
-                    retry = model::retryProjectSends,
-                    follow = model::followSharedProject,
-                    open = model::openSharedProjectRoom,
-                    save = model::saveSharedProject,
-                    rooms = model::availableProjectRooms,
-                ),
-                modifier = Modifier.padding(padding),
-                callRoomId = callRoomId,
-                onStopOpening = model::stopOpening,
-                account = dev.forgesworn.kithmoot.ui.start.AccountActions(
+            Stage.START -> {
+                val homeAccountActions = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,
                     onSignInWithApp = model::signInWithSignerApp,
                     onSignInWithSignet = model::signInWithSignet,
@@ -294,8 +294,79 @@ fun KithMootApp(
                     onSignOut = model::signOut,
                     onProvisionRendezvous = model::provisionRendezvous,
                     onDismissError = model::dismissSignInError,
-                ),
-            )
+                )
+                val homeAccountSettingsActions = dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
+                    loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
+                    saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
+                    retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
+                    circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
+                )
+                val homeProjectActions = dev.forgesworn.kithmoot.ui.start.ProjectActions(
+                    refresh = model::refreshSharedProjects,
+                    retry = model::retryProjectSends,
+                    follow = model::followSharedProject,
+                    open = model::openSharedProjectRoom,
+                    save = model::saveSharedProject,
+                    rooms = model::availableProjectRooms,
+                )
+                when (homePage) {
+                    HomePage.ROOMS -> StartScreen(
+                        state = startState,
+                        onRoomNameChanged = model::onRoomNameChanged,
+                        onJoinUrlChanged = model::onJoinUrlChanged,
+                        onRelaysChanged = model::onRelaysChanged,
+                        onAnonymousModeChanged = model::onAnonymousModeChanged,
+                        onPersistentGroupChanged = model::onPersistentGroupChanged,
+                        onStartRoom = model::startRoom,
+                        onJoin = { model.joinFromUrl(startState.joinUrl) },
+                        onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
+                        onForget = model::forgetRoom,
+                        onRename = model::renameRoom,
+                        onProject = model::setRoomProject,
+                        onPairBothy = model::pairBothy,
+                        onDisconnectBothy = model::disconnectBothy,
+                        onRevokeBothyGuests = model::revokeBothyGuests,
+                        onRetryStorage = model::refreshSavedRooms,
+                        onAddOfferedCard = model::addOfferedCard,
+                        onDismissCardOffer = model::dismissCardOffer,
+                        onResetStorage = model::resetSavedRooms,
+                        accountRooms = dev.forgesworn.kithmoot.ui.start.AccountRoomActions(
+                            refresh = model::refreshRoomBookmarks,
+                            open = model::openAccountRoom,
+                            remove = model::removeAccountRoom,
+                            importRooms = model::importAccountRooms,
+                        ),
+                        projects = homeProjectActions,
+                        modifier = Modifier.padding(padding),
+                        callRoomId = callRoomId,
+                        onStopOpening = model::stopOpening,
+                        onOpenProjects = { homePage = HomePage.PROJECTS },
+                        onSignIn = { signInSheetOpen = true },
+                        onShareInvite = { id ->
+                            homeCoroutines.launch {
+                                model.inviteLinkFor(id)?.let { link -> share(context, link, "Send invite link") }
+                            }
+                        },
+                    )
+                    HomePage.SETTINGS -> SettingsScreen(
+                        state = startState,
+                        signIn = homeAccountActions,
+                        accountSettings = homeAccountSettingsActions,
+                        accountRooms = dev.forgesworn.kithmoot.ui.start.AccountRoomActions(
+                            refresh = model::refreshRoomBookmarks,
+                            open = model::openAccountRoom,
+                            remove = model::removeAccountRoom,
+                            importRooms = model::importAccountRooms,
+                        ),
+                        relayChoices = model.accountRelayChoices(),
+                        onWebAppAddressChanged = model::onWebAppAddressChanged,
+                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false) },
+                        onBack = { homePage = HomePage.ROOMS },
+                    )
+                    HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
+                }
+                if (signInSheetOpen) SignInSheet(startState, homeAccountActions, onDismiss = { signInSheetOpen = false })
+            }
 
             Stage.ROOM -> roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
@@ -363,7 +434,7 @@ fun KithMootApp(
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,
                     onLeave = model::leave,
-                    onBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() },
+                    onBack = roomBack,
                     modifier = Modifier.padding(padding),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions) },
                     chat = {

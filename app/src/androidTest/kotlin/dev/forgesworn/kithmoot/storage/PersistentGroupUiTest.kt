@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.storage
 
+import dev.forgesworn.kithmoot.ui.start.roomLabel
 import android.os.Process
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
@@ -108,7 +109,7 @@ class PersistentGroupUiTest {
             assertNotEquals(expected.getProperty("pid"), Process.myPid().toString())
         }
         ui.home()
-        ui.click(expected.getProperty("name"))
+        ui.click(roomLabel(expected.getProperty("name"), expected.getProperty("id")))
         ui.room()
         activity.scenario.onActivity {
             val state = ViewModelProvider(it)[RoomViewModel::class.java].room.value

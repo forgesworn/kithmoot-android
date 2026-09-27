@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The G5 fixture control socket is reversed to loopback and exists only
          in debug builds. Production retains its ordinary transport policy. -->
-    <application android:usesCleartextTraffic="true" />
+    <application android:usesCleartextTraffic="true">
+        <!-- Host for createComposeRule() in instrumented Compose tests, the
+             same entry ui-test-manifest would add, without the dependency. -->
+        <activity android:name="androidx.activity.ComponentActivity" android:exported="false" />
+    </application>
 </manifest>

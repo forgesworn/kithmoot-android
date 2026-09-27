@@ -46,14 +46,14 @@ class AccountActions(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean) {
+fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean, showHeading: Boolean = true) {
     var choosing by remember { mutableStateOf(false) }
     val account = state.account
     val retained = state.retainedAccount
     var rendezvousIndex by remember(account?.pubkey) { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(if (account != null) "Your Nostr account" else if (retained != null) "Keep your preview account" else "Keep your rooms with you",
+        if (showHeading) Text(if (account != null) "Your Nostr account" else if (retained != null) "Keep your preview account" else "Keep your rooms with you",
             style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         if (account != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -73,33 +73,37 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
                 else -> "Signing with a key kept in this app's encrypted vault. Rooms you open are joined as this account."
             }, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (account.method == "bunker") {
+                var more by remember { mutableStateOf(false) }
                 HorizontalDivider()
-                Text("Vennel rendezvous", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Ask a compatible Heartwood bunker to provision its root-derived rendezvous child to this phone. Choose the person's current index exactly; KithMoot never sees the child in account, room or contact storage.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                state.rendezvous?.activeIndex?.let { active ->
-                    Text("This phone currently holds index $active. Enter an owner-selected index to rotate it.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton({ more = !more }) { Text(if (more) "Hide more for your Nostr account" else "More for your Nostr account") }
+                if (more) {
+                    Text("Vennel rendezvous", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Ask a compatible Heartwood bunker to provision its root-derived rendezvous child to this phone. Choose the person's current index exactly; KithMoot never sees the child in account, room or contact storage.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    state.rendezvous?.activeIndex?.let { active ->
+                        Text("This phone currently holds index $active. Enter an owner-selected index to rotate it.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    OutlinedTextField(
+                        value = rendezvousIndex,
+                        onValueChange = { rendezvousIndex = it.filter(Char::isDigit).take(10) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Rendezvous index") },
+                        placeholder = { Text("Owner-selected current index") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    val requestedIndex = rendezvousIndex.toLongOrNull()?.takeIf { it in 0..0xffffffffL }
+                    val rendezvousBusy = state.rendezvous?.busy == true
+                    Button(
+                        onClick = { requestedIndex?.let(actions.onProvisionRendezvous) },
+                        enabled = enabled && !rendezvousBusy && requestedIndex != null,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text(if (rendezvousBusy) "Waiting for Heartwood…" else "Ask Heartwood to provision this phone") }
+                    state.rendezvous?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                OutlinedTextField(
-                    value = rendezvousIndex,
-                    onValueChange = { rendezvousIndex = it.filter(Char::isDigit).take(10) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Rendezvous index") },
-                    placeholder = { Text("Owner-selected current index") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                val requestedIndex = rendezvousIndex.toLongOrNull()?.takeIf { it in 0..0xffffffffL }
-                val rendezvousBusy = state.rendezvous?.busy == true
-                Button(
-                    onClick = { requestedIndex?.let(actions.onProvisionRendezvous) },
-                    enabled = enabled && !rendezvousBusy && requestedIndex != null,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text(if (rendezvousBusy) "Waiting for Heartwood…" else "Ask Heartwood to provision this phone") }
-                state.rendezvous?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             OutlinedButton(actions.onSignOut, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
         } else {
@@ -117,8 +121,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean)
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                Text("Sign in as yourself, with your Nostr profile and the public key your agents recognise. " +
-                    "Rooms you open are joined as that account. Without it, each room gets its own key on this phone.",
+                Text("Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.signingIn) {

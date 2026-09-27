@@ -45,17 +45,18 @@ class RoomRecoveryUiTest {
         }
         ui.click("Leave room")
         ui.home()
-        ui.click("Options for Weekend workshop")
-        ui.click("Rename Weekend workshop")
+        ui.click("More options for Weekend workshop")
+        ui.click("Rename")
         ui.replace("Room name", "Garden group")
         ui.click("Save name")
         ui.await("saved local name") { app.savedRooms.list().single().name == "Garden group" }
-        ui.click("Options for Garden group")
-        ui.click("Forget Garden group")
+        ui.click("More options for Garden group")
+        ui.click("Remove from this phone")
+        ui.await("removal dialog rendered") { ui.hasText("Remove Garden group from this phone?") }
         ui.click("Keep room")
         assertEquals(1, app.savedRooms.list().size)
-        ui.click("Options for Garden group")
-        ui.click("Forget Garden group")
+        ui.click("More options for Garden group")
+        ui.click("Remove from this phone")
         ui.await("local removal confirmation rendered") { ui.hasText("Remove Garden group from this phone?") }
         ui.click("Remove from this phone")
         ui.await("explicit room deletion") { app.savedRooms.list().isEmpty() }
@@ -77,5 +78,36 @@ class RoomRecoveryUiTest {
         ui.click("Delete saved rooms")
         ui.home()
         ui.assertEnabled("Start a room", true)
+    }
+
+    /** design-home-rooms.md Q11, AC 31: back in a room with no call goes up
+     *  a level to the rooms, rather than sending the app to the background. */
+    @Test fun system_back_in_a_room_with_no_call_returns_to_the_rooms_list() {
+        val scenario = activity.scenario
+        ui.home()
+        seedLegacyRoom(app, "Weekend workshop")
+        scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
+        ui.click("Weekend workshop")
+        ui.room()
+
+        androidx.test.espresso.Espresso.pressBack()
+
+        ui.home()
+        assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+    }
+
+    /** design-home-rooms.md AC 28: Settings is pushed over home; back pops
+     *  it, rather than leaving the app. */
+    @Test fun system_back_from_settings_returns_to_home() {
+        val scenario = activity.scenario
+        ui.home()
+
+        ui.click("Settings")
+        ui.await("settings shown") { ui.hasText("Text size") }
+
+        androidx.test.espresso.Espresso.pressBack()
+
+        ui.await("home shown again") { ui.hasText("KithMoot") }
+        assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 }

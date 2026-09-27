@@ -25,14 +25,16 @@ data class ProjectActions(
     val rooms: suspend () -> List<ProjectRoomChoice> = { emptyList() },
 )
 
+/** @param showHeader false when a host page (ProjectsScreen) already shows
+ *  the "Projects" title and its own Sync action in an app bar. */
 @Composable
-fun ProjectsPanel(state: StartState, actions: ProjectActions) {
+fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolean = true) {
     val account = state.account
     var editing by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<SharedProject?>(null) }
     val enabled = state.projects.ready && !state.projectsBusy && !state.busy
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        if (showHeader) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Projects", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
             if (account != null) TextButton(actions.refresh, enabled = !state.projects.syncing && !state.projectsBusy) { Text("Sync") }
         }

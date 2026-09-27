@@ -42,7 +42,7 @@ class SharedProjectsRestartTest {
             model.installLocalTestAccount(ByteArray(32) { 6 })
         }
         ui.await("synthetic account ready") { model.start.value.account?.pubkey == LocalSigner(ByteArray(32) { 6 }).pubkey && model.start.value.projects.ready }
-        ui.click("Projects tab"); ui.click("New project"); ui.replace("Project name", "Resume project")
+        ui.click("Projects"); ui.click("New project"); ui.replace("Project name", "Resume project")
         ui.replace("People's npubs", npubOf(LocalSigner(ByteArray(32) { 7 }).pubkey)); ui.click("Save project")
         ui.await("two unacknowledged encrypted project writes") { relay.writes.size == 2 && model.start.value.projects.pendingSends == 2 }
         assertTrue(relay.writes.all { it.kind == Projects.WRAP_KIND })
@@ -68,7 +68,7 @@ class SharedProjectsRestartTest {
         ui.await("encrypted project and outbox recovered") { model.start.value.projects.ready && model.start.value.projects.pendingSends == 2 }
         assertTrue("Opening the cache must not replay an uncertain send", relay.writes.isEmpty())
         assertEquals(expected.getValue("project").jsonPrimitive.content, model.start.value.projects.projects.single().key)
-        ui.click("Projects tab"); ui.click("Retry project updates")
+        ui.click("Projects"); ui.click("Retry project updates")
         ui.await("explicit exact retry acknowledged") { model.start.value.projects.pendingSends == 0 && !model.start.value.projectsBusy }
         assertEquals(expected.getValue("pendingIds").jsonArray.map { it.jsonPrimitive.content }, relay.writes.map { it.id }.sorted())
         activity.scenario.onActivity { model.signOut() }
