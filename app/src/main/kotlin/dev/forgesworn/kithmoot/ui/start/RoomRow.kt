@@ -31,11 +31,14 @@ internal fun RoomRow(name: String, status: String?, time: String, timeSpoken: St
     open: () -> Unit, actions: List<ConversationAction>) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+    // A row with only a name centres it beside the menu at the one-line list
+    // height; a status line makes it two-line and the menu stays at the top.
+    val plain = status == null && !stacked
+    Row(Modifier.fillMaxWidth(), verticalAlignment = if (plain) Alignment.CenterVertically else Alignment.Top) {
         Column(
             Modifier
                 .weight(1f)
-                .heightIn(min = 64.dp)
+                .heightIn(min = if (plain) 56.dp else 64.dp)
                 .combinedClickable(
                     enabled = enabled,
                     onClick = open, onClickLabel = "Open",
@@ -43,7 +46,7 @@ internal fun RoomRow(name: String, status: String?, time: String, timeSpoken: St
                 )
                 .semantics(mergeDescendants = true) {}
                 .padding(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
         ) {
             if (stacked) {
                 Text(name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
