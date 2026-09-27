@@ -384,7 +384,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
 
     @Composable
     fun ListPane(modifier: Modifier) {
-        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(bottom = if (expanded) 24.dp else 96.dp),
+        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -460,11 +460,16 @@ private fun BoxWithConstraintsScope.ReturningContent(
             ListPane(Modifier.fillMaxSize().align(Alignment.TopCenter)
                 .let { if (maxListWidth != Dp.Unspecified) it.widthIn(max = maxListWidth) else it }
                 .padding(horizontal = if (layout == HomeLayout.COMPACT) 16.dp else 24.dp))
+            // The text/icon overload clears its label's semantics, so TalkBack
+            // and UI Automator saw an unlabelled button; this overload keeps it.
             ExtendedFloatingActionButton(
                 onClick = { onNewRoomOpenChanged(true) },
-                icon = { Icon(Icons.Filled.Add, null) }, text = { Text("New room") },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).navigationBarsPadding(),
-            )
+            ) {
+                Icon(Icons.Filled.Add, null)
+                Spacer(Modifier.width(12.dp))
+                Text("New room")
+            }
         }
     }
 
