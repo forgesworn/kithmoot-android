@@ -285,6 +285,9 @@ data class StartState(
     val busy: Boolean = false,
     /** A room has been opening for [STOP_OPENING_AFTER_MS]: offer the way out. */
     val canStopOpening: Boolean = false,
+    /** "Opening Wednesday standup…" while a tapped room opens, so a slow
+     *  relay never looks like a tap that did nothing. */
+    val opening: String? = null,
     val error: String? = null,
     val notice: String? = null,
     val roomName: String = "",
@@ -1008,7 +1011,8 @@ class RoomViewModel @JvmOverloads constructor(
     fun removeAccountRoom(roomId: String) = changeRoomBookmarks { it.remove(roomId) }
 
     /** The account record is only a locator. Verify admission before saving or opening any room. */
-    fun openAccountRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation") {
+    fun openAccountRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation",
+        opening = openingLine(room.name, "the conversation")) {
         val bookmarks = roomBookmarks ?: throw RoomRecoveryException("Sign in to open this conversation.")
         val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this conversation.")
         fun checkSelection() {
@@ -1887,9 +1891,14 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun reopenRoom(id: String) = enter(label = savedRooms.runCatching { get(id)?.name }.getOrNull()?.takeIf { it.isNotBlank() } ?: "That room") {
-        openSaved(savedRooms.get(id) ?: throw RoomRecoveryException("This room is no longer saved on this device."))
+    fun reopenRoom(id: String) = savedRooms.runCatching { get(id)?.name }.getOrNull().let { name ->
+        enter(label = name?.takeIf { it.isNotBlank() } ?: "That room", opening = openingLine(name, "the room")) {
+            openSaved(savedRooms.get(id) ?: throw RoomRecoveryException("This room is no longer saved on this device."))
+        }
     }
+
+    private fun openingLine(name: String?, fallback: String): String =
+        "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
     private suspend fun openSaved(saved: SavedRoom) {
         val who = saved.identity(epochSeconds(), accountSigner)
@@ -1938,10 +1947,10 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** A room tap that is waiting for the last room to finish closing. */
-    private class QueuedEnter(val label: String, val block: suspend () -> Unit)
+    private class QueuedEnter(val label: String, val opening: String, val block: suspend () -> Unit)
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
-    private fun enter(label: String = "That room", block: suspend () -> Unit) {
+    private fun enter(label: String = "That room", opening: String = "Opening the room…", block: suspend () -> Unit) {
         if (_stage.value != Stage.START) {
             // The person is in a room, so the room's own snackbar is where they
             // will see this. See KithMootApp's notice effect.
@@ -1951,7 +1960,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         armStopOpening()
         if (entering.tryAcquire()) {
-            runEnter(block)
+            runEnter(opening, block)
             return
         }
         // The gate is held, and on this screen that is almost always the last
@@ -1962,7 +1971,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The LATEST tap wins. Somebody who taps a room, thinks better of it
         // and taps another is asking for the second one, and opening the first
         // would be worse than the silence this replaced.
-        val startsTheWait = queuedEnter.offer(QueuedEnter(label, block))
+        val startsTheWait = queuedEnter.offer(QueuedEnter(label, opening, block))
         _start.update { it.copy(busy = true, error = null, notice = waitingNotice(label)) }
         if (!startsTheWait) {
             Log.i(JOIN_LOG, "enter queued replaced an earlier waiting tap")
@@ -1992,7 +2001,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
                 _start.update { it.copy(notice = null) }
                 taken = false
-                runEnter(latest.block)
+                runEnter(latest.opening, latest.block)
             } catch (cancelled: CancellationException) {
                 if (taken) entering.release()
                 throw cancelled
@@ -2033,15 +2042,15 @@ class RoomViewModel @JvmOverloads constructor(
         entryJob?.cancel()
         entryJob = null
         disarmStopOpening()
-        _start.update { it.copy(busy = false, notice = null) }
+        _start.update { it.copy(busy = false, notice = null, opening = null) }
     }
 
     /** "Finishing leaving the last room… Wednesday standup will open next." */
     private fun waitingNotice(label: String): String = "$FINISHING_LAST_ROOM $label will open next."
 
     /** The body of [enter], with the gate already held. */
-    private fun runEnter(block: suspend () -> Unit) {
-        _start.update { it.copy(busy = true, error = null) }
+    private fun runEnter(opening: String, block: suspend () -> Unit) {
+        _start.update { it.copy(busy = true, error = null, opening = opening) }
         entryJob = viewModelScope.launch(Dispatchers.IO) {
             var opened = false
             try {
@@ -2073,7 +2082,7 @@ class RoomViewModel @JvmOverloads constructor(
                     // tapped since then owns its busy line and its timer.
                     if (!stopped) {
                         disarmStopOpening()
-                        _start.update { it.copy(busy = false) }
+                        _start.update { it.copy(busy = false, opening = null) }
                         if (opened && session != null) _stage.value = Stage.ROOM
                     }
                 }
@@ -2239,7 +2248,8 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val name = _start.value.roomName
         val persistent = true
-        enter(label = name.takeIf { it.isNotBlank() } ?: "The new room") {
+        enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
+            opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation(persistent)
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
@@ -2274,7 +2284,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.value = _start.value.copy(error = "Paste a join link first.")
             return
         }
-        enter(label = "The invitation") { join(url) }
+        enter(label = "The invitation", opening = "Opening the invitation…") { join(url) }
     }
 
     private suspend fun join(url: String) {

@@ -284,7 +284,10 @@ private fun StorageErrorContent(state: StartState, onRetryStorage: () -> Unit, o
  *  the contact-card offer, above whichever body follows. */
 @Composable
 private fun ColumnScope.Preamble(state: StartState, onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit) {
-    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Opening room" })
+    if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = state.opening ?: "Opening room" })
+    // Named, so a slow relay reads as a room on its way rather than a tap that did nothing.
+    if (state.busy) state.opening?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
     // A room that will not open must never be a reason to quit the app.
     if (state.canStopOpening) OutlinedButton(onStopOpening, Modifier.heightIn(min = 48.dp)) { Text("Stop and go back to your rooms") }
     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
