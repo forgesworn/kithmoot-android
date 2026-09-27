@@ -95,4 +95,19 @@ class RoomRecoveryUiTest {
         ui.home()
         assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
+
+    /** design-home-rooms.md AC 28: Settings is pushed over home; back pops
+     *  it, rather than leaving the app. */
+    @Test fun system_back_from_settings_returns_to_home() {
+        val scenario = activity.scenario
+        ui.home()
+
+        ui.click("Settings")
+        ui.await("settings shown") { ui.hasText("Text size") }
+
+        androidx.test.espresso.Espresso.pressBack()
+
+        ui.await("home shown again") { ui.hasText("KithMoot") }
+        assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+    }
 }
