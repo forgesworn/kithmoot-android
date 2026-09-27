@@ -26,6 +26,8 @@ fun NotificationSettings(
     /** The room this menu was opened from, if any: only then is there a
      *  call to ring for. See RoomViewModel.callRingMode / setCallRingMode. */
     room: CallRingRoom? = null,
+    /** False inside Settings, whose section label already names it. */
+    showHeading: Boolean = true,
 ) {
     val value by notices.settings.collectAsState()
     var allowed by remember { mutableStateOf(notices.allowed()) }
@@ -37,7 +39,7 @@ fun NotificationSettings(
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         allowed = granted; notices.save(notices.settings.value.copy(enabled = granted))
     }
-    Text("Notifications & sound", style = MaterialTheme.typography.headlineSmall)
+    if (showHeading) Text("Notifications & sound", style = MaterialTheme.typography.headlineSmall)
     Text("Alerts for new messages in your joined room while KithMoot stays connected. Other rooms and delivery after Android closes or suspends the app are not covered yet.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Message notifications", Modifier.weight(1f))

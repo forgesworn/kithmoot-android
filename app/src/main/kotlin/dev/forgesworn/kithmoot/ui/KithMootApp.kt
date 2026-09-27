@@ -360,7 +360,7 @@ fun KithMootApp(
                         ),
                         relayChoices = model.accountRelayChoices(),
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
-                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null) },
+                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false) },
                         onBack = { homePage = HomePage.ROOMS },
                     )
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
