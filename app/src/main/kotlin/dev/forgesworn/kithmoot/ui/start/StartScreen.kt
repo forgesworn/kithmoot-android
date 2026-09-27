@@ -163,7 +163,7 @@ fun StartScreen(
                 layout = layout, state = state, enabled = enabled, homeRooms = homeRooms, orderedRooms = orderedRooms,
                 query = query, onQueryChanged = { query = it }, projectTab = projectTab,
                 onProjectTabChanged = { projectTab = it; prefs.edit().putString("projectTab", it).apply() },
-                openRoom = ::openRoom, actionsFor = ::actionsFor, callRoomId = callRoomId,
+                openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
                 now = System.currentTimeMillis() / 1000, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
@@ -371,7 +371,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
-    onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
+    onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
@@ -424,7 +424,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                             }
                             error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                                OutlinedButton({ }) { Text("Try again") }
+                                OutlinedButton(onRetrySync) { Text("Try again") }
                             }
                             else -> Text("No rooms yet. Start one, or open an invite link you were sent.",
                                 style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
