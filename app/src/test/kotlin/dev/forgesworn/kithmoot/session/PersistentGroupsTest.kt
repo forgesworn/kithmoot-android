@@ -27,6 +27,21 @@ class PersistentGroupsTest {
         assertTrue(error.message!!.contains("retired"))
     }
 
+    @Test fun `an empty first answer is asked again before it is believed`() = runTest {
+        // The relay holding the welcome connects after an empty one answered.
+        var asked = 0
+        val admission = requestPersistentAdmission(host.invitation) { if (++asked < 3) emptyList() else listOf(welcome) }
+        assertContentEquals(secret, admission.secret)
+        assertEquals(3, asked)
+    }
+
+    @Test fun `a retirement is believed without asking again`() = runTest {
+        val retirement = encodeInvitationRetirement(host.invitation, host.inviterSecretKey, 1_800_000_060)
+        var asked = 0
+        assertFailsWith<GroupInvitationException> { requestPersistentAdmission(host.invitation) { asked++; listOf(retirement) } }
+        assertEquals(1, asked)
+    }
+
     @Test fun `missing and conflicting welcomes fail closed`() = runTest {
         assertFailsWith<GroupInvitationException> { requestPersistentAdmission(host.invitation) { emptyList() } }
         val other = encodePersistentInvitation(host, ByteArray(32) { 13 }, 1_800_000_001)
