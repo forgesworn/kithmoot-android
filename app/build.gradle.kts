@@ -37,8 +37,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 42
-        versionName = "0.6.19"
+        versionCode = 43
+        versionName = "0.6.20"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
