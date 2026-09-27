@@ -78,4 +78,20 @@ class RoomRecoveryUiTest {
         ui.home()
         ui.assertEnabled("Start a room", true)
     }
+
+    /** design-home-rooms.md Q11, AC 31: back in a room with no call goes up
+     *  a level to the rooms, rather than sending the app to the background. */
+    @Test fun system_back_in_a_room_with_no_call_returns_to_the_rooms_list() {
+        val scenario = activity.scenario
+        ui.home()
+        seedLegacyRoom(app, "Weekend workshop")
+        scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
+        ui.click("Weekend workshop")
+        ui.room()
+
+        androidx.test.espresso.Espresso.pressBack()
+
+        ui.home()
+        assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+    }
 }

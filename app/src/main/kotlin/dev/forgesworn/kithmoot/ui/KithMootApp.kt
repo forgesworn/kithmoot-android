@@ -76,6 +76,13 @@ fun KithMootApp(
     val roomState by model.room.collectAsState()
     val videos by model.videos.collectAsState()
 
+    // System back inside a room does what the room's own back arrow does,
+    // rather than sending the app to the background: on Android 12 and
+    // later a root activity is moved back rather than finished, so nothing
+    // was lost, but back did not go up a level (design-home-rooms.md Q11).
+    val roomBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() }
+    androidx.activity.compose.BackHandler(enabled = stage == Stage.ROOM && !inPictureInPicture, onBack = roomBack)
+
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     androidx.compose.runtime.DisposableEffect(lifecycle, model, stage) {
         fun apply() {
@@ -363,7 +370,7 @@ fun KithMootApp(
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,
                     onLeave = model::leave,
-                    onBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() },
+                    onBack = roomBack,
                     modifier = Modifier.padding(padding),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions) },
                     chat = {
