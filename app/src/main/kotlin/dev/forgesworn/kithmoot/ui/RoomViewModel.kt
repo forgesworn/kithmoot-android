@@ -29,6 +29,7 @@ import dev.forgesworn.kithmoot.account.checkedSignedEvent
 import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.relay.RelaySelection
 import dev.forgesworn.kithmoot.relay.RelayHealth
+import dev.forgesworn.kithmoot.relay.RoomRelays
 import dev.forgesworn.kithmoot.relay.combinedRelayHealth
 import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.account.RoomBookmarks
@@ -1024,7 +1025,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (saved != null) {
             check(saved.participant == actor.pubkey) { "This room is saved under another identity. Open it with that identity first." }
             val who = saved.identity(epochSeconds(), actor); checkSelection()
-            open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary, saved.joinUrl,
+            open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved, room.link), who, saved.secondary, saved.joinUrl,
                 saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
         } else {
             val invitation = decodeInvitationUrl(room.link)
@@ -1131,7 +1132,7 @@ class RoomViewModel @JvmOverloads constructor(
             val who = saved.identity(epochSeconds(), actor)
             val derived = deriveRoom(saved.secret)
             checkProjectRoomAdmission(room.room, derived.roomId); checkSelection()
-            open(derived, saved.secret, saved.relays, who, saved.secondary, saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+            open(derived, saved.secret, savedRoomRelays(saved, selected.link), who, saved.secondary, saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
         } else {
             val invitation = decodeInvitationUrl(selected.link) ?: throw RoomRecoveryException("This project needs a persistent room invitation.")
             if (!invitation.invitation.persistent || decodeInvitationPairingLink(selected.link) != null) throw RoomRecoveryException("This is not a project room invitation.")
@@ -1897,12 +1898,27 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * A saved room reads every relay its links name, not only the ones saved
+     * here: its history may live on a relay this device never saved. A room
+     * sheltered behind a Bothy, or an anonymous one, keeps exactly its saved
+     * relays, because adding public relays would undo that choice.
+     */
+    private fun savedRoomRelays(saved: SavedRoom, openedFrom: String? = null): List<String> {
+        if (saved.anonymous || linkConsents.all().any { it.roomId == saved.id }) return saved.relays
+        val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == saved.id }?.link
+        val linked = listOfNotNull(saved.joinUrl, bookmark, openedFrom).distinct().map { link ->
+            runCatching { decodeInvitationUrl(link)?.relays ?: decodeJoinUrl(link).relays }.getOrDefault(emptyList())
+        }
+        return RoomRelays.atOpen(saved.relays, linked)
+    }
+
     private fun openingLine(name: String?, fallback: String): String =
         "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
     private suspend fun openSaved(saved: SavedRoom) {
         val who = saved.identity(epochSeconds(), accountSigner)
-        open(deriveRoom(saved.secret), saved.secret, saved.relays, who, saved.secondary,
+        open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
             saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
             anonymous = saved.anonymous)
     }
