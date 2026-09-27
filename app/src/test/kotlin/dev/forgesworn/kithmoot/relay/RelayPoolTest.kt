@@ -549,6 +549,43 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `addRelays joins a running pool without touching what is already open`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        sockets.opened.first().open()
+        backgroundScope.launch { pool.subscribe(listOf(Filter(kinds = listOf(20461)))).collect { } }
+        runCurrent()
+        val first = sockets.opened.first()
+        val subscriptionId = first.requestedSubscriptions().single()
+
+        // A relay already in the pool is left alone: no second socket, no
+        // re-sent REQ, on a call that names nothing new.
+        pool.addRelays(listOf("wss://one.example"))
+        runCurrent()
+        assertEquals(1, sockets.opened.size)
+
+        pool.addRelays(listOf("wss://two.example"))
+        runCurrent()
+        assertEquals(listOf("wss://one.example", "wss://two.example"), pool.relayUrls)
+        assertEquals(2, sockets.opened.size, "the new relay should have opened its own socket")
+        val second = sockets.opened[1]
+        second.open()
+        runCurrent()
+
+        // It joins exactly like a reconnect: the live subscription is
+        // re-sent, and it is included in both reads and writes.
+        assertEquals(listOf(subscriptionId), second.requestedSubscriptions())
+        assertEquals(setOf("wss://one.example", "wss://two.example"), pool.connected.value)
+        pool.publish(event("d1".repeat(32)))
+        runCurrent()
+        assertEquals(1, second.publishedFrames().size)
+        // The relay already open, and its live subscription, are untouched.
+        assertEquals(listOf(subscriptionId), first.requestedSubscriptions())
+    }
+
+    @Test
     fun `a relay that never answers the handshake is abandoned and retried`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))

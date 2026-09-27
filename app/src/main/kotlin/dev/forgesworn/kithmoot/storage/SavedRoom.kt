@@ -125,6 +125,24 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(relays.all { it.startsWith("ws://") || it.startsWith("wss://") })
         put("relays", JsonArray(relays.map(::JsonPrimitive)))
     }.also { it.validate() }
+
+    /** The newest signed `relays` record this device has taken from the
+     *  room's authority, kept across visits so an old copy of the room does
+     *  not re-adopt a version it has already moved past. Null until this
+     *  room has ever seen one. Whether this record's copy in the control
+     *  log is stale enough to repost is a per-visit judgement, not a saved
+     *  one - see `RoomWork`'s in-memory `roomRelaysSeenAt`, which mirrors
+     *  the web client keeping that clock only for the current session. */
+    val roomRelayRecord: RoomRelaysRecord? get() = (json["roomRelays"] as? JsonObject)?.let {
+        RoomRelaysRecord(it.getValue("relays").jsonArray.map { url -> url.jsonPrimitive.content }, it.getValue("version").jsonPrimitive.long, it.text("sig"))
+    }
+    fun withRoomRelaysRecord(record: RoomRelaysRecord): SavedRoom = changed {
+        put("roomRelays", buildJsonObject {
+            put("relays", JsonArray(record.relays.map(::JsonPrimitive)))
+            put("version", record.version)
+            put("sig", record.sig)
+        })
+    }.also { it.validate() }
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {
@@ -189,6 +207,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         storedHost()
         require(retirements.size <= 128)
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
+        roomRelayRecord?.let { require(it.relays.isNotEmpty() && it.relays.size <= MAX_ROOM_RELAYS && it.version >= 0 && it.sig.matches(Regex("[0-9a-f]{128}"))) }
     }
 
     companion object {

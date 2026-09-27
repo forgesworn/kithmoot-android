@@ -14,6 +14,8 @@ import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
 import dev.forgesworn.kithmoot.protocol.ContactCards
 import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
+import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
+import dev.forgesworn.kithmoot.protocol.applyRoomRelays
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -3056,7 +3058,9 @@ class RoomViewModel @JvmOverloads constructor(
                 val liveEpoch=live.epochKeys()
                 val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
                     AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
-                    initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key)
+                    initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
+                    authority=record.authority,initialRoomRelays=record.roomRelayRecord,
+                    onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) })
                 roomWork=work
                 scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
                 scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
@@ -4741,6 +4745,38 @@ class RoomViewModel @JvmOverloads constructor(
                 if (savedRoom?.id == id) savedRoom = saved
             } catch (_: RoomStorageException) {
                 note("The room's changed access could not be saved. Check its current invitation before returning.")
+            }
+        }
+    }
+
+    /**
+     * A `relays` record from the room's authority has verified and outranks
+     * anything this device held. Adds the listed relays to the live
+     * connection - no rejoin - and to the saved room, so reopening it later
+     * uses them too, then tells the person unless they made the room
+     * themselves. Mirrors `ingestRoomRelays`/`adoptRoomRelays` in the web
+     * client's `app/src/main.ts`.
+     */
+    private fun onRoomRelaysReceived(roomId: String, record: RoomRelaysRecord, sentAt: Long) {
+        if (savedRoom?.id != roomId) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val (next, added) = applyRoomRelays(relayUrls, record)
+            persistLiveRoom(roomId) { it.withRelays(next).withRoomRelaysRecord(record) }
+            if (added.isEmpty() || savedRoom?.id != roomId) return@launch
+            val transport = pool ?: return@launch
+            transport.addRelays(added)
+            relayUrls = next
+            val ownRoom = savedRoom?.let { room ->
+                room.host(epochSeconds())?.let { it.delegation.isEmpty() && room.authority == Schnorr.publicKeyHex(it.inviterSecretKey) } == true
+            } == true
+            withContext(Dispatchers.Main) {
+                _room.update {
+                    if (it.roomId != roomId) it else it.copy(
+                        relaysTotal = next.size,
+                        lane = if (anonymousRoom) it.lane else laneOfRelays(next, circleRelaySet()),
+                        notice = if (ownRoom) it.notice else "This room now also uses ${added.joinToString(", ")}, as its owner asked.",
+                    )
+                }
             }
         }
     }

@@ -107,7 +107,12 @@ interface RoomTransport {
  * callbacks arrive on whatever thread the websocket client feels like using.
  */
 class RelayPool(
-    private val urls: List<String>,
+    // These three start as the constructor's arguments, and only ever grow
+    // afterwards - see [addRelays] - so a room's authority can add relays
+    // for everybody without a rejoin. Mutation is always under [lock];
+    // `@Volatile` covers the plain reads the rest of this class already did
+    // outside it before these were mutable at all.
+    @Volatile private var urls: List<String>,
     private val sockets: RelaySocketFactory,
     private val scope: CoroutineScope,
     private val policy: RelayPolicy = RelayPolicy(),
@@ -118,8 +123,8 @@ class RelayPool(
     private val circle: () -> Set<String> = { emptySet() },
     /** Opt-in NIP-42 authority. A missing entry keeps the relay public. */
     private val authenticators: RelayAuthenticatorProvider = RelayAuthenticatorProvider { null },
-    private val readRelays: Set<String> = urls.toSet(),
-    private val writeRelays: Set<String> = urls.toSet(),
+    @Volatile private var readRelays: Set<String> = urls.toSet(),
+    @Volatile private var writeRelays: Set<String> = urls.toSet(),
 ) : RoomTransport {
 
     private val lock = Any()
@@ -160,6 +165,27 @@ class RelayPool(
             if (started) return
             started = true
             for (url in urls.filter { it in readRelays || it in writeRelays }) links[url] = RelayLink(url).also { it.job = launchLink(it) }
+        }
+    }
+
+    /**
+     * Adds relays to a pool that is already running (or not yet started),
+     * both reading and writing, without touching anything already open: a
+     * new link joins exactly the way one does on reconnect - every live
+     * subscription is re-sent to it and its outbox flushed once it opens,
+     * in [onLinkOpen] - so nothing here duplicates that path. A relay
+     * already in the pool is left alone. Used when a room's authority
+     * shares more relays for everybody; see `RoomWork`'s `relays` op.
+     */
+    fun addRelays(new: List<String>) {
+        val toAdd = new.filterNot { it in urls }
+        if (toAdd.isEmpty()) return
+        synchronized(lock) {
+            urls = urls + toAdd
+            readRelays = readRelays + toAdd
+            writeRelays = writeRelays + toAdd
+            _health.value = _health.value + toAdd.associateWith { RelayHealth() }
+            if (started) for (url in toAdd) if (url !in links) links[url] = RelayLink(url).also { it.job = launchLink(it) }
         }
     }
 

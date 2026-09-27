@@ -8705,6 +8705,108 @@
         }
       }
     ],
+    "roomRelays": [
+      {
+        "name": "room-relays-signature",
+        "kind": "positive",
+        "note": "The relays everybody in the room should add. The message is `sha256(\"kithmoot/v1/relays:<roomId>:<version>:<JSON array of the canonical list>\")`: each URL normalised as nostr-tools `normalizeURL` does (lower-case host, `/` after a bare host), duplicates removed, sorted, at most 8. Not bound to an epoch: a relay list grants nothing an epoch protects. `version` orders lists, newest wins, and a client ignores any version at or below one it has already taken. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "relays": [
+            "wss://relay.example.org/",
+            "wss://nos.lol",
+            "wss://Relay.Example.org"
+          ],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/relays:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000000:[\"wss://nos.lol/\",\"wss://relay.example.org/\"]",
+          "auxRandHex": "c8fd74175f5c87e18ad22955c5b1f69228b8e10a6ce7eb61d6236447ef15e333"
+        },
+        "output": {
+          "canonical": [
+            "wss://nos.lol/",
+            "wss://relay.example.org/"
+          ],
+          "sig": "8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8",
+          "text": "{\"op\":\"relays\",\"relays\":[\"wss://nos.lol/\",\"wss://relay.example.org/\"],\"version\":1800000000,\"sig\":\"8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8\"}",
+          "result": {
+            "op": "relays",
+            "relays": [
+              "wss://nos.lol/",
+              "wss://relay.example.org/"
+            ],
+            "version": 1800000000,
+            "sig": "8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "version": 1800000000,
+            "relays": [
+              "wss://nos.lol/",
+              "wss://relay.example.org/"
+            ],
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "room-relays-another-version",
+        "kind": "negative",
+        "note": "The same signature offered with a higher version. Refused: the version is inside the signature, so a member cannot make an old list outrank a newer one.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000001,
+          "relays": [
+            "wss://nos.lol/",
+            "wss://relay.example.org/"
+          ],
+          "sig": "8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-relays-not-canonical",
+        "kind": "negative",
+        "note": "The signed list in another order. Refused rather than sorted: the list a client verifies is the list it uses, exactly as sent.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "relays": [
+            "wss://relay.example.org/",
+            "wss://nos.lol/"
+          ],
+          "sig": "8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-relays-another-authority",
+        "kind": "negative",
+        "note": "The list and signature checked against a different key. Refused: only the inviter pinned in the link may change a room's relays.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "relays": [
+            "wss://nos.lol/",
+            "wss://relay.example.org/"
+          ],
+          "sig": "8e0030785e91d63fac6d72f538b78ce0179ecab857e46d017f322583df57123bfb5a69a50dc1cccdc2e3e8c1f9e6933b87da2aff01fa7de752dd3b1977c387f8",
+          "authority": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "result": false
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",
