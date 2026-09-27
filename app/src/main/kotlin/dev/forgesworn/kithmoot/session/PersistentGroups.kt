@@ -12,14 +12,32 @@ class MissingGroupInvitationException(message: String) : GroupInvitationExceptio
 const val INVITATION_NOT_FOUND: String =
     "The group invitation was not found on the link's relays or on yours. If you know a relay the room uses, add it under Relays in the account menu and try again. Otherwise ask someone in the room for a fresh link."
 
-/** The query must include tombstones and reach EOSE before any stored welcome is used. */
+/** How often, and how far apart, an empty answer is asked again. See [requestPersistentAdmission]. */
+internal val GROUP_INVITATION_RETRY_DELAYS_MS = listOf(1_500L, 3_000L, 4_500L)
+
+/**
+ * The query must include tombstones and reach EOSE before any stored welcome is used.
+ *
+ * An empty answer is asked again before it is believed. A stored query goes to
+ * the relays open at that moment, and it goes as soon as ONE of them is: a link
+ * whose invitation reached only one of its three relays, opened while the empty
+ * ones connected first, used to say the invitation was unavailable without ever
+ * asking the relay that held it. Each retry reaches whichever relays have come
+ * up since. A retirement is still believed at once.
+ */
 suspend fun requestPersistentAdmission(
     invitation: RoomInvitation,
     query: suspend (List<Filter>) -> List<NostrEvent>,
 ): RoomAdmission {
     require(invitation.persistent)
-    val events = query(listOf(Filter(kinds = listOf(KIND_GROUP_INVITATION, KIND_INVITATION_RETIREMENT),
-        authors = listOf(invitation.canonicalInviter), tags = mapOf("#d" to listOf(deriveInvitationId(invitation))))))
+    val filters = listOf(Filter(kinds = listOf(KIND_GROUP_INVITATION, KIND_INVITATION_RETIREMENT),
+        authors = listOf(invitation.canonicalInviter), tags = mapOf("#d" to listOf(deriveInvitationId(invitation)))))
+    var events = query(filters)
+    for (wait in GROUP_INVITATION_RETRY_DELAYS_MS) {
+        if (events.any { decodeInvitationRetirement(it, invitation) || decodePersistentInvitation(it, invitation) != null }) break
+        kotlinx.coroutines.delay(wait)
+        events = query(filters)
+    }
     if (events.any { decodeInvitationRetirement(it, invitation) }) {
         throw GroupInvitationException("This invitation was retired. Ask for the current room link.")
     }
