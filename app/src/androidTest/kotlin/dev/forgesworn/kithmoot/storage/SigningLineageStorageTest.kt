@@ -66,7 +66,7 @@ class SigningLineageVerifyTest {
 
     @Test fun release_shows_the_retained_preview_identity_without_deleting_it() {
         ActivityScenario.launch(MainActivity::class.java).use {
-            ui.onNodeWithText("Sign in").performClick()
+            ui.onNodeWithText("Already on Nostr? Sign in").performClick()
             ui.onNodeWithText("Sign in with Nostr").performClick()
             ui.waitUntil(10_000) {
                 runCatching { ui.onNodeWithText("Keep your preview account").fetchSemanticsNode() }.isSuccess

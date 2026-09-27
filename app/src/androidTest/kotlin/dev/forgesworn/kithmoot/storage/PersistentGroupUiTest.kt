@@ -108,7 +108,7 @@ class PersistentGroupUiTest {
             assertNotEquals(expected.getProperty("pid"), Process.myPid().toString())
         }
         ui.home()
-        ui.click(expected.getProperty("name"))
+        ui.click(roomLabel(expected.getProperty("name"), expected.getProperty("id")))
         ui.room()
         activity.scenario.onActivity {
             val state = ViewModelProvider(it)[RoomViewModel::class.java].room.value
