@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -142,8 +144,14 @@ internal fun CallView(
         when (arrangement.mode) {
             CallLayoutMode.ALONE -> Box(Modifier.fillMaxSize()) {
                 arrangement.stage?.let { Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true) }
+                // This layer covers the whole picture, so it takes the tap the
+                // picture would: without it, controls that tucked away while
+                // you were alone could not be brought back. The panel's own
+                // buttons take their taps first.
                 Box(
-                    Modifier.fillMaxSize().windowInsetsPadding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
+                    Modifier.fillMaxSize()
+                        .pointerInput(chrome) { detectTapGestures { chrome.toggle() } }
+                        .windowInsetsPadding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
                     contentAlignment = Alignment.TopCenter,
                 ) { Box(Modifier.widthIn(max = 560.dp)) { alone() } }
             }
