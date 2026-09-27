@@ -64,7 +64,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun restoresRoomWithoutDeviceVaultThenOpensSameRoomAndRetainsHistory() {
-        ui.click("Chats tab"); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
+        ui.click("New room"); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
         ui.await("bookmark published") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         activity.scenario.onActivity { model.sendChat("A message from the first device") }
         ui.await("first device message stored") { model.room.value.chat.any { it.body == "A message from the first device" } }
@@ -78,13 +78,13 @@ class AccountExperienceUiTest {
         activity.scenario.onActivity { model.refreshSavedRooms() }; signIn()
         assertTrue(model.start.value.savedRooms.isEmpty())
         assertEquals(saved.id, model.start.value.roomBookmarks.rooms.single().roomId)
-        ui.await("restored account rooms rendered") { ui.hasText("From your other devices") && ui.hasDescription("Account menu for Alex Rowan") }
+        ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasDescription("Settings") }
         screenshot("restored-account-room.png")
         assertFalse(ui.hasText("Remove from account"))
-        ui.click("Options for Design conversation"); ui.click("Remove Design conversation from account")
+        ui.click("More options for Design conversation"); ui.click("Remove from account")
         ui.await("account removal confirmation") { ui.hasText("Remove Design conversation from your account?") }
         ui.click("Cancel")
-        ui.click("Open Design conversation"); ui.room()
+        ui.click("Design conversation"); ui.room()
         ui.await("history restored from relay") { model.room.value.chat.any { it.body == "A message from the first device" } }
         assertEquals(saved.id, model.room.value.roomId); assertEquals(actor.pubkey, model.room.value.selfParticipant)
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
@@ -100,7 +100,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun sendingCompletesAfterEchoAndComposerStaysEditableWithoutAcknowledgement() {
-        ui.click("Chats tab"); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
+        ui.click("New room"); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
         ui.await("bookmark settled") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         repeat(8) { index ->
             val body = "Confirmed message $index"
@@ -120,17 +120,17 @@ class AccountExperienceUiTest {
         ui.click("Send")
         ui.await("next message sends after timeout") { !model.room.value.chatSending && model.room.value.chat.any { it.body == "My next message" } }
         activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy }
-        ui.click("Options for Send regression")
-        ui.click("Forget Send regression")
+        ui.click("More options for Send regression")
+        ui.click("Remove from this phone")
         ui.await("explicit removal confirmation") { ui.hasText("Remove Send regression from this phone?") }
         ui.click("Keep room")
         assertNotNull(app.savedRooms.list().singleOrNull { it.name == "Send regression" })
         screenshot("conversation-list.png")
-        ui.click("Open Send regression"); ui.room()
+        ui.click("Send regression"); ui.room()
     }
 
     @Test fun editsPublicProfileFromTopRightAndDisplaysRealRelayStatus() {
-        ui.click("Account menu for Alex Rowan"); screenshot("account-menu.png"); ui.click("Edit profile")
+        ui.click("Settings"); screenshot("account-menu.png"); ui.click("Edit profile")
         ui.await("profile loaded") { model.start.value.profileMetadata != null && !model.start.value.profileBusy }
         screenshot("profile-editor-top.png")
         ui.replace("Display name", "Alex Updated"); ui.replace("About", "Updated in KithMoot")
@@ -142,7 +142,7 @@ class AccountExperienceUiTest {
         assertEquals(JsonPrimitive("Updated in KithMoot"), metadata["about"])
         assertEquals(JsonPrimitive(true), metadata.getValue("custom_client_field").jsonObject["keep"])
         screenshot("profile-editor.png"); ui.click("Done")
-        ui.click("Account menu for Alex Updated"); ui.click("Relays")
+        ui.click("Nostr relays")
         ui.await("read receipt visible") { ui.hasText("Read: History read confirmed") }
         screenshot("relay-status.png")
         val eventCount = relay.writes.size
