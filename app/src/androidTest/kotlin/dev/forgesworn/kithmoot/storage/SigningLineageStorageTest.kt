@@ -66,6 +66,10 @@ class SigningLineageVerifyTest {
 
     @Test fun release_shows_the_retained_preview_identity_without_deleting_it() {
         ActivityScenario.launch(MainActivity::class.java).use {
+            // Home shows its sign-in link once saved rooms have loaded.
+            ui.waitUntil(20_000) {
+                runCatching { ui.onNodeWithText("Already on Nostr? Sign in").fetchSemanticsNode() }.isSuccess
+            }
             ui.onNodeWithText("Already on Nostr? Sign in").performClick()
             ui.onNodeWithText("Sign in with Nostr").performClick()
             ui.waitUntil(10_000) {

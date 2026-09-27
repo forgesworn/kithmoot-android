@@ -8,6 +8,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -119,7 +120,7 @@ class HomeScreenUiTest {
     @Test fun returning_compact_orders_rows_by_activity_and_shows_the_fab() {
         val rooms = listOf(
             room("a", "First", openedAt = 100), room("b", "Second", openedAt = 300),
-            room("c", "Room ${"c".repeat(8)}", openedAt = 200),
+            room("c".repeat(64), "Room ${"c".repeat(8)}", openedAt = 200),
         )
         setHome(StartState(loadingRooms = false, savedRooms = rooms))
         compose.onNodeWithText("Rooms").assertIsDisplayed()
@@ -185,11 +186,13 @@ class HomeScreenUiTest {
     }
 
     // AC 21
-    @Test fun search_field_appears_only_at_eight_rooms_and_reports_no_matches() {
+    @Test fun search_field_is_absent_at_seven_rooms() {
         val seven = (1..7).map { room("r$it", "Room $it") }
         setHome(StartState(loadingRooms = false, savedRooms = seven))
         compose.onNodeWithText("Find a room").assertDoesNotExist()
+    }
 
+    @Test fun search_field_appears_at_eight_rooms_and_reports_no_matches() {
         val eight = (1..8).map { room("r$it", "Room $it") }
         setHome(StartState(loadingRooms = false, savedRooms = eight))
         compose.onNodeWithText("Find a room").assertIsDisplayed()
@@ -225,12 +228,13 @@ class HomeScreenUiTest {
         assertTrue(headingLeft < buttonLeft)
     }
 
-    // AC 24
+    // AC 24. Forced to 1280 dp, wider than a phone's test window, so this
+    // checks the nodes exist and sit side by side, not that they are on screen.
     @Test fun expanded_shows_list_and_new_room_pane_together_with_no_fab() {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))), widthDp = 1280, heightDp = 800)
-        compose.onNodeWithText("New room").assertIsDisplayed()
-        compose.onNodeWithText("Room name (optional)").assertIsDisplayed()
-        compose.onNodeWithText("Garden group").assertIsDisplayed()
+        compose.onNodeWithText("New room").assertExists()
+        compose.onNodeWithText("Room name (optional)").assertExists()
+        compose.onNodeWithText("Garden group").assertExists()
         compose.onNodeWithText("Cancel").assertDoesNotExist()
         val headingLeft = compose.onNodeWithText("New room").getUnclippedBoundsInRoot().left
         val rowRight = compose.onNodeWithText("Garden group").getUnclippedBoundsInRoot().right
@@ -244,7 +248,7 @@ class HomeScreenUiTest {
             fontScale = 2f,
         )
         compose.onNodeWithText("Weekly planning for the community garden project").assertIsDisplayed()
-        compose.onNodeWithText("More options for Weekly planning for the community garden project").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithContentDescription("More options for Weekly planning for the community garden project").assertHeightIsAtLeast(48.dp)
     }
 
     // AC 26

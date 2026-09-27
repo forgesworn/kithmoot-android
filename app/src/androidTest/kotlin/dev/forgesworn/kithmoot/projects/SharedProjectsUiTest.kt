@@ -123,7 +123,7 @@ class SharedProjectsUiTest {
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         assertEquals(member.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("project-room-admission.png")
-        ui.click("Leave room"); ui.home()
+        ui.click("Leave room"); ui.await("back on the Projects page") { ui.hasText("New project") }
 
         // A signed directory may name a room id that its invitation does not actually admit.
         val badRoom = ProjectRoomChoice("ab".repeat(32), "Wrong room", saved.joinUrl)
