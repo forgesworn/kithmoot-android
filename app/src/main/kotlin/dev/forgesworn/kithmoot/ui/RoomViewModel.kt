@@ -264,7 +264,6 @@ data class RendezvousView(
 )
 
 data class StartState(
-    val homeTab: String = "chats",
     val roomBookmarks: RoomBookmarkSnapshot = RoomBookmarkSnapshot(),
     val roomSyncBusy: Boolean = false,
     val roomSyncError: String? = null,
@@ -1075,7 +1074,6 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun showHomeTab(tab: String) { if (tab in listOf("chats", "projects")) _start.update { it.copy(homeTab = tab) } }
 
     fun refreshSharedProjects() {
         viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
@@ -1704,6 +1702,16 @@ class RoomViewModel @JvmOverloads constructor(
     }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
+
+    /** The link for the room row's "Share invite link": read fresh from
+     *  storage, handed straight to the share intent, and never kept in
+     *  [StartState] or logged (design-home-rooms.md section 10). */
+    suspend fun inviteLinkFor(id: String): String? = withContext(Dispatchers.IO) {
+        val saved = savedRooms.get(id) ?: return@withContext null
+        val summary = saved.summary()
+        if (!summary.canShareInvite) return@withContext null
+        runCatching { selectedWebApp.roomLink(saved.joinUrl) }.getOrNull()
+    }
     fun resetSavedRooms() = changeSavedRooms {
         if (linkConsents.all().isNotEmpty()) {
             throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")

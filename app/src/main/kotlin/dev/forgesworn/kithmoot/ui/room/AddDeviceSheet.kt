@@ -140,7 +140,7 @@ fun AddDeviceSheet(
 
         Spacer(Modifier.height(12.dp))
         OutlinedButton(
-            onClick = { share(context, link) },
+            onClick = { dev.forgesworn.kithmoot.ui.share(context, link) },
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 60.dp),
@@ -190,7 +190,7 @@ fun ShareRoomRow(joinUrl: String, modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.width(10.dp))
         OutlinedButton(
-            onClick = { share(context, joinUrl) },
+            onClick = { dev.forgesworn.kithmoot.ui.share(context, joinUrl) },
             modifier = Modifier.heightIn(min = 56.dp),
         ) {
             Text("Send", style = MaterialTheme.typography.titleSmall)
@@ -203,10 +203,3 @@ private fun copy(context: Context, text: String) {
     clipboard.setPrimaryClip(ClipData.newPlainText("KithMoot link", text))
 }
 
-private fun share(context: Context, text: String) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, text)
-    }
-    context.startActivity(Intent.createChooser(intent, "Send link"))
-}
