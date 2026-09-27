@@ -276,6 +276,18 @@ class PeerLink(
     private val onDowngrade: (suspend () -> Unit)? = null,
     /** A `health` signal arrived: what the far end is receiving from us. */
     private val onHealthSignal: (suspend (Map<String, String>) -> Unit)? = null,
+    /**
+     * The far end has thrown its connection away and is offering from a new
+     * one (profile 1). No offer from that connection can be applied to this
+     * one - the m-lines of a fresh session do not line up with the old - so
+     * only the caller, who owns the factory, can give the pair a connection
+     * the offer fits. It is handed the offer, and any candidates for it that
+     * overtook it, to apply there.
+     *
+     * Raised at most once in this link's life; the link is finished with once
+     * it has.
+     */
+    private val onRemoteRestart: (suspend (offer: SignalEnvelope, candidates: List<IceCandidateData>) -> Unit)? = null,
     /** Defaults are the spec's; tests shorten them. */
     private val signalRetry: SignalRetryTiming = SignalRetryTiming(),
     /** Test seam: where connection instance ids come from. */
@@ -421,6 +433,27 @@ class PeerLink(
 
     /** Answers to an offer this side has abandoned. */
     var staleAnswersDropped: Int = 0
+        private set
+
+    // --- the far end starting a new session (profile 1) ---------------------
+    //
+    // A web client whose connection to this device failed builds a new one and
+    // offers from it. That offer's m-lines are the new connection's, in the
+    // new connection's order, and libwebrtc refuses to apply them to a session
+    // negotiated with the old: "The order of m-lines in subsequent offer
+    // doesn't match". Retransmitting it changes nothing, so every copy used to
+    // fail the same way and the pair stayed one-way for the rest of the call.
+
+    /** Which connection at the far end the last description applied here came
+     *  from. Null until one has been. */
+    private var remoteSession: SdpSession? = null
+
+    /** [onRemoteRestart] has been raised. Once is all a link gets. */
+    private var remoteRestarted = false
+
+    /** Offers from a new far-end session handed on to a fresh connection.
+     *  Zero or one. */
+    var remoteRestarts: Int = 0
         private set
 
     // --- fixed media slots, profile 2 ---------------------------------------
@@ -903,6 +936,14 @@ class PeerLink(
             "${description.type} received peer=${remoteDevice.take(8)} seq=${body.seq ?: "-"} re=${body.re ?: "-"} " +
                 "state=${connection.signalingState()}",
         )
+        // Before anything about collisions: an offer from a connection the far
+        // end has since replaced is not a glare with ours, because the
+        // connection our offer was made to no longer exists. Ignoring it as
+        // the impolite side would wait for ever on an answer nobody can send.
+        if (description.type == SignalType.OFFER && fromNewRemoteSession(description)) {
+            handOnRemoteRestart(body)
+            return
+        }
         val readyForOffer = !makingOffer &&
             (connection.signalingState() == SignalingState.STABLE || settingRemoteAnswerPending)
         val offerCollision = description.type == SignalType.OFFER && !readyForOffer
@@ -989,7 +1030,19 @@ class PeerLink(
             SdpShape.of(description.sdp) == appliedOfferShape
         val previousAnswerShape = sentAnswerShape
 
-        connection.setRemoteDescription(description)
+        try {
+            connection.setRemoteDescription(description)
+        } catch (failure: Exception) {
+            // The fallback for a new far-end session the comparison above
+            // could not see: the stack's own refusal says the same thing.
+            if (description.type == SignalType.OFFER && canHandOn() && isSessionMismatch(failure)) {
+                Log.w(NEGOTIATION_LOG, "offer refused as a different session peer=${remoteDevice.take(8)}")
+                handOnRemoteRestart(body)
+                return
+            }
+            throw failure
+        }
+        remoteSession = SdpSession.of(description.sdp)
         settingRemoteAnswerPending = false
         haveRemoteDescription = true
         if (description.type == SignalType.ANSWER) {
@@ -1037,6 +1090,45 @@ class PeerLink(
 
         flushCandidates()
         repairIfOwed()
+    }
+
+    /**
+     * Whether a new far-end session can be handed on from here at all.
+     *
+     * Profile 1 only: a profile-2 pair says the same thing in its generations,
+     * and a connection that has never applied anything from the far end has no
+     * session for an offer to be different from.
+     */
+    private fun canHandOn(): Boolean =
+        splitGuard && onRemoteRestart != null && !remoteRestarted && remoteSession != null
+
+    /** An offer from a different connection at the far end than the one this
+     *  connection was negotiated with. See [SdpSession.replaces]. */
+    private fun fromNewRemoteSession(description: SdpData): Boolean {
+        if (!canHandOn()) return false
+        val previous = remoteSession ?: return false
+        return SdpSession.of(description.sdp).replaces(previous)
+    }
+
+    /**
+     * Give up this connection to the far end's new one, once.
+     *
+     * Nothing here is retried and nothing is offered: the replacement answers
+     * the offer that caused it, and every later copy of that offer reaches the
+     * replacement, which answers it from store. Candidates that overtook the
+     * offer were held rather than refused (see [onRemoteCandidate]) and go
+     * with it.
+     */
+    private suspend fun handOnRemoteRestart(body: SignalEnvelope) {
+        val restart = onRemoteRestart ?: return
+        remoteRestarted = true
+        remoteRestarts++
+        stopOfferRetry()
+        val ufrag = body.sdp?.let { SdpSession.of(it).ufrag }
+        val carried = pendingCandidates.filter { it.usernameFragment != null && it.usernameFragment == ufrag }
+        pendingCandidates.clear()
+        Log.i(NEGOTIATION_LOG, "remote session replaced peer=${remoteDevice.take(8)} carried=${carried.size}")
+        restart(body, carried)
     }
 
     /**
@@ -1149,7 +1241,13 @@ class PeerLink(
     }
 
     private suspend fun onRemoteCandidate(candidate: IceCandidateData) {
-        if (!haveRemoteDescription) {
+        // A candidate naming credentials this connection has not been given
+        // belongs to a description still on its way - an ICE restart, or a new
+        // far-end session - and overtook it on the relay. Applied now it is
+        // refused and lost; held, it is applied once that description lands.
+        val applied = remoteSession?.ufrag
+        val foreign = candidate.usernameFragment != null && applied != null && candidate.usernameFragment != applied
+        if (!haveRemoteDescription || foreign) {
             pendingCandidates += candidate
             bufferedCandidateCount++
             // Bounded: see [MAX_PENDING_CANDIDATES]. The oldest goes, because

@@ -28,7 +28,10 @@ import dev.forgesworn.kithmoot.media.SignalingState
  *    same session are never the same bytes;
  *  - `a=candidate:` lines that accumulate, so a description re-read later is
  *    different bytes again;
- *  - `a=ice-ufrag` / `a=ice-pwd` that move only on an ICE restart.
+ *  - `a=ice-ufrag` / `a=ice-pwd` that move only on an ICE restart;
+ *  - a remote offer from a different `o=` session than the one already
+ *    applied refused with libwebrtc's own words, because a fresh connection's
+ *    m-lines do not line up with an old one's.
  *
  * The state rules are [FakePeerConnection]'s, for the same reason: a fake that
  * tolerates an answer in `stable` would pass whether or not the client noticed.
@@ -36,6 +39,12 @@ import dev.forgesworn.kithmoot.media.SignalingState
 class DescribingPeerConnection(
     /** Names this side in its SDP, so a test failure says which end is wrong. */
     private val label: String,
+    /**
+     * The `o=` session id, fixed for the life of this connection exactly as a
+     * real one is. Two connections standing for the same device before and
+     * after it rebuilt are told apart by this and nothing else in the text.
+     */
+    private val sessionId: String = "4611731400430051336",
 ) : PeerConnectionHandle {
 
     /**
@@ -76,6 +85,9 @@ class DescribingPeerConnection(
     private var iceGeneration: Int = 0
     private val candidates = mutableListOf<String>()
 
+    /** The `o=` session id of the far end's last applied description. */
+    private var remoteSessionId: String? = null
+
     private var localStable: Description? = null
     private var remoteStable: Description? = null
     private var localPending: Description? = null
@@ -89,7 +101,7 @@ class DescribingPeerConnection(
         val direction: Direction,
         val ice: Int,
     ) {
-        fun render(candidates: List<String>): String = buildString {
+        fun render(candidates: List<String>, sessionId: String): String = buildString {
             // A stack offers the discard port with an unspecified address until
             // it has a candidate, and rewrites all three lines the moment it
             // has one. Every retransmission is re-read off the connection, so
@@ -97,7 +109,7 @@ class DescribingPeerConnection(
             val port = if (candidates.isEmpty()) 9 else 50_000 + candidates.size
             val host = if (candidates.isEmpty()) "0.0.0.0" else "198.51.100.7"
             append("v=0\r\n")
-            append("o=- 4611731400430051336 $version IN IP4 127.0.0.1\r\n")
+            append("o=- $sessionId $version IN IP4 127.0.0.1\r\n")
             append("s=-\r\n")
             append("t=0 0\r\n")
             append("a=group:BUNDLE 0\r\n")
@@ -211,11 +223,19 @@ class DescribingPeerConnection(
             else -> throw IllegalStateException("cannot set a local description in $state")
         }
         onDescribe?.invoke()
-        return SdpData(description.type, description.render(candidates)).also { localDescriptions += it }
+        return SdpData(description.type, description.render(candidates, sessionId)).also { localDescriptions += it }
     }
 
     override suspend fun setRemoteDescription(sdp: SdpData) {
         val incoming = parse(sdp)
+        val session = sdp.sdp.lineSequence().firstOrNull { it.startsWith("o=") }?.split(' ')?.getOrNull(1)
+        if (remoteSessionId != null && session != remoteSessionId) {
+            refusals += "${sdp.type} from another session"
+            throw IllegalStateException(
+                "Failed to set remote ${sdp.type} sdp: The order of m-lines in subsequent offer doesn't match " +
+                    "order from previous offer/answer.",
+            )
+        }
         when (sdp.type) {
             SignalType.OFFER -> {
                 if (state != SignalingState.STABLE) {
@@ -242,6 +262,7 @@ class DescribingPeerConnection(
 
             else -> throw IllegalStateException("unknown description type ${sdp.type}")
         }
+        remoteSessionId = session
         remoteDescriptions += sdp
     }
 
@@ -264,7 +285,7 @@ class DescribingPeerConnection(
         // credentials, and by now carrying every candidate gathered since. This
         // is how a retransmitted description actually goes back out.
         val held = localPending ?: localStable ?: return null
-        return SdpData(held.type, held.render(candidates))
+        return SdpData(held.type, held.render(candidates, sessionId))
     }
 
     override fun restartIce(): Boolean {

@@ -402,6 +402,52 @@ class WebRtcEngine(
     }
 
     /**
+     * The far end rebuilt its connection to this device and is offering from
+     * the new one (profile 1). Meet it on a new connection of ours.
+     *
+     * The old connection cannot take that offer - a fresh session's m-lines do
+     * not line up with the old one's - so it goes, and the offer and any
+     * candidates that overtook it are applied to its replacement, which
+     * answers. The replacement is opened exactly as any other link to this
+     * device: the same profile, this device's tracks by the same audience
+     * rule. Everything the call holds per person - volume, roles, which of
+     * their tracks to play - is keyed by device and read off [remoteTracks],
+     * so it carries over to the tracks the new connection brings.
+     */
+    private suspend fun replaceForRemoteSession(
+        device: String,
+        stale: ManagedLink,
+        offer: SignalEnvelope,
+        candidates: List<IceCandidateData>,
+    ) {
+        val fresh = synchronized(lock) {
+            // Only the device's current link may be replaced this way: an old
+            // one finishing a signal after a rebuild has nothing to replace.
+            if (!callActive || !links.isCurrent(device, stale)) return
+            links.remove(device)
+            openLink(device, profileTwo = stale.profileTwo).also { links.put(device, it) }
+        }
+        Log.i("KithMootMedia", "peer=${device.take(8)} replaced: the far end started a new session")
+        // Outside the lock: see `reconcile`.
+        runCatching { stale.close() }
+        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+        try {
+            fresh.onRemoteSignal(offer)
+            for (candidate in candidates) {
+                fresh.onRemoteSignal(SignalEnvelope(device, SignalType.ICE, offer.roomId, candidate = candidate.toWire()))
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            // Reported against the replacement, since the signal that failed
+            // it would otherwise be laid at the door of the link it replaced.
+            if (callActive && links.isCurrent(device, fresh)) {
+                Log.w("KithMootMedia", "signal failed peer=${device.take(8)}", failure)
+                _connections.update { it + (device to "failed") }
+            }
+        }
+    }
+
+    /**
      * The far end is not speaking profile 2 after all. Start the pair again as
      * profile 1.
      *
@@ -717,6 +763,7 @@ class WebRtcEngine(
                     reopenAsProfileOne(device)
                 },
                 onHealthSignal = { rx -> carry(health.onHealth(rx, System.currentTimeMillis())) },
+                onRemoteRestart = { offer, candidates -> replaceForRemoteSession(device, this@ManagedLink, offer, candidates) },
             )
             // Amendment A1: exactly one side creates the four transceivers, and
             // the impolite side is the one, because politeness is a total order

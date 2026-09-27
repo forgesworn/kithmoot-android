@@ -94,3 +94,64 @@ object SdpShape {
         return "o=" + fields.mapIndexed { index, field -> if (index == 2) "0" else field }.joinToString(" ")
     }
 }
+
+/**
+ * Which connection at the far end a description came from.
+ *
+ * The `o=` session id is minted once per `RTCPeerConnection` and kept for its
+ * whole life, through every renegotiation and every ICE restart; `a=ice-ufrag`
+ * moves on an ICE restart and on nothing else. A far end that has thrown its
+ * connection away and opened another therefore changes both at once, and an
+ * ICE restart on the connection that exists changes only the second.
+ *
+ * Only the session is compared, never the shape: whether the far end is still
+ * on the same connection is a different question from what that connection
+ * is doing, and the answer to it decides whether a description can be applied
+ * here at all.
+ */
+data class SdpSession(val id: String?, val ufrag: String?) {
+
+    /**
+     * Whether this description comes from a different connection than
+     * [previous] did.
+     *
+     * Both have to move. A session id alone could be a stack that renders it
+     * differently, and a ufrag alone is an ICE restart, which the connection
+     * that exists takes in its stride. Unknown on either side is never a new
+     * session: nothing is replaced on a guess.
+     */
+    fun replaces(previous: SdpSession): Boolean {
+        if (id == null || ufrag == null || previous.id == null || previous.ufrag == null) return false
+        return id != previous.id && ufrag != previous.ufrag
+    }
+
+    companion object {
+        fun of(sdp: String): SdpSession {
+            var id: String? = null
+            var ufrag: String? = null
+            for (raw in sdp.split('\n')) {
+                val line = raw.trimEnd('\r')
+                if (id == null && line.startsWith("o=")) id = line.removePrefix("o=").split(' ').getOrNull(1)
+                // Max-bundle: every section carries the same credentials, so
+                // the first is the connection's.
+                if (ufrag == null && line.startsWith("a=ice-ufrag:")) ufrag = line.removePrefix("a=ice-ufrag:")
+                if (id != null && ufrag != null) break
+            }
+            return SdpSession(id?.takeIf { it.isNotEmpty() }, ufrag?.takeIf { it.isNotEmpty() })
+        }
+    }
+}
+
+/**
+ * Whether a stack refused a remote offer because it describes a different
+ * session from the one the connection holds.
+ *
+ * libwebrtc's words for it, which are the only evidence there is once the
+ * session id and ufrag have been missed: an offer whose m-lines do not line up
+ * with the previous negotiation cannot be applied to this connection however
+ * many times it is retransmitted.
+ */
+internal fun isSessionMismatch(failure: Throwable): Boolean {
+    val message = failure.message?.lowercase() ?: return false
+    return "m-lines" in message || "subsequent offer" in message
+}
