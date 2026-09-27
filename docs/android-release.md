@@ -2,6 +2,12 @@
 
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
+## 0.6.20 home is your rooms
+
+The start screen leads with your rooms, newest activity first, in the web client's layout: "Untitled room" for rooms nobody named, "From your other devices" on rooms that came from your account, Projects and Open an invite link beneath, and a New room button. Settings moved off the start screen into its own screen. `HomeScreenUiTest` now runs in `check-recovery-emulator.sh`. From kithmoot-android #98 and #99.
+
+Published on 27 September 2026 from `fd39aa2`: owner-signed on the M4 with the production key and lineage, APK SHA-256 `981cc66c8f6a7b0c03928f7c0428135135940267a3e5a4864fba96fe7b689d70`, certificate `135bcabf…`, lineage `0ccf5ece…`. `app/build/kotlin` and `app/build/tmp/kotlin-classes` were cleared before signing. Passed the web repository's publication verifier, offered as GitHub pre-release `v0.6.20`, and on the website from kithmoot #183. Installed in place over 0.6.19 on the Pixel 10 Pro XL (first-install time preserved, launched on the new rooms list).
+
 ## 0.6.19 remote video after answering, Speaking line
 
 After Android answers an offer, the browser's tracks are marked receiving once the local answer is applied, so a web or desktop peer's video no longer stays blank on the phone until they rejoin; pinned by `nativeMarksBrowserTracksReceivingAfterAnsweringOnly`. The "Speaking:" line leaves out yourself and sits at the bottom of the call above the controls instead of behind the camera. From kithmoot-android #94 and #95.
