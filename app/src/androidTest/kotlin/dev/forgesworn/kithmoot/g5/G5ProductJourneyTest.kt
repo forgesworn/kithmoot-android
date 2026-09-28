@@ -227,7 +227,7 @@ class G5ProductJourneyTest {
             "busy=${model.start.value.busy}; error=${model.start.value.error}; connected=${model.start.value.linkConnectedRooms.contains(room)}"
         }) { !model.start.value.busy && model.start.value.error != null }
         val consent = application().linkConsents.all().single { it.roomId == room }
-        assertEquals(LinkConsentState.WITHDRAWING, consent.state)
+        assertEquals("withdrawal error: ${model.start.value.error}", LinkConsentState.WITHDRAWING, consent.state)
         assertTrue(application().linkEngine.routeIds().contains(consent.routeId))
         assertTrue(model.start.value.linkConnectedRooms.contains(room))
         put("alice-withdraw-outage", buildJsonObject {

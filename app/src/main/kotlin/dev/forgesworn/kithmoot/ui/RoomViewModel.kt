@@ -570,6 +570,12 @@ internal const val JOIN_LOG = "KithMootJoin"
 /** How long a room tap waits for the last room to finish closing. */
 private const val ENTRY_GATE_WAIT_MS = 30_000L
 
+/**
+ * How long a deliberate Bothy action waits for grant recovery, which runs on
+ * every sign-in restore and room refresh, before saying it is still busy.
+ */
+private const val CIRCLE_GRANT_WAIT_MS = 15_000L
+
 /** Shown on the start screen while a tap is waiting behind a teardown. */
 /** How long a room may take to open before the way out is offered. */
 internal const val STOP_OPENING_AFTER_MS = 8_000L
@@ -1647,6 +1653,14 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * A tap on pair, disconnect or revoke usually lands while start-up grant
+     * recovery still holds the gate; refusing it then would drop the user's
+     * intent, so wait for recovery first and refuse only if it stays busy.
+     */
+    private suspend fun awaitCircleGrantGate(): Boolean =
+        withTimeoutOrNull(CIRCLE_GRANT_WAIT_MS) { circleGrantGate.lock() } != null
+
     /** Finish authority withdrawal after process death while retaining the only route that can reach it. */
     private suspend fun recoverCircleGrantCleanup(account: String, signer: ParticipantSigner) = circleGrantGate.withLock {
         val pending = linkConsents.all().filter { consent ->
@@ -1729,7 +1743,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            if (!circleGrantGate.tryLock()) {
+            if (!awaitCircleGrantGate()) {
                 entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
@@ -1806,7 +1820,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            if (!circleGrantGate.tryLock()) {
+            if (!awaitCircleGrantGate()) {
                 entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
@@ -1852,7 +1866,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true, error = null, notice = null) }
         viewModelScope.launch(Dispatchers.IO) {
-            if (!circleGrantGate.tryLock()) {
+            if (!awaitCircleGrantGate()) {
                 entering.release()
                 _start.update { it.copy(busy = false, error = "Bothy is still finishing an earlier grant change.") }
                 return@launch
