@@ -33,6 +33,11 @@ python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 printf 'Production keystore password: '
 IFS= read -r -s production_password
 printf '\n'
+# A pasted password often brings a trailing space or carriage return with it,
+# which keytool then rejects.  Trim surrounding whitespace in the shell so the
+# password never passes through another process.
+production_password="${production_password#"${production_password%%[![:space:]]*}"}"
+production_password="${production_password%"${production_password##*[![:space:]]}"}"
 export KITHMOOT_KEYSTORE="$keystore"
 export KITHMOOT_STORE_PASSWORD="$production_password"
 export KITHMOOT_KEY_ALIAS=kithmoot-production
