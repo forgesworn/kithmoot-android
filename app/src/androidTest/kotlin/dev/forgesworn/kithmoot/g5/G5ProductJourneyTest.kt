@@ -378,8 +378,8 @@ class G5ProductJourneyTest {
 
     /**
      * P4-01: Bob turns on background delivery and leaves without opening the
-     * room. The runner uses `am instrument --no-restart`, so the process and
-     * its service outlive this action.
+     * room. Instrumentation ends with a force-stop, so the runner then opens
+     * KithMoot and leaves it, which is how a person starts the service.
      */
     private fun bobBackgroundArm() {
         val model = model()
