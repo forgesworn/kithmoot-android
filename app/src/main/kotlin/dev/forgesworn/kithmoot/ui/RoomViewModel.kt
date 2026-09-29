@@ -452,7 +452,7 @@ data class RoomState(
      * has a reason to hide their room has that reason on Tuesday as well.
      * See media/effects/BackgroundChoice.kt.
      */
-    val background: BackgroundChoice = BackgroundChoice(),
+    val background: BackgroundChoice = BackgroundPreference.DEFAULT,
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
@@ -2091,7 +2091,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                gate.withLock { closeSession(); _room.value = RoomState(); _stage.value = Stage.START }
+                gate.withLock { closeSession(); _room.value = RoomState(background = backgrounds.load()); _stage.value = Stage.START }
                 when (e) {
                     is RoomStorageException -> storageFailed()
                     else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
@@ -2101,7 +2101,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // is closed again, never shown. See [stopOpening].
                 val stopped = !isActive
                 if (stopped) withContext(NonCancellable) {
-                    gate.withLock { closeSession(); _room.value = RoomState() }
+                    gate.withLock { closeSession(); _room.value = RoomState(background = backgrounds.load()) }
                 }
                 // Publish room controls only once entry has released its guard.
                 // Otherwise a fast Leave tap can be silently rejected. Keep the
@@ -2882,6 +2882,9 @@ class RoomViewModel @JvmOverloads constructor(
             activeRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
         _room.value = RoomState(
+            // The device's remembered choice, not the constructor's default:
+            // this state becomes the camera's background when media starts.
+            background = backgrounds.load(),
             roomId = derived.roomId,
             name = record.name,
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
@@ -3394,7 +3397,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
         _videos.value = emptyMap()
-        _room.value = RoomState()
+        _room.value = RoomState(background = backgrounds.load())
         _stage.value = Stage.START
         _start.update { it.copy(busy = true) }
         val began = android.os.SystemClock.elapsedRealtime()
@@ -3434,7 +3437,7 @@ class RoomViewModel @JvmOverloads constructor(
                 throw cancelled
             } catch (error: Exception) {
                 if (session == null) {
-                    _room.value = RoomState()
+                    _room.value = RoomState(background = backgrounds.load())
                     _stage.value = Stage.START
                     _start.update {
                         it.copy(error = error.message ?: "The secure room update is still unavailable. Open the room to retry.")

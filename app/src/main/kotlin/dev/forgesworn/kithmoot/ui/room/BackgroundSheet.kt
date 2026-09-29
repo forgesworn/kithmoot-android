@@ -71,8 +71,8 @@ fun BackgroundSheet(
         ) {
             Text("Fish swimming past", style = MaterialTheme.typography.bodyLarge)
             Switch(
-                checked = choice.fish,
-                enabled = choice.scene != null,
+                checked = choice.showsFish,
+                enabled = choice.scene?.asset != null,
                 onCheckedChange = { wanted -> onChoose(choice.scene, wanted) },
             )
         }

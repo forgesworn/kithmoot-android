@@ -6,6 +6,7 @@ import android.media.projection.MediaProjection
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
+import dev.forgesworn.kithmoot.media.effects.BackgroundPreference
 import dev.forgesworn.kithmoot.media.effects.BackgroundProcessor
 import dev.forgesworn.kithmoot.media.effects.FrameCompositor
 import dev.forgesworn.kithmoot.media.effects.ReducedMotion
@@ -95,7 +96,9 @@ class LocalMedia(
      * the `VideoSource`, and the source's life is this class's business.
      */
     private var background: BackgroundProcessor? = null
-    private var backgroundChoice = BackgroundChoice()
+    // The dark fill until told otherwise: a camera started before the room's
+    // choice arrives must not go out on the room.
+    private var backgroundChoice = BackgroundPreference.DEFAULT
     private var appVisible = true
 
     /** Told when the compositor has given up on a run of frames. */
