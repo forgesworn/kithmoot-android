@@ -67,6 +67,11 @@ class G5ProductJourneyTest {
             "alice-withdraw-recover" -> aliceWithdrawalRecovers()
             "alice-route-restored" -> routeRestored("alice")
             "bob-route-restored" -> bobRouteRestored()
+            "bob-background-arm" -> bobBackgroundArm()
+            "alice-background-send" -> aliceBackgroundSend()
+            "bob-background-pending-stage" -> bobBackgroundPendingStage()
+            "alice-background-pending-receive" -> aliceBackgroundPendingReceive()
+            "bob-background-open" -> bobBackgroundOpen()
             else -> throw AssertionError("unknown G5 product action")
         }
     }
@@ -371,6 +376,96 @@ class G5ProductJourneyTest {
         put("$who-route-restored", buildJsonObject { put("connected", true) })
     }
 
+    /**
+     * P4-01: Bob turns on background delivery and leaves without opening the
+     * room. The runner uses `am instrument --no-restart`, so the process and
+     * its service outlive this action.
+     */
+    private fun bobBackgroundArm() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        val context = application()
+        val settings = dev.forgesworn.kithmoot.service.BackgroundDeliverySettings(context)
+        settings.setEnabled(true)
+        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(context)
+        await("Bob's background delivery to be receiving", details = { "state=${settings.state()}" }) {
+            settings.state() == dev.forgesworn.kithmoot.service.DeliveryState.LIVE
+        }
+        assertTrue("the room must not be open", model.stage.value != Stage.ROOM)
+        put("bob-background-armed", buildJsonObject { put("room", room); put("state", settings.state().name) })
+    }
+
+    private fun aliceBackgroundSend() {
+        val index = requireNotNull(arguments.getString("background_index"))
+        val body = "$BACKGROUND_MESSAGE $index"
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        activity.scenario.onActivity { model.sendChat(body) }
+        await("Alice's background message $index", details = {
+            "relaysUp=${model.room.value.relaysUp}; sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}"
+        }) { !model.room.value.chatSending && !model.room.value.chatPending && model.room.value.chat.any { it.body == body } }
+        put("alice-background-sent-$index", buildJsonObject { put("room", room) })
+    }
+
+    /** Bob's exact pending message, retained while the box is paused; the runner then closes the app. */
+    private fun bobBackgroundPendingStage() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's paired room connected before outage") { model.room.value.relaysUp > 0 }
+        val saved = requireNotNull(application().savedRooms.get(room))
+        val outbox = PendingChatVault(application(), room, saved.participant, saved.devicePubkey).outbox
+        assertTrue("Bob must start without an older pending message", runBlocking { outbox.pending() } == null)
+        post("pause")
+        await("Bob's paired route to disconnect") { model.room.value.relaysUp == 0 }
+        activity.scenario.onActivity { model.sendChat(BACKGROUND_PENDING) }
+        var retained: dev.forgesworn.kithmoot.session.PendingChatOutbox.Pending? = null
+        await("Bob's signed message to reach his encrypted journal") {
+            retained = runBlocking { outbox.pending() }
+            retained != null
+        }
+        put("bob-background-pending-staged", buildJsonObject { put("room", room); put("outerEventId", requireNotNull(retained).event.id) })
+    }
+
+    private fun aliceBackgroundPendingReceive() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's background-sent pending message", details = {
+            "relaysUp=${model.room.value.relaysUp}; matches=${model.room.value.chat.count { it.body == BACKGROUND_PENDING }}"
+        }) { model.room.value.chat.count { it.body == BACKGROUND_PENDING } == 1 }
+        SystemClock.sleep(2_000)
+        assertEquals(1, model.room.value.chat.count { it.body == BACKGROUND_PENDING })
+        put("alice-background-pending-received", buildJsonObject { put("room", room); put("displayedOnce", true) })
+    }
+
+    /** Bob finally opens the room: every background message shows once and the inbox reads as read. */
+    private fun bobBackgroundOpen() {
+        val count = requireNotNull(arguments.getString("background_count")).toInt()
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        val saved = requireNotNull(application().savedRooms.get(room))
+        val inbox = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(application(), room, saved.participant, saved.devicePubkey).inbox
+        val unreadBefore = inbox.state().unread.size
+        open(model, room)
+        val bodies = (1..count).map { "$BACKGROUND_MESSAGE $it" }
+        await("every background message once", details = {
+            bodies.joinToString { body -> "$body=${model.room.value.chat.count { it.body == body }}" }
+        }) { bodies.all { body -> model.room.value.chat.count { it.body == body } == 1 } }
+        SystemClock.sleep(2_000)
+        bodies.forEach { body -> assertEquals(body, 1, model.room.value.chat.count { it.body == body }) }
+        await("the background inbox to read as read") { inbox.state().unread.isEmpty() }
+        put("bob-background-opened", buildJsonObject {
+            put("room", room); put("unreadBeforeOpen", unreadBefore); put("displayedOnce", true)
+        })
+    }
+
     private fun application() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as KithMootApplication
 
     private fun open(model: RoomViewModel, room: String, privateConversation: Boolean = true) {
@@ -459,5 +554,7 @@ class G5ProductJourneyTest {
         const val ALICE_MESSAGE = "g5 retained message from Alice"
         const val BOB_REPLY = "g5 retained reply from Bob"
         const val PENDING_MESSAGE = "g5 exact pending message after Alice force stop"
+        const val BACKGROUND_MESSAGE = "p4 background message"
+        const val BACKGROUND_PENDING = "p4 pending message sent while Bob was closed"
     }
 }

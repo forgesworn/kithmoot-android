@@ -123,7 +123,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Listen for a call starting in a room set to Ring me while KithMoot is closed, so it can still ring" />
+                android:value="Listen for a call starting in a room set to Ring me, and receive messages for saved rooms when the person turned that on, while KithMoot is closed" />
         </service>
 
         <receiver

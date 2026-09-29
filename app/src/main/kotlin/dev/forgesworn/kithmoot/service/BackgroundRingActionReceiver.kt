@@ -4,12 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** "Turn off" on the listening-for-calls notification: the same switch as
- *  turning it off in Notification settings, reachable without opening the app. */
+/** "Turn off" on the background notification: the same as turning both
+ *  background switches off in Notification settings, without opening the app. */
 class BackgroundRingActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_TURN_OFF) return
         BackgroundRingSettings(context).setEnabled(false)
+        BackgroundDeliverySettings(context).setEnabled(false)
         BackgroundCallListenerService.stop(context)
     }
 

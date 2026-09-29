@@ -3062,8 +3062,11 @@ class RoomViewModel @JvmOverloads constructor(
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
             if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
-            // The background call listener (service/BackgroundCallListenerService.kt)
-            // skips any room open here: this coordinator already rings for it.
+            // The background service (service/BackgroundCallListenerService.kt)
+            // skips any room open here: this coordinator already rings for it,
+            // and this room shows its messages. What it received while the room
+            // was closed is now read.
+            withContext(Dispatchers.IO) { markBackgroundRead(record) }
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
@@ -3547,7 +3550,12 @@ class RoomViewModel @JvmOverloads constructor(
         pool = null
         if (!chatOnly) notifications.end()
         callRinger.end()
-        savedRoom?.let { dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(it.id) }
+        // Read through now before the background service takes the room back,
+        // or its catch-up would count messages already shown here.
+        savedRoom?.let { closed -> CoroutineScope(Dispatchers.IO).launch {
+            markBackgroundRead(closed)
+            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(closed.id)
+        } }
         session = null
         identity = null
         savedRoom = null
@@ -4411,6 +4419,15 @@ class RoomViewModel @JvmOverloads constructor(
                 val pending = runCatching { live.pendingChat() }.getOrDefault(false)
                 if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
             }
+        }
+    }
+
+    private fun markBackgroundRead(record: SavedRoom) {
+        try {
+            dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey)
+                .inbox.markRead(epochSeconds())
+        } catch (_: Exception) {
+            // Unreadable storage only costs a repeated unread count, never a message.
         }
     }
 
