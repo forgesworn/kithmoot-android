@@ -201,7 +201,7 @@ class BackgroundEffectDeviceTest {
      */
     @Test
     fun theLastConfidenceMaskIsThePerson() {
-        val bitmap = context.assets.open(SeaScene.CORAL.asset).use { BitmapFactory.decodeStream(it) }
+        val bitmap = context.assets.open(SeaScene.CORAL.asset!!).use { BitmapFactory.decodeStream(it) }
         val segmenter = MediaPipeSegmenter.open(context)
         try {
             val mask = segmenter.segment(bitmap, 1)
@@ -295,7 +295,7 @@ class BackgroundEffectDeviceTest {
             save(made!!, out("sea-only.jpg"))
             val drawn = meanRgb(out("sea-only.jpg"))
 
-            val source = context.assets.open(SeaScene.DEEP.asset).use { BitmapFactory.decodeStream(it) }
+            val source = context.assets.open(SeaScene.DEEP.asset!!).use { BitmapFactory.decodeStream(it) }
             var r = 0L; var g = 0L; var b = 0L; var n = 0L
             for (y in 0 until source.height step 8) for (x in 0 until source.width step 8) {
                 val p = source.getPixel(x, y)
