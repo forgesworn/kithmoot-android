@@ -92,6 +92,7 @@ class BackgroundCallListenerService : Service() {
     private val coordinators = mutableMapOf<String, IncomingCallRingCoordinator>()
     private val flushing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var network = true
+    @Volatile private var reconciled = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var accountSigner: ParticipantSigner? = null
     private var accountLoaded = false
@@ -209,6 +210,7 @@ class BackgroundCallListenerService : Service() {
                 rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
             }
         }
+        reconciled = true
         report()
         true
     }
@@ -414,10 +416,14 @@ class BackgroundCallListenerService : Service() {
     }
 
     @Synchronized private fun report() {
+        // Pools report as they open; the first reconcile has not finished.
+        if (!reconciled) return
         val handles = rooms.values.toList()
         val delivering = handles.filter { it.delivery }
-        val relaysUp = handles.sumOf { it.pool.connected.value.size }
-        val state = deriveDeliveryState(handles.size, network, restricted(), relaysUp, handles.any { it.needsSigner.get() })
+        // Summarise the rooms receiving messages; with none, the ringing ones.
+        val summarised = delivering.ifEmpty { handles }
+        val relaysUp = summarised.sumOf { it.pool.connected.value.size }
+        val state = deriveDeliveryState(summarised.map { RoomLink(it.pool.connected.value.size, it.needsSigner.get()) }, network, restricted())
         val settings = BackgroundDeliverySettings(this)
         if (settings.state() != state || !settings.wasRunning()) {
             settings.report(state, running = true)

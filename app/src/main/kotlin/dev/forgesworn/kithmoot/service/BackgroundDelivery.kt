@@ -90,22 +90,26 @@ fun shouldRunBackgroundService(
 ): Boolean = notificationsPermitted && savedRoomIds.isNotEmpty() &&
     (deliveryEnabled || shouldRunBackgroundListener(ringEnabled, savedRoomIds, ringMode, notificationsPermitted))
 
-/** One summary of every watched room. A relay that is up is receiving,
- *  whatever else is true; otherwise the most fundamental reason is shown. */
-fun deriveDeliveryState(
-    watchedRooms: Int,
-    network: Boolean,
-    restricted: Boolean,
-    relaysUp: Int,
-    needsSigner: Boolean,
-): DeliveryState = when {
-    watchedRooms == 0 -> DeliveryState.OFF
-    relaysUp > 0 -> DeliveryState.LIVE
+/** One watched room's connection, as the state summary sees it. */
+data class RoomLink(val relaysUp: Int, val needsSigner: Boolean)
+
+/** One room: a relay that is up is receiving, whatever else is true;
+ *  otherwise the most fundamental reason. */
+fun roomDeliveryState(room: RoomLink, network: Boolean, restricted: Boolean): DeliveryState = when {
+    room.relaysUp > 0 -> DeliveryState.LIVE
     restricted -> DeliveryState.RESTRICTED
     !network -> DeliveryState.WAITING_FOR_NETWORK
-    needsSigner -> DeliveryState.NEEDS_SIGNER
+    room.needsSigner -> DeliveryState.NEEDS_SIGNER
     else -> DeliveryState.RECONNECTING
 }
+
+/** Every room, summarised by the one in the worst state, so one connected
+ *  room cannot hide another that is stuck. */
+fun deriveDeliveryState(rooms: List<RoomLink>, network: Boolean, restricted: Boolean): DeliveryState =
+    rooms.map { roomDeliveryState(it, network, restricted) }.maxByOrNull { SEVERITY.indexOf(it) } ?: DeliveryState.OFF
+
+private val SEVERITY = listOf(DeliveryState.LIVE, DeliveryState.RECONNECTING, DeliveryState.NEEDS_SIGNER,
+    DeliveryState.WAITING_FOR_NETWORK, DeliveryState.RESTRICTED)
 
 enum class FlushOutcome { NOTHING, SENT, NOT_CONFIRMED, EPOCH_CHANGED }
 

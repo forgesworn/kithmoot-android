@@ -178,14 +178,22 @@ class BackgroundDeliveryTest {
     }
 
     // B-J08
-    @Test fun `a relay that is up is receiving, otherwise the most fundamental reason shows`() {
-        assertEquals(DeliveryState.OFF, deriveDeliveryState(0, network = false, restricted = true, relaysUp = 0, needsSigner = true))
-        assertEquals(DeliveryState.RESTRICTED, deriveDeliveryState(1, network = false, restricted = true, relaysUp = 0, needsSigner = false))
-        assertEquals(DeliveryState.WAITING_FOR_NETWORK, deriveDeliveryState(1, network = false, restricted = false, relaysUp = 0, needsSigner = true))
-        assertEquals(DeliveryState.NEEDS_SIGNER, deriveDeliveryState(1, network = true, restricted = false, relaysUp = 0, needsSigner = true))
-        assertEquals(DeliveryState.RECONNECTING, deriveDeliveryState(2, network = true, restricted = false, relaysUp = 0, needsSigner = false))
-        assertEquals(DeliveryState.LIVE, deriveDeliveryState(2, network = true, restricted = false, relaysUp = 1, needsSigner = true))
+    @Test fun `a room with a relay up is receiving, otherwise the most fundamental reason shows`() {
+        fun one(up: Int, signer: Boolean, network: Boolean = true, restricted: Boolean = false) =
+            roomDeliveryState(RoomLink(up, signer), network, restricted)
+        assertEquals(DeliveryState.LIVE, one(1, signer = true, network = false, restricted = true))
+        assertEquals(DeliveryState.RESTRICTED, one(0, signer = true, network = false, restricted = true))
+        assertEquals(DeliveryState.WAITING_FOR_NETWORK, one(0, signer = true, network = false))
+        assertEquals(DeliveryState.NEEDS_SIGNER, one(0, signer = true))
+        assertEquals(DeliveryState.RECONNECTING, one(0, signer = false))
+    }
+
+    @Test fun `one connected room cannot hide another that is stuck`() {
+        assertEquals(DeliveryState.OFF, deriveDeliveryState(emptyList(), network = true, restricted = false))
+        assertEquals(DeliveryState.LIVE, deriveDeliveryState(listOf(RoomLink(1, false), RoomLink(2, false)), true, false))
+        assertEquals(DeliveryState.NEEDS_SIGNER, deriveDeliveryState(listOf(RoomLink(1, false), RoomLink(0, true)), true, false))
+        assertEquals(DeliveryState.RECONNECTING, deriveDeliveryState(listOf(RoomLink(0, false), RoomLink(1, false)), true, false))
         // A loopback or otherwise unvalidated route that still carries traffic is not "waiting".
-        assertEquals(DeliveryState.LIVE, deriveDeliveryState(1, network = false, restricted = true, relaysUp = 1, needsSigner = false))
+        assertEquals(DeliveryState.LIVE, deriveDeliveryState(listOf(RoomLink(1, false)), network = false, restricted = false))
     }
 }
