@@ -281,7 +281,11 @@ class BackgroundCallListenerService : Service() {
         if (delivery) {
             val inbox = BackgroundInboxVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).inbox
             val outbox = PendingChatVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).outbox
-            runCatching { Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} watching unread=${inbox.state().unread.size}") }
+            runCatching {
+                // First watched now: count from here, not the room's whole retained history.
+                if (inbox.state().cursor == 0L) inbox.markRead(now())
+                Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} watching unread=${inbox.state().unread.size}")
+            }
             jobs += scope.launch {
                 // Rebuilt from the inbox at every send, first REQ and every
                 // reconnect alike, so a relay that returns resumes from the cursor.
@@ -342,9 +346,12 @@ class BackgroundCallListenerService : Service() {
     }
 
     @Synchronized private fun backgroundAccountSigner(): ParticipantSigner? {
-        if (accountLoaded) return accountSigner
+        val account = runCatching { (application as KithMootApplication).accounts.load() }.getOrNull()
+        // Reopened when the person signs in as someone else while this runs.
+        if (accountLoaded && account?.pubkey == accountSigner?.pubkey) return accountSigner
         accountLoaded = true
-        val account = runCatching { (application as KithMootApplication).accounts.load() }.getOrNull() ?: return null
+        accountSigner = null
+        if (account == null) return null
         // A bunker would add a hidden relay connection; those rooms are excluded instead.
         if (account.method == "bunker") return null
         accountSigner = runCatching { openAccount(account, applicationContext, NoScreenBridge, scope).signer }.getOrNull()

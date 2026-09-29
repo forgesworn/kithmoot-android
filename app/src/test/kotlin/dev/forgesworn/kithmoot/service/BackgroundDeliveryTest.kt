@@ -154,6 +154,31 @@ class BackgroundDeliveryTest {
         assertEquals(listOf("m3"), box.state().unread.map { it.id })
     }
 
+    @Test fun `a room first watched now does not count its retained history`() {
+        val box = inbox(MemoryStore())
+        // What the service does on first watching a room: start counting from now.
+        box.markRead(5_000)
+        assertFalse(box.record("old", 4_000, message("m-old", sentAt = 4_000)))
+        assertTrue(box.record("new", 5_010, message("m-new", sentAt = 5_010)))
+        assertEquals(listOf("m-new"), box.state().unread.map { it.id })
+    }
+
+    @Test fun `the open-room registry is counted and announces only the first open and last close`() {
+        val heard = mutableListOf<String>()
+        val listener: (String) -> Unit = { heard += it }
+        val registry = dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
+        registry.listen(listener)
+        try {
+            registry.mark("reg-room"); registry.mark("reg-room")
+            registry.unmark("reg-room")
+            assertTrue(registry.isOpen("reg-room"))
+            registry.unmark("reg-room")
+            assertFalse(registry.isOpen("reg-room"))
+            registry.unmark("reg-room")
+            assertEquals(listOf("reg-room", "reg-room"), heard)
+        } finally { registry.unlisten(listener) }
+    }
+
     // B-J07
     @Test fun `a pending message flushes only on its own epoch and clears only on confirmation`() = runBlocking {
         val store = MemoryStore()
