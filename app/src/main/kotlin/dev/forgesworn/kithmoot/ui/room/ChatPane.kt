@@ -46,7 +46,7 @@ import java.util.Locale
 fun ChatPane(
     messages: List<ChatMessage>,
     selfParticipant: String,
-    onSend: (String) -> Unit,
+    onSend: (String, () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     onReact: (ChatMessage, String) -> Unit = { _, _ -> },
     onOpenPrivateConversation: (ChatMessage) -> Unit = {},
@@ -61,6 +61,9 @@ fun ChatPane(
     /** False while a room key transition is incomplete or terminal. */
     canSend: Boolean = true,
     sending: Boolean = false,
+    pending: Boolean = false,
+    onRetryPending: () -> Unit = {},
+    onDiscardPending: () -> Unit = {},
     sendError: String? = null,
     showTitle: Boolean = true,
     searchOpen: Boolean = false,
@@ -69,6 +72,7 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var discardPendingOpen by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
@@ -119,7 +123,10 @@ fun ChatPane(
         }
     }
     fun send() {
-        if (canSend && !sending && draft.text.isNotBlank()) { onSend(draft.text); draft = TextFieldValue("") }
+        if (canSend && !sending && !pending && draft.text.isNotBlank()) {
+            val submitted = draft.text
+            onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
+        }
     }
     Column(modifier.fillMaxWidth().imePadding()) {
         if (privateInvitations.isNotEmpty()) {
@@ -236,12 +243,23 @@ fun ChatPane(
                 shape = RoundedCornerShape(24.dp),
                 leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
-            IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+            IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending && !pending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
         if (sending) Text("Waiting for relay confirmation…", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (pending) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("One message is saved on this phone, waiting for relay confirmation.", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onRetryPending, enabled = canSend && !sending) { Text("Retry") }
+            TextButton(onClick = { discardPendingOpen = true }, enabled = !sending) { Text("Discard") }
+        }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
+    if (discardPendingOpen) AlertDialog(onDismissRequest = { discardPendingOpen = false },
+        title = { Text("Discard local retry?") },
+        text = { Text("This removes the saved message from this phone. A relay may already have received it.") },
+        confirmButton = { TextButton(onClick = { discardPendingOpen = false; onDiscardPending() }) { Text("Discard") } },
+        dismissButton = { TextButton(onClick = { discardPendingOpen = false }) { Text("Keep") } })
     expandedImage?.let { attachment ->
         if (messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
             AttachmentViewer(attachment, onClose = { expandedImage = null })

@@ -32,7 +32,7 @@ class AttachmentViewerTest {
         val message = ChatMessage("image", "01".repeat(32), "02".repeat(32), "A synthetic image", 1_800_000_000, attachments = listOf(attachment))
         var messages by mutableStateOf(listOf(message))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { it.setContent { KithMootTheme { ChatPane(messages, "03".repeat(32), {}, Modifier.fillMaxSize()) } } }
+            scenario.onActivity { it.setContent { KithMootTheme { ChatPane(messages, "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize()) } } }
             ui.onNodeWithText("Open attachment: picture.png").performClick()
             ui.waitUntil(35_000) { ui.onNodeWithContentDescription("picture.png").isDisplayed() }
             ui.onNodeWithText("Actual size").performClick()

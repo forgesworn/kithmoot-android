@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -45,6 +46,14 @@ interface RoomTransport {
     /** Durable work must not treat an unconfirmed queue operation as delivery. */
     suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean =
         throw UnsupportedOperationException("This transport cannot confirm durable publication")
+
+    /** Token must be captured before reading the room epoch for a durable retry. */
+    fun publicationGeneration(): Long = 0
+
+    /** The guard is read at dispatch; it must be cheap and must not call the transport. */
+    suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long = 15_000): Boolean =
+        throw UnsupportedOperationException("This transport cannot guard a pending chat publication")
 
     /** Fails if complete retained history cannot be established. */
     suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
@@ -129,6 +138,9 @@ class RelayPool(
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
     @Volatile private var publicationBlocked = false
+    private val rekeyGeneration = MutableStateFlow(0L)
+
+    override fun publicationGeneration(): Long = synchronized(lock) { rekeyGeneration.value }
 
     private val _connected = MutableStateFlow<Set<String>>(emptySet())
     private val _health = MutableStateFlow(urls.associateWith { RelayHealth() })
@@ -328,23 +340,38 @@ class RelayPool(
     }
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
-    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
-        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
-        trackWrite(event)
+    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+        publishConfirmedAtGeneration(event, publicationGeneration(), { true }, timeoutMs)
+
+    override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs)
+
+    private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
+        check(!publicationBlocked && generation == publicationGeneration() && stillAllowed()) {
+            "Room publication is blocked during a secure update"
+        }
         check(writeRelays.isNotEmpty()) { "No write relay is selected" }
-        connected.first { connected -> connected.any { it in writeRelays } }
+        combine(connected, rekeyGeneration) { up, current -> up.any { it in writeRelays } to current }
+            .first { (up, current) -> up || current != generation }
         val publication: Publication
         val targets: List<RelayLink>
         synchronized(lock) {
-            check(!publicationBlocked) { "Room publication is blocked during a secure update" }
+            check(!publicationBlocked && rekeyGeneration.value == generation && stillAllowed()) {
+                "Room publication is blocked during a secure update"
+            }
             targets = links.values.filter { it.isOpen && it.url in writeRelays }
             check(targets.isNotEmpty()) { "No relay is connected" }
             check(event.id !in publications) { "Event publication is already pending" }
+            trackWrite(event)
             publication = Publication(targets.map { it.url }.toSet())
             publications[event.id] = publication
+            // Enqueue under the same lock that begins a rekey. There is no
+            // window in which an old event can slip out after that boundary.
+            targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
         }
         try {
-            targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
             publication.result.await()
         } finally { synchronized(lock) {
             if (!publication.result.isCompleted) targets.forEach { target -> health(target.url) { it.copy(write = "No acknowledgement") } }
@@ -353,8 +380,9 @@ class RelayPool(
     }
 
     override suspend fun beginRekey() {
-        publicationBlocked = true
         val current = synchronized(lock) {
+            publicationBlocked = true
+            rekeyGeneration.value += 1
             publications.values.forEach { it.result.complete(false) }
             links.values.toList()
         }
@@ -368,8 +396,10 @@ class RelayPool(
     }
 
     override fun completeRekey() {
-        check(publicationBlocked) { "room rekey is not in progress" }
-        publicationBlocked = false
+        synchronized(lock) {
+            check(publicationBlocked) { "room rekey is not in progress" }
+            publicationBlocked = false
+        }
     }
 
     /** A complete snapshot from the currently connected relays. Disconnection, CLOSED,

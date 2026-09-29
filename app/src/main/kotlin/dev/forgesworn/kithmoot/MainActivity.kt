@@ -70,8 +70,12 @@ class MainActivity : ComponentActivity() {
      */
     private var signerAnswer: CompletableDeferred<Intent?>? = null
     private val signerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        signerAnswer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
+        // Completion may resume the next queued signer request on another
+        // dispatcher immediately. Detach this request before waking it, or
+        // clearing the field afterwards can erase that next request's answer.
+        val answer = signerAnswer
         signerAnswer = null
+        answer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
     }
 
     /**

@@ -17,12 +17,14 @@ import dev.forgesworn.kithmoot.relay.LinkConsentState
 import dev.forgesworn.kithmoot.relay.LinkJsonRequest
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.util.Base64
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -87,7 +89,7 @@ class G7CadenceStatusTest {
         assertTrue(status.missing.isEmpty())
 
         val start = status.earliestStartEpoch
-        val options = leaseOptions(scope, REQUEST_ID, LEASE_ID, status.currentEpoch, start, start + 1, now, 1)
+        val options = leaseOptions(scope, REQUEST_ID, LEASE_ID, status.currentEpoch, start, start + 6, now, 1)
         val staged = app.cadenceClient.stage(identity.participant, options, identity, epochSeconds(), app.cadenceLeases)
             .get(120, TimeUnit.SECONDS).lease
         assertEquals(CadenceOwnership.BOX_OWNED, staged.ownership)
@@ -106,24 +108,34 @@ class G7CadenceStatusTest {
         assertEquals("queued", queued.receipt?.code)
         assertEquals(1, queued.receipt?.queueCount)
 
-        val rekeyed = app.cadenceClient.rekey(
-            identity.participant, scope, identity, queued, REKEY_REQUEST_ID, 3,
-            epochSeconds(), app.cadenceLeases,
-        ).get(120, TimeUnit.SECONDS).lease
-        assertEquals("rekeyed", rekeyed.receipt?.code)
-        assertEquals("cover", rekeyed.receipt?.state)
-        assertEquals(0, rekeyed.receipt?.queueCount)
-        assertEquals(listOf(queuedEvent.id), rekeyed.receipt?.failedItemIds)
-        assertFutureRefused(app.cadenceClient.queue(
-            identity.participant, scope, identity, rekeyed, OLD_QUEUE_REQUEST_ID,
-            Events.sign(identity.deviceSecretKey, 1460, epochSeconds(), listOf(listOf("d", ROOM)), "late", ByteArray(32) { 8 }),
-            epochSeconds(), app.cadenceLeases,
-        ))
+        // A separate counter slot retains the original pending-item cutover
+        // proof without cancelling the first lease's real delivery.
+        val pendingOptions = leaseOptions(scope, PENDING_REQUEST_ID, PENDING_LEASE_ID,
+            status.currentEpoch, start, start + 6, now, 1, 1)
+        val pending = app.cadenceClient.stage(identity.participant, pendingOptions, identity,
+            epochSeconds(), app.cadenceLeases).get(120, TimeUnit.SECONDS).lease
+        val pendingEvent = Events.sign(
+            identity.deviceSecretKey, 1460, epochSeconds(), listOf(listOf("d", ROOM)),
+            "pending fixture quiet ciphertext", ByteArray(32) { 8 },
+        )
+        val pendingQueued = app.cadenceClient.queue(identity.participant, scope, identity,
+            pending, PENDING_QUEUE_REQUEST_ID, pendingEvent, epochSeconds(), app.cadenceLeases)
+            .get(120, TimeUnit.SECONDS).lease
+        val pendingRekeyed = app.cadenceClient.rekey(identity.participant, scope, identity,
+            pendingQueued, PENDING_REKEY_REQUEST_ID, 3, epochSeconds(), app.cadenceLeases)
+            .get(120, TimeUnit.SECONDS).lease
+        assertEquals("rekeyed", pendingRekeyed.receipt?.code)
+        assertEquals("cover", pendingRekeyed.receipt?.state)
+        assertEquals(0, pendingRekeyed.receipt?.queueCount)
+        assertEquals(listOf(pendingEvent.id), pendingRekeyed.receipt?.failedItemIds)
+        assertEquals((0 until 16).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, start))
+
         put("g7-cadence-probe", buildJsonObject {
             put("authenticated", true); put("ready", status.ready); put("missing", status.missing.joinToString(","))
             put("linkPath", result.path.status); put("consentWithdrawalRefusedLateResult", true); put("countersExcluded", true)
-            put("leaseStaged", true); put("messageQueued", true); put("rekeyedBeforeStart", true)
-            put("queuedMessageFailed", true); put("oldGenerationQueueRefused", true)
+            put("leaseStaged", true); put("messageQueued", true)
+            put("pendingItemRekeyed", true); put("pendingItemFailed", true)
+            put("leaseStartEpoch", start); put("leaseEndEpoch", options.endEpoch)
             put("changedNodeCardRefused", true); put("unknownRouteRefused", true); put("changedMethodRefused", true)
             put("changedPathRefused", true); put("changedPayloadRefused", true); put("changedDeviceSignatureRefused", true)
             put("hostPinnedByBridge", true)
@@ -131,12 +143,14 @@ class G7CadenceStatusTest {
     }
 
     private fun reconnectAndVerifySuccessorCutover() {
-        val stored = app.cadenceLeases.all(ROOM, DEVICE).single()
+        val stored = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == LEASE_ID }
         assertEquals(CadenceOwnership.BOX_OWNED, stored.ownership)
-        assertEquals("rekeyed", stored.receipt?.code)
-        assertEquals("cover", stored.receipt?.state)
-        assertEquals(1, stored.receipt?.failedItemIds?.size)
-        assertEquals((0 until 8).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, stored.plan.startEpoch))
+        assertEquals("queued", stored.receipt?.code)
+        assertEquals((0 until 16).toList(), app.cadenceLeases.reservedCounters(ROOM, DEVICE, stored.plan.startEpoch))
+        val pendingStored = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == PENDING_LEASE_ID }
+        assertEquals("rekeyed", pendingStored.receipt?.code)
+        assertEquals("cover", pendingStored.receipt?.state)
+        assertEquals(1, pendingStored.receipt?.failedItemIds?.size)
         val consent = app.linkConsents.all().single { it.roomId == ROOM }
         assertTrue(app.linkEngine.routeIds().contains(consent.routeId))
         val now = epochSeconds()
@@ -149,8 +163,26 @@ class G7CadenceStatusTest {
             epochSeconds(), app.cadenceLeases,
         ).get(120, TimeUnit.SECONDS).lease
         assertEquals("status", retained.receipt?.code)
-        assertEquals("cover", retained.receipt?.state)
-        assertEquals(stored.receipt?.failedItemIds, retained.receipt?.failedItemIds)
+        assertEquals(1, retained.receipt?.sentItemIds?.size)
+        assertTrue(retained.receipt?.failedItemIds.isNullOrEmpty())
+        val pendingRetained = app.cadenceClient.leaseStatus(
+            identity.participant, scope(identity, nodeId), identity, pendingStored, PENDING_STATUS_REQUEST_ID,
+            epochSeconds(), app.cadenceLeases,
+        ).get(120, TimeUnit.SECONDS).lease
+        assertEquals(pendingStored.receipt?.failedItemIds, pendingRetained.receipt?.failedItemIds)
+
+        val rekeyed = app.cadenceClient.rekey(
+            identity.participant, scope(identity, nodeId), identity, retained, REKEY_REQUEST_ID, 3,
+            epochSeconds(), app.cadenceLeases,
+        ).get(120, TimeUnit.SECONDS).lease
+        assertEquals("rekeyed", rekeyed.receipt?.code)
+        assertEquals("cover", rekeyed.receipt?.state)
+        assertEquals(1, rekeyed.receipt?.sentItemIds?.size)
+        assertFutureRefused(app.cadenceClient.queue(
+            identity.participant, scope(identity, nodeId), identity, rekeyed, OLD_QUEUE_REQUEST_ID,
+            Events.sign(identity.deviceSecretKey, 1460, epochSeconds(), listOf(listOf("d", ROOM)), "late", ByteArray(32) { 8 }),
+            epochSeconds(), app.cadenceLeases,
+        ))
 
         val lowerScope = scope(identity, nodeId, LOWER_TRAFFIC_ROOM, 2)
         val lowerStart = maxOf(status.answer.earliestStartEpoch, stored.plan.endEpoch)
@@ -165,9 +197,10 @@ class G7CadenceStatusTest {
         val lower = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == LOWER_LEASE_ID }
         assertEquals(CadenceOwnership.CLIENT_EXCLUDED, lower.ownership)
         put("g7-cadence-restart", buildJsonObject {
-            put("routeRestored", true); put("rekeyReceiptRetained", true); put("countersStillExcluded", true)
-            put("authenticatedStatusAfterRestart", true); put("oldLeaseCoverAfterRestart", true)
-            put("queuedFailureRetained", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
+            put("routeRestored", true); put("messageDeliveredAfterRestart", true); put("countersStillExcluded", true)
+            put("authenticatedStatusAfterRestart", true); put("rekeyedAfterDelivery", true)
+            put("pendingFailureRetained", true)
+            put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })
     }
 
@@ -177,7 +210,7 @@ class G7CadenceStatusTest {
         return PrimaryIdentity(
             LocalSigner(persona),
             device,
-            createDeviceCredential(persona, DEVICE, ROOM, now + 14_400, now, ByteArray(32)),
+            createDeviceCredential(persona, DEVICE, ROOM, now + 43_200, now, ByteArray(32)),
         )
     }
 
@@ -205,10 +238,21 @@ class G7CadenceStatusTest {
         end: Long,
         now: Long,
         generation: Long,
+        deviceSlot: Int = 0,
     ) = CadenceLeaseOptions(
-        scope, requestId, leaseId, generation, 0, currentEpoch, start, end,
-        ByteArray(32) { scope.roomGeneration.toByte() }, FIXTURE_RELAYS, listOf("local"), now,
+        scope, requestId, leaseId, generation, deviceSlot, currentEpoch, start, end,
+        ByteArray(32) { scope.roomGeneration.toByte() }, fixtureRelays(), listOf("local"), now,
     )
+
+    private fun fixtureRelays(): List<String> {
+        val relays = get("ready").getValue("routes").jsonArray.map { it.jsonPrimitive.content }
+        require(relays.size == 2 && relays.distinct().size == 2 && relays.all { relay ->
+            val url = URI(relay)
+            url.scheme == "wss" && !url.host.isNullOrBlank() && url.port in 1..65535 &&
+                url.rawUserInfo == null && url.rawQuery == null && url.rawFragment == null
+        }) { "fixture must supply two distinct WebPKI relay URLs" }
+        return relays
+    }
 
     private fun parsePairing(uri: String, now: Long): NativePairing = try {
         BothyPairing.parse(uri, now).let { NativePairing(it.card, it.pairingSecret, it.expiresAt) }
@@ -261,6 +305,11 @@ class G7CadenceStatusTest {
         const val GRANT_ID = "33333333333333333333333333333333"
         const val REQUEST_ID = "11111111111111111111111111111111"
         const val LEASE_ID = "22222222222222222222222222222222"
+        const val PENDING_REQUEST_ID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        const val PENDING_LEASE_ID = "cccccccccccccccccccccccccccccccc"
+        const val PENDING_QUEUE_REQUEST_ID = "dddddddddddddddddddddddddddddddd"
+        const val PENDING_REKEY_REQUEST_ID = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        const val PENDING_STATUS_REQUEST_ID = "ffffffffffffffffffffffffffffffff"
         const val QUEUE_REQUEST_ID = "44444444444444444444444444444444"
         const val REKEY_REQUEST_ID = "55555555555555555555555555555555"
         const val OLD_QUEUE_REQUEST_ID = "77777777777777777777777777777777"
@@ -268,6 +317,5 @@ class G7CadenceStatusTest {
         const val LOWER_REQUEST_ID = "99999999999999999999999999999999"
         const val LOWER_LEASE_ID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         const val LOWER_TRAFFIC_ROOM = "4343434343434343434343434343434343434343434343434343434343434343"
-        val FIXTURE_RELAYS = listOf("wss://relay-a.example", "wss://relay-b.example")
     }
 }

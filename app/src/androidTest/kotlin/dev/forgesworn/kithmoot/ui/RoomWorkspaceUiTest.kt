@@ -53,7 +53,7 @@ class RoomWorkspaceUiTest {
                             onRotateInvitation = {}, onLeave = {},
                             onSearch = { searchOpen = !searchOpen },
                             accountMenu = { IconButton(onClick = {}) { dev.forgesworn.kithmoot.ui.room.ProfileAvatar(state.selfParticipant, "Alex", null, Modifier.size(36.dp)) } },
-                            chat = { ChatPane(messages, state.selfParticipant, { sent = it }, Modifier.fillMaxSize(), showTitle = false, lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, searchOpen = searchOpen, onCloseSearch = { searchOpen = false }) },
+                            chat = { ChatPane(messages, state.selfParticipant, { body, retained -> sent = body; retained() }, Modifier.fillMaxSize(), showTitle = false, lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, searchOpen = searchOpen, onCloseSearch = { searchOpen = false }) },
                         )
                     }
                 }

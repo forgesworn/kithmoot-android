@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.MAX_SIGNALS_PER_WINDOW
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SIGNAL_MAX_AGE_SECONDS
 import dev.forgesworn.kithmoot.protocol.SignalBody
@@ -15,6 +16,7 @@ import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.protocol.issueKindredProof
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.support.FakeRelay
+import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -278,6 +280,107 @@ class RoomSessionTest {
         relay.confirmsPublications = true
         assertTrue(mine.sendChatConfirmed("Keep this"))
         assertEquals("Keep this", mine.chat.value.single().body)
+    }
+
+    @Test
+    fun `durable retry publishes the same event and displays one message`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val store = object : RoomStorage {
+            var value: ByteArray? = null
+            override fun read() = value?.clone()
+            override fun write(value: ByteArray) { this.value = value.clone() }
+            override fun reset() { value = null }
+        }
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val mine = session(room, owner, relay, chatOutbox = outbox)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.confirmsPublications = false
+        assertFalse(mine.sendChatDurable("Keep this"))
+        val id = outbox.pending()!!.event.id
+        assertTrue(mine.chat.value.isEmpty())
+        relay.confirmsPublications = true
+        assertTrue(mine.retryPendingChat())
+        runCurrent()
+        assertEquals(id, relay.published.single { it.kind == KIND_CHAT }.id)
+        assertEquals(1, mine.chat.value.size)
+        relay.publish(relay.published.single { it.kind == KIND_CHAT })
+        runCurrent()
+        assertEquals(1, mine.chat.value.size)
+        assertFalse(mine.pendingChat())
+    }
+
+    @Test
+    fun `durable send refuses publication when journal write fails`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val outbox = PendingChatOutbox(object : RoomStorage {
+            override fun read(): ByteArray? = null
+            override fun write(value: ByteArray): Unit = error("disk unavailable")
+            override fun reset() = Unit
+        }, room.roomId, owner.participant, owner.devicePubkey)
+        val mine = session(room, owner, relay, chatOutbox = outbox)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        var failed = false
+        try { mine.sendChatDurable("Do not publish") } catch (_: IllegalStateException) { failed = true }
+        assertTrue(failed)
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
+    }
+
+    @Test
+    fun `retry holds a message when current admission has expired`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val issuer = Fixtures.key(90)
+        val policy = RoomPolicy(KindredTier.KITH, listOf(Schnorr.publicKeyHex(issuer)))
+        val proof = issueKindredProof(issuer, owner.participant, KindredTier.KITH, room.roomId, expiresAt = 10_000)
+        val relay = FakeRelay()
+        val store = object : RoomStorage {
+            var value: ByteArray? = null
+            override fun read() = value?.clone()
+            override fun write(value: ByteArray) { this.value = value.clone() }
+            override fun reset() { value = null }
+        }
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val mine = session(room, owner, relay, policy = policy, proof = proof, chatOutbox = outbox)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.confirmsPublications = false
+        assertFalse(mine.sendChatDurable("Held"))
+        advanceTimeBy(10_001_000)
+        relay.confirmsPublications = true
+        var refused = false
+        try { mine.retryPendingChat() } catch (_: IllegalStateException) { refused = true }
+        assertTrue(refused)
+        assertTrue(mine.pendingChat())
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
+        mine.discardPendingChat()
+        assertFalse(mine.pendingChat())
+    }
+
+    @Test
+    fun `retry never republishes a message from another room epoch`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val store = object : RoomStorage {
+            var value: ByteArray? = null
+            override fun read() = value?.clone()
+            override fun write(value: ByteArray) { this.value = value.clone() }
+            override fun reset() { value = null }
+        }
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val stale = Events.sign(owner.deviceSecretKey, KIND_CHAT, 1,
+            listOf(listOf("d", "old-epoch")), "old ciphertext", ByteArray(32))
+        outbox.retain("old-epoch", stale)
+        val mine = session(room, owner, relay, chatOutbox = outbox)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        var refused = false
+        try { mine.retryPendingChat() } catch (_: IllegalStateException) { refused = true }
+        assertTrue(refused)
+        assertTrue(mine.pendingChat())
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
     }
 
     @Test

@@ -9,8 +9,150 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
 
 class LinkTransportTest {
+    @Test fun `relay send reaches native socket before returning even when callback worker is busy`() {
+        val worker = Executors.newSingleThreadExecutor()
+        val busy = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        worker.execute { busy.countDown(); release.await(2, TimeUnit.SECONDS) }
+        assertTrue(busy.await(2, TimeUnit.SECONDS))
+        val sent = mutableListOf<String>()
+        val pending = PendingLinkSocket(object : RelaySocketListener {
+            override fun onOpen() = Unit
+            override fun onMessage(text: String) = Unit
+            override fun onClosed(reason: String) = Unit
+        }, worker)
+        pending.attach(object : LinkTransportSocket {
+            override fun send(text: String) { sent += text }
+            override fun disconnect() = Unit
+            override fun dispose() = Unit
+        })
+        try {
+            pending.send("guarded event")
+            assertEquals(listOf("guarded event"), sent)
+        } finally {
+            pending.close()
+            release.countDown()
+            worker.shutdown()
+            assertTrue(worker.awaitTermination(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun `native callback cannot invert the relay and pending socket locks`() {
+        val worker = Executors.newSingleThreadExecutor()
+        val poolLock = Any()
+        val callbackReturned = CountDownLatch(1)
+        val delivered = CountDownLatch(1)
+        val pending = PendingLinkSocket(object : RelaySocketListener {
+            override fun onOpen() = Unit
+            override fun onMessage(text: String) { synchronized(poolLock) { delivered.countDown() } }
+            override fun onClosed(reason: String) = Unit
+        }, worker)
+        pending.attach(object : LinkTransportSocket {
+            override fun send(text: String) {
+                val callback = Thread {
+                    pending.onMessage("ack")
+                    callbackReturned.countDown()
+                }
+                callback.start()
+                callback.join(2_000)
+                check(!callback.isAlive) { "native send waited on the callback's socket monitor" }
+            }
+            override fun disconnect() = Unit
+            override fun dispose() = Unit
+        })
+        try {
+            synchronized(poolLock) {
+                pending.send("event")
+                assertTrue(callbackReturned.await(2, TimeUnit.SECONDS), "send blocked while the relay lock was held")
+            }
+            assertTrue(delivered.await(2, TimeUnit.SECONDS))
+        } finally {
+            pending.close()
+            worker.shutdown()
+            assertTrue(worker.awaitTermination(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun `open callback before native attach still flushes ordered first send`() {
+        val worker = Executors.newSingleThreadExecutor()
+        val sent = CountDownLatch(1)
+        val events = mutableListOf<String>()
+        lateinit var pending: PendingLinkSocket
+        pending = PendingLinkSocket(object : RelaySocketListener {
+            override fun onOpen() { synchronized(events) { events += "open" }; pending.send("first") }
+            override fun onMessage(text: String) { synchronized(events) { events += "message:$text" } }
+            override fun onClosed(reason: String) = Unit
+        }, worker)
+        pending.onOpen()
+        pending.attach(object : LinkTransportSocket {
+            override fun send(text: String) { synchronized(events) { events += "send:$text" }; sent.countDown() }
+            override fun disconnect() = Unit
+            override fun dispose() = Unit
+        })
+        try {
+            assertTrue(sent.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf("open", "send:first"), synchronized(events) { events.toList() })
+        } finally {
+            pending.close()
+            worker.shutdown()
+            assertTrue(worker.awaitTermination(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun `inbound overflow closes once and drops queued frames before terminal callback`() {
+        val worker = Executors.newSingleThreadExecutor()
+        val busy = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val events = mutableListOf<String>()
+        worker.execute { busy.countDown(); release.await(2, TimeUnit.SECONDS) }
+        assertTrue(busy.await(2, TimeUnit.SECONDS))
+        val pending = PendingLinkSocket(object : RelaySocketListener {
+            override fun onOpen() { events += "open" }
+            override fun onMessage(text: String) { events += text }
+            override fun onClosed(reason: String) { events += "closed:$reason"; closed.countDown() }
+        }, worker)
+        pending.attach(object : LinkTransportSocket {
+            override fun send(text: String) = Unit
+            override fun disconnect() = Unit
+            override fun dispose() = Unit
+        })
+        try {
+            pending.onOpen()
+            repeat(128) { pending.onMessage("frame") }
+            pending.onClosed("late native close")
+            release.countDown()
+            assertTrue(closed.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf("closed:Link receive queue is full"), events)
+        } finally {
+            release.countDown()
+            pending.close()
+            worker.shutdown()
+            assertTrue(worker.awaitTermination(2, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun `worker rejection during shutdown does not throw into native callback`() {
+        var disposed = false
+        val pending = PendingLinkSocket(object : RelaySocketListener {
+            override fun onOpen() = Unit
+            override fun onMessage(text: String) = Unit
+            override fun onClosed(reason: String) = Unit
+        }, java.util.concurrent.Executor { throw RejectedExecutionException("stopped") })
+        pending.attach(object : LinkTransportSocket {
+            override fun send(text: String) = Unit
+            override fun disconnect() = Unit
+            override fun dispose() { disposed = true }
+        })
+        pending.onMessage("late frame")
+        assertTrue(disposed)
+    }
     @Test fun `vault makes and retains a 32 byte seed`() {
         val storage = MemoryStorage()
         val vault = LinkTransportVault(storage, SecureRandom(byteArrayOf(7)))

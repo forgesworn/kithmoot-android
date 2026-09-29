@@ -7,8 +7,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.relay.LinkConsentState
 import dev.forgesworn.kithmoot.relay.RelaySocketListener
+import dev.forgesworn.kithmoot.storage.PendingChatVault
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
 import kotlinx.serialization.json.Json
@@ -16,6 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -55,6 +59,10 @@ class G5ProductJourneyTest {
             "alice-send" -> aliceSend()
             "bob-receive-reply" -> bobReceiveAndReply()
             "alice-restored" -> aliceRestored()
+            "alice-pending-stage" -> alicePendingStage()
+            "alice-pending-reopen" -> alicePendingReopen()
+            "bob-pending-receive" -> bobPendingReceive()
+            "bob-pending-reopen" -> bobPendingReceive()
             "alice-withdraw-outage" -> aliceWithdrawDuringOutage()
             "alice-withdraw-recover" -> aliceWithdrawalRecovers()
             "alice-route-restored" -> routeRestored("alice")
@@ -218,6 +226,88 @@ class G5ProductJourneyTest {
         put("alice-restored", buildJsonObject { put("room", room) })
     }
 
+    /** Stage through the real saved account and ViewModel while its paired box is offline. */
+    private fun alicePendingStage() {
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("alice-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Alice's paired private room connected before outage") { model.room.value.relaysUp > 0 }
+        val saved = requireNotNull(application().savedRooms.get(room))
+        val outbox = PendingChatVault(application(), room, saved.participant, saved.devicePubkey).outbox
+        assertTrue("the fixture must start without an older pending message", runBlocking { outbox.pending() } == null)
+
+        post("pause")
+        await("Alice's paired route to disconnect") { model.room.value.relaysUp == 0 }
+        activity.scenario.onActivity { model.sendChat(PENDING_MESSAGE) }
+        var retained: dev.forgesworn.kithmoot.session.PendingChatOutbox.Pending? = null
+        await("the signed message to reach Alice's encrypted journal", details = {
+            "sending=${model.room.value.chatSending}; pending=${model.room.value.chatPending}; " +
+                "displayed=${model.room.value.chat.count { it.body == PENDING_MESSAGE }}"
+        }) {
+            retained = runBlocking { outbox.pending() }
+            retained != null
+        }
+        val exact = requireNotNull(retained).event
+        assertEquals(room, model.room.value.roomId)
+        assertEquals(0, model.room.value.chat.count { it.body == PENDING_MESSAGE })
+        put("alice-pending-staged", buildJsonObject {
+            put("room", room)
+            put("outerEventId", exact.id)
+            put("ciphertextSha256", Digests.sha256(exact.content.toByteArray(Charsets.UTF_8)).toHex())
+            put("createdAt", exact.createdAt)
+            put("address", requireNotNull(exact.tagValue("d")))
+        })
+    }
+
+    /** The runner force-stops Alice between this and stage, then restarts the same box. */
+    private fun alicePendingReopen() {
+        val model = model()
+        restoreSignIn(model)
+        val staged = awaitValue("alice-pending-staged")
+        val room = staged.getValue("room").jsonPrimitive.content
+        val saved = requireNotNull(application().savedRooms.get(room))
+        val outbox = PendingChatVault(application(), room, saved.participant, saved.devicePubkey).outbox
+        val exact = requireNotNull(runBlocking { outbox.pending() }) { "force-stop lost Alice's pending event" }.event
+        assertEquals(staged.getValue("outerEventId").jsonPrimitive.content, exact.id)
+        assertEquals(staged.getValue("ciphertextSha256").jsonPrimitive.content,
+            Digests.sha256(exact.content.toByteArray(Charsets.UTF_8)).toHex())
+
+        open(model, room)
+        await("Alice's exact pending message to be confirmed", details = {
+            "relaysUp=${model.room.value.relaysUp}; sending=${model.room.value.chatSending}; " +
+                "pending=${model.room.value.chatPending}; error=${model.room.value.chatSendError}; " +
+                "displayed=${model.room.value.chat.count { it.body == PENDING_MESSAGE }}"
+        }) {
+            !model.room.value.chatPending && model.room.value.chat.count { it.body == PENDING_MESSAGE } == 1 &&
+                runBlocking { outbox.pending() } == null
+        }
+        await("the confirmed outer event to reach the NIP-77 index") {
+            application().nip77Events.records(saved.participant, room,
+                staged.getValue("address").jsonPrimitive.content,
+                exact.createdAt, exact.createdAt).any { it.id.toHex() == exact.id }
+        }
+        SystemClock.sleep(2_000)
+        assertEquals(1, model.room.value.chat.count { it.body == PENDING_MESSAGE })
+        put("alice-pending-confirmed", buildJsonObject {
+            put("room", room); put("sameOuterEvent", true); put("displayedOnce", true)
+        })
+    }
+
+    private fun bobPendingReceive() {
+        val model = model()
+        restoreSignIn(model)
+        awaitValue("alice-pending-confirmed")
+        val room = awaitValue("bob-paired").getValue("room").jsonPrimitive.content
+        open(model, room)
+        await("Bob's one decrypted pending message", details = {
+            "relaysUp=${model.room.value.relaysUp}; matches=${model.room.value.chat.count { it.body == PENDING_MESSAGE }}"
+        }) { model.room.value.chat.count { it.body == PENDING_MESSAGE } == 1 }
+        SystemClock.sleep(2_000)
+        assertEquals(1, model.room.value.chat.count { it.body == PENDING_MESSAGE })
+        put("bob-pending-received", buildJsonObject { put("room", room); put("displayedOnce", true) })
+    }
+
     private fun aliceWithdrawDuringOutage() {
         val model = model()
         restoreSignIn(model)
@@ -368,5 +458,6 @@ class G5ProductJourneyTest {
     private companion object {
         const val ALICE_MESSAGE = "g5 retained message from Alice"
         const val BOB_REPLY = "g5 retained reply from Bob"
+        const val PENDING_MESSAGE = "g5 exact pending message after Alice force stop"
     }
 }

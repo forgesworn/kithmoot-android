@@ -37,7 +37,7 @@ class SharedWorkUiTest {
         ActivityScenario.launch(MainActivity::class.java).use{scenario->
             scenario.onActivity{activity->activity.setContent{KithMootTheme{RoomScreen(state.value,emptyMap(),null,{media++},{media++},{media++},{},{media++},{},{},{},
                 work={WorkPane(state.value,{id,op,head->commands.add(Triple(id,op,head));state.value=state.value.copy(work=AssignmentSnapshot(listOf(assignment(if(op["op"]==JsonPrimitive("accept"))"accepted" else "running","d".repeat(64))),ready=true))},{},{})},
-                chat={ChatPane(emptyList(),human,{},Modifier.fillMaxSize(),showTitle=false)})}}}
+                chat={ChatPane(emptyList(),human,{ _, _ -> },Modifier.fillMaxSize(),showTitle=false)})}}}
             ui.onNode(hasText("Work · 1") and hasClickAction()).performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Your answer"))
             ui.onNodeWithText("Your answer").performTextInput("Build 41")

@@ -24,6 +24,9 @@ import dev.forgesworn.kithmoot.protocol.encodeCallBellEvent
 import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.Room
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
+import dev.forgesworn.kithmoot.protocol.KindredTier
+import dev.forgesworn.kithmoot.protocol.CredentialCheck
+import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SignalBody
@@ -170,6 +173,7 @@ class RoomSession(
      * mirroring the web client's `callBell` option in `session.ts`.
      */
     private val callBellEnabled: Boolean = true,
+    private val chatOutbox: PendingChatOutbox? = null,
 ) {
 
     private val lock = Any()
@@ -219,6 +223,7 @@ class RoomSession(
     private val signalGuard = SignalGuard()
     private val annotationGuard = SignalGuard(480)
     private val chatSeen = mutableSetOf<String>()
+    private val chatSendGate = Mutex()
     private val chatLog = mutableListOf<ChatMessage>()
     private val chatSenderTimes = linkedMapOf<String, MutableList<Long>>()
 
@@ -652,6 +657,67 @@ class RoomSession(
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        return true
+    }
+
+    /** Persist the exact ciphertext before first publication, then reuse it on every retry. */
+    suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
+        onRetained: suspend () -> Unit = {}): Boolean = chatSendGate.withLock {
+        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        check(outbox.pending() == null) { "A message is waiting for relay confirmation. Retry it before sending another." }
+        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        val text = body.trim()
+        if (text.isEmpty()) return@withLock false
+        require(text.length <= MAX_CHAT_TEXT_LENGTH)
+        val at = now()
+        val generation = transport.publicationGeneration()
+        val epoch = epochKeys()
+        val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
+            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId)
+        decodeOwnChat(event, at, epoch)
+        outbox.retain(epoch.id, event)
+        onRetained()
+        publishPendingChat(outbox, epoch.id, event, generation)
+    }
+
+    suspend fun pendingChat(): Boolean = chatOutbox?.pending() != null
+
+    suspend fun retryPendingChat(): Boolean = chatSendGate.withLock {
+        val outbox = chatOutbox ?: return@withLock false
+        val pending = outbox.pending() ?: return@withLock false
+        val generation = transport.publicationGeneration()
+        publishPendingChat(outbox, pending.epochId, pending.event, generation)
+    }
+
+    /** Explicitly abandon the local retry. The relay may already have accepted this event. */
+    suspend fun discardPendingChat() = chatSendGate.withLock { chatOutbox?.clear() }
+
+    private suspend fun publishPendingChat(outbox: PendingChatOutbox, epochId: String, event: NostrEvent,
+        generation: Long): Boolean {
+        check(publicationAllowed) { "Room publication is blocked during a secure update. The message remains on this phone." }
+        val epoch = epochKeys()
+        check(epoch.id == epochId) { "The room keys changed. This message remains on this phone and cannot be replayed." }
+        check(verifyDeviceCredential(identity.credential, room.roomId, now()) is CredentialCheck.Valid) {
+            "This device's room credential expired. The message remains on this phone."
+        }
+        policy?.let {
+            check(evaluateAccess(it, identity.participant, proof, now(), room.roomId).admitted) {
+                "Room access is no longer valid. This message remains on this phone and cannot be replayed."
+            }
+        }
+        check(event.createdAt >= now() - CHAT_RETENTION_SECONDS) {
+            "This message is too old to replay. It remains on this phone."
+        }
+        val message = decodeOwnChat(event, event.createdAt, epoch)
+        val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+        val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }
+            ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        if (!transport.publishConfirmedGuarded(event, generation, {
+                publicationAllowed && now() < credentialDeadline && now() < accessDeadline &&
+                    event.createdAt >= now() - CHAT_RETENTION_SECONDS
+            }, CHAT_CONFIRM_TIMEOUT_MS)) return false
+        if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        outbox.confirm(event.id)
         return true
     }
 

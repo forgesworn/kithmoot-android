@@ -37,7 +37,7 @@ class RoomEpochUiTest {
                             state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
                             chat = {
                                 ChatPane(
-                                    emptyList(), state.selfParticipant, {}, Modifier.fillMaxSize(),
+                                    emptyList(), state.selfParticipant, { _, _ -> }, Modifier.fillMaxSize(),
                                     canSend = false, showTitle = false,
                                 )
                             },

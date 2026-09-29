@@ -336,7 +336,7 @@ class LinkTransportManager(
     private var session: LinkTransportSession? = null
 
     override fun open(url: String, routeId: String, listener: RelaySocketListener): RelaySocket {
-        val socket = PendingLinkSocket(listener)
+        val socket = PendingLinkSocket(listener, worker)
         worker.execute {
             try {
                 check(!closed) { "Link transport has stopped" }
@@ -438,31 +438,123 @@ class LinkTransportManager(
     private fun engine(): LinkTransportSession = session ?: runtime.start(vault.state()).also { session = it }
 }
 
-/** Buffers the caller's close until native socket creation completes. */
-private class PendingLinkSocket(private val listener: RelaySocketListener) : RelaySocket, RelaySocketListener {
+/** Defers early callbacks until attach and never calls either side under its state lock. */
+internal class PendingLinkSocket(
+    private val listener: RelaySocketListener,
+    private val worker: java.util.concurrent.Executor,
+) : RelaySocket, RelaySocketListener {
+    private sealed interface Action {
+        data object Open : Action
+        data class Message(val text: String) : Action
+        data class Closed(val reason: String) : Action
+    }
+    private val lock = Any()
+    private val actions = ArrayDeque<Action>()
     private var native: LinkTransportSocket? = null
     private var closed = false
     private var notified = false
+    private var draining = false
 
-    @Synchronized override fun send(text: String) { if (!closed) native?.send(text) }
-    @Synchronized override fun close() {
-        if (closed) return
-        closed = true
-        native?.let { it.disconnect(); it.dispose() }
+    private companion object {
+        const val MAX_PENDING_ACTIONS = 128
+        const val MAX_PENDING_CHARS = 1024 * 1024
     }
-    @Synchronized fun attach(socket: LinkTransportSocket) {
-        native = socket
-        if (closed) { socket.disconnect(); socket.dispose() }
+
+    override fun send(text: String) {
+        val socket = synchronized(lock) { if (closed) null else native }
+        socket?.send(text)
     }
-    @Synchronized fun fail(reason: String) = closeOnce(reason)
-    @Synchronized override fun onOpen() { if (!closed) listener.onOpen() }
-    @Synchronized override fun onMessage(text: String) { if (!closed) listener.onMessage(text) }
-    @Synchronized override fun onClosed(reason: String) { closeOnce(reason) }
+
+    override fun close() {
+        val socket = synchronized(lock) {
+            if (closed) return
+            closed = true
+            actions.removeAll { it == Action.Open || it is Action.Message }
+            native
+        }
+        socket?.disconnect()
+        socket?.dispose()
+    }
+
+    fun attach(socket: LinkTransportSocket) {
+        val dispose = synchronized(lock) { native = socket; closed }
+        if (dispose) { socket.disconnect(); socket.dispose() }
+        else scheduleDrain()
+    }
+
+    fun fail(reason: String) = closeOnce(reason)
+    override fun onOpen() = enqueue { if (!closed) actions.addLast(Action.Open) }
+    override fun onMessage(text: String) {
+        val overflow = synchronized(lock) {
+            if (closed) return
+            val queuedChars = actions.sumOf { (it as? Action.Message)?.text?.length ?: 0 }
+            if (actions.size >= MAX_PENDING_ACTIONS || text.length > MAX_PENDING_CHARS - queuedChars) true
+            else { actions.addLast(Action.Message(text)); false }
+        }
+        if (overflow) closeOnce("Link receive queue is full") else scheduleDrain()
+    }
+    override fun onClosed(reason: String) = closeOnce(reason)
+
     private fun closeOnce(reason: String) {
-        if (notified) return
-        closed = true
-        notified = true
-        native?.dispose()
-        listener.onClosed(reason)
+        val socket = synchronized(lock) {
+            if (notified) return
+            closed = true
+            notified = true
+            actions.removeAll { it == Action.Open || it is Action.Message }
+            actions.addLast(Action.Closed(reason))
+            native
+        }
+        socket?.dispose()
+        scheduleDrain()
+    }
+
+    private fun enqueue(change: () -> Unit) {
+        synchronized(lock) { change() }
+        scheduleDrain()
+    }
+
+    private fun scheduleDrain() {
+        val start = synchronized(lock) {
+            if (!draining && actions.isNotEmpty() && canRun(actions.first())) {
+                draining = true
+                true
+            } else false
+        }
+        if (start) {
+            try { worker.execute(::drain) }
+            catch (_: java.util.concurrent.RejectedExecutionException) {
+                // The manager is stopping. Never call back into RelayPool from a native callback.
+                val socket = synchronized(lock) {
+                    draining = false
+                    closed = true
+                    notified = true
+                    actions.clear()
+                    native
+                }
+                socket?.dispose()
+            }
+        }
+    }
+
+    private fun canRun(action: Action): Boolean = native != null || action is Action.Closed
+
+    private fun drain() {
+        while (true) {
+            val next = synchronized(lock) {
+                val head = actions.firstOrNull()
+                if (head == null || !canRun(head)) { draining = false; return }
+                actions.removeFirst()
+            }
+            val action = next
+            try {
+                when (action) {
+                    Action.Open -> listener.onOpen()
+                    is Action.Message -> listener.onMessage(action.text)
+                    is Action.Closed -> listener.onClosed(action.reason)
+                }
+            } catch (error: Exception) {
+                closeOnce(error.message ?: "Link socket failed")
+            }
+        }
     }
 }

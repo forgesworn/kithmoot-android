@@ -39,7 +39,7 @@ class CadenceUiTest {
                     KithMootTheme {
                         RoomScreen(
                             state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
-                            chat = { ChatPane(emptyList(), state.selfParticipant, {}, Modifier.fillMaxSize(), showTitle = false) },
+                            chat = { ChatPane(emptyList(), state.selfParticipant, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false) },
                             onStopCadence = { stopped++ },
                         )
                     }
