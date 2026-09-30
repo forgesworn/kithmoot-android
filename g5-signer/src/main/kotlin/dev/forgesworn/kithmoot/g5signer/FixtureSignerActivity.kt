@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import dev.forgesworn.kithmoot.crypto.Nip44
-import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.Events
 import kotlinx.serialization.json.Json
@@ -13,7 +12,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
-import java.security.MessageDigest
 
 class FixtureSignerActivity : Activity() {
     override fun onCreate(state: Bundle?) {
@@ -30,15 +28,12 @@ class FixtureSignerActivity : Activity() {
             val persona = requireNotNull(request.getStringExtra("persona")).also {
                 require(it == "alice" || it == "bob")
             }
-            require(getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit().putString(PERSONA, persona).commit())
+            require(getSharedPreferences(FixtureKeys.PREFERENCES, MODE_PRIVATE).edit().putString(FixtureKeys.PERSONA, persona).commit())
             return result.putExtra("configured", true)
         }
-        val persona = requireNotNull(getSharedPreferences(PREFERENCES, MODE_PRIVATE).getString(PERSONA, null))
-        val key = MessageDigest.getInstance("SHA-256").digest(
-            "kithmoot-g5-fixture-signer-v2:$persona".toByteArray(Charsets.UTF_8)
-        )
+        val key = requireNotNull(FixtureKeys.key(this))
         when (type) {
-            "get_public_key" -> result.putExtra("result", Schnorr.publicKeyHex(key))
+            "get_public_key" -> result.putExtra("result", FixtureKeys.publicKey(key))
             "sign_event" -> {
                 val event = Json.parseToJsonElement(requireNotNull(request.data?.schemeSpecificPart)).jsonObject
                 val tags = event.getValue("tags").jsonArray.map { tag -> tag.jsonArray.map { it.jsonPrimitive.content } }
@@ -54,7 +49,5 @@ class FixtureSignerActivity : Activity() {
 
     private companion object {
         const val CONFIGURE_FIXTURE = "g5_configure"
-        const val PREFERENCES = "g5-fixture-signer"
-        const val PERSONA = "persona"
     }
 }

@@ -7,5 +7,10 @@
                 <data android:scheme="nostrsigner" />
             </intent-filter>
         </activity>
+        <!-- Silent relay authentication only; see FixtureSilentSigner. -->
+        <provider
+            android:name=".FixtureSilentSigner"
+            android:authorities="dev.forgesworn.kithmoot.g5signer.SIGN_EVENT"
+            android:exported="true" />
     </application>
 </manifest>

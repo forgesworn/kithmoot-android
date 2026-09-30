@@ -44,6 +44,50 @@ class RelayPoolTest {
     )
 
     @Test
+    fun `offline confirmed event cannot leave after rekey and reconnect`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope,
+            now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val generation = pool.publicationGeneration()
+        val pending = event("d1".repeat(32), kind = 1460)
+        supervisorScope {
+            val result = async {
+                pool.publishConfirmedGuarded(pending, generation, { true }, 15_000)
+            }
+            runCurrent()
+            pool.beginRekey()
+            pool.rekey(ByteArray(32) { 7 })
+            pool.completeRekey()
+            sockets.opened.single().open()
+            runCurrent()
+            assertFailsWith<IllegalStateException> { result.await() }
+            assertTrue(sockets.opened.single().publishedFrames().isEmpty())
+        }
+    }
+
+    @Test
+    fun `offline confirmed event cannot leave after its admission deadline`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope,
+            now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        var admitted = true
+        supervisorScope {
+            val result = async {
+                pool.publishConfirmedGuarded(event("d2".repeat(32), kind = 1460),
+                    pool.publicationGeneration(), { admitted }, 15_000)
+            }
+            runCurrent()
+            admitted = false
+            sockets.opened.single().open()
+            runCurrent()
+            assertFailsWith<IllegalStateException> { result.await() }
+            assertTrue(sockets.opened.single().publishedFrames().isEmpty())
+        }
+    }
+
+    @Test
     fun `the circle is asked each time, so a card added mid-room moves the lane`() = runTest {
         var circle = emptySet<String>()
         val pool = RelayPool(relays, FakeSocketFactory(), backgroundScope, now = { currentTime }, random = Random(1), circle = { circle })

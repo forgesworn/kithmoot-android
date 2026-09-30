@@ -34,6 +34,31 @@ import java.util.concurrent.TimeUnit
 /** Synthetic source only: never asks Android to capture a screen, camera or microphone. */
 class ChatAndShareUiTest {
     @get:Rule val ui = createEmptyComposeRule()
+
+    @Test fun draft_survives_refusal_and_late_receipt_does_not_erase_new_typing() {
+        lateinit var retained: () -> Unit
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    KithMootTheme {
+                        ChatPane(emptyList(), "01".repeat(32), { _, callback -> retained = callback },
+                            Modifier.fillMaxSize().systemBarsPadding())
+                    }
+                }
+            }
+            ui.onNodeWithText("Say something").performTextInput("First draft")
+            ui.onNodeWithContentDescription("Send").performClick()
+            // The model has not retained anything yet: a refused send keeps the draft.
+            ui.onNodeWithText("First draft").assertExists()
+            ui.onNodeWithText("First draft").performTextInput(" and newer text")
+            ui.runOnIdle { retained() }
+            ui.onNodeWithText("First draft and newer text").assertExists()
+            ui.onNodeWithContentDescription("Send").performClick()
+            ui.runOnIdle { retained() }
+            ui.onNodeWithText("Say something").assertExists()
+        }
+    }
+
     @Test fun chat_emoji_reactions_and_a_live_zoomable_picture_in_picture_viewer() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
@@ -67,7 +92,10 @@ class ChatAndShareUiTest {
                     it.setContent {
                         KithMootTheme {
                             when (phase) {
-                                0 -> ChatPane(messages, self, { body -> messages = messages + first.copy(id = "sent", participant = self, body = body) }, Modifier.fillMaxSize().systemBarsPadding(),
+                                0 -> ChatPane(messages, self, { body, retained ->
+                                    messages = messages + first.copy(id = "sent", participant = self, body = body)
+                                    retained()
+                                }, Modifier.fillMaxSize().systemBarsPadding(),
                                     onReact = { target, emoji -> messages = messages + first.copy(id = "reaction-${messages.size}", participant = self, reaction = toggleReaction(messages, target, self, emoji)) })
                                 1 -> ScreenShareViewer(live, egl, "Synthetic workshop presentation", pip,
                                     onPopOut = { assertTrue(activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())) },

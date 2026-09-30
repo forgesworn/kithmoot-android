@@ -242,6 +242,10 @@ import org.webrtc.VideoTrack
 /** Which screen the app is on. Two screens; a navigation library would be scaffolding. */
 enum class Stage { START, ROOM }
 
+/** Recheck after entry exclusion: the sign-out request must still target this session. */
+internal fun signOutStillTargets(requested: Any?, current: Any?, stage: Stage, roomOpen: Boolean): Boolean =
+    stage == Stage.START && !roomOpen && requested === current
+
 /** The signed-in Nostr account as the start screen shows it. */
 data class AccountView(
     val pubkey: String,
@@ -481,6 +485,7 @@ data class RoomState(
     val workCompleted: Long = 0,
     val chatSending: Boolean = false,
     val chatSendError: String? = null,
+    val chatPending: Boolean = false,
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -1324,28 +1329,60 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun signOut() {
         if (_stage.value != Stage.START) { note("Leave the room before signing out."); return }
+        val requestedSession = accountSession
         viewModelScope.launch(Dispatchers.IO) {
-            var signedOutAccount: String? = null
-            accountStoreGate.withLock {
-                accountGate.withLock {
-                    stopRoomBookmarks()
-                    stopSharedProjects()
-                    signedOutAccount = accountSession?.account?.pubkey
-                    accountSession?.close()
-                    synchronized(relayHealthGate) { relayHealthSources.clear(); _start.update { it.copy(relayHealth = emptyMap()) } }
-                    accountSession = null
-                    accountScope?.cancel()
-                    accountScope = null
-                }
-                try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
-                signedOutAccount?.let { account ->
-                    try { rendezvous.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
-                    try { nip77Events.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
-                    try { nip77Offers.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
-                }
-                retainedLegacyAccount = null
+            val acquired = entering.awaitAcquire(ENTRY_GATE_WAIT_MS)
+            if (!acquired) {
+                _start.update { it.copy(error = "The room is still closing. Try signing out again shortly.") }
+                return@launch
             }
-            _start.update { it.copy(account = null, rendezvous = null, retainedAccount = null, signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+            try {
+                var signedOut = false
+                accountStoreGate.withLock {
+                    if (!signOutStillTargets(requestedSession, accountSession, _stage.value, session != null)) {
+                        _start.update { it.copy(error = "The room or account changed. Sign out again from the current account.") }
+                        return@withLock
+                    }
+                    val signedOutAccount = accountSession?.account?.pubkey
+                    // Finish every pending write and clear its journal before
+                    // releasing the account identity that owns it.
+                    signedOutAccount?.let { account ->
+                        try {
+                            savedRooms.list().filter { it.account == account }.forEach { room ->
+                                savedRooms.get(room.id)?.let { saved ->
+                                    dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), saved.id,
+                                        saved.participant, saved.devicePubkey).outbox.clear()
+                                }
+                            }
+                        } catch (_: RoomStorageException) { /* Unreadable rooms: nothing to clear. */ }
+                    }
+                    accountGate.withLock {
+                        stopRoomBookmarks()
+                        stopSharedProjects()
+                        accountSession?.close()
+                        synchronized(relayHealthGate) { relayHealthSources.clear(); _start.update { it.copy(relayHealth = emptyMap()) } }
+                        accountSession = null
+                        accountScope?.cancel()
+                        accountScope = null
+                    }
+                    try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
+                    signedOutAccount?.let { account ->
+                        try { rendezvous.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
+                        try { nip77Events.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
+                        try { nip77Offers.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
+                    }
+                    retainedLegacyAccount = null
+                    signedOut = true
+                }
+                if (signedOut) _start.update { it.copy(account = null, rendezvous = null, retainedAccount = null,
+                    signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _start.update { it.copy(error = error.message ?: "Sign out could not finish. Your saved data was kept.") }
+            } finally {
+                entering.release()
+            }
         }
     }
 
@@ -1716,7 +1753,11 @@ class RoomViewModel @JvmOverloads constructor(
         if (linkConsents.all().any { it.roomId == id }) {
             throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
-        savedRooms.get(id)?.let { AssignmentVault(getApplication(),id,it.participant).reset() }
+        savedRooms.get(id)?.let {
+            AssignmentVault(getApplication(),id,it.participant).reset()
+            dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
+                it.id, it.participant, it.devicePubkey).outbox.clear()
+        }
         savedRooms.forget(id)
     }
     fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
@@ -1736,6 +1777,14 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
         }
         linkConsents.reset()
+        // Best effort: corrupt saved rooms cannot be listed, and resetting
+        // them is exactly how the person recovers, so it must still happen.
+        try {
+            savedRooms.list().forEach { room -> savedRooms.get(room.id)?.let { saved ->
+                dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
+                    saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+            } }
+        } catch (_: RoomStorageException) { /* Nothing readable to clear. */ }
         savedRooms.reset()
     }
 
@@ -1891,7 +1940,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun changeSavedRooms(change: () -> Unit) {
+    private fun changeSavedRooms(change: suspend () -> Unit) {
         if (!takeStartScreenGate()) return
         _start.update { it.copy(busy = true) }
         viewModelScope.launch(Dispatchers.IO) {
@@ -2091,7 +2140,11 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                gate.withLock { closeSession(); _room.value = RoomState(background = backgrounds.load()); _stage.value = Stage.START }
+                val oldJob = gate.withLock {
+                    sessionScope?.coroutineContext?.get(Job).also { closeSession() }
+                        .also { _room.value = RoomState(background = backgrounds.load()); _stage.value = Stage.START }
+                }
+                oldJob?.join()
                 when (e) {
                     is RoomStorageException -> storageFailed()
                     else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
@@ -2101,7 +2154,11 @@ class RoomViewModel @JvmOverloads constructor(
                 // is closed again, never shown. See [stopOpening].
                 val stopped = !isActive
                 if (stopped) withContext(NonCancellable) {
-                    gate.withLock { closeSession(); _room.value = RoomState(background = backgrounds.load()) }
+                    val oldJob = gate.withLock {
+                        sessionScope?.coroutineContext?.get(Job).also { closeSession() }
+                            .also { _room.value = RoomState(background = backgrounds.load()) }
+                    }
+                    oldJob?.join()
                 }
                 // Publish room controls only once entry has released its guard.
                 // Otherwise a fast Leave tap can be silently rejected. Keep the
@@ -2730,7 +2787,9 @@ class RoomViewModel @JvmOverloads constructor(
         roomBookmarks?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
             changeRoomBookmarks { it.save(bookmark) }
         } }
+        val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
         closeSession()
+        oldSessionJob?.join()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
@@ -2829,6 +2888,10 @@ class RoomViewModel @JvmOverloads constructor(
                 ) } },
             )
         }
+        val pendingChat = if (!anonymousProfile && quiet == null) {
+            dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), record.id,
+                who.participant, who.devicePubkey).outbox
+        } else null
         val live = RoomSession(
             derived,
             who,
@@ -2840,6 +2903,7 @@ class RoomViewModel @JvmOverloads constructor(
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
             initialEpoch = openedEpoch,
+            chatOutbox = pendingChat,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
                 withContext(Dispatchers.IO) {
                     cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
@@ -2955,6 +3019,18 @@ class RoomViewModel @JvmOverloads constructor(
             invitationHostJob = serveInvitation(scope, transport, host, secret)
         }
         live.join()
+        if (pendingChat != null) scope.launch(Dispatchers.IO) {
+            try {
+                if (live.pendingChat()) {
+                    _room.update { if (session === live) it.copy(chatPending = true) else it }
+                    retryPendingChat()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                _room.update { if (session === live) it.copy(chatPending = true,
+                    chatSendError = error.message ?: "A message remains on this phone. Retry when connected.") else it }
+            }
+        }
         Log.i(
             JOIN_LOG,
             "joined room=${derived.roomId.take(8)} device=${who.devicePubkey.take(8)} " +
@@ -2995,8 +3071,11 @@ class RoomViewModel @JvmOverloads constructor(
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
             if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
-            // The background call listener (service/BackgroundCallListenerService.kt)
-            // skips any room open here: this coordinator already rings for it.
+            // The background service (service/BackgroundCallListenerService.kt)
+            // skips any room open here: this coordinator already rings for it,
+            // and this room shows its messages. What it received while the room
+            // was closed is now read.
+            withContext(Dispatchers.IO) { markBackgroundRead(record) }
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
@@ -3034,6 +3113,9 @@ class RoomViewModel @JvmOverloads constructor(
                         // durable retirements on reconnect, including rotations made
                         // during this session, so a long outage cannot drop them.
                         if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                        if (up.isNotEmpty() && _room.value.chatPending && pendingChat != null && !_room.value.chatSending) {
+                            scope.launch { retryPendingChat() }
+                        }
                     }
                 }
             }
@@ -3403,7 +3485,9 @@ class RoomViewModel @JvmOverloads constructor(
         val began = android.os.SystemClock.elapsedRealtime()
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val sessionJob = sessionScope?.coroutineContext?.get(Job)
                 gate.withLock { try { live?.leave() } finally { closeSession() } }
+                sessionJob?.join()
             } finally {
                 entering.release()
                 Log.i(JOIN_LOG, "left room teardownMs=${android.os.SystemClock.elapsedRealtime() - began}")
@@ -3422,14 +3506,18 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 if (roomEpochs.get(record.id)?.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
-                    gate.withLock { if (session === live) closeSession() }
+                    val oldJob = gate.withLock { if (session === live) sessionScope?.coroutineContext?.get(Job)
+                        .also { closeSession() } else null }
+                    oldJob?.join()
                     val saved = savedRooms.get(record.id) ?: throw RoomRecoveryException("This room is no longer saved on this device")
                     openSaved(saved)
                     return@launch
                 }
                 live.retryEpoch()
                 if (!anonymousRoom && live.epochState.value is dev.forgesworn.kithmoot.session.RoomEpochState.Active && roomWork == null) {
-                    gate.withLock { if (session === live) closeSession() }
+                    val oldJob = gate.withLock { if (session === live) sessionScope?.coroutineContext?.get(Job)
+                        .also { closeSession() } else null }
+                    oldJob?.join()
                     val saved = savedRooms.get(record.id) ?: throw RoomRecoveryException("This room is no longer saved on this device")
                     openSaved(saved)
                 }
@@ -3471,7 +3559,12 @@ class RoomViewModel @JvmOverloads constructor(
         pool = null
         if (!chatOnly) notifications.end()
         callRinger.end()
-        savedRoom?.let { dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(it.id) }
+        // Read through now before the background service takes the room back,
+        // or its catch-up would count messages already shown here.
+        savedRoom?.let { closed -> CoroutineScope(Dispatchers.IO).launch {
+            markBackgroundRead(closed)
+            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(closed.id)
+        } }
         session = null
         identity = null
         savedRoom = null
@@ -4293,7 +4386,9 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun sendChat(body: String) = sendChat(body, null)
 
-    private fun sendChat(body: String, reaction: ChatReaction?) {
+    fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained)
+
+    private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {}) {
         val live = session ?: return
         val scope = sessionScope ?: return
         if (_room.value.cadence?.busy == true) {
@@ -4301,13 +4396,25 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         if (_room.value.chatSending) return
+        if (_room.value.chatPending) {
+            note("A message is waiting on this phone. Retry it before sending another.")
+            return
+        }
+        val durable = !_room.value.anonymous && !_room.value.quiet
         _room.update { it.copy(chatSending = true, chatSendError = null) }
         scope.launch(Dispatchers.IO) {
             try {
-                check(live.sendChatConfirmed(body, reaction)) { "No relay confirmed this message." }
+                val retainedOnMain: suspend () -> Unit = {
+                    withContext(Dispatchers.Main.immediate) { if (session === live) onRetained() }
+                }
+                val confirmed = if (durable) live.sendChatDurable(body, reaction, retainedOnMain)
+                    else live.sendChatConfirmed(body, reaction).also { if (it) retainedOnMain() }
+                check(confirmed) { if (durable) "No relay confirmed this message. It remains on this phone."
+                    else "No relay confirmed this message." }
             } catch (_: TimeoutCancellationException) {
                 if (session === live) {
-                    val message = "No relay confirmed this message."
+                    val message = if (durable) "No relay confirmed this message. It remains on this phone."
+                        else "No relay confirmed this message."
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } catch (cancelled: CancellationException) {
@@ -4318,7 +4425,53 @@ class RoomViewModel @JvmOverloads constructor(
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } finally {
-                if (session === live) _room.update { it.copy(chatSending = false) }
+                val pending = runCatching { live.pendingChat() }.getOrDefault(false)
+                if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+            }
+        }
+    }
+
+    private fun markBackgroundRead(record: SavedRoom) {
+        try {
+            dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey)
+                .inbox.markRead(epochSeconds())
+        } catch (_: Exception) {
+            // Unreadable storage only costs a repeated unread count, never a message.
+        }
+    }
+
+    fun retryPendingChat() {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        if (_room.value.chatSending) return
+        _room.update { it.copy(chatSending = true, chatSendError = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                check(live.retryPendingChat()) { "No relay confirmed this message. It remains on this phone." }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (session === live) _room.update { it.copy(chatSendError =
+                    error.message ?: "A message remains on this phone. Retry when connected.") }
+            } finally {
+                val pending = runCatching { live.pendingChat() }.getOrDefault(true)
+                if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+            }
+        }
+    }
+
+    fun discardPendingChat() {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        if (_room.value.chatSending) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                live.discardPendingChat()
+                if (session === live) _room.update { it.copy(chatPending = false, chatSendError = null,
+                    notice = "Local retry discarded. A relay may already have received the message.") }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (session === live) _room.update { it.copy(chatSendError =
+                    error.message ?: "The pending message could not be discarded.") }
             }
         }
     }

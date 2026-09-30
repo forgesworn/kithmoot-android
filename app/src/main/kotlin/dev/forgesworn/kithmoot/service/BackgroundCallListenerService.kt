@@ -1,21 +1,33 @@
 package dev.forgesworn.kithmoot.service
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.R
+import dev.forgesworn.kithmoot.account.Nip55Bridge
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.account.ParticipantSigner
+import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.openAccount
 import dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
@@ -25,8 +37,15 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.epoch.activeEpochFor
 import dev.forgesworn.kithmoot.protocol.decodeCallBellEvent
 import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
+import dev.forgesworn.kithmoot.relay.RelayAuthenticator
+import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.RelayPool
+import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.decodeChatEvent
+import dev.forgesworn.kithmoot.storage.BackgroundInboxVault
+import dev.forgesworn.kithmoot.storage.PendingChatVault
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,21 +54,30 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.ZoneOffset
 
 /**
- * Optional, opt-in foreground service: [BackgroundRingSettings]. While it
- * runs, it keeps one shared read-only subscription open across every
- * relay any saved room set to Ring me uses (see [roomsToWatch] /
- * [sharedRelayUrls]), listening only for that room's call bell (kind
- * 1464, `protocol/CallBell.kt`) - never for the roster's 20-second
- * heartbeat, which a phone with the app closed cannot afford to wake the
- * radio for.
+ * Optional, opt-in foreground service with two jobs, each behind its own
+ * switch: ringing for a call in a Ring me room ([BackgroundRingSettings], on
+ * by default) and receiving messages for saved rooms while KithMoot is closed
+ * ([BackgroundDeliverySettings], off by default). See the P4-01 delivery
+ * ticket and `BackgroundDelivery.kt` for the rules.
  *
- * It never publishes anything: no presence, no roster entry, no read
- * receipt, no credential. The shared [RelayPool] it opens here is only
- * ever `subscribe`d on, never `publish`ed to.
+ * Each watched room gets its own pool, built from the same hybrid socket
+ * factory an open room uses: a Link relay address needs that room's active
+ * consent and otherwise fails closed, so a box's node id never reaches
+ * OkHttp or DNS. For calls it listens only for the room's bell (kind 1464,
+ * `protocol/CallBell.kt`), never the roster's heartbeat. For messages it
+ * listens for the room's chat under its current epoch and records verified
+ * messages in the room's [dev.forgesworn.kithmoot.session.BackgroundInbox],
+ * without their text.
+ *
+ * The only thing it ever publishes is a room's retained pending message: the
+ * exact event the person already signed, on the epoch it was sealed for,
+ * cleared only when a relay confirms it. No presence, roster entry, read
+ * receipt or credential.
  *
  * Modelled on Cambium's `HeartwoodKeepAliveService` (`specialUse` foreground
  * type with a declared subtype, `START_STICKY`, a boot receiver gated on a
@@ -60,23 +88,44 @@ class BackgroundCallListenerService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loopJob: Job? = null
     private var midnightJob: Job? = null
-    private var subscriptionJob: Job? = null
-    private var pool: RelayPool? = null
-    private var watches: List<BackgroundRoomWatch> = emptyList()
+    private val rooms = java.util.concurrent.ConcurrentHashMap<String, RoomHandle>()
     private val coordinators = mutableMapOf<String, IncomingCallRingCoordinator>()
+    private val flushing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var network = true
+    @Volatile private var reconciled = false
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var accountSigner: ParticipantSigner? = null
+    private var accountLoaded = false
+    private val registryListener: (String) -> Unit = { scope.launch { reconcileNow() } }
+
+    /** One watched room: what it listens for, keyed so a rekey or relay change rebuilds it. */
+    private class RoomHandle(
+        val key: String,
+        val watch: BackgroundRoomWatch,
+        val epochId: String,
+        val epochKey: ByteArray,
+        val delivery: Boolean,
+        val pool: RelayPool,
+        val jobs: List<Job>,
+        val needsSigner: java.util.concurrent.atomic.AtomicBoolean,
+    )
 
     override fun onCreate() {
         super.onCreate()
+        alive = true
         channel()
+        watchNetwork()
+        ActiveRoomRegistry.listen(registryListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(0), type)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(DeliveryState.RECONNECTING, 0, 0), type)
         } catch (e: Exception) {
             // The OS can refuse a foreground start from the background on API 31+.
-            // Give up quietly; the next toggle-driven start retries.
+            // Say so; the next toggle-driven start or launch retries.
+            BackgroundDeliverySettings(this).report(DeliveryState.RESTRICTED, running = false)
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -88,11 +137,15 @@ class BackgroundCallListenerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        alive = false
+        ActiveRoomRegistry.unlisten(registryListener)
+        networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         loopJob?.cancel()
         midnightJob?.cancel()
-        stopSubscription()
+        stopAll()
         coordinators.values.forEach { it.end() }
         coordinators.clear()
+        BackgroundDeliverySettings(this).report(DeliveryState.OFF, running = false)
         scope.cancel()
         super.onDestroy()
     }
@@ -101,167 +154,312 @@ class BackgroundCallListenerService : Service() {
         loopJob?.cancel()
         loopJob = scope.launch {
             while (isActive) {
-                if (!reconcile()) break
+                if (!reconcileNow()) break
                 delay(RECONCILE_INTERVAL_MS)
             }
-            stopSubscription()
+            stopAll()
             coordinators.values.forEach { it.end() }
             coordinators.clear()
             stopSelf()
         }
     }
 
-    /** Re-subscribes with a fresh tag set at the next UTC midnight, forever
-     *  (while the service runs) - the one thing a mere relay reconnect,
-     *  which [RelayPool] already re-sends the live REQ for, does not cover. */
+    /** Re-subscribes every room with a fresh bell tag set at the next UTC
+     *  midnight, forever (while the service runs) - the one thing a mere
+     *  relay reconnect, which [RelayPool] already re-sends the live REQ for,
+     *  does not cover. */
     private fun startMidnightRefresh() {
         midnightJob?.cancel()
         midnightJob = scope.launch {
             while (isActive) {
                 delay(millisUntilNextUtcMidnight())
-                if (watches.isNotEmpty()) resubscribe(watches)
+                reconcileMutex.withLock { rooms.keys.toList().forEach { rebuild(it) } }
             }
         }
     }
 
-    /** Returns false when the service should stop: the toggle is off, or no
-     *  saved room wants Ring me any more. */
-    private fun reconcile(): Boolean {
+    private val reconcileMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** Returns false when the service should stop: nothing has work. */
+    private suspend fun reconcileNow(): Boolean = reconcileMutex.withLock {
         val application = application as KithMootApplication
         val ringSettings = CallRingSettings(this)
-        val toggle = BackgroundRingSettings(this).enabled()
+        val ringToggle = BackgroundRingSettings(this).enabled()
+        val deliveryToggle = BackgroundDeliverySettings(this).enabled()
         val savedIds = savedRoomIdsOrNone(application.savedRooms)
-        val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()
-        if (!shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
+        val notificationsPermitted = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (!shouldRunBackgroundService(ringToggle, deliveryToggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
 
         val candidates = savedIds.mapNotNull { id -> watchFor(application, id) }
-        val wanted = roomsToWatch(candidates, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
-        val wantedIds = wanted.map { it.stableRoomId }.toSet()
+        val ringing = if (ringToggle) roomsToWatch(candidates.map { it.watch }, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
+            .map { it.stableRoomId }.toSet() else emptySet()
+        val delivering = if (deliveryToggle) candidates.filter { it.exclusion == null }.map { it.watch.stableRoomId }.toSet() else emptySet()
+        val wanted = candidates.filter { it.watch.stableRoomId in ringing || it.watch.stableRoomId in delivering }
 
-        coordinators.keys.filterNot { it in wantedIds }.forEach { id -> coordinators.remove(id)?.end() }
-        for (watch in wanted) coordinators.getOrPut(watch.stableRoomId) { IncomingCallRingCoordinator(applicationContext) }
+        coordinators.keys.filterNot { it in ringing }.forEach { id -> coordinators.remove(id)?.end() }
+        for (id in ringing) coordinators.getOrPut(id) { IncomingCallRingCoordinator(applicationContext) }
 
-        if (wanted.map { it.stableRoomId }.toSet() != watches.map { it.stableRoomId }.toSet()) resubscribe(wanted)
-        updateNotification(wanted.size)
-        return true
+        val wantedIds = wanted.map { it.watch.stableRoomId }.toSet()
+        rooms.keys.filterNot { it in wantedIds }.forEach { id -> close(rooms.remove(id)) }
+        for (candidate in wanted) {
+            val id = candidate.watch.stableRoomId
+            val delivery = id in delivering
+            val key = listOf(id, candidate.epochId, delivery, id in ringing, candidate.watch.relays.joinToString(",")).joinToString("|")
+            if (rooms[id]?.key != key) {
+                close(rooms.remove(id))
+                rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
+            }
+        }
+        reconciled = true
+        report()
+        true
     }
 
-    /** The current traffic key for a saved room, following any rekey
-     *  recorded in [KithMootApplication.roomEpochs] via the shared, tested
-     *  [activeEpochFor] - the same derivation `RoomViewModel` uses, so this
-     *  never drifts onto a stale (pre-rekey) key the way deriving directly
-     *  from the room secret used to. The room's own (epoch-0) id -
-     *  [dev.forgesworn.kithmoot.storage.SavedRoom.id] - is what the bell's
-     *  device signature is bound to, and is used as-is regardless of any
-     *  later rekey; see `protocol/CallBell.kt`. Returns null (watch
-     *  nothing) once the room's epoch has been REMOVED or CLOSED, and for
-     *  an anonymous (Tor-only) room, which this clearnet listener must
-     *  never dial. */
-    private fun watchFor(application: KithMootApplication, roomId: String): BackgroundRoomWatch? {
+    private suspend fun rebuild(id: String) {
+        val handle = rooms.remove(id) ?: return
+        close(handle)
+        val application = application as KithMootApplication
+        val candidate = watchFor(application, id) ?: return
+        val bell = coordinators.containsKey(id)
+        rooms[id] = open(candidate, handle.key, bell, handle.delivery)
+    }
+
+    private class Candidate(val watch: BackgroundRoomWatch, val epochId: String, val epochKey: ByteArray,
+        val exclusion: DeliveryExclusion?, val saved: dev.forgesworn.kithmoot.storage.SavedRoom)
+
+    /** The current keys for a saved room, following any rekey recorded in
+     *  [KithMootApplication.roomEpochs] via the shared, tested [activeEpochFor]
+     *  - the same derivation `RoomViewModel` uses. The room's own (epoch-0)
+     *  id is what a bell's device signature is bound to and what chat
+     *  credentials name, and is used as-is regardless of any later rekey.
+     *  Returns null (watch nothing) once the room's epoch has been REMOVED
+     *  or CLOSED, and for an anonymous (Tor-only) room, which this clearnet
+     *  listener must never dial. */
+    private fun watchFor(application: KithMootApplication, roomId: String): Candidate? {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
             if (saved.movedOn || saved.retired || saved.anonymous) return null
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
             val epoch = activeEpochFor(saved, stored) ?: return null
-            BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey)
+            val usesLink = saved.relays.any { url -> application.linkConsents.activeRoute(saved.participant, saved.id, url) != null }
+            val exclusion = deliveryExclusion(DeliveryCandidate(
+                roomId = saved.id,
+                anonymous = saved.anonymous,
+                quiet = saved.policy?.quiet == true || saved.quietState != null,
+                ended = saved.retired || saved.movedOn,
+                epochId = epoch.id,
+                needsBunker = usesLink && saved.viaAccount && application.accounts.load()?.method == "bunker",
+            ), ActiveRoomRegistry::isOpen)
+            Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey),
+                epoch.id, epoch.key, exclusion, saved)
         } catch (_: Exception) {
             null
         }
     }
 
-    /** Tears down the current subscription and, if the relay set changed,
-     *  the shared pool too, then opens a fresh one for [wanted]. */
-    private fun resubscribe(wanted: List<BackgroundRoomWatch>) {
-        subscriptionJob?.cancel()
-        subscriptionJob = null
-        val newRelays = sharedRelayUrls(wanted)
-        if (pool?.relayUrls != newRelays) {
-            pool?.stop()
-            pool = if (newRelays.isEmpty()) null else RelayPool(newRelays, OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()), scope).also { it.start() }
+    private fun open(candidate: Candidate, key: String, bell: Boolean, delivery: Boolean): RoomHandle {
+        val application = application as KithMootApplication
+        val watch = candidate.watch
+        val needsSigner = java.util.concurrent.atomic.AtomicBoolean(false)
+        val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
+        val sockets = backgroundSockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()), application.linkEngine, route)
+        val authenticators = RelayAuthenticatorProvider { url ->
+            if (route.routeId(url) == null) null else authenticatorFor(candidate.saved, needsSigner)
         }
-        watches = wanted
-        val activePool = pool ?: return
-        if (wanted.isEmpty()) return
-        // One subscription per relay, each targeted with `only` at exactly
-        // the relays that room actually lists: a relay used by room X must
-        // never learn room Y's day tags just because both share this one
-        // pool. The filter is rebuilt from the room set at every send -
-        // first REQ and every reconnect alike - so a relay that drops and
-        // returns gets today's tags, not whatever they were at start-up.
-        subscriptionJob = scope.launch {
-            for (url in newRelays) {
-                val watchesForUrl = wanted.filter { url in it.relays }
-                if (watchesForUrl.isEmpty()) continue
-                launch {
-                    activePool.subscribe(
-                        filters = {
-                            listOf(Filter(
-                                kinds = listOf(KIND_CALL_BELL),
-                                // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
-                                tags = mapOf("#d" to callBellFilterTags(watchesForUrl, now())),
-                                since = now() - CALL_BELL_TTL_SECONDS,
-                            ))
-                        },
-                        only = setOf(url),
-                    ).collect { event -> onBell(event) }
+        val pool = RelayPool(watch.relays, sockets, scope, authenticators = authenticators).also { it.start() }
+        val jobs = mutableListOf<Job>()
+        if (bell) jobs += scope.launch {
+            pool.subscribe({
+                listOf(Filter(
+                    kinds = listOf(KIND_CALL_BELL),
+                    // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
+                    tags = mapOf("#d" to callBellTagsFor(watch, now()).toList()),
+                    since = now() - CALL_BELL_TTL_SECONDS,
+                ))
+            }).collect { event -> onBell(watch, event) }
+        }
+        if (delivery) {
+            val inbox = BackgroundInboxVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).inbox
+            val outbox = PendingChatVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).outbox
+            runCatching {
+                // First watched now: count from here, not the room's whole retained history.
+                if (inbox.state().cursor == 0L) inbox.markRead(now())
+                Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} watching unread=${inbox.state().unread.size}")
+            }
+            jobs += scope.launch {
+                // Rebuilt from the inbox at every send, first REQ and every
+                // reconnect alike, so a relay that returns resumes from the cursor.
+                pool.subscribe({ listOf(backgroundChatFilter(candidate.epochId, inbox.state().cursor, now())) })
+                    .collect { event -> onChat(candidate, inbox, event) }
+            }
+            jobs += scope.launch {
+                pool.connected.collect { up ->
+                    report()
+                    if (up.isNotEmpty() && flushing.add(watch.stableRoomId)) scope.launch {
+                        try {
+                            val outcome = flushPending(outbox, candidate.epochId, pool)
+                            if (outcome != FlushOutcome.NOTHING) Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} pending=$outcome")
+                        } catch (_: Exception) { } finally { flushing.remove(watch.stableRoomId) }
+                    }
                 }
             }
+        } else jobs += scope.launch { pool.connected.collect { report() } }
+        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, jobs, needsSigner)
+    }
+
+    private fun close(handle: RoomHandle?) {
+        handle ?: return
+        handle.jobs.forEach { it.cancel() }
+        handle.pool.stop()
+    }
+
+    private fun stopAll() {
+        rooms.values.forEach(::close)
+        rooms.clear()
+    }
+
+    /**
+     * NIP-42 for a consented Link relay, signed as the room's participant. A
+     * room joined as an account uses the saved account's signer through a
+     * bridge that cannot open a screen: a NIP-55 signer answers through its
+     * content provider, or the room waits with [DeliveryState.NEEDS_SIGNER].
+     * A paired (secondary) device authenticates nowhere, as in an open room.
+     */
+    private fun authenticatorFor(saved: dev.forgesworn.kithmoot.storage.SavedRoom,
+        needsSigner: java.util.concurrent.atomic.AtomicBoolean): RelayAuthenticator? {
+        val signer: ParticipantSigner = if (saved.viaAccount) backgroundAccountSigner() ?: return null
+            else (runCatching { saved.identity(now()) }.getOrNull() as? PrimaryIdentity)?.signer ?: return null
+        if (signer.pubkey != saved.participant) return null
+        return object : RelayAuthenticator {
+            override val pubkey = signer.pubkey
+            override suspend fun sign(url: String, challenge: String): NostrEvent = try {
+                signer.sign(22242, now(), listOf(listOf("relay", url), listOf("challenge", challenge)), "").also {
+                    if (needsSigner.getAndSet(false)) report()
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                needsSigner.set(true)
+                report()
+                throw e
+            }
         }
     }
 
-    private fun stopSubscription() {
-        subscriptionJob?.cancel()
-        subscriptionJob = null
-        pool?.stop()
-        pool = null
-        watches = emptyList()
+    @Synchronized private fun backgroundAccountSigner(): ParticipantSigner? {
+        val account = runCatching { (application as KithMootApplication).accounts.load() }.getOrNull()
+        // Reopened when the person signs in as someone else while this runs.
+        if (accountLoaded && account?.pubkey == accountSigner?.pubkey) return accountSigner
+        accountLoaded = true
+        accountSigner = null
+        if (account == null) return null
+        // A bunker would add a hidden relay connection; those rooms are excluded instead.
+        if (account.method == "bunker") return null
+        accountSigner = runCatching { openAccount(account, applicationContext, NoScreenBridge, scope).signer }.getOrNull()
+        return accountSigner
     }
 
-    private fun onBell(event: NostrEvent) {
+    private object NoScreenBridge : Nip55Bridge {
+        override suspend fun request(intent: Intent): Intent? =
+            throw SignerException("KithMoot is closed, so the signer cannot ask you.")
+    }
+
+    private fun onChat(candidate: Candidate, inbox: dev.forgesworn.kithmoot.session.BackgroundInbox, event: NostrEvent) {
+        val watch = candidate.watch
+        // Handed over between reconcile ticks: the open room shows it now.
+        if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) return
+        val message = decodeChatEvent(event, candidate.epochId, candidate.epochKey, now(), candidate.saved.policy,
+            credentialRoomId = watch.stableRoomId) ?: return
+        try {
+            val added = inbox.record(event.id, event.createdAt, message)
+            Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} ${if (added) "recorded" else "seen"} unread=${inbox.state().unread.size}")
+        } catch (_: Exception) { }
+    }
+
+    /** Logs name a room by a short digest of its id, never its name or key. */
+    private fun label(roomId: String) = Digests.sha256(roomId.toByteArray(Charsets.UTF_8)).toHex().take(8)
+
+    private fun onBell(watch: BackgroundRoomWatch, event: NostrEvent) {
         val tag = event.tagValue("d") ?: return
         val now = now()
-        val candidates = watches.filter { tag in callBellTagsFor(it, now) }
-        for (watch in candidates) {
-            val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: continue
-            val participant = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
-            // Handed over between reconcile ticks: the open room rings now.
-            val coordinator = coordinators[watch.stableRoomId] ?: return
-            if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
-                coordinator.end()
-                return
-            }
-            when (val outcome = outcomeFor(bell, watch, participant)) {
-                is BellOutcome.Ignore -> Unit
-                is BellOutcome.Ring ->
-                    coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false)
-                is BellOutcome.Stop ->
-                    coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
-            }
+        if (tag !in callBellTagsFor(watch, now)) return
+        val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: return
+        val participant = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
+        // Handed over between reconcile ticks: the open room rings now.
+        val coordinator = coordinators[watch.stableRoomId] ?: return
+        if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
+            coordinator.end()
             return
         }
+        when (val outcome = outcomeFor(bell, watch, participant)) {
+            is BellOutcome.Ignore -> Unit
+            is BellOutcome.Ring ->
+                coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false)
+            is BellOutcome.Stop ->
+                coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
+        }
+    }
+
+    private fun watchNetwork() {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        network = manager.getNetworkCapabilities(manager.activeNetwork)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, capabilities: NetworkCapabilities) {
+                this@BackgroundCallListenerService.network = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                report()
+            }
+            override fun onLost(network: android.net.Network) {
+                this@BackgroundCallListenerService.network = false
+                report()
+            }
+        }
+        runCatching { manager.registerDefaultNetworkCallback(callback) }.onSuccess { networkCallback = callback }
+    }
+
+    private fun restricted(): Boolean {
+        val activity = getSystemService(ActivityManager::class.java)
+        val usage = getSystemService(UsageStatsManager::class.java)
+        return activity.isBackgroundRestricted || usage.appStandbyBucket == UsageStatsManager.STANDBY_BUCKET_RESTRICTED ||
+            !NotificationManagerCompat.from(this).areNotificationsEnabled()
+    }
+
+    @Synchronized private fun report() {
+        // Pools report as they open; the first reconcile has not finished.
+        if (!reconciled) return
+        val handles = rooms.values.toList()
+        val delivering = handles.filter { it.delivery }
+        // Summarise the rooms receiving messages; with none, the ringing ones.
+        val summarised = delivering.ifEmpty { handles }
+        val relaysUp = summarised.sumOf { it.pool.connected.value.size }
+        val state = deriveDeliveryState(summarised.map { RoomLink(it.pool.connected.value.size, it.needsSigner.get()) }, network, restricted())
+        val settings = BackgroundDeliverySettings(this)
+        if (settings.state() != state || !settings.wasRunning()) {
+            settings.report(state, running = true)
+            Log.i(LOG_TAG, "state=$state rooms=${handles.size} relaysUp=$relaysUp")
+        }
+        updateNotification(state, handles.count { coordinators.containsKey(it.watch.stableRoomId) }, delivering.size)
     }
 
     private fun now(): Long = System.currentTimeMillis() / 1000
 
     private fun channel() {
-        val ch = NotificationChannel(CHANNEL_ID, "Listening for calls", NotificationManager.IMPORTANCE_LOW)
-        ch.description = "A quiet notification while KithMoot listens for calls in your Ring me rooms without being open."
+        val ch = NotificationChannel(CHANNEL_ID, "Background connection", NotificationManager.IMPORTANCE_LOW)
+        ch.description = "A quiet notification while KithMoot listens for calls or receives messages without being open."
         ch.setSound(null, null)
         ch.enableVibration(false)
         ch.setShowBadge(false)
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 
-    private fun updateNotification(watching: Int) {
+    private fun updateNotification(state: DeliveryState, ringing: Int, delivering: Int) {
         try {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(watching))
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(state, ringing, delivering))
         } catch (_: SecurityException) {
             // Notification permission withdrawn mid-run: the service still
             // works, it just cannot say so.
         }
     }
 
-    private fun notification(watching: Int): Notification {
+    private fun notification(state: DeliveryState, ringing: Int, delivering: Int): Notification {
         val turnOff = PendingIntent.getBroadcast(
             this, 0,
             Intent(this, BackgroundRingActionReceiver::class.java).setAction(BackgroundRingActionReceiver.ACTION_TURN_OFF),
@@ -270,10 +468,16 @@ class BackgroundCallListenerService : Service() {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
-        val text = if (watching == 0) "Waiting for a room set to Ring me." else "Listening for calls in $watching room${if (watching == 1) "" else "s"}."
+        fun rooms(n: Int) = "$n room${if (n == 1) "" else "s"}"
+        val jobs = listOfNotNull(
+            if (ringing > 0) "calls in ${rooms(ringing)}" else null,
+            if (delivering > 0) "messages in ${rooms(delivering)}" else null,
+        )
+        val title = if (delivering > 0) "Messages: ${state.label}" else "Listening for calls"
+        val text = if (jobs.isEmpty()) "Waiting for a room to watch." else "Watching " + jobs.joinToString(" and ") + "."
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_chat_notice)
-            .setContentTitle("Listening for calls")
+            .setContentTitle(title)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -287,6 +491,11 @@ class BackgroundCallListenerService : Service() {
         private const val CHANNEL_ID = "background_call_listen_v1"
         private const val NOTIFICATION_ID = 4604
         private const val RECONCILE_INTERVAL_MS = 60_000L
+        const val LOG_TAG = "KithMootDelivery"
+
+        /** True while this process runs the service; a fresh process after force-stop starts false. */
+        @Volatile var alive = false
+            private set
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, BackgroundCallListenerService::class.java))

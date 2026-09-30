@@ -70,8 +70,12 @@ class MainActivity : ComponentActivity() {
      */
     private var signerAnswer: CompletableDeferred<Intent?>? = null
     private val signerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        signerAnswer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
+        // Completion may resume the next queued signer request on another
+        // dispatcher immediately. Detach this request before waking it, or
+        // clearing the field afterwards can erase that next request's answer.
+        val answer = signerAnswer
         signerAnswer = null
+        answer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
     }
 
     /**
@@ -196,13 +200,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     val app = application as KithMootApplication
                     val toggle = dev.forgesworn.kithmoot.service.BackgroundRingSettings(this@MainActivity).enabled()
+                    val delivery = dev.forgesworn.kithmoot.service.BackgroundDeliverySettings(this@MainActivity)
+                    // A run that ended without the service saying so (force-stop, crash)
+                    // is shown as such until the restarted service reports again.
+                    if (delivery.wasRunning() && !dev.forgesworn.kithmoot.service.BackgroundCallListenerService.alive) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            delivery.report(dev.forgesworn.kithmoot.service.DeliveryState.STOPPED, running = false)
+                        }
+                    }
                     val ringSettings = dev.forgesworn.kithmoot.notifications.CallRingSettings(this@MainActivity)
                     // Off the main thread: this decrypts the saved rooms.
                     val savedIds = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         dev.forgesworn.kithmoot.service.savedRoomIdsOrNone(app.savedRooms)
                     }
                     val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
-                    if (dev.forgesworn.kithmoot.service.shouldRunBackgroundListener(toggle, savedIds, ringSettings::modeFor, notificationsPermitted)) {
+                    if (dev.forgesworn.kithmoot.service.shouldRunBackgroundService(toggle, delivery.enabled(), savedIds, ringSettings::modeFor, notificationsPermitted)) {
                         dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(this@MainActivity)
                     }
                 }

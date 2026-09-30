@@ -25,6 +25,36 @@ import kotlin.test.assertTrue
 class EntryGateTest {
 
     @Test
+    fun `sign out waiting behind room entry refuses a changed account or opened room`() = runTest {
+        val gate = EntryGate()
+        val requested = Any()
+        var current: Any = requested
+        var stage = Stage.START
+        assertTrue(gate.tryAcquire())
+        val signOut = async {
+            if (!gate.awaitAcquire(30_000)) return@async false
+            try { signOutStillTargets(requested, current, stage, roomOpen = stage == Stage.ROOM) }
+            finally { gate.release() }
+        }
+        runCurrent()
+        current = Any()
+        gate.release()
+        assertFalse(signOut.await(), "a newer account must survive an older queued sign-out")
+
+        assertTrue(gate.tryAcquire())
+        current = requested
+        val second = async {
+            if (!gate.awaitAcquire(30_000)) return@async false
+            try { signOutStillTargets(requested, current, stage, roomOpen = stage == Stage.ROOM) }
+            finally { gate.release() }
+        }
+        runCurrent()
+        stage = Stage.ROOM
+        gate.release()
+        assertFalse(second.await(), "a room opened while sign-out waited must stay open")
+    }
+
+    @Test
     fun `a free gate is taken at once`() {
         val gate = EntryGate()
         assertTrue(gate.tryAcquire())

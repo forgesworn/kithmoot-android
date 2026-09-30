@@ -36,6 +36,7 @@ class FakeRelay {
     var confirmsPublications: Boolean = true
     var publicationBlocked: Boolean = false
         private set
+    private var publicationGeneration = 0L
     val transitionCalls = mutableListOf<String>()
 
     private val subscriptions = mutableListOf<Subscription>()
@@ -51,6 +52,14 @@ class FakeRelay {
             return confirmsPublications
         }
 
+        override fun publicationGeneration(): Long = this@FakeRelay.publicationGeneration
+
+        override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+            stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+            check(!publicationBlocked && generation == publicationGeneration && stillAllowed())
+            return publishConfirmed(event, timeoutMs)
+        }
+
         override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
             val subscription = Subscription(filters)
             return subscription.events
@@ -60,6 +69,7 @@ class FakeRelay {
 
         override suspend fun beginRekey() {
             publicationBlocked = true
+            publicationGeneration += 1
             transitionCalls += "begin"
         }
 

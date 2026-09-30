@@ -18,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
+import dev.forgesworn.kithmoot.service.BackgroundDeliverySettings
 import dev.forgesworn.kithmoot.service.BackgroundRingSettings
 
 @Composable
@@ -89,20 +90,41 @@ fun NotificationSettings(
     Spacer(Modifier.height(12.dp))
     val context = LocalContext.current
     val backgroundRing = remember { BackgroundRingSettings(context) }
+    val backgroundDelivery = remember { BackgroundDeliverySettings(context) }
     var backgroundEnabled by remember { mutableStateOf(backgroundRing.enabled()) }
+    var deliveryEnabled by remember { mutableStateOf(backgroundDelivery.enabled()) }
+    // The running service keeps itself current; one of the two switches still
+    // on means it restarts and reconciles rather than stopping.
+    fun apply() {
+        if (backgroundEnabled || deliveryEnabled) BackgroundCallListenerService.start(context)
+        else BackgroundCallListenerService.stop(context)
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Ring when KithMoot is closed", Modifier.weight(1f))
         Switch(backgroundEnabled, { enabled ->
             backgroundEnabled = enabled
             backgroundRing.setEnabled(enabled)
-            if (enabled) {
-                BackgroundCallListenerService.start(context)
-            } else {
-                BackgroundCallListenerService.stop(context)
-            }
+            apply()
         }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
     }
     Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
+    Spacer(Modifier.height(12.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Receive messages when KithMoot is closed", Modifier.weight(1f))
+        Switch(deliveryEnabled, { enabled ->
+            deliveryEnabled = enabled
+            backgroundDelivery.setEnabled(enabled)
+            apply()
+        }, Modifier.semantics { contentDescription = "Receive messages when KithMoot is closed" })
+    }
+    Text("Off by default. Keeps a connection open for each saved room, which uses battery. Anonymous and quiet rooms receive only when opened.", style = MaterialTheme.typography.bodySmall)
+    if (deliveryEnabled) {
+        val state by produceState(backgroundDelivery.state()) {
+            while (true) { this.value = backgroundDelivery.state(); kotlinx.coroutines.delay(2_000) }
+        }
+        Text("Background messages: ${state.label}", Modifier.semantics { contentDescription = "Background messages: ${state.label}" },
+            style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 /** The room a [NotificationSettings] menu was opened from, and how to read
