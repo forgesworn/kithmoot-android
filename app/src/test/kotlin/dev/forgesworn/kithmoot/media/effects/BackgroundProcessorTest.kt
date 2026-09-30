@@ -422,7 +422,7 @@ class BackgroundProcessorTest {
         val store = FakeBackgroundStore()
         val preference = BackgroundPreference(store)
 
-        assertEquals(BackgroundChoice(null, fish = true), preference.load())
+        assertEquals(BackgroundPreference.DEFAULT, preference.load())
 
         preference.save(BackgroundChoice(SeaScene.CORAL, fish = false))
         assertEquals(BackgroundChoice(SeaScene.CORAL, fish = false), preference.load())
@@ -433,28 +433,47 @@ class BackgroundProcessorTest {
     }
 
     @Test
-    fun `a scene this version does not know leaves the background off`() {
+    fun `a device that never chose gets the plain dark fill, not its room`() {
+        val choice = BackgroundPreference(FakeBackgroundStore()).load()
+        assertEquals(SeaScene.PLAIN, choice.scene)
+        assertTrue(choice.on)
+        assertEquals(false, choice.showsFish, "no fish over a plain fill")
+    }
+
+    @Test
+    fun `off, once chosen, stays off`() {
         val store = FakeBackgroundStore()
-        store.strings["background:scene"] = "KELP_FOREST"
+        BackgroundPreference(store).save(BackgroundChoice(null))
         assertNull(BackgroundPreference(store).load().scene)
     }
 
     @Test
-    fun `off is the default, so a camera is never quietly handed to a model`() {
-        assertEquals(false, BackgroundChoice().on)
-        assertNull(BackgroundChoice().scene)
+    fun `a scene this version does not know falls back to the plain fill, never to the room`() {
+        val store = FakeBackgroundStore()
+        store.strings["background:scene"] = "KELP_FOREST"
+        assertEquals(SeaScene.PLAIN, BackgroundPreference(store).load().scene)
     }
 
     @Test
-    fun `every scene has a bundled picture and a label`() {
-        for (scene in SeaScene.entries) {
-            assertTrue(scene.asset.startsWith("backgrounds/"), scene.asset)
-            assertTrue(scene.asset.endsWith(".webp"), scene.asset)
+    fun `a bare choice is off, and is never what a device starts with`() {
+        assertEquals(false, BackgroundChoice().on)
+        assertNull(BackgroundChoice().scene)
+        assertTrue(BackgroundPreference.DEFAULT.on)
+    }
+
+    @Test
+    fun `every sea has a bundled picture and a label`() {
+        val seas = SeaScene.entries.filter { it != SeaScene.PLAIN }
+        assertNull(SeaScene.PLAIN.asset)
+        for (scene in seas) {
+            val asset = scene.asset!!
+            assertTrue(asset.startsWith("backgrounds/"), asset)
+            assertTrue(asset.endsWith(".webp"), asset)
             assertTrue(scene.label.isNotBlank())
         }
         assertEquals(
             listOf("Lagoon", "Coral garden", "Deep blue", "White sand"),
-            SeaScene.entries.map { it.label },
+            seas.map { it.label },
             "the web client's wording, in the web client's order",
         )
         assertEquals(6, FISH_SPRITES.size)

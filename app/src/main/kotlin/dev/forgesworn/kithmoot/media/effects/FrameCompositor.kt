@@ -139,7 +139,7 @@ class FrameCompositor(
 
         val canvas = Canvas(work)
         if (!drawScene(canvas, scene, wanted, frontFacing)) return null
-        if (choice.fish) reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
+        if (choice.showsFish) reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
         canvas.drawBitmap(person!!, 0f, 0f, plain)
 
         return pack(work, wanted, frame.timestampNs)
@@ -279,7 +279,9 @@ class FrameCompositor(
 
     /** The sea, cover-fitted and centre-cropped, mirrored on the front camera. */
     private fun drawScene(canvas: Canvas, scene: SeaScene, wanted: WorkingSize, frontFacing: Boolean): Boolean {
-        val picture = ensureBackground(scene) ?: return false
+        val asset = scene.asset
+        if (asset == null) { canvas.drawColor(PLAIN_FILL); return true }
+        val picture = ensureBackground(scene, asset) ?: return false
         val rect = coverRect(picture.width, picture.height, wanted.outWidth, wanted.outHeight)
         canvas.save()
         if (mirrorBackground(frontFacing)) {
@@ -372,13 +374,13 @@ class FrameCompositor(
         return made.first
     }
 
-    private fun ensureBackground(scene: SeaScene): Bitmap? {
+    private fun ensureBackground(scene: SeaScene, asset: String): Bitmap? {
         if (backgroundFor == scene) background?.let { return it }
         background?.recycle()
         background = null
         backgroundFor = null
         val made = runCatching {
-            context.assets.open(scene.asset).use { BitmapFactory.decodeStream(it) }
+            context.assets.open(asset).use { BitmapFactory.decodeStream(it) }
         }.getOrElse {
             Log.w(TAG, "the ${scene.label} background would not decode", it)
             null
@@ -423,6 +425,8 @@ class FrameCompositor(
 
     private companion object {
         const val TAG = "KithMootBackground"
+        /** The plain scene: the web client's dark page colour, #101114. */
+        const val PLAIN_FILL = 0xFF101114.toInt()
 
         /** How far the person's outline is pulled in, in output pixels. The
          *  web client's `STENCIL_ERODE_PX`. */

@@ -16,7 +16,10 @@ import android.content.SharedPreferences
  * questions and folding them into one list meant answering the first to get at
  * the second.
  */
-enum class SeaScene(val label: String, val asset: String) {
+enum class SeaScene(val label: String, val asset: String?) {
+    /** A plain dark fill and no picture: the default, so a camera turned on
+     *  without a choice shows the person and not their room. */
+    PLAIN("Plain dark", null),
     LAGOON("Lagoon", "backgrounds/sea-lagoon.webp"),
     CORAL("Coral garden", "backgrounds/sea-coral.webp"),
     DEEP("Deep blue", "backgrounds/sea-deep.webp"),
@@ -46,12 +49,15 @@ val FISH_SPRITES = listOf(
 /**
  * What the person has chosen: a scene, or nothing at all.
  *
- * `scene == null` is the off state and it is the default. Off is not a mode the
- * compositor handles; it is the compositor never being asked, which is what
- * makes the pass-through free. See `BackgroundProcessor`.
+ * `scene == null` is the off state. Off is not a mode the compositor handles;
+ * it is the compositor never being asked, which is what makes the pass-through
+ * free. See `BackgroundProcessor`. A device that has never chosen gets
+ * [BackgroundPreference.DEFAULT], not this constructor's off.
  */
 data class BackgroundChoice(val scene: SeaScene? = null, val fish: Boolean = true) {
     val on: Boolean get() = scene != null
+    /** Fish swim over a sea. Over the plain fill they would look like a fault. */
+    val showsFish: Boolean get() = fish && scene?.asset != null
 }
 
 /**
@@ -86,26 +92,35 @@ class SharedPreferencesBackgroundStore(private val prefs: SharedPreferences) : B
  * their room has that reason on Tuesday as well, and a setting that resets is a
  * setting that publishes a room the once.
  *
- * Off is still the default for a device that has never chosen. The web client
- * starts blurred; there is no blur here, and switching a camera straight into a
- * segmenter somebody never asked for would spend their battery to answer a
- * question they had not been asked.
+ * A device that has never chosen gets the plain dark fill. It used to get off,
+ * to spare the battery a segmenter nobody asked for, and the owner's own first
+ * call on a phone published their room. The web client starts blurred for the
+ * same reason; there is no blur here, so the dark fill stands in for it. Off is
+ * stored as its own value, so a person who turns it off keeps it off. A device
+ * that turned it off before off was stored gets the dark fill once, and can
+ * turn it off again.
  */
 class BackgroundPreference(private val store: BackgroundStore) {
 
-    fun load(): BackgroundChoice = BackgroundChoice(
-        scene = SeaScene.byName(store.getString(KEY_SCENE, null)),
-        fish = store.getBoolean(KEY_FISH, true),
-    )
+    fun load(): BackgroundChoice {
+        val stored = store.getString(KEY_SCENE, null)
+            ?: return DEFAULT.copy(fish = store.getBoolean(KEY_FISH, DEFAULT.fish))
+        return BackgroundChoice(
+            scene = if (stored == OFF) null else SeaScene.byName(stored) ?: DEFAULT.scene,
+            fish = store.getBoolean(KEY_FISH, true),
+        )
+    }
 
     fun save(choice: BackgroundChoice) {
-        val scene = choice.scene
-        if (scene == null) store.remove(KEY_SCENE) else store.putString(KEY_SCENE, scene.name)
+        store.putString(KEY_SCENE, choice.scene?.name ?: OFF)
         store.putBoolean(KEY_FISH, choice.fish)
     }
 
-    private companion object {
-        const val KEY_SCENE = "background:scene"
-        const val KEY_FISH = "background:fish"
+    companion object {
+        /** What a camera starts with before anybody has chosen. */
+        val DEFAULT = BackgroundChoice(scene = SeaScene.PLAIN, fish = true)
+        private const val KEY_SCENE = "background:scene"
+        private const val KEY_FISH = "background:fish"
+        private const val OFF = "OFF"
     }
 }
