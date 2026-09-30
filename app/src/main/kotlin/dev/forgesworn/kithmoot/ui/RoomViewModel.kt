@@ -1347,12 +1347,14 @@ class RoomViewModel @JvmOverloads constructor(
                     // Finish every pending write and clear its journal before
                     // releasing the account identity that owns it.
                     signedOutAccount?.let { account ->
-                        savedRooms.list().filter { it.account == account }.forEach { room ->
-                            savedRooms.get(room.id)?.let { saved ->
-                                dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), saved.id,
-                                    saved.participant, saved.devicePubkey).outbox.clear()
+                        try {
+                            savedRooms.list().filter { it.account == account }.forEach { room ->
+                                savedRooms.get(room.id)?.let { saved ->
+                                    dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), saved.id,
+                                        saved.participant, saved.devicePubkey).outbox.clear()
+                                }
                             }
-                        }
+                        } catch (_: RoomStorageException) { /* Unreadable rooms: nothing to clear. */ }
                     }
                     accountGate.withLock {
                         stopRoomBookmarks()
@@ -1775,10 +1777,14 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
         }
         linkConsents.reset()
-        savedRooms.list().forEach { room -> savedRooms.get(room.id)?.let { saved ->
-            dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
-                saved.id, saved.participant, saved.devicePubkey).outbox.clear()
-        } }
+        // Best effort: corrupt saved rooms cannot be listed, and resetting
+        // them is exactly how the person recovers, so it must still happen.
+        try {
+            savedRooms.list().forEach { room -> savedRooms.get(room.id)?.let { saved ->
+                dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
+                    saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+            } }
+        } catch (_: RoomStorageException) { /* Nothing readable to clear. */ }
         savedRooms.reset()
     }
 
