@@ -1854,6 +1854,7 @@ class RoomViewModel @JvmOverloads constructor(
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
             } }
         } catch (_: RoomStorageException) { /* Nothing readable to clear. */ }
+        dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
         savedRooms.reset()
     }
 
@@ -2951,6 +2952,11 @@ class RoomViewModel @JvmOverloads constructor(
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
         savedRooms.save(record)
+        // The signer has most likely just answered: renew the other Ring me
+        // rooms while it will still do so without asking.
+        if (record.viaAccount) viewModelScope.launch(Dispatchers.IO) {
+            dev.forgesworn.kithmoot.service.CredentialRenewal.renewQuietly(getApplication())
+        }
         var durableEpoch = record.authority?.let {
             roomEpochs.initialise(record.id, it, record.secret, epochSeconds())
         }
@@ -3289,6 +3295,12 @@ class RoomViewModel @JvmOverloads constructor(
                         // label while the app is closed - see
                         // service/BackgroundParticipantCache.kt.
                         dev.forgesworn.kithmoot.service.BackgroundParticipantCache(getApplication()).remember(record.id, people)
+                        // The names this room shows, so a ring can name its caller.
+                        dev.forgesworn.kithmoot.notifications.CallerNames.remember(getApplication(), people.mapNotNull { person ->
+                            val name = _room.value.profiles[person.participant]?.name
+                                ?: person.devices.firstNotNullOfOrNull { it.name?.takeIf(String::isNotBlank) }
+                            name?.let { person.participant to it }
+                        }.toMap())
                         // The room's current call is the head of the same list
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
@@ -3836,6 +3848,18 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     // --- controls ------------------------------------------------------------
+
+    /**
+     * The "Open KithMoot to stay reachable" notice was tapped: renew every
+     * Ring me room's credential, with the signer shown for the first and the
+     * rest through the window that opens. See service/CredentialRenewal.kt.
+     */
+    fun renewCallCredentials() = viewModelScope.launch(Dispatchers.IO) {
+        start.first { !it.loadingRooms }
+        val signer = accountSigner ?: return@launch note("Sign in to stay reachable for calls.")
+        val renewed = dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
+        if (renewed > 0) showNotice("You can answer calls in your rooms again.")
+    }
 
     fun leaveCall() {
         val live = session ?: return

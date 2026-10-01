@@ -62,6 +62,9 @@ class MainActivity : ComponentActivity() {
     /** A room to open and join the call in, off an Answer press - the
      *  notification's action or [dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity]. */
     private val answerCallRoom = MutableStateFlow<String?>(null)
+    /** True from Answer on the lock screen until that call is over: see [showOverLock]. */
+    private val answeredOverLock = MutableStateFlow(false)
+    private val renewRequested = MutableStateFlow(false)
 
     /**
      * Signer intents, one at a time. A NIP-55 signer app is another activity
@@ -119,7 +122,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
+        else if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) renewRequested.value = true
         else if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            showOverLock()
             answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID)
         } else signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
@@ -178,6 +183,35 @@ class MainActivity : ComponentActivity() {
                     // the microphone goes live with the join. Camera stays off.
                     model.joinCall(micOn = ensureMicForAnswer())
                 }
+                val overLock by answeredOverLock.collectAsState()
+                LaunchedEffect(overLock) {
+                    if (!overLock) return@LaunchedEffect
+                    // Over the lock screen for the answered call only: once it
+                    // ends, or the person goes anywhere but the call, the lock
+                    // screen covers KithMoot again. A call that never joins
+                    // gives up the lock screen too.
+                    val joined = kotlinx.coroutines.withTimeoutOrNull(OVER_LOCK_JOIN_MS) {
+                        kotlinx.coroutines.flow.combine(model.stage, model.room) { s, r -> s == Stage.ROOM && r.onCall }.first { it }
+                    }
+                    if (joined != null) kotlinx.coroutines.flow.combine(model.stage, model.room, androidx.compose.runtime.snapshotFlow { visiting }) { s, r, v ->
+                        s != Stage.ROOM || !r.onCall || v
+                    }.first { it }
+                    hideUnderLock()
+                }
+                val renew by renewRequested.collectAsState()
+                LaunchedEffect(renew) {
+                    if (!renew) return@LaunchedEffect
+                    renewRequested.value = false
+                    model.renewCallCredentials()
+                }
+                // Coming to the front is a chance the signer is still unlocked.
+                LaunchedEffect(Unit) {
+                    visible.collect { shown ->
+                        if (shown) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            dev.forgesworn.kithmoot.service.CredentialRenewal.renewQuietly(applicationContext)
+                        }
+                    }
+                }
                 val link by incoming.collectAsState()
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
@@ -227,7 +261,26 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val inPip by pictureInPicture.collectAsState()
-                if (visiting) {
+                // Still locked: the call alone, never the rest of the room.
+                var locked by remember { mutableStateOf(false) }
+                LaunchedEffect(overLock) {
+                    val keyguard = getSystemService(android.app.KeyguardManager::class.java)
+                    while (overLock) {
+                        locked = keyguard.isKeyguardLocked
+                        kotlinx.coroutines.delay(500)
+                    }
+                    locked = false
+                }
+                if (overLock && locked) {
+                    dev.forgesworn.kithmoot.ui.room.LockedCallScreen(
+                        callRoom,
+                        onToggleMic = model::toggleMicrophone,
+                        onLeave = model::leaveCall,
+                        onUnlock = {
+                            getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
+                        },
+                    )
+                } else if (visiting) {
                     KithMootApp(
                         visitor,
                         accountModel = model,
@@ -251,6 +304,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Answer on the lock screen goes straight to the call, the way a phone
+     * call does, rather than joining unseen behind the lock screen until the
+     * person unlocks. Only for that call: see the `overLock` effect.
+     */
+    private fun showOverLock() {
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+        answeredOverLock.value = true
+    }
+
+    private fun hideUnderLock() {
+        setShowWhenLocked(false)
+        setTurnScreenOn(false)
+        answeredOverLock.value = false
+    }
+
     override fun onStart() {
         super.onStart()
         visible.value = true
@@ -272,7 +342,9 @@ class MainActivity : ComponentActivity() {
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
             notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
         }
+        if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) { renewRequested.value = true; return }
         if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
+            showOverLock()
             answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID); return
         }
         signetFrom(intent)?.let { signetReturn.value = it; return }
@@ -300,3 +372,6 @@ class MainActivity : ComponentActivity() {
         return raw.takeIf { it.contains('#') }
     }
 }
+
+/** How long Answer waits for the call to join before giving the lock screen back. */
+private const val OVER_LOCK_JOIN_MS = 30_000L

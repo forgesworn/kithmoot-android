@@ -46,3 +46,27 @@ class IncomingCallTracker {
         return IncomingCallChange.Stop
     }
 }
+
+/**
+ * Calls this device has answered, joined or declined, for the life of the
+ * process. A room's ringing moves between trackers - the background
+ * listener's while KithMoot is closed, the open room's while it is on
+ * screen - and each new tracker starts with nothing seen. Without this,
+ * leaving a call by closing KithMoot handed the room back to the background
+ * listener, which rang again for the call just left.
+ */
+object HandledCalls {
+    private const val LIMIT = 64
+    private val calls = LinkedHashSet<String>()
+
+    @Synchronized
+    fun add(roomId: String, callId: String) {
+        if (roomId.isEmpty() || callId.isEmpty()) return
+        calls.remove("$roomId|$callId")
+        calls.add("$roomId|$callId")
+        while (calls.size > LIMIT) calls.remove(calls.first())
+    }
+
+    @Synchronized
+    fun contains(roomId: String, callId: String): Boolean = calls.contains("$roomId|$callId")
+}

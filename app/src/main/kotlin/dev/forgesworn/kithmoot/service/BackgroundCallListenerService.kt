@@ -171,6 +171,7 @@ class BackgroundCallListenerService : Service() {
         loopJob = scope.launch {
             while (isActive) {
                 if (!reconcileNow()) break
+                CredentialRenewal.renewQuietly(applicationContext, fromBackground = true)
                 delay(RECONCILE_INTERVAL_MS)
             }
             stopAll()

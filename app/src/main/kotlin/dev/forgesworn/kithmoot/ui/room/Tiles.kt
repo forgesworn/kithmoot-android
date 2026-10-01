@@ -110,4 +110,4 @@ private val HEX_PUBKEY = Regex("^[0-9a-f]{64}$")
  * shown as written rather than mangled by [shortId]. See
  * `service/BackgroundCallListenerService.kt`.
  */
-fun callerLabel(caller: String): String = if (HEX_PUBKEY.matches(caller)) shortId(caller) else caller
+fun callerLabel(caller: String): String = if (HEX_PUBKEY.matches(caller)) dev.forgesworn.kithmoot.account.shortNpub(caller) else caller

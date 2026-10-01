@@ -1,7 +1,9 @@
 package dev.forgesworn.kithmoot.notifications
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Ported from app/src/incoming-call.test.ts in the web client. */
@@ -42,5 +44,24 @@ class IncomingCallTrackerTest {
         tracker.update(call, "bob", false)
         assertEquals(IncomingCallChange.Stop, tracker.reset())
         assertEquals(IncomingCallChange.Ring(call), tracker.update(call, "bob", false))
+    }
+
+    @Test
+    fun `a call handled under one tracker stays handled under the next`() {
+        // The room's ringing moves from the open room's tracker back to the
+        // background listener's when KithMoot closes mid-call.
+        HandledCalls.add("room-1", "call-a")
+        assertTrue(HandledCalls.contains("room-1", "call-a"))
+        assertFalse(HandledCalls.contains("room-2", "call-a"))
+        assertFalse(HandledCalls.contains("room-1", "call-b"))
+        val background = IncomingCallTracker()
+        assertNull(background.update(call, "bob", HandledCalls.contains("room-1", call.id)))
+    }
+
+    @Test
+    fun `handled calls keep only the most recent`() {
+        repeat(100) { HandledCalls.add("room-x", "call-$it") }
+        assertFalse(HandledCalls.contains("room-x", "call-0"))
+        assertTrue(HandledCalls.contains("room-x", "call-99"))
     }
 }

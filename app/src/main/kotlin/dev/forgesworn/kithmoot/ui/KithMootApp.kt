@@ -26,6 +26,8 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -160,6 +162,26 @@ fun KithMootApp(
             },
         ))
     }
+
+    // A call rings full-screen, over the lock screen, only with Android 14's
+    // full-screen permission, which a sideloaded app does not get by default.
+    // Asked once, in a room, once notifications are allowed; Notifications &
+    // sound offers it again for as long as it is missing.
+    var fullScreenAsk by remember { mutableStateOf(false) }
+    LaunchedEffect(stage) {
+        if (stage != Stage.ROOM) return@LaunchedEffect
+        if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return@LaunchedEffect
+        if (dev.forgesworn.kithmoot.notifications.canRingFullScreen(context)) return@LaunchedEffect
+        if (!dev.forgesworn.kithmoot.service.BackgroundRingSettings(context).takeFullScreenAsk()) return@LaunchedEffect
+        fullScreenAsk = true
+    }
+    if (fullScreenAsk) AlertDialog(
+        onDismissRequest = { fullScreenAsk = false },
+        title = { Text("Ring like a phone call") },
+        text = { Text("Let a call take the screen, even when the phone is locked. Android asks you to allow this for KithMoot on the next page. Without it, calls ring as a notification.") },
+        confirmButton = { TextButton({ fullScreenAsk = false; dev.forgesworn.kithmoot.notifications.openFullScreenCallSettings(context) }) { Text("Allow") } },
+        dismissButton = { TextButton({ fullScreenAsk = false }) { Text("Not now") } },
+    )
 
     val projection = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -503,8 +525,15 @@ fun KithMootApp(
                 model.joinCall(micOn = granted)
             }
             ringBanner?.let { call ->
+                var callerName by remember(call.caller) { mutableStateOf(dev.forgesworn.kithmoot.ui.room.callerLabel(call.caller)) }
+                LaunchedEffect(call.caller) {
+                    val name = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        dev.forgesworn.kithmoot.notifications.CallerNames.label(context, call.caller)
+                    }
+                    callerName = dev.forgesworn.kithmoot.ui.room.callerLabel(name)
+                }
                 dev.forgesworn.kithmoot.notifications.IncomingCallBanner(
-                    callerLabel = dev.forgesworn.kithmoot.ui.room.shortId(call.caller),
+                    callerLabel = callerName,
                     onAnswer = {
                         model.dismissCallRingBanner()
                         if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==

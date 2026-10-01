@@ -108,6 +108,18 @@ fun NotificationSettings(
         }, Modifier.semantics { contentDescription = "Ring when KithMoot is closed" })
     }
     Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
+    var fullScreen by remember { mutableStateOf(canRingFullScreen(context)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) fullScreen = canRingFullScreen(context) }
+        lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
+    }
+    if (!fullScreen) {
+        Spacer(Modifier.height(8.dp))
+        Text("Calls ring as a notification only. Let them take the screen, over the lock screen, like a phone call.")
+        OutlinedButton({ openFullScreenCallSettings(context) }, Modifier.semantics { contentDescription = "Allow full-screen calls" }) {
+            Text("Allow full-screen calls")
+        }
+    }
     Spacer(Modifier.height(12.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Receive messages when KithMoot is closed", Modifier.weight(1f))

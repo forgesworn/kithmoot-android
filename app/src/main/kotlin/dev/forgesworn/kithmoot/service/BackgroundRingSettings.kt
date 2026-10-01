@@ -36,6 +36,13 @@ class BackgroundRingSettings(context: Context) {
         return true
     }
 
+    /** True the first time only: letting calls take the screen is asked for once, ever. */
+    fun takeFullScreenAsk(): Boolean {
+        if (prefs.getBoolean("fullScreenAsked", false)) return false
+        prefs.edit().putBoolean("fullScreenAsked", true).apply()
+        return true
+    }
+
     companion object {
         private const val KEY_ENABLED = "enabled"
     }

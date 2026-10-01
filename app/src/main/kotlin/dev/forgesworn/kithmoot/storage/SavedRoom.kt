@@ -119,6 +119,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return HeadlessSigning(identity.participant, identity.credential, identity.deviceSecretKey)
     }
 
+    /** When the account credential kept with this room expires, or null when
+     *  there is none still valid at [now]. See `service/CredentialRenewal.kt`. */
+    fun keptCredentialExpiry(now: Long): Long? = keptCredential(now, 0)?.tagValue("expiration")?.toLongOrNull()
+
     /** The account credential kept with this room, if it still authorises this
      *  device as [participant] here at [now] with at least [minRemaining] seconds left. */
     private fun keptCredential(now: Long, minRemaining: Long): NostrEvent? {

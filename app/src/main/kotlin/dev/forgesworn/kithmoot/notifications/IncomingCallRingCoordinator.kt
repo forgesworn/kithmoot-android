@@ -40,7 +40,11 @@ class IncomingCallRingCoordinator(private val context: Context) {
     fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean) {
         currentRoomId = roomId
         val call = if (callId != null && caller != null) IncomingCall(callId, caller) else null
-        when (val change = tracker.update(call, self, joined)) {
+        if (call != null && joined) HandledCalls.add(roomId, call.id)
+        // A call this device already answered or declined counts as joined:
+        // it stops any ring and never starts one, whichever tracker sees it.
+        val handled = call != null && HandledCalls.contains(roomId, call.id)
+        when (val change = tracker.update(call, self, joined || handled)) {
             null -> Unit
             is IncomingCallChange.Stop -> {
                 mutableBanner.value = null
@@ -54,8 +58,8 @@ class IncomingCallRingCoordinator(private val context: Context) {
                 mutableBanner.value = null
                 when (settings.modeFor(roomId)) {
                     CallRingMode.NOTHING -> Unit
-                    CallRingMode.QUIET -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = true)
-                    CallRingMode.RING -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, change.call.caller, quiet = false)
+                    CallRingMode.QUIET -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = true)
+                    CallRingMode.RING -> IncomingCallRinger.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = false)
                 }
             }
         }

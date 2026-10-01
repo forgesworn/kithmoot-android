@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.notifications
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -106,17 +107,19 @@ object IncomingCallRinger {
             .setSilent(quiet)
 
         // Android 14 requires the check before a full-screen intent will
-        // actually launch over the lock screen; asking for it any other way
-        // is a settings-page nag, which the person did not ask for. When it
-        // is not permitted the notification still posts, heads-up, with its
-        // Answer and Decline actions - just without taking the screen.
-        val allowFullScreen = if (Build.VERSION.SDK_INT >= 34) {
-            context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
-        } else true
-        if (allowFullScreen && !quiet) builder.setFullScreenIntent(fullScreenPending, true)
+        // actually launch over the lock screen. When it is not permitted the
+        // notification still posts, heads-up, with its Answer and Decline
+        // actions - just without taking the screen. The person is asked once
+        // (KithMootApp) and can grant it from Notifications & sound.
+        if (canRingFullScreen(context) && !quiet) builder.setFullScreenIntent(fullScreenPending, true)
+
+        val notification = builder.build()
+        // Ring until answered, declined or timed out, like a phone call: a
+        // channel sound otherwise plays the ringtone once and stops.
+        if (!quiet) notification.flags = notification.flags or Notification.FLAG_INSISTENT
 
         try {
-            NotificationManagerCompat.from(context).notify(roomId, NOTIFICATION_ID, builder.build())
+            NotificationManagerCompat.from(context).notify(roomId, NOTIFICATION_ID, notification)
         } catch (_: SecurityException) {
             mutableActive.value = null
             return

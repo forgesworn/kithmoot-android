@@ -11,16 +11,17 @@ import dev.forgesworn.kithmoot.MainActivity
  * own buttons).
  *
  * Decline only cancels this device's notification for this call; it never
- * tells the room anything; [IncomingCallTracker] already keeps the call id
- * out of `seen` from stopping it ringing again while the same call runs.
+ * tells the room anything. Both record the call in [HandledCalls], so it
+ * does not ring again while it runs, whichever tracker is watching the room.
  */
 class IncomingCallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val roomId = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_ID) ?: return
+        val callId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_ID).orEmpty()
+        HandledCalls.add(roomId, callId)
         IncomingCallRinger.stop(context, roomId)
         if (intent.action != ACTION_ANSWER) return
         val roomName = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_NAME).orEmpty()
-        val callId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_ID).orEmpty()
         val answer = Intent(context, MainActivity::class.java).setAction(ACTION_ANSWER)
             .putExtra(IncomingCallRinger.EXTRA_ROOM_ID, roomId)
             .putExtra(IncomingCallRinger.EXTRA_ROOM_NAME, roomName)
