@@ -137,7 +137,7 @@ object CredentialRenewal {
 
     private val _atRisk = MutableStateFlow<List<AtRiskRoom>>(emptyList())
     /**
-     * The Ring me rooms that cannot ring this phone for want of a credential,
+     * The Ring me rooms where a call cannot be answered for want of a credential,
      * for the signed-in account: what the banner shows, for as long as it is
      * true. Process-wide, so a renewal made by the background listener clears
      * it too. Worked out from the saved rooms and their credentials alone,
@@ -255,10 +255,10 @@ object CredentialRenewal {
         NotificationManagerCompat.from(context).cancel(NOTICE_ID)
     }
 
-    /** The channel both "calls can't ring" notifications use; the id is kept so existing settings survive. */
+    /** The channel both the "can't answer" and the "won't ring" notifications use; the id is kept so existing settings survive. */
     internal fun reachabilityChannel() =
-        NotificationChannel(CHANNEL, "Calls that can't ring", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "When your signer has to confirm this phone again, or ringing is off, so KithMoot cannot ring you for calls."
+        NotificationChannel(CHANNEL, "Answering and ringing calls", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "When your signer has to confirm this phone before you can answer calls, or ringing is off."
         }
 
     internal const val CHANNEL_ID = CHANNEL

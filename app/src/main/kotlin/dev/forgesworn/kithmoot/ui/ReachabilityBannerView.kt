@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.service.ReachabilityBanner
 
 /**
- * Says, for as long as it is true, that calls cannot ring this phone, and gives
+ * Says, for as long as it is true, that calls cannot be answered yet, and gives
  * the one button that fixes it. Not dismissible: the notification that says the
  * same is, and a dismissed notice left people silently unreachable.
  *

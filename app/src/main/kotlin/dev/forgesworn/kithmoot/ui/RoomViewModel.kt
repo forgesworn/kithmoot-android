@@ -592,7 +592,7 @@ private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
-/** How often the banner's picture of which rooms cannot ring is looked at again. */
+/** How often the banner's picture of which rooms cannot answer calls is looked at again. */
 private const val REACHABILITY_CHECK_MS = 60_000L
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
@@ -889,7 +889,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
-        // Which Ring me rooms cannot ring this phone, kept current for the banner:
+        // Which Ring me rooms cannot answer a call yet, kept current for the banner:
         // whenever the rooms or the account change, and as credentials run down.
         if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
             kotlinx.coroutines.flow.merge(
@@ -3976,7 +3976,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     // --- controls ------------------------------------------------------------
 
-    /** The Ring me rooms that cannot ring this phone: what the banner on the rooms list and in the room shows. */
+    /** The Ring me rooms where a call cannot be answered yet: what the banner on the rooms list and in the room shows. */
     val reachability: StateFlow<List<dev.forgesworn.kithmoot.service.AtRiskRoom>> =
         dev.forgesworn.kithmoot.service.CredentialRenewal.atRisk
 
@@ -3995,7 +3995,7 @@ class RoomViewModel @JvmOverloads constructor(
     val renewingCalls: StateFlow<Boolean> = _renewingCalls.asStateFlow()
 
     /**
-     * The "KithMoot can't ring you for calls" notice or banner was tapped:
+     * The "You can't answer KithMoot calls yet" notice or banner was tapped:
      * renew every Ring me room's credential, with the signer shown for the
      * first and the rest through the window that opens. See
      * service/CredentialRenewal.kt.

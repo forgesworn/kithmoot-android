@@ -9,7 +9,7 @@ data class AtRiskRoom(val id: String, val name: String) {
     }
 }
 
-/** "Untitled test", or "2 rooms": what the notice and the banner call the rooms that cannot ring. */
+/** "Untitled test", or "2 rooms": what the notice and the banner call the rooms where calls cannot be answered yet. */
 fun roomsPhrase(names: List<String>): String = when (names.size) {
     0 -> "your rooms"
     1 -> names.single()
@@ -20,8 +20,8 @@ fun roomsPhrase(names: List<String>): String = when (names.size) {
 data class ReachabilityNoticeText(val title: String, val text: String)
 
 fun reachabilityNoticeText(names: List<String>) = ReachabilityNoticeText(
-    title = "KithMoot can't ring you for calls",
-    text = "Tap to confirm with your signer so calls in ${roomsPhrase(names)} can ring this phone.",
+    title = "You can't answer KithMoot calls yet",
+    text = "Tap to confirm with your signer so you can answer calls in ${roomsPhrase(names)}.",
 )
 
 /** What the banner says and its one button. */
@@ -48,7 +48,7 @@ fun reachabilityBanner(atRisk: List<AtRiskRoom>, signerLabel: String?, inRoom: S
     val rooms = if (inRoom == null) atRisk else atRisk.filter { it.id == inRoom }
     if (rooms.isEmpty()) return null
     return ReachabilityBanner(
-        message = "Calls in ${roomsPhrase(rooms.map { it.name })} can't ring this phone.",
+        message = "You can't answer calls in ${roomsPhrase(rooms.map { it.name })} yet.",
         detail = "${signerDisplayName(signerLabel).replaceFirstChar { it.uppercase() }} has to confirm this phone again.",
         action = "Confirm with ${signerDisplayName(signerLabel)}",
     )

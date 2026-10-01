@@ -12,10 +12,10 @@ class ReachabilityTest {
     @Test
     fun `the notification says what is wrong and what to do`() {
         val one = reachabilityNoticeText(listOf("Untitled test"))
-        assertEquals("KithMoot can't ring you for calls", one.title)
-        assertEquals("Tap to confirm with your signer so calls in Untitled test can ring this phone.", one.text)
+        assertEquals("You can't answer KithMoot calls yet", one.title)
+        assertEquals("Tap to confirm with your signer so you can answer calls in Untitled test.", one.text)
         assertEquals(
-            "Tap to confirm with your signer so calls in 2 rooms can ring this phone.",
+            "Tap to confirm with your signer so you can answer calls in 2 rooms.",
             reachabilityNoticeText(listOf("Untitled test", "Standup")).text,
         )
     }
@@ -30,7 +30,7 @@ class ReachabilityTest {
     @Test
     fun `the banner names the room and the signer app`() {
         val banner = reachabilityBanner(listOf(untitledTest), "My Signet")!!
-        assertEquals("Calls in Untitled test can't ring this phone.", banner.message)
+        assertEquals("You can't answer calls in Untitled test yet.", banner.message)
         assertEquals("My Signet has to confirm this phone again.", banner.detail)
         assertEquals("Confirm with My Signet", banner.action)
     }
@@ -38,7 +38,7 @@ class ReachabilityTest {
     @Test
     fun `the banner counts the rooms when there are several`() {
         val banner = reachabilityBanner(listOf(untitledTest, standup), "My Signet")!!
-        assertEquals("Calls in 2 rooms can't ring this phone.", banner.message)
+        assertEquals("You can't answer calls in 2 rooms yet.", banner.message)
     }
 
     @Test
@@ -60,7 +60,7 @@ class ReachabilityTest {
     @Test
     fun `inside a room the banner appears only for a room that cannot ring, and names just that room`() {
         val atRisk = listOf(untitledTest, standup)
-        assertEquals("Calls in Standup can't ring this phone.", reachabilityBanner(atRisk, "My Signet", inRoom = standup.id)!!.message)
+        assertEquals("You can't answer calls in Standup yet.", reachabilityBanner(atRisk, "My Signet", inRoom = standup.id)!!.message)
         assertNull(reachabilityBanner(listOf(untitledTest), "My Signet", inRoom = standup.id))
         assertTrue(reachabilityBanner(atRisk, null, inRoom = untitledTest.id) != null)
     }

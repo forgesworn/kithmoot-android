@@ -342,7 +342,7 @@ fun KithMootApp(
                     })
     }
 
-    // Calls cannot ring this phone until the signer confirms it again: said on the
+    // Calls cannot be answered until the signer confirms this phone again: said on the
     // rooms list and in the room, for as long as it is true, whatever became of the notification.
     val reachBanner = if (lockedCallOnly || inPictureInPicture) null else when (stage) {
         Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) else null
