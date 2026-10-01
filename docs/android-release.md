@@ -422,6 +422,10 @@ bash scripts/build-kithmoot-production-release.sh \
   /absolute/private/path/kithmoot-preview-to-production.lineage
 ```
 
+To build without a terminal, put the password in a file only you can read
+(mode 600) and pass its absolute path as `KITHMOOT_PASSWORD_FILE`; the script
+refuses a relative path, a symlink, another owner's file or any other mode.
+
 It downloads and verifies the pinned Link bridge, then prompts for the
 production password without placing it in shell history, derives and checks
 the public certificate and lineage hashes, then invokes the reviewed builder

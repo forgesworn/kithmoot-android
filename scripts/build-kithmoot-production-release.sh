@@ -10,12 +10,22 @@ Usage: bash scripts/build-kithmoot-production-release.sh PRODUCTION_KEYSTORE LIN
 
 Both paths must be absolute. This command prompts for the production keystore
 password on the terminal and passes it only to the existing reviewed builder.
+To build without a terminal, set KITHMOOT_PASSWORD_FILE to an absolute path of
+a file only you can read (mode 600) that holds the password.
 EOF
   exit 2
 }
 
 [[ $# -eq 2 ]] || usage
-[[ -t 0 && -t 1 ]] || { echo "This build requires an interactive terminal" >&2; exit 2; }
+password_file="${KITHMOOT_PASSWORD_FILE:-}"
+if [[ -n "$password_file" ]]; then
+  [[ "$password_file" == /* && -f "$password_file" && ! -L "$password_file" && -O "$password_file" ]] \
+    || { echo "KITHMOOT_PASSWORD_FILE must be an absolute path to a regular file you own" >&2; exit 2; }
+  [[ "$(stat -f %Lp "$password_file" 2>/dev/null || stat -c %a "$password_file")" == 600 ]] \
+    || { echo "KITHMOOT_PASSWORD_FILE must have mode 600" >&2; exit 2; }
+else
+  [[ -t 0 && -t 1 ]] || { echo "This build requires an interactive terminal, or KITHMOOT_PASSWORD_FILE" >&2; exit 2; }
+fi
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repository"
 keystore="$1"; lineage="$2"
@@ -30,9 +40,13 @@ done
 scripts/fetch-link-bridge.sh build/link-ffi-android.zip
 python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
-printf 'Production keystore password: '
-IFS= read -r -s production_password
-printf '\n'
+if [[ -n "$password_file" ]]; then
+  IFS= read -r production_password < "$password_file" || [[ -n "$production_password" ]]
+else
+  printf 'Production keystore password: '
+  IFS= read -r -s production_password
+  printf '\n'
+fi
 # A pasted password often brings a trailing space or carriage return with it,
 # which keytool then rejects.  Trim surrounding whitespace in the shell so the
 # password never passes through another process.
