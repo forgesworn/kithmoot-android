@@ -895,8 +895,17 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(account = host._start.value.account) }
     }
 
+    private var restoring: kotlinx.coroutines.Job? = null
+
+    /**
+     * Waits for the saved account to be opened at start-up, if it is being.
+     * A call answered from a cold start reaches the room before the account
+     * has: a room joined as the account cannot open without it.
+     */
+    suspend fun awaitAccountRestored() { restoring?.join() }
+
     private fun restoreAccount() {
-        viewModelScope.launch(Dispatchers.IO) {
+        restoring = viewModelScope.launch(Dispatchers.IO) {
             accountStoreGate.withLock {
                 if (accountSession != null) return@withLock
                 val saved = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@withLock

@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
                     }
                     val target = if (visiting) visitor else model
                     target.start.first { state -> !state.loadingRooms }
+                    model.awaitAccountRestored()
                     target.openNotificationRoom(id)
                 }
                 val answerRoom by answerCallRoom.collectAsState()
@@ -174,6 +175,7 @@ class MainActivity : ComponentActivity() {
                     answerCallRoom.value = null
                     if (visiting) backToCall()
                     model.start.first { state -> !state.loadingRooms }
+                    model.awaitAccountRestored()
                     model.openNotificationRoom(id)
                     // joinCall() is a no-op until the room actually reaches
                     // Stage.ROOM, which this waits for below.
@@ -181,7 +183,12 @@ class MainActivity : ComponentActivity() {
                         .first { (s, roomId) -> s == Stage.ROOM && roomId == id }
                     // Answer means straight in, talking, like a phone call -
                     // the microphone goes live with the join. Camera stays off.
-                    model.joinCall(micOn = ensureMicForAnswer())
+                    // Android's permission prompt cannot show over the lock
+                    // screen, so a phone still locked joins without the mic
+                    // rather than waiting on a prompt nobody can see.
+                    val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+                    val micAllowed = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    model.joinCall(micOn = if (micAllowed || !locked) ensureMicForAnswer() else false)
                 }
                 val overLock by answeredOverLock.collectAsState()
                 LaunchedEffect(overLock) {
@@ -274,6 +281,7 @@ class MainActivity : ComponentActivity() {
                 if (overLock && locked) {
                     dev.forgesworn.kithmoot.ui.room.LockedCallScreen(
                         callRoom,
+                        micAllowed = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
                         onToggleMic = model::toggleMicrophone,
                         onLeave = model::leaveCall,
                         onUnlock = {

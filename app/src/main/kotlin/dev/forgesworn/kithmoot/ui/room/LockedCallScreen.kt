@@ -36,7 +36,7 @@ import dev.forgesworn.kithmoot.ui.RoomState
  * the whole room as usual.
  */
 @Composable
-fun LockedCallScreen(call: RoomState, onToggleMic: () -> Unit, onLeave: () -> Unit, onUnlock: () -> Unit) {
+fun LockedCallScreen(call: RoomState, micAllowed: Boolean, onToggleMic: () -> Unit, onLeave: () -> Unit, onUnlock: () -> Unit) {
     val heard = call.micOn && !call.micMuted
     val others = call.tiles.filter { !it.isSelf }
     val live = call.mediaConnections.values.any { it == "connected" || it == "completed" }
@@ -49,6 +49,7 @@ fun LockedCallScreen(call: RoomState, onToggleMic: () -> Unit, onLeave: () -> Un
             Spacer(Modifier.heightIn(min = 48.dp))
             Text(
                 when {
+                    !call.onCall -> "Joining the call…"
                     others.isEmpty() -> "Waiting for the others"
                     else -> others.joinToString(", ") { lockedCallName(call, it) }
                 },
@@ -56,13 +57,20 @@ fun LockedCallScreen(call: RoomState, onToggleMic: () -> Unit, onLeave: () -> Un
                 textAlign = TextAlign.Center,
             )
             Text(
-                "${if (live) "On a call" else "Connecting"} in ${call.name.ifBlank { "KithMoot" }}",
+                "${if (live) "On a call" else "Connecting"} in ${call.name.ifBlank { "KithMoot" }}".takeIf { call.onCall } ?: "",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.weight(1f))
-            FilledTonalButton(
+            // Without the permission, only an unlocked phone can ask for it.
+            if (!micAllowed) FilledTonalButton(
+                onClick = onUnlock,
+                enabled = call.onCall,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+            ) { Text("Unlock to use your microphone") }
+            else FilledTonalButton(
                 onClick = onToggleMic,
+                enabled = call.onCall,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics {
                     contentDescription = "Microphone"
                     stateDescription = if (heard) "On" else "Off"
