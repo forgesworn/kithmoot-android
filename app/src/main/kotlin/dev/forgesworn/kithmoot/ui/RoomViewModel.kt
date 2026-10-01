@@ -592,6 +592,8 @@ private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
+/** How often the banner's picture of which rooms cannot ring is looked at again. */
+private const val REACHABILITY_CHECK_MS = 60_000L
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
 private const val GROUP_INVITATION_REFRESH_MS = 6L * 60 * 60 * 1000
@@ -887,6 +889,14 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // Which Ring me rooms cannot ring this phone, kept current for the banner:
+        // whenever the rooms or the account change, and as credentials run down.
+        if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.flow.merge(
+                start.map { it.account?.pubkey to it.savedRooms }.distinctUntilChanged().map { },
+                kotlinx.coroutines.flow.flow { while (true) { emit(Unit); delay(REACHABILITY_CHECK_MS) } },
+            ).collect { runCatching { dev.forgesworn.kithmoot.service.CredentialRenewal.refresh(getApplication()) } }
+        }
         // The call's instance owns the account, its sync and the box checks;
         // a chat-only one is handed the account by `borrowAccount`.
         if (!chatOnly) restoreAccount()
@@ -2074,11 +2084,18 @@ class RoomViewModel @JvmOverloads constructor(
         "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
     private suspend fun openSaved(saved: SavedRoom) {
-        val who = saved.identity(epochSeconds(), accountSigner)
+        val who = saved.identity(epochSeconds(), accountSigner, lifetime = callCredentialLifetime(saved.id))
         open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
             saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
             anonymous = saved.anonymous)
     }
+
+    /** How long a credential minted now for this saved room lasts: longer for a Ring me room, which must stay reachable. */
+    private fun callCredentialLifetime(roomId: String): Long =
+        dev.forgesworn.kithmoot.service.credentialLifetimeFor(
+            dev.forgesworn.kithmoot.service.BackgroundRingSettings(getApplication()).enabled(),
+            dev.forgesworn.kithmoot.notifications.CallRingSettings(getApplication()).modeFor(roomId),
+        )
 
     /** The saved identity for this room if there is one, else the signed-in account, else a key made here for this room. */
     private suspend fun primaryFor(roomId: String, now: Long): RoomIdentity = savedRooms.get(roomId)?.identity(now, accountSigner)
@@ -3959,16 +3976,31 @@ class RoomViewModel @JvmOverloads constructor(
 
     // --- controls ------------------------------------------------------------
 
+    /** The Ring me rooms that cannot ring this phone: what the banner on the rooms list and in the room shows. */
+    val reachability: StateFlow<List<dev.forgesworn.kithmoot.service.AtRiskRoom>> =
+        dev.forgesworn.kithmoot.service.CredentialRenewal.atRisk
+
+    private val _renewingCalls = MutableStateFlow(false)
+    /** The banner's button was pressed and the signer has not answered yet. */
+    val renewingCalls: StateFlow<Boolean> = _renewingCalls.asStateFlow()
+
     /**
-     * The "Open KithMoot to stay reachable" notice was tapped: renew every
-     * Ring me room's credential, with the signer shown for the first and the
-     * rest through the window that opens. See service/CredentialRenewal.kt.
+     * The "KithMoot can't ring you for calls" notice or banner was tapped:
+     * renew every Ring me room's credential, with the signer shown for the
+     * first and the rest through the window that opens. See
+     * service/CredentialRenewal.kt.
      */
     fun renewCallCredentials() = viewModelScope.launch(Dispatchers.IO) {
         start.first { !it.loadingRooms }
         val signer = accountSigner ?: return@launch note("Sign in to stay reachable for calls.")
-        val renewed = dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
-        if (renewed > 0) showNotice("You can answer calls in your rooms again.")
+        if (!_renewingCalls.compareAndSet(false, true)) return@launch
+        try {
+            val renewed = dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
+            if (renewed > 0) showNotice("You can answer calls in your rooms again.")
+            else if (reachability.value.isNotEmpty()) showNotice("Your signer did not confirm this phone. Try again.")
+        } finally {
+            _renewingCalls.value = false
+        }
     }
 
     /** Shows the call rather than the chat: see [RoomState.callViewRequest]. */

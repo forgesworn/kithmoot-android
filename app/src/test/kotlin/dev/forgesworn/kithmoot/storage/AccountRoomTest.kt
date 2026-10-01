@@ -4,7 +4,9 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.protocol.CredentialCheck
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.createRoomInvitation
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.protocol.encodeInvitationUrl
@@ -87,6 +89,38 @@ class AccountRoomTest {
         val again = RoomRepository(disk).get(saved.id)!!.identity(now + KEPT_CREDENTIAL_MIN_REMAINING + 2, signer)
         assertEquals(2, signer.signatures)
         assertEquals(later.credential.id, again.credential.id)
+    }
+
+    @Test fun `a Ring me credential lasts seven days, is reused to half its life and renewed below it`() = runTest {
+        val secret = Entropy.bytes(32)
+        val room = deriveRoom(secret)
+        val signer = ElsewhereSigner(Entropy.bytes(32))
+        val who = PrimaryIdentity.createWith(signer, room.roomId, now + SAVED_CREDENTIAL_TTL, now)
+        val host = createRoomInvitation(true)
+        val saved = SavedRoom.create(secret, who, encodeInvitationUrl("https://kithmoot.example/j/", host.invitation, relays), relays, "Morgs", now, host, null)
+        assertEquals(1, signer.signatures)
+
+        // The day-long credential made at the first join is due at once: a Ring me room wants a week.
+        val week = saved.identity(now, signer, RING_CREDENTIAL_TTL, RING_CREDENTIAL_RENEW_BELOW)
+        assertEquals(2, signer.signatures)
+        assertEquals(now + RING_CREDENTIAL_TTL, week.credential.tagValue("expiration")?.toLong())
+        // Every verifier accepts it: a room credential has no maximum lifetime.
+        assertIs<CredentialCheck.Valid>(verifyDeviceCredential(week.credential, room.roomId, now))
+        assertIs<CredentialCheck.Valid>(verifyDeviceCredential(week.credential, room.roomId, now + RING_CREDENTIAL_TTL - 1))
+        val kept = saved.keepingCredential(week)
+
+        // Three days in, it has more than half its life left: no need to ask the signer.
+        val threeDays = kept.identity(now + 3 * 86_400, signer, RING_CREDENTIAL_TTL, RING_CREDENTIAL_RENEW_BELOW)
+        assertEquals(2, signer.signatures)
+        assertEquals(week.credential.id, threeDays.credential.id)
+        assertEquals(now + 4 * 86_400 + RING_CREDENTIAL_TTL, kept.identity(now + 4 * 86_400, signer, RING_CREDENTIAL_TTL, RING_CREDENTIAL_RENEW_BELOW)
+            .credential.tagValue("expiration")?.toLong(), "past half its life, a fresh week is minted")
+        assertEquals(3, signer.signatures)
+
+        // Opening the room, as opposed to renewing, still reuses what has twelve hours left.
+        val opened = kept.identity(now + 6 * 86_400, signer)
+        assertEquals(3, signer.signatures)
+        assertEquals(week.credential.id, opened.credential.id)
     }
 
     @Test fun `a kept credential is never used by another account or for another device`() = runTest {

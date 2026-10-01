@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.service
 
 import dev.forgesworn.kithmoot.notifications.CallRingMode
+import dev.forgesworn.kithmoot.storage.RING_CREDENTIAL_RENEW_BELOW
+import dev.forgesworn.kithmoot.storage.RING_CREDENTIAL_TTL
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,6 +11,7 @@ import org.junit.Test
 class CredentialRenewalTest {
     private val now = 1_800_000_000L
     private val hour = 60L * 60
+    private val day = 24 * hour
     private val me = "a".repeat(64)
 
     private fun room(
@@ -21,9 +24,35 @@ class CredentialRenewalTest {
     ) = RenewalCandidate(id, viaAccount, participant, excluded, mode, expiresIn?.let { now + it })
 
     @Test
-    fun `renews a Ring me room once it is under twelve hours or has nothing kept`() {
-        val rooms = listOf(room("fresh", 20 * hour), room("half", 11 * hour), room("none", null))
+    fun `renews a Ring me room once it is under three and a half days or has nothing kept`() {
+        val rooms = listOf(room("fresh", 6 * day), room("half", 3 * day), room("none", null))
         assertEquals(listOf("half", "none"), roomsDueForRenewal(rooms, me, now))
+    }
+
+    @Test
+    fun `a week-long credential leaves days of quiet tries before anyone is told`() {
+        // Due from day three and a half, at risk only in the last two hours.
+        val due = RING_CREDENTIAL_TTL - RING_CREDENTIAL_RENEW_BELOW
+        assertEquals(RING_CREDENTIAL_TTL / 2, RING_CREDENTIAL_RENEW_BELOW)
+        assertTrue(due > 3 * day)
+        assertTrue(RING_CREDENTIAL_RENEW_BELOW - AT_RISK_SECONDS > 3 * day)
+        assertEquals(listOf("a"), roomsDueForRenewal(listOf(room("a", RING_CREDENTIAL_RENEW_BELOW - 1)), me, now))
+        assertEquals(emptyList<String>(), roomsAtRisk(listOf(room("a", RING_CREDENTIAL_RENEW_BELOW - 1)), me, now))
+    }
+
+    @Test
+    fun `credentials for Ring me rooms last a week and every other room's a day`() {
+        assertEquals(7 * day, credentialLifetimeFor(true, CallRingMode.RING))
+        assertEquals(24 * hour, credentialLifetimeFor(true, CallRingMode.QUIET))
+        assertEquals(24 * hour, credentialLifetimeFor(true, CallRingMode.NOTHING))
+        assertEquals(24 * hour, credentialLifetimeFor(false, CallRingMode.RING))
+    }
+
+    @Test
+    fun `names the rooms that cannot ring, and only those`() {
+        val rooms = listOf(room("soon", hour), room("fine", 2 * day), room("quiet", null, mode = CallRingMode.QUIET), room("expired", null))
+        assertEquals(listOf("soon", "expired"), roomsAtRisk(rooms, me, now))
+        assertEquals(emptyList<String>(), roomsAtRisk(rooms, "b".repeat(64), now))
     }
 
     @Test

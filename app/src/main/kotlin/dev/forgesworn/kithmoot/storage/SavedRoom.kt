@@ -22,6 +22,23 @@ internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
  */
 internal const val KEPT_CREDENTIAL_MIN_REMAINING = SAVED_CREDENTIAL_TTL / 2
 
+/**
+ * How long the credential minted for a Ring me room lasts: seven days, so a
+ * phone left alone over a weekend, or a signer left locked for a few days,
+ * still rings and answers. A room credential has no maximum lifetime on any
+ * verifier (only the person form is capped, at thirty days), and it is signed
+ * by the account's signer and bound to one device key in one room, so a lost
+ * phone is contained by that room and by this expiry either way.
+ */
+internal const val RING_CREDENTIAL_TTL = 7L * 24 * 60 * 60
+
+/**
+ * A Ring me room's kept credential is renewed once it has less than this left:
+ * half its life, so a signer that is locked for the first three and a half days
+ * of the window is still asked again later, quietly, before anything lapses.
+ */
+internal const val RING_CREDENTIAL_RENEW_BELOW = RING_CREDENTIAL_TTL / 2
+
 class RoomRecoveryException(message: String) : Exception(message)
 
 /** The UI receives labels and identifiers, never the saved capabilities. */
@@ -104,8 +121,18 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      * that account: a fresh device credential, one signature, which the
      * person may have to approve in their signer. Any other account, or none,
      * cannot open the room, and says so rather than joining as a stranger.
+     *
+     * A kept credential with at least [reuseWhileRemaining] seconds left is
+     * reused; otherwise a new one is minted to last [lifetime]. Opening a room
+     * keeps the defaults; a Ring me room asks for [RING_CREDENTIAL_TTL], and
+     * the renewal that keeps it fresh for [RING_CREDENTIAL_RENEW_BELOW].
      */
-    suspend fun identity(now: Long, signer: ParticipantSigner?): RoomIdentity {
+    suspend fun identity(
+        now: Long,
+        signer: ParticipantSigner?,
+        lifetime: Long = SAVED_CREDENTIAL_TTL,
+        reuseWhileRemaining: Long = KEPT_CREDENTIAL_MIN_REMAINING,
+    ): RoomIdentity {
         if (!viaAccount) return identity(now)
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
         ends?.takeIf { ended(now) }?.let { throw RoomRecoveryException(conferenceEndedMessage(it)) }
@@ -114,8 +141,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         // The credential minted last time, while it has life enough left:
         // opening a conversation again must not wait on a bunker or a signer
         // app that may take seconds, or never answer.
-        keptCredential(now, KEPT_CREDENTIAL_MIN_REMAINING)?.let { return PrimaryIdentity(signer, device, it) }
-        return PrimaryIdentity.createWith(signer, id, now + SAVED_CREDENTIAL_TTL, now, device)
+        keptCredential(now, reuseWhileRemaining)?.let { return PrimaryIdentity(signer, device, it) }
+        return PrimaryIdentity.createWith(signer, id, now + lifetime, now, device)
     }
 
     /**
