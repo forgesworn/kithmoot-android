@@ -561,6 +561,7 @@ private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
+private const val GROUP_INVITATION_REFRESH_MS = 6L * 60 * 60 * 1000
 private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
 private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
 
@@ -2651,6 +2652,23 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Public relays drop a regular-kind event after hours or days (nos.lol
+     *  keeps it under three days, primal.net under one), and a persistent
+     *  link is only as durable as that event. The device that made the link
+     *  signs it again while the room is open, so a link shared long after
+     *  creation still loads. Best effort: a refused write is tried again
+     *  next round. */
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray) {
+        scope.launch {
+            while (true) {
+                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds())) }
+                catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
+                catch (_: Exception) { /* Retried next round. */ }
+                kotlinx.coroutines.delay(GROUP_INVITATION_REFRESH_MS)
+            }
+        }
+    }
+
     /** Auto-admit holders of the current link while any admitted member is
      * online, and stop permanently on the creator's durable tombstone. */
     private fun serveInvitation(
@@ -3019,6 +3037,7 @@ class RoomViewModel @JvmOverloads constructor(
         profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
+            if (host.invitation.persistent && host.delegation.isEmpty()) keepGroupInvitationAlive(scope, transport, host, secret)
         }
         live.join()
         if (pendingChat != null) scope.launch(Dispatchers.IO) {
