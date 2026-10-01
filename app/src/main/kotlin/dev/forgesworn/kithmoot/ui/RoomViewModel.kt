@@ -3409,6 +3409,11 @@ class RoomViewModel @JvmOverloads constructor(
                                 roleForTrackId = roleForTrackId,
                                 valueFor = { it.track as VideoTrack },
                                 declaredRole = { it.role },
+                                // A face before a screen, as the web client guesses.
+                                advertisedRoles = { device ->
+                                    val advertised = people.flatMap { it.tracks }.filter { it.device == device }.map { it.role }
+                                    listOf(Roles.CAMERA, Roles.SCREEN).filter { it in advertised }
+                                },
                             ),
                         )
                         for (track in local) (track.track as? VideoTrack)?.let { put(roleKey(who.devicePubkey, track.role), it) }

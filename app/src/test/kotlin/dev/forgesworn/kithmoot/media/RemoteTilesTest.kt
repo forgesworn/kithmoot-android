@@ -10,7 +10,11 @@ import kotlin.test.assertEquals
  */
 private data class FakeTrack(val device: String, val trackId: String, val receiving: Boolean, val label: String)
 
-private fun resolve(remote: List<FakeTrack>, roles: Map<Pair<String, String>, String>): Map<String, String> =
+private fun resolve(
+    remote: List<FakeTrack>,
+    roles: Map<Pair<String, String>, String>,
+    advertised: Map<String, List<String>> = emptyMap(),
+): Map<String, String> =
     resolveRemoteByRole(
         remote = remote,
         device = { it.device },
@@ -18,6 +22,7 @@ private fun resolve(remote: List<FakeTrack>, roles: Map<Pair<String, String>, St
         receiving = { it.receiving },
         roleForTrackId = { device, trackId -> roles[device to trackId] },
         valueFor = { it.label },
+        advertisedRoles = { advertised[it].orEmpty() },
     )
 
 class RemoteTilesTest {
@@ -86,5 +91,33 @@ class RemoteTilesTest {
     @Test
     fun `roleKey is device pipe role`() {
         assertEquals("device-1|camera", roleKey("device-1", "camera"))
+    }
+
+    @Test
+    fun `a live picture whose id the advert no longer names takes the camera its device announced`() {
+        // The far end swapped its camera under the sender: the msid still
+        // names the old track, the roster the new one.
+        val remote = listOf(FakeTrack("linux", "msid-of-old-camera", receiving = true, label = "morgs-camera"))
+        val roles = mapOf(("linux" to "new-camera-track") to "camera")
+
+        assertEquals(mapOf("linux|camera" to "morgs-camera"), resolve(remote, roles, mapOf("linux" to listOf("camera"))))
+    }
+
+    @Test
+    fun `the fallback never takes a role a matched track already fills`() {
+        val remote = listOf(
+            FakeTrack("linux", "unmatched", receiving = true, label = "leftover"),
+            FakeTrack("linux", "cam", receiving = true, label = "camera"),
+        )
+        val roles = mapOf(("linux" to "cam") to "camera")
+
+        assertEquals(mapOf("linux|camera" to "camera"), resolve(remote, roles, mapOf("linux" to listOf("camera"))))
+    }
+
+    @Test
+    fun `a stale receiver is not rescued by the fallback`() {
+        val remote = listOf(FakeTrack("linux", "unmatched", receiving = false, label = "stale"))
+
+        assertEquals(emptyMap(), resolve(remote, emptyMap(), mapOf("linux" to listOf("camera"))))
     }
 }
