@@ -41,7 +41,7 @@ fun NotificationSettings(
         allowed = granted; notices.save(notices.settings.value.copy(enabled = granted))
     }
     if (showHeading) Text("Notifications & sound", style = MaterialTheme.typography.headlineSmall)
-    Text("Alerts for new messages in your joined room while KithMoot stays connected. Other rooms and delivery after Android closes or suspends the app are not covered yet.")
+    Text("New messages in your rooms, including while KithMoot is closed when receiving in the background is on below.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Message notifications", Modifier.weight(1f))
         Switch(value.enabled, { enabled ->
@@ -60,7 +60,7 @@ fun NotificationSettings(
         Text("Show message previews", Modifier.weight(1f))
         Switch(value.previews, { notices.save(value.copy(previews = it)) }, Modifier.semantics { contentDescription = "Show message previews" })
     }
-    Text("Off by default. Alerts name the room and sender; message text stays inside KithMoot. Lock-screen alerts hide these details unless Android permits them.", style = MaterialTheme.typography.bodySmall)
+    Text("On by default. Off, alerts name the room and sender and message text stays inside KithMoot. The lock screen says only that a message came unless Android is set to show more.", style = MaterialTheme.typography.bodySmall)
     TextButton({ notices.systemSettings() }) { Text("Android notification settings") }
     if (room != null) {
         Spacer(Modifier.height(12.dp))
@@ -117,7 +117,7 @@ fun NotificationSettings(
             apply()
         }, Modifier.semantics { contentDescription = "Receive messages when KithMoot is closed" })
     }
-    Text("Off by default. Keeps a connection open for each saved room, which uses battery. Anonymous and quiet rooms receive only when opened.", style = MaterialTheme.typography.bodySmall)
+    Text("On by default, so messages arrive as they are sent. Keeps a connection open for each saved room, which uses some battery: there is no push server to do it instead. Anonymous and quiet rooms receive only when opened.", style = MaterialTheme.typography.bodySmall)
     if (deliveryEnabled) {
         val state by produceState(backgroundDelivery.state()) {
             while (true) { this.value = backgroundDelivery.state(); kotlinx.coroutines.delay(2_000) }

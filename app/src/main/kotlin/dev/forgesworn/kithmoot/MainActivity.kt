@@ -151,6 +151,14 @@ class MainActivity : ComponentActivity() {
                     val id = noticeRoom ?: return@LaunchedEffect
                     notificationRoom.value = null
                     if (visiting && id == callRoom.roomId) { backToCall(); return@LaunchedEffect }
+                    // A message from another room while on a call: open it
+                    // beside the call, as the rooms list would, never instead of it.
+                    if (!visiting && callStage == Stage.ROOM && callRoom.onCall && id != callRoom.roomId) {
+                        visitor.borrowAccount(model)
+                        visitor.callRoomId = callRoom.roomId
+                        visitor.refreshSavedRooms()
+                        visiting = true
+                    }
                     val target = if (visiting) visitor else model
                     target.start.first { state -> !state.loadingRooms }
                     target.openNotificationRoom(id)

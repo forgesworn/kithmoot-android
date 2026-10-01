@@ -681,7 +681,21 @@ class RoomViewModel @JvmOverloads constructor(
         if (!Regex("[a-f0-9]{64}").matches(id)) return
         if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
             _room.update { it.copy(notificationChatRequest = it.notificationChatRequest + 1) }
-        } else if (_stage.value == Stage.START && _start.value.savedRooms.any { it.id == id }) reopenRoom(id)
+        } else if (_start.value.savedRooms.none { it.id == id }) {
+            return
+        } else if (_stage.value == Stage.START) {
+            reopenRoom(id)
+        } else if (_stage.value == Stage.ROOM) {
+            // Another room is open. A call there is kept by MainActivity,
+            // which opens this one beside it instead, so this one has no call:
+            // leave it and open the room the notice was for.
+            leave()
+            if (_stage.value != Stage.START) return
+            viewModelScope.launch {
+                _start.first { !it.busy }
+                if (_stage.value == Stage.START) reopenRoom(id)
+            }
+        }
     }
 
 
@@ -3174,7 +3188,7 @@ class RoomViewModel @JvmOverloads constructor(
             // over. Claiming rather than assuming is what lets that handover happen.
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
-            if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds())
+            if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds(), dev.forgesworn.kithmoot.session.isDmPolicy(record.policy))
             // The background service (service/BackgroundCallListenerService.kt)
             // skips any room open here: this coordinator already rings for it,
             // and this room shows its messages. What it received while the room
@@ -4542,6 +4556,8 @@ class RoomViewModel @JvmOverloads constructor(
         } catch (_: Exception) {
             // Unreadable storage only costs a repeated unread count, never a message.
         }
+        // What the background service showed while the room was closed is read now.
+        dev.forgesworn.kithmoot.notifications.MessageNotices.cancel(getApplication(), record.id)
     }
 
     fun retryPendingChat() {

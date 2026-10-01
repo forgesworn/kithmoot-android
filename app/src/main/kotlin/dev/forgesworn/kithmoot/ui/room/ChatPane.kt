@@ -71,6 +71,8 @@ fun ChatPane(
     searchOpen: Boolean = false,
     onCloseSearch: () -> Unit = {},
     onReadingChanged: (Boolean) -> Unit = {},
+    /** Bumped when a notification for this room is tapped: back to the latest message. */
+    latestRequest: Int = 0,
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
@@ -132,6 +134,12 @@ fun ChatPane(
             if (latest.id != lastMessageId && latest.participant == selfParticipant && lastMessageId != null) following = true
             if (following) listState.scrollToItem(visible.lastIndex)
             lastMessageId = latest.id
+        }
+    }
+    LaunchedEffect(latestRequest) {
+        if (latestRequest > 0 && query.isBlank() && visible.isNotEmpty()) {
+            following = true
+            listState.scrollToItem(visible.lastIndex)
         }
     }
     fun send() {

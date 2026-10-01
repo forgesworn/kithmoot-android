@@ -3,15 +3,17 @@ package dev.forgesworn.kithmoot.service
 import android.content.Context
 
 /**
- * "Receive messages when KithMoot is closed": off by default, because it keeps
- * a connection per saved room open in the background. The last state the
+ * "Receive messages when KithMoot is closed": on by default, so a message
+ * reaches the phone when it is sent rather than when KithMoot is next opened.
+ * It keeps a connection per saved room open in the background; there is no
+ * push server to do it instead. The last state the
  * service reported is kept beside it, with whether the service was running,
  * so the next launch can tell a force-stop or crash from a clean stop.
  */
 class BackgroundDeliverySettings(context: Context) {
     private val prefs = context.getSharedPreferences("kithmoot.background_delivery.v1", Context.MODE_PRIVATE)
 
-    fun enabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
+    fun enabled(): Boolean = prefs.getBoolean(KEY_ENABLED, true)
 
     fun setEnabled(value: Boolean) {
         prefs.edit().putBoolean(KEY_ENABLED, value).apply()

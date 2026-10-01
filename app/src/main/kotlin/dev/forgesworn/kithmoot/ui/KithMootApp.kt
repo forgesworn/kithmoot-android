@@ -135,6 +135,32 @@ fun KithMootApp(
 
     val asker = rememberPermissionAsker(onRefused = model::showNotice)
 
+    // Messages arrive as notifications by default, which Android 13 and later
+    // shows only with permission. Asked once, the first time a room opens:
+    // the moment there is a conversation for it to be about. Granted, the
+    // battery exemption follows, without which Android suspends the
+    // background connection soon after the screen goes off.
+    LaunchedEffect(stage) {
+        if (stage != Stage.ROOM || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
+        if (isGranted(context, Manifest.permission.POST_NOTIFICATIONS)) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("kithmoot.notifications", android.content.Context.MODE_PRIVATE)
+        if (prefs.getBoolean("permissionAsked", false)) return@LaunchedEffect
+        prefs.edit().putBoolean("permissionAsked", true).apply()
+        asker.ask(PermissionAsk(
+            permission = Manifest.permission.POST_NOTIFICATIONS,
+            title = "Know when someone writes",
+            why = "KithMoot shows new messages as notifications, even when it is closed. " +
+                "The lock screen says only that a message came.",
+            refused = "Without notifications you will see new messages only when you open KithMoot.",
+            onGranted = {
+                dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(context)
+                if (dev.forgesworn.kithmoot.service.BackgroundRingSettings(context).takeBatteryAsk()) {
+                    dev.forgesworn.kithmoot.service.requestIgnoreBatteryOptimizations(context)
+                }
+            },
+        ))
+    }
+
     val projection = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -443,6 +469,7 @@ fun KithMootApp(
                         ChatPane(
                             messages = roomState.chat,
                             onReadingChanged = model::notificationReading,
+                            latestRequest = roomState.notificationChatRequest,
                             selfParticipant = roomState.selfParticipant,
                             onSend = model::sendChat,
                             onReact = model::react,

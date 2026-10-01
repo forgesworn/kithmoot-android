@@ -1,5 +1,21 @@
 # Android notifications, 16 September 2026
 
+## Messages as they are sent, 1 October 2026
+
+Message notifications now work like a phone's own messages:
+
+- **On by default, previews included.** Message notifications, previews and "Receive messages when KithMoot is closed" all default to on. Settings already saved on a device keep their saved value, so a phone where previews were left off still needs that one switch turned on. The lock screen still sees only "New message" unless Android is set to show private content.
+- **From the background service.** A saved room watched while KithMoot is closed now shows each new message as it arrives. The service already decrypted and verified the message to count it, so a notification is now posted from that same message. Only messages the inbox counts (someone else's, new, not an edit, reaction, retraction or invitation) notify. The text goes into Android's notification when previews are on, is otherwise held in the service's memory, and is never written to storage: `BackgroundInbox` still stores none.
+- **One notification per room**, in Android's conversation style: the latest six messages with their senders. A two-person conversation is titled by its sender, any other room by its name. Each room's notification is tagged with its id and its tap intent carries the id in its data, so rooms neither replace each other nor share a tap target. Opening a room clears its notification.
+- **Heads-up.** Messages use a new channel, `chat_messages_v2`, at high importance, because a channel's importance cannot be raised after creation. The old `chat_zen_v1` channel is deleted, with any sound or importance a person had set on it.
+- **Asked for once.** On Android 13 and later the notification permission is asked for the first time a room opens, with an explanation first, then the battery-optimisation exemption. Without the exemption Android suspends the background connection soon after the screen goes off.
+- **Tapping goes to the conversation.** It opens the room on its Chat tab at the latest message. If a different room is open it is left first. If that room is on a call, the notified room opens beside the call instead.
+
+Not yet done: a Reply action on the notification itself.
+
+Not checked on a phone: the permission and battery prompts, heads-up display, how quickly a message arrives with the screen off, and the tap from a cold start.
+
+
 Version 0.6.3 (26). Account menu -> Notifications & sound. Device-local opt-in; Zen bell preview; message previews off by default; Android settings link. Native notification number reflects unread messages in the current joined room. Android launcher decides whether to display a dot or number.
 
 Scope: only verified live messages in the joined room while connected. No other-room watcher, background service, or closed/suspended-app push was added. History and own messages do not alert; edits do not ring; retractions remove unread counts; reading at the end of chat clears notifications. Calls suppress sound. Lock-screen public version is generic; expanded private previews require explicit opt-in. Room IDs in notification intents only open locally saved rooms.

@@ -30,6 +30,13 @@ import dev.forgesworn.kithmoot.account.SignerException
 import dev.forgesworn.kithmoot.account.openAccount
 import dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
+import dev.forgesworn.kithmoot.notifications.ChatNotifications
+import dev.forgesworn.kithmoot.notifications.MAX_NOTICE_LINES
+import dev.forgesworn.kithmoot.notifications.MessageNotices
+import dev.forgesworn.kithmoot.notifications.NoticeLine
+import dev.forgesworn.kithmoot.notifications.noticeContent
+import dev.forgesworn.kithmoot.notifications.noticeLine
+import dev.forgesworn.kithmoot.session.isDmPolicy
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.KIND_CALL_BELL
@@ -70,9 +77,11 @@ import java.time.ZoneOffset
  * consent and otherwise fails closed, so a box's node id never reaches
  * OkHttp or DNS. For calls it listens only for the room's bell (kind 1464,
  * `protocol/CallBell.kt`), never the roster's heartbeat. For messages it
- * listens for the room's chat under its current epoch and records verified
- * messages in the room's [dev.forgesworn.kithmoot.session.BackgroundInbox],
- * without their text.
+ * listens for the room's chat under its current epoch, records verified
+ * messages in the room's [dev.forgesworn.kithmoot.session.BackgroundInbox]
+ * without their text, and shows each new one as a notification. The text goes
+ * to Android's notification, only when previews are on, and is otherwise held
+ * in this process's memory and nowhere else.
  *
  * The only thing it ever publishes is a room's retained pending message: the
  * exact event the person already signed, on the epoch it was sealed for,
@@ -97,6 +106,9 @@ class BackgroundCallListenerService : Service() {
     private var accountSigner: ParticipantSigner? = null
     private var accountLoaded = false
     private val registryListener: (String) -> Unit = { scope.launch { reconcileNow() } }
+    /** The lines each room's notification shows, in memory only. */
+    private val noticeLines = java.util.concurrent.ConcurrentHashMap<String, List<NoticeLine>>()
+    private val noticeSoundAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** One watched room: what it listens for, keyed so a rekey or relay change rebuilds it. */
     private class RoomHandle(
@@ -371,8 +383,28 @@ class BackgroundCallListenerService : Service() {
             credentialRoomId = watch.stableRoomId) ?: return
         try {
             val added = inbox.record(event.id, event.createdAt, message)
-            Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} ${if (added) "recorded" else "seen"} unread=${inbox.state().unread.size}")
+            val unread = inbox.state().unread
+            Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} ${if (added) "recorded" else "seen"} unread=${unread.size}")
+            // The inbox decides what counts: someone else's new message, not
+            // an edit, reaction, retraction or one already seen.
+            if (added) notify(candidate, unread, message)
         } catch (_: Exception) { }
+    }
+
+    private fun notify(candidate: Candidate, unread: List<dev.forgesworn.kithmoot.session.BackgroundInbox.Unread>,
+        message: dev.forgesworn.kithmoot.session.ChatMessage) {
+        val settings = ChatNotifications.load(this)
+        if (!settings.enabled) return
+        val id = candidate.watch.stableRoomId
+        // Opening the room marks the inbox read, which drops these lines too.
+        val ids = unread.map { it.id }.toSet()
+        val lines = (noticeLines[id].orEmpty() + noticeLine(message)).filter { it.id in ids }.takeLast(MAX_NOTICE_LINES)
+        noticeLines[id] = lines
+        val content = noticeContent(candidate.watch.roomName, isDmPolicy(candidate.saved.policy), lines, settings.previews)
+            .copy(unread = unread.size)
+        val now = android.os.SystemClock.elapsedRealtime()
+        val sound = settings.bell && noticeSoundAt[id].let { it == null || now - it >= 5_000 }
+        if (MessageNotices.post(this, id, content, sound) && sound) noticeSoundAt[id] = now
     }
 
     /** Logs name a room by a short digest of its id, never its name or key. */
