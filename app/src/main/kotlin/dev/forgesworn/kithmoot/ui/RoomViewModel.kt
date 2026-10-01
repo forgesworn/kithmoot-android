@@ -977,10 +977,16 @@ class RoomViewModel @JvmOverloads constructor(
             val observer = launch { bookmarks.state.collect { value ->
                 if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = value) }
             } }
+            // Once the account's bookmarks have loaded, give any room it already
+            // lists the secret this phone holds for it, so another device can open it.
+            val sharing = launch {
+                bookmarks.state.first { it.ready || it.error != null }
+                if (roomBookmarks === bookmarks && bookmarks.state.value.ready) changeRoomBookmarks { shareGroupAdmissions(it) }
+            }
             try { bookmarks.open(); kotlinx.coroutines.awaitCancellation() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = bookmarks.state.value) } }
-            finally { withContext(NonCancellable) { bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel() } }
+            finally { withContext(NonCancellable) { bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel(); sharing.cancel() } }
         }
     }
 
@@ -990,7 +996,7 @@ class RoomViewModel @JvmOverloads constructor(
         val bookmarks = roomBookmarks ?: return@withLock
         roomBookmarkScope?.launch {
             bookmarks.state.first { it.ready || it.error != null }
-            if (bookmarks.state.value.ready) { bookmarks.retry(); changeRoomBookmarks { shareGroupAdmissions(it) } }
+            if (bookmarks.state.value.ready) bookmarks.retry()
         }
     } } }
 
@@ -1030,7 +1036,8 @@ class RoomViewModel @JvmOverloads constructor(
             if (bookmarked.admission != null) continue
             val saved = savedRooms.get(summary.id) ?: continue
             val mine = accountBookmark(saved, bookmarks.identity) ?: continue
-            if (mine.admission != null && mine.link == bookmarked.link) bookmarks.save(mine.copy(name = bookmarked.name, openedAt = bookmarked.openedAt))
+            // The bookmark's own link, name and time stay as they are: only the secret is added.
+            if (mine.admission != null) bookmarks.save(bookmarked.copy(admission = mine.admission))
         }
     }
 
