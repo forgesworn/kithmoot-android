@@ -12,7 +12,7 @@ import kotlin.math.sqrt
  * large changes only when there is a reason.
  */
 enum class CallLayoutMode {
-    /** Nobody else here: your own picture and the invitation. */
+    /** Nobody else here: your own picture and one line saying so. */
     ALONE,
     /** One other person, full screen. */
     ONE_TO_ONE,

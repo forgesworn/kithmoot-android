@@ -203,10 +203,29 @@ fun RoomScreen(
         }
     }
     if (inviteOpen) {
+        // What the link is and what keeps it working is said here, to the
+        // person inviting, not over their own picture on the call.
         AlertDialog(
             onDismissRequest = { inviteOpen = false },
             title = { Text("Invite people") },
-            text = { ShareRoomRow(state.joinUrl) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Anyone forwarded this link can walk in. It is an invitation, not the room's " +
+                            "traffic key. Keep this device online so it can answer new arrivals.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    ShareRoomRow(state.joinUrl)
+                    if (state.canRotateInvitation) {
+                        OutlinedButton(onClick = onRotateInvitation, modifier = Modifier.fillMaxWidth()) { Text("New link") }
+                        Text(
+                            "The old link stops admitting new people. Anyone already in the room stays.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = { inviteOpen = false }) { Text("Done") } },
         )
     }
@@ -376,7 +395,7 @@ fun RoomScreen(
                     hideSelf = selfHidden,
                     onExpandScreen = onExpandScreen,
                     onSetVolume = onSetVolume,
-                    alone = { AlonePanel(state, onRotateInvitation) },
+                    alone = { AloneLine(state) },
                 )
                 // Bottom centre, clear of the front camera's cutout and above
                 // the name plate each tile draws in its bottom corner.
@@ -516,51 +535,42 @@ private fun relayLine(state: RoomState): String = when {
     else -> "${state.relaysUp} of ${state.relaysTotal} relays up"
 }
 
+/**
+ * Nobody else on the call yet: one line over your own picture, the way a
+ * phone says "Ringing…", and nothing more. A two-person conversation has
+ * nobody to invite, so it offers no link at all; its invitation already went
+ * to the other person sealed. Any other room gets one way to send its link;
+ * copying it, a new link and what a link is all live under Invite people in
+ * the room's details.
+ */
 @Composable
-private fun AlonePanel(state: RoomState, onRotateInvitation: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(20.dp),
+private fun AloneLine(state: RoomState) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val offerLink = !state.privateConversation && state.movedOn == null && state.joinUrl.isNotBlank()
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
     ) {
-        Text(
-            text = "Room's open. Send the link.",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = if (state.deviceCount > 1) {
-                // Your second device is not company. Saying so here is the same
-                // claim the tile makes, at the moment it would otherwise look
-                // like the room miscounted.
-                "Nobody else is here yet. Your other device is still you."
-            } else {
-                "Nobody else is here yet. Anyone forwarded the current link can walk in. " +
-                    "It is an invitation, not the room's traffic key. Keep this device " +
-                    "online so it can answer new arrivals."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(16.dp))
-        ShareRoomRow(state.joinUrl)
-        if (state.canRotateInvitation) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onRotateInvitation,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-            ) {
-                Text("Rotate link", style = MaterialTheme.typography.titleSmall)
-            }
-            Spacer(Modifier.height(6.dp))
+        Row(
+            Modifier.heightIn(min = 48.dp).padding(start = 18.dp, end = if (offerLink) 6.dp else 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                text = "The old link stops admitting new people. Anyone already in the room stays.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = when {
+                    state.privateConversation -> "Waiting for them to join…"
+                    // Your second device is not company. Saying so here is the
+                    // same claim the tile makes, at the moment it would
+                    // otherwise look like the room miscounted.
+                    state.deviceCount > 1 -> "Only your own devices are here"
+                    else -> "Nobody else is here yet"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            if (offerLink) {
+                Spacer(Modifier.width(4.dp))
+                TextButton(onClick = { dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) }) { Text("Send link") }
+            }
         }
     }
 }

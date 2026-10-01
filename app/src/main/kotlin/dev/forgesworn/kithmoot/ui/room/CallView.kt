@@ -78,8 +78,8 @@ internal fun rememberActiveSpeaker(speaking: Set<String>, present: List<String>)
  * The call itself: the arrangement [arrangeCall] chose, drawn edge to edge,
  * with your own picture floating over it.
  *
- * @param alone the invitation, drawn over your own picture while nobody
- *   else is here.
+ * @param alone one line over your own picture while nobody else is
+ *   here.
  */
 @Composable
 internal fun CallView(
@@ -151,7 +151,7 @@ internal fun CallView(
                 Box(
                     Modifier.fillMaxSize()
                         .pointerInput(chrome) { detectTapGestures { chrome.toggle() } }
-                        .windowInsetsPadding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
+                        .windowInsetsPadding(insets).padding(16.dp),
                     contentAlignment = Alignment.TopCenter,
                 ) { Box(Modifier.widthIn(max = 560.dp)) { alone() } }
             }
