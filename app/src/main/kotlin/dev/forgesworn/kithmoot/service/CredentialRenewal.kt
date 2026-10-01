@@ -257,7 +257,7 @@ object CredentialRenewal {
 
     /** The channel both the "can't answer" and the "won't ring" notifications use; the id is kept so existing settings survive. */
     internal fun reachabilityChannel() =
-        NotificationChannel(CHANNEL, "Calls you can't answer", NotificationManager.IMPORTANCE_LOW).apply {
+        NotificationChannel(CHANNEL, "Answering and ringing calls", NotificationManager.IMPORTANCE_LOW).apply {
             description = "When your signer has to confirm this phone before you can answer calls, or ringing is off."
         }
 
