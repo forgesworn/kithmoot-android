@@ -28,6 +28,7 @@ import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.forgesworn.kithmoot.account.Nip55Bridge
@@ -151,14 +152,16 @@ class MainActivity : ComponentActivity() {
                     if (visiting && callStage != Stage.ROOM && visitorStage == Stage.START) visiting = false
                 }
                 val backToCall = { if (visitor.stage.value == Stage.ROOM) visitor.leave(); visiting = false }
-                val noticeRoom by notificationRoom.collectAsState()
-                LaunchedEffect(noticeRoom) {
-                    val id = noticeRoom ?: return@LaunchedEffect
+                // Collected rather than keyed on the value: clearing the
+                // request would otherwise change the key and cancel the very
+                // effect that is still opening the room.
+                LaunchedEffect(Unit) { notificationRoom.filterNotNull().collect { id ->
                     notificationRoom.value = null
-                    if (visiting && id == callRoom.roomId) { backToCall(); return@LaunchedEffect }
+                    val callRoom = model.room.value
+                    if (visiting && id == callRoom.roomId) { backToCall(); return@collect }
                     // A message from another room while on a call: open it
                     // beside the call, as the rooms list would, never instead of it.
-                    if (!visiting && callStage == Stage.ROOM && callRoom.onCall && id != callRoom.roomId) {
+                    if (!visiting && model.stage.value == Stage.ROOM && callRoom.onCall && id != callRoom.roomId) {
                         visitor.borrowAccount(model)
                         visitor.callRoomId = callRoom.roomId
                         visitor.refreshSavedRooms()
@@ -168,10 +171,9 @@ class MainActivity : ComponentActivity() {
                     target.start.first { state -> !state.loadingRooms }
                     model.awaitAccountRestored()
                     target.openNotificationRoom(id)
-                }
-                val answerRoom by answerCallRoom.collectAsState()
-                LaunchedEffect(answerRoom) {
-                    val id = answerRoom ?: return@LaunchedEffect
+                } }
+                // Collected for the same reason: an answer must run to the join.
+                LaunchedEffect(Unit) { answerCallRoom.filterNotNull().collect { id ->
                     answerCallRoom.value = null
                     if (visiting) backToCall()
                     model.start.first { state -> !state.loadingRooms }
@@ -189,7 +191,7 @@ class MainActivity : ComponentActivity() {
                     val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
                     val micAllowed = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     model.joinCall(micOn = if (micAllowed || !locked) ensureMicForAnswer() else false)
-                }
+                } }
                 val overLock by answeredOverLock.collectAsState()
                 LaunchedEffect(overLock) {
                     if (!overLock) return@LaunchedEffect
