@@ -23,6 +23,8 @@ data class AccountSettingsActions(
     val publishProfile: (Map<String, String>) -> Unit = {},
     val saveRelays: (List<RelayChoice>) -> String? = { null },
     val publishRelays: () -> Unit = {},
+    val loadDmRelays: () -> Unit = {},
+    val publishDmRelays: (List<String>) -> Unit = {},
     val retrySync: () -> Unit = {},
     val circleBoxes: (String) -> Unit = {},
     val signOut: () -> Unit = {},
@@ -62,6 +64,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 }
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
+                DropdownMenuItem(text = { Text("Relays for private conversations") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
             }
             DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { menu = false; page = "relays" })
             DropdownMenuItem(text = { Text("Sync chats and projects") }, onClick = { menu = false; actions.retrySync() }, enabled = account != null && !state.roomSyncBusy)
@@ -83,6 +86,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 "profile" -> ProfileEditorFields(state, actions)
                 "notifications" -> notificationSettings()
                 "relays" -> RelayEditor(state, choices, inRoom, actions)
+                "dmrelays" -> DmRelayEditor(state, actions)
             }
         }
         }
@@ -116,6 +120,30 @@ internal fun ProfileEditorFields(state: StartState, actions: AccountSettingsActi
     }
     state.profileMessage?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
     TextButton(actions.loadProfile, enabled = !state.profileBusy) { Text("Reload profile") }
+}
+
+/** The account's NIP-17 DM relay list: where private conversations started
+ *  with this person, and by them, are kept. Mirrors the web client's
+ *  Settings, Connections, "Relays for private conversations". */
+@Composable
+internal fun DmRelayEditor(state: StartState, actions: AccountSettingsActions) {
+    Text("Relays for private conversations", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+    Text("Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.",
+        style = MaterialTheme.typography.bodySmall)
+    if (state.profileBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    val current = state.dmRelays
+    if (current != null) key(state.account?.pubkey, current) {
+        var draft by remember { mutableStateOf(current.joinToString("\n")) }
+        if (current.isEmpty()) Text("You have no list yet. Until you save one, private conversations use the relays of the room they are started from.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(draft, { draft = it }, Modifier.fillMaxWidth(), label = { Text("Relays") },
+            placeholder = { Text("wss://relay.example") }, minLines = 3, enabled = !state.profileBusy)
+        Button({ actions.publishDmRelays(draft.split(Regex("[\\s,]+")).map { it.trim() }.filter { it.isNotEmpty() }) },
+            enabled = !state.profileBusy, modifier = Modifier.fillMaxWidth()) { Text("Save to your Nostr account") }
+    }
+    state.profileMessage?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    Text("This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.",
+        style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable

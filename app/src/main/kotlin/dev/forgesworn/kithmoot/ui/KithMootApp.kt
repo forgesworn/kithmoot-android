@@ -225,6 +225,7 @@ fun KithMootApp(
                     dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
                         loadProfile = account::loadEditableProfile, publishProfile = account::publishProfile,
                         saveRelays = account::saveAccountRelays, publishRelays = account::publishAccountRelayList,
+                        loadDmRelays = account::loadDmRelays, publishDmRelays = account::publishDmRelays,
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
@@ -298,6 +299,7 @@ fun KithMootApp(
                 val homeAccountSettingsActions = dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
                     loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
                     saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
+                    loadDmRelays = model::loadDmRelays, publishDmRelays = model::publishDmRelays,
                     retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
                     circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
                 )

@@ -10,6 +10,11 @@ import dev.forgesworn.kithmoot.storage.AssignmentVault
 
 import dev.forgesworn.kithmoot.protocol.CardResult
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.KIND_DM_RELAYS
+import dev.forgesworn.kithmoot.protocol.canonicalRoomRelayUrl
+import dev.forgesworn.kithmoot.protocol.dmRelayListTags
+import dev.forgesworn.kithmoot.protocol.latestDmRelayList
+import dev.forgesworn.kithmoot.protocol.relaysForPrivateConversation
 import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
 import dev.forgesworn.kithmoot.protocol.ContactCards
 import dev.forgesworn.kithmoot.protocol.Lane
@@ -287,6 +292,9 @@ data class StartState(
     val profileBaseAt: Long = 0,
     val profileBusy: Boolean = false,
     val profileMessage: String? = null,
+    /** The account's own DM relay list (NIP-17, kind 10050) as last looked up
+     *  or saved; null until looked up. */
+    val dmRelays: List<String>? = null,
     /** A constrained room profile: new local identity, onion relays and Orbot only. */
     val anonymousMode: Boolean = false,
     val busy: Boolean = false,
@@ -557,6 +565,8 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
+/** How long starting a private conversation waits for the two DM relay lists. */
+private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
@@ -2306,6 +2316,50 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = e.message ?: "Profile publication was not confirmed. Check your signer and write relays, then retry.") } }
+            finally { if (accountSigner === actor) _start.update { it.copy(profileBusy = false) } }
+        }
+    }
+
+    /** Look up the account's own DM relay list before offering an editor. */
+    fun loadDmRelays() {
+        val actor = accountSigner ?: return
+        if (_start.value.profileBusy) return
+        _start.update { it.copy(profileBusy = true, profileMessage = null, dmRelays = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val lists = lookUpDmRelayLists(listOf(actor.pubkey), accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)
+                if (accountSigner === actor) _start.update { it.copy(dmRelays = latestDmRelayList(lists, actor.pubkey)) }
+            } finally {
+                if (accountSigner === actor) _start.update { it.copy(profileBusy = false) }
+            }
+        }
+    }
+
+    /** Publish the account's DM relay list: where private conversations
+     *  started with this person, and by them, are kept from now on. */
+    fun publishDmRelays(relays: List<String>) {
+        val actor = accountSigner ?: return
+        if (_start.value.profileBusy) return
+        val tags = try { dmRelayListTags(relays) } catch (e: IllegalArgumentException) {
+            _start.update { it.copy(profileMessage = "Not saved: ${e.message}.") }; return
+        }
+        _start.update { it.copy(profileBusy = true, profileMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val urls = (accountRelayChoices().filter { it.write }.map { it.url } + PROFILE_RELAYS + tags.map { it[1] })
+                    .mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct()
+                val pool = RelayPool(urls, OkHttpRelaySockets(), CoroutineScope(kotlin.coroutines.coroutineContext))
+                pool.start()
+                try {
+                    val at = epochSeconds()
+                    val event = checkedSignedEvent(actor.sign(KIND_DM_RELAYS, at, tags, ""), actor.pubkey, KIND_DM_RELAYS, at, tags, "")
+                    check(accountSigner === actor) { "The account changed." }
+                    check(pool.publishConfirmed(event))
+                    if (accountSigner === actor) _start.update { it.copy(dmRelays = tags.map { tag -> tag[1] },
+                        profileMessage = "Saved. New private conversations will use these relays.") }
+                } finally { pool.stop() }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = "Not saved: no relay accepted the list. Check your signer and connection, then retry.") } }
             finally { if (accountSigner === actor) _start.update { it.copy(profileBusy = false) } }
         }
     }
@@ -4527,6 +4581,36 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Create, retain and signer-seal a two-person room before leaving the introduction room. */
+    /** Kind 10050 lists for these authors from these relays, as many as arrive
+     *  before the relays finish or [DM_RELAY_LOOKUP_MS] is up. Never throws. */
+    private suspend fun lookUpDmRelayLists(authors: List<String>, urls: List<String>): List<NostrEvent> {
+        val distinct = urls.mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct()
+        if (distinct.isEmpty()) return emptyList()
+        val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
+        val pool = RelayPool(distinct, OkHttpRelaySockets(), scope, writeRelays = emptySet())
+        pool.start()
+        return try {
+            pool.queryAvailable(listOf(Filter(kinds = listOf(KIND_DM_RELAYS), authors = authors)), DM_RELAY_LOOKUP_MS)
+        } catch (e: CancellationException) {
+            if (e is kotlinx.coroutines.TimeoutCancellationException) emptyList() else throw e
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            pool.stop()
+        }
+    }
+
+    /** The relays a new private conversation with [peer] starts on. The other
+     *  person's list is asked for only while public profiles are on: asking a
+     *  public relay for it names their key there. */
+    private suspend fun relaysForConversationWith(self: String, peer: String, fallback: List<String>): List<String> {
+        val askAboutPeer = _room.value.profilesEnabled
+        val lists = lookUpDmRelayLists(if (askAboutPeer) listOf(self, peer) else listOf(self),
+            fallback + accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)
+        return relaysForPrivateConversation(latestDmRelayList(lists, self),
+            if (askAboutPeer) latestDmRelayList(lists, peer) else emptyList(), fallback)
+    }
+
     fun startPrivateConversation(peer: String) {
         val live = session
         val signer = accountSigner
@@ -4555,7 +4639,10 @@ class RoomViewModel @JvmOverloads constructor(
                 val secret = Entropy.bytes(32)
                 val derived = deriveRoom(secret)
                 val host = createRoomInvitation(persistent = true)
-                val relays = relayUrls.toList()
+                // The two people's own DM relay lists, or this room's relays
+                // when neither has one; the invitation and the link both name
+                // exactly these. See docs/messages.md, "Where it lives".
+                val relays = relaysForConversationWith(self, peer, relayUrls.toList())
                 val invitation = InvitationPayload(host.invitation, relays, policy)
                 val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
 
