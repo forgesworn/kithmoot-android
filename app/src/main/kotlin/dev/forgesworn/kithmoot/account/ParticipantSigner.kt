@@ -44,7 +44,7 @@ class SignerTimeoutException(message: String) : SignerException(message)
 /** How long KithMoot waits for a signer app to answer on screen: time to unlock it and approve. */
 const val SIGNER_INTENT_TIMEOUT_MS: Long = 60_000
 
-/** How long the silent query to a signer's content provider may take: it answers at once or not at all. */
+/** How long the silent query to a signer's content provider may take before KithMoot goes on to open the signer instead. */
 const val SIGNER_SILENT_TIMEOUT_MS: Long = 10_000
 
 /** What the person is told when a signer app did not answer. [appName] is the signer's own name, when it is known. */

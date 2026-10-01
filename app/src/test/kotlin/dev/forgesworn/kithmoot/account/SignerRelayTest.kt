@@ -101,6 +101,15 @@ class SignerRelayTest {
         assertSame(reply, second.await())
     }
 
+    @Test fun `a signer that echoes an id of its own, as My Signet does, is matched by launch order`() = runTest {
+        val relay = relay(); val screen = Screen().also { relay.attach(it.launch) }
+        val asking = async { relay.request(intent("ours")) }
+        runCurrent()
+        val reply = intent("signets-own-id")
+        relay.deliver(true, reply)
+        assertSame(reply, asking.await())
+    }
+
     @Test fun `a result for a launch that was skipped drops what came before it`() = runTest {
         val relay = relay(timeoutMs = 1_000); val screen = Screen().also { relay.attach(it.launch) }
         val first = async { runCatching { relay.request(intent("a")) } }
@@ -241,21 +250,23 @@ class SignerTimeoutTest {
         assertEquals(60_000L, SIGNER_INTENT_TIMEOUT_MS)
     }
 
-    @Test fun `a silent signer times out naming itself, a quick one is untouched`() = runTest {
-        val slow = async { runCatching { withSignerTimeout(SIGNER_SILENT_TIMEOUT_MS, { "My Signet" }) { delay(60_000); "late" } } }
-        advanceTimeBy(11_000); runCurrent()
-        val error = slow.await().exceptionOrNull()
-        assertTrue(error is SignerTimeoutException)
-        assertEquals("My Signet didn't answer. Open it, unlock it, then try again.", error.message)
-        assertEquals("fast", withSignerTimeout(SIGNER_SILENT_TIMEOUT_MS, { "My Signet" }) { delay(100); "fast" })
+    @Test fun `a provider that is too slow falls back to the intent path rather than failing`() = runTest {
+        val slow = async { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { delay(15_000); "late" } }
+        advanceTimeBy(SIGNER_SILENT_TIMEOUT_MS + 1); runCurrent()
+        assertNull(slow.await(), "null is NIP-55's 'ask by intent', and the caller then opens the signer")
+        assertEquals("quick", silentOrNull(SIGNER_SILENT_TIMEOUT_MS) { delay(100); "quick" })
+    }
+
+    @Test fun `a provider's refusal is not swallowed by the budget`() = runTest {
+        assertFailsWith<SignerException> { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { throw SignerException("declined") } }
     }
 
     @Test fun `a null answer from a quick signer is not a timeout`() = runTest {
-        assertNull(withSignerTimeout<String?>(1_000, { null }) { null })
+        assertNull(silentOrNull<String>(1_000) { null })
     }
 
-    @Test fun `a caller cancelled from outside is not mistaken for a signer that did not answer`() = runTest {
-        val job = async { runCatching { withSignerTimeout(SIGNER_SILENT_TIMEOUT_MS, { null }) { delay(60_000) } } }
+    @Test fun `a caller cancelled from outside is still cancelled`() = runTest {
+        val job = async { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { delay(60_000); "x" } }
         runCurrent()
         job.cancel()
         advanceUntilIdle()

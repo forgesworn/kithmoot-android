@@ -113,7 +113,7 @@ class Nip55Signer(
      * our own key as the projection; a null cursor means "ask by intent".
      */
     private suspend fun viaProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? =
-        withSignerTimeout(SIGNER_SILENT_TIMEOUT_MS, ::appLabel) { queryProvider(type, payload, peer) }
+        silentOrNull(SIGNER_SILENT_TIMEOUT_MS) { queryProvider(type, payload, peer) }
 
     private suspend fun queryProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? = withContext(Dispatchers.IO) {
         val uri = Uri.parse("content://$packageName.${type.uppercase()}")
@@ -169,13 +169,12 @@ class Nip55Signer(
 }
 
 /**
- * Runs [block], giving up after [timeoutMs] with a [SignerTimeoutException]
- * that names the signer ([appName]) and says how to retry. Time spent is the
- * signer's, so only it is limited: a caller cancelled from outside is not
- * mistaken for a signer that did not answer.
+ * The silent path's budget. A provider that has not answered in [timeoutMs] is
+ * treated as one that answered "ask by intent" (null), which is what NIP-55
+ * says to do with no answer: the caller goes on to open the signer, with the
+ * intent path's own, longer budget. A slow provider is not a failed one: My
+ * Signet's can take ~15 s while its page is frozen, and then forwards to the
+ * intent. A refusal is an exception and passes through untouched.
  */
-suspend fun <T> withSignerTimeout(timeoutMs: Long, appName: () -> String?, block: suspend () -> T): T {
-    class Done(val value: T)
-    val done = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { Done(block()) }
-    return (done ?: throw SignerTimeoutException(signerDidNotAnswer(appName()))).value
-}
+suspend fun <T : Any> silentOrNull(timeoutMs: Long, block: suspend () -> T?): T? =
+    kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { block() }
