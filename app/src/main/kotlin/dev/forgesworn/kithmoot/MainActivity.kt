@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
         else if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) renewRequested.value = true
         else if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
-            showOverLock()
+            answered(intent)
             answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID)
         } else signetFrom(intent)?.let { signetReturn.value = it } ?: run { incoming.value = linkFrom(intent) }
 
@@ -319,6 +319,15 @@ class MainActivity : ComponentActivity() {
      * call does, rather than joining unseen behind the lock screen until the
      * person unlocks. Only for that call: see the `overLock` effect.
      */
+    /** Answer, from the notification or the full-screen call: stop ringing, never ring for this call again, show over the lock screen. */
+    private fun answered(intent: Intent) {
+        val roomId = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID).orEmpty()
+        val callId = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_CALL_ID).orEmpty()
+        dev.forgesworn.kithmoot.notifications.HandledCalls.add(roomId, callId)
+        if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.notifications.IncomingCallRinger.stop(this, roomId)
+        showOverLock()
+    }
+
     private fun showOverLock() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
@@ -354,7 +363,7 @@ class MainActivity : ComponentActivity() {
         }
         if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) { renewRequested.value = true; return }
         if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
-            showOverLock()
+            answered(intent)
             answerCallRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.IncomingCallRinger.EXTRA_ROOM_ID); return
         }
         signetFrom(intent)?.let { signetReturn.value = it; return }

@@ -56,7 +56,7 @@ class IncomingCallActivity : ComponentActivity() {
                 IncomingCallScreen(
                     roomName = roomName.ifBlank { "KithMoot" },
                     callerLabel = callerLabel(caller),
-                    onAnswer = { sendAction(IncomingCallActionReceiver.ACTION_ANSWER); finish() },
+                    onAnswer = { startActivity(IncomingCallActionReceiver.answerIntent(this, roomId, roomName, callId)); finish() },
                     onDecline = { sendAction(IncomingCallActionReceiver.ACTION_DECLINE); finish() },
                 )
             }

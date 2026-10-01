@@ -78,9 +78,9 @@ object IncomingCallRinger {
             context, roomId.hashCode(), fullScreen,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val answerPending = PendingIntent.getBroadcast(
+        val answerPending = PendingIntent.getActivity(
             context, roomId.hashCode() xor 1,
-            actionIntent(context, IncomingCallActionReceiver.ACTION_ANSWER, roomId, roomName, callId, caller),
+            IncomingCallActionReceiver.answerIntent(context, roomId, roomName, callId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val declinePending = PendingIntent.getBroadcast(

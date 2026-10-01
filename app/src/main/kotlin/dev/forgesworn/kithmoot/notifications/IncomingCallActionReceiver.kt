@@ -21,16 +21,24 @@ class IncomingCallActionReceiver : BroadcastReceiver() {
         HandledCalls.add(roomId, callId)
         IncomingCallRinger.stop(context, roomId)
         if (intent.action != ACTION_ANSWER) return
-        val roomName = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_NAME).orEmpty()
-        val answer = Intent(context, MainActivity::class.java).setAction(ACTION_ANSWER)
-            .putExtra(IncomingCallRinger.EXTRA_ROOM_ID, roomId)
-            .putExtra(IncomingCallRinger.EXTRA_ROOM_NAME, roomName)
-            .putExtra(IncomingCallRinger.EXTRA_CALL_ID, callId)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        context.startActivity(answer)
+        context.startActivity(answerIntent(context, roomId, intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_NAME).orEmpty(), callId))
     }
 
     companion object {
+        /**
+         * Opens KithMoot straight into the call. Answer buttons start this
+         * activity themselves: Android 12 and later block an activity started
+         * from a broadcast a notification sent (a "trampoline"), so an Answer
+         * routed through this receiver did nothing while the phone was in use.
+         * MainActivity stops the ring and records the call as handled.
+         */
+        fun answerIntent(context: Context, roomId: String, roomName: String, callId: String): Intent =
+            Intent(context, MainActivity::class.java).setAction(ACTION_ANSWER)
+                .putExtra(IncomingCallRinger.EXTRA_ROOM_ID, roomId)
+                .putExtra(IncomingCallRinger.EXTRA_ROOM_NAME, roomName)
+                .putExtra(IncomingCallRinger.EXTRA_CALL_ID, callId)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
         const val ACTION_ANSWER = "dev.forgesworn.kithmoot.CALL_ANSWER"
         const val ACTION_DECLINE = "dev.forgesworn.kithmoot.CALL_DECLINE"
     }
