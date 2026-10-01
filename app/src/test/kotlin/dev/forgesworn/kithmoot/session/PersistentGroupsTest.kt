@@ -32,4 +32,12 @@ class PersistentGroupsTest {
         val other = encodePersistentInvitation(host, ByteArray(32) { 13 }, 1_800_000_001)
         assertFailsWith<GroupInvitationException> { requestPersistentAdmission(host.invitation) { listOf(welcome, other) } }
     }
+
+    @Test fun `copies that disagree on the end keep the earliest, and a copy with no end removes none`() = runTest {
+        val later = encodePersistentInvitation(host, secret, 1_800_000_002, ends = 1_800_090_000)
+        val earlier = encodePersistentInvitation(host, secret, 1_800_000_003, ends = 1_800_050_000)
+        assertEquals(1_800_050_000, requestPersistentAdmission(host.invitation) { listOf(later, welcome, earlier) }.endsAt)
+        assertEquals(1_800_090_000, requestPersistentAdmission(host.invitation) { listOf(welcome, later) }.endsAt)
+        assertNull(requestPersistentAdmission(host.invitation) { listOf(welcome) }.endsAt)
+    }
 }
