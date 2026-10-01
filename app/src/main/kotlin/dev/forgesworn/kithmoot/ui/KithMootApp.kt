@@ -92,6 +92,8 @@ fun KithMootApp(
      *  else - no rooms list, chat or settings - until the phone is unlocked. */
     lockedCallOnly: Boolean = false,
     onUnlock: () -> Unit = {},
+    /** An answered call is opening or joining, over the lock screen or not: no prompt may cover it. */
+    callAnswering: Boolean = false,
 ) {
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
@@ -174,22 +176,53 @@ fun KithMootApp(
 
     // A call rings full-screen, over the lock screen, only with Android 14's
     // full-screen permission, which a sideloaded app does not get by default.
-    // Asked once, in a room, once notifications are allowed; Notifications &
-    // sound offers it again for as long as it is missing.
+    // Asked in a room, once notifications are allowed, and never over a call:
+    // not while one is answered, joining or on, nor over the lock screen,
+    // where a dialog beside the microphone prompt left a person unable to
+    // press anything. A call that ends brings the ask back if it is due.
+    // Asked again, at most weekly, after a call rang without the screen;
+    // Notifications & sound offers it for as long as it is missing.
+    val callBusy = roomState.onCall || roomState.callJoinPending || roomState.callChanging ||
+        lockedCallOnly || callAnswering || inPictureInPicture || callRoomId != null
     var fullScreenAsk by remember { mutableStateOf(false) }
-    LaunchedEffect(stage) {
-        if (stage != Stage.ROOM) return@LaunchedEffect
+    LaunchedEffect(stage, callBusy) {
+        if (stage != Stage.ROOM || callBusy) return@LaunchedEffect
         if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return@LaunchedEffect
         if (dev.forgesworn.kithmoot.notifications.canRingFullScreen(context)) return@LaunchedEffect
         if (!dev.forgesworn.kithmoot.service.BackgroundRingSettings(context).takeFullScreenAsk()) return@LaunchedEffect
         fullScreenAsk = true
     }
-    if (fullScreenAsk) AlertDialog(
+    // After Allow: back from Android's page with the permission still off,
+    // say why it may have been greyed out there, and where to fix it.
+    var fullScreenHelp by remember { mutableStateOf(false) }
+    var fullScreenPageOpened by remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && fullScreenPageOpened) {
+                fullScreenPageOpened = false
+                fullScreenHelp = !dev.forgesworn.kithmoot.notifications.canRingFullScreen(context)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    if (fullScreenAsk && !callBusy) AlertDialog(
         onDismissRequest = { fullScreenAsk = false },
         title = { Text("Ring like a phone call") },
         text = { Text("Let a call take the screen, even when the phone is locked. Android asks you to allow this for KithMoot on the next page. Without it, calls ring as a notification.") },
-        confirmButton = { TextButton({ fullScreenAsk = false; dev.forgesworn.kithmoot.notifications.openFullScreenCallSettings(context) }) { Text("Allow") } },
+        confirmButton = { TextButton({
+            fullScreenAsk = false
+            fullScreenPageOpened = true
+            dev.forgesworn.kithmoot.notifications.openFullScreenCallSettings(context)
+        }) { Text("Allow") } },
         dismissButton = { TextButton({ fullScreenAsk = false }) { Text("Not now") } },
+    )
+    if (fullScreenHelp && !callBusy) AlertDialog(
+        onDismissRequest = { fullScreenHelp = false },
+        title = { Text("Full-screen calls are still off") },
+        text = { Text(dev.forgesworn.kithmoot.notifications.FULL_SCREEN_STILL_OFF_HELP) },
+        confirmButton = { TextButton({ fullScreenHelp = false; dev.forgesworn.kithmoot.notifications.openAppInfo(context) }) { Text("Open App info") } },
+        dismissButton = { TextButton({ fullScreenHelp = false }) { Text("Not now") } },
     )
 
     val projection = rememberLauncherForActivityResult(

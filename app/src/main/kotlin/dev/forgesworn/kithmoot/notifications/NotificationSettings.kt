@@ -109,8 +109,14 @@ fun NotificationSettings(
     }
     Text("On by default. Keeps a quiet notification in the tray and uses some battery so a Ring me room can still ring you while KithMoot is closed.", style = MaterialTheme.typography.bodySmall)
     var fullScreen by remember { mutableStateOf(canRingFullScreen(context)) }
+    var fullScreenTried by remember { mutableStateOf(backgroundRing.fullScreenSettingsTried) }
     DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) fullScreen = canRingFullScreen(context) }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                fullScreen = canRingFullScreen(context)
+                fullScreenTried = backgroundRing.fullScreenSettingsTried
+            }
+        }
         lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
     }
     if (!fullScreen) {
@@ -118,6 +124,12 @@ fun NotificationSettings(
         Text("Calls ring as a notification only. Let them take the screen, over the lock screen, like a phone call.")
         OutlinedButton({ openFullScreenCallSettings(context) }, Modifier.semantics { contentDescription = "Allow full-screen calls" }) {
             Text("Allow full-screen calls")
+        }
+        // Once Android's page has been opened and the permission is still
+        // missing on the way back, say why it may be greyed out there.
+        if (fullScreenTried) {
+            Text(FULL_SCREEN_STILL_OFF_HELP, style = MaterialTheme.typography.bodySmall)
+            TextButton({ openAppInfo(context) }) { Text("Open App info") }
         }
     }
     Spacer(Modifier.height(12.dp))

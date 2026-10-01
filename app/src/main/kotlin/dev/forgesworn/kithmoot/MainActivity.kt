@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private val answerCallRoom = MutableStateFlow<String?>(null)
     /** True from Answer on the lock screen until that call is over: see [showOverLock]. */
     private val answeredOverLock = MutableStateFlow(false)
+    /** An answer is opening its room and joining the call: no other prompt may cover it. */
+    private val answering = MutableStateFlow(false)
     private val renewRequested = MutableStateFlow(false)
 
     /**
@@ -175,6 +177,8 @@ class MainActivity : ComponentActivity() {
                 // Collected for the same reason: an answer must run to the join.
                 LaunchedEffect(Unit) { answerCallRoom.filterNotNull().collect { id ->
                     answerCallRoom.value = null
+                    answering.value = true
+                    try {
                     if (visiting) backToCall()
                     model.start.first { state -> !state.loadingRooms }
                     model.awaitAccountRestored()
@@ -193,8 +197,10 @@ class MainActivity : ComponentActivity() {
                     model.joinCall(micOn = if (micAllowed || !locked) ensureMicForAnswer() else false)
                     // Straight to the call, not the chat, now and after unlocking.
                     model.showCallView()
+                    } finally { answering.value = false }
                 } }
                 val overLock by answeredOverLock.collectAsState()
+                val answeringNow by answering.collectAsState()
                 LaunchedEffect(overLock) {
                     if (!overLock) return@LaunchedEffect
                     // Over the lock screen for the answered call only: once it
@@ -300,7 +306,7 @@ class MainActivity : ComponentActivity() {
                     visitor.callRoomId = callRoom.roomId
                     visitor.refreshSavedRooms()
                     visiting = true
-                }, lockedCallOnly = overLock && locked, onUnlock = {
+                }, lockedCallOnly = overLock && locked, callAnswering = answeringNow || overLock, onUnlock = {
                     getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
                 })
               }

@@ -119,6 +119,9 @@ object IncomingCallRinger {
         val takesScreen = canRingFullScreen(context) && !quiet
         if (takesScreen) builder.setStyle(style).setFullScreenIntent(fullScreenPending, true)
         else builder.addAction(0, "Decline", declinePending).addAction(0, "Answer", answerPending)
+        // A loud ring that could not take the screen is what makes asking
+        // again worth it (at most weekly; see BackgroundRingSettings).
+        if (!quiet && !takesScreen) runCatching { dev.forgesworn.kithmoot.service.BackgroundRingSettings(context).noteRangWithoutScreen() }
 
         val notification = builder.build()
         // Ring until answered, declined or timed out, like a phone call: a
