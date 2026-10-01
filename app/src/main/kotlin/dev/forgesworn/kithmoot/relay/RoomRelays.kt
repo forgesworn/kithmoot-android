@@ -70,6 +70,32 @@ object RoomRelays {
         return (shared + own).filter { seen.add(canonicalOrSelf(it)) }.take(MAX_LINK)
     }
 
+    /** The room's relays split by what this room's guard lets it use. */
+    data class Guarded(val accepted: List<String>, val refused: List<String>)
+
+    /**
+     * Splits the room's relays by [accepts]: an anonymous room accepts only
+     * v3 onion relays (`TorOnlyRelayUrls`), a room sheltered behind a Bothy
+     * only its own Link route and its circle's relays. A null guard is an
+     * ordinary room, which uses them all. Refused relays are never put in the
+     * pool, so the guard is never weakened; the room says how many it left
+     * out ([refusalNotice]).
+     */
+    fun guarded(room: List<String>, accepts: ((String) -> Boolean)?): Guarded {
+        if (accepts == null) return Guarded(room, emptyList())
+        val (accepted, refused) = room.partition { url -> runCatching { accepts(url) }.getOrDefault(false) }
+        return Guarded(accepted, refused)
+    }
+
+    /** What a guarded room says about the room relays it does not use, or
+     *  null when it uses them all. */
+    fun refusalNotice(refused: Int, torOnly: Boolean): String? {
+        if (refused <= 0) return null
+        val what = if (refused == 1) "1 room relay isn't" else "$refused room relays aren't"
+        val why = if (torOnly) "reachable over Tor" else "in your circle"
+        return "$what $why, so you may miss people who use only ${if (refused == 1) "that one" else "those"}."
+    }
+
     fun withPublicFallback(relays: List<String>): List<String> {
         val canonical = relays.map(::canonicalOrSelf).toSet()
         return if (relays.size == LEGACY_PUBLIC.size && canonical == LEGACY_PUBLIC) relays + PUBLIC_FALLBACK else relays

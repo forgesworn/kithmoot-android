@@ -93,4 +93,33 @@ class RoomRelaysTest {
         val pool = listOf("ws://own.example/events")
         assertEquals(pool, RoomRelays.forLink(pool, listOf("wss://public.example/")))
     }
+
+    private val onion = "ws://2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion/"
+
+    @Test fun aTorOnlyRoomUsesOnlyTheRoomRelaysTheTorGuardAccepts() {
+        val torOnly: (String) -> Boolean = { url -> runCatching { TorOnlyRelayUrls.normalise(url) }.isSuccess }
+        val room = listOf("wss://public.example/", onion, "wss://other.example/")
+        val split = RoomRelays.guarded(room, torOnly)
+        assertEquals(listOf(onion), split.accepted)
+        assertEquals(listOf("wss://public.example/", "wss://other.example/"), split.refused)
+        // Merged into the pool, nothing the guard refused gets in.
+        val own = listOf("ws://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion")
+        val pool = RoomRelays.atOpen(own, emptyList(), room = split.accepted)
+        assertEquals(listOf(onion) + own, pool)
+        TorOnlyRelayUrls.assertRoomTransport(pool, emptyList())
+    }
+
+    @Test fun aGuardThatThrowsRefusesAndNoGuardAcceptsAll() {
+        val room = listOf("wss://a.example/", "wss://b.example/")
+        assertEquals(RoomRelays.Guarded(emptyList(), room), RoomRelays.guarded(room) { error("bad") })
+        assertEquals(RoomRelays.Guarded(room, emptyList()), RoomRelays.guarded(room, null))
+    }
+
+    @Test fun aRoomSaysHowManyRoomRelaysItLeftOut() {
+        assertNull(RoomRelays.refusalNotice(0, torOnly = true))
+        assertEquals("2 room relays aren't reachable over Tor, so you may miss people who use only those.",
+            RoomRelays.refusalNotice(2, torOnly = true))
+        assertEquals("1 room relay isn't in your circle, so you may miss people who use only that one.",
+            RoomRelays.refusalNotice(1, torOnly = false))
+    }
 }

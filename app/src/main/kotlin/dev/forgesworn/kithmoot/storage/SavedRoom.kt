@@ -240,8 +240,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     /** The room's own relays: the ones it was made on, fixed, at most eight.
      *  Every member's pool includes them, ahead of its own (see
-     *  `RoomRelays.atOpen`). Empty for an anonymous room, a room sheltered
-     *  behind a Bothy, and any room that has not learnt them yet. */
+     *  `RoomRelays.atOpen`); a room sheltered behind a Bothy uses only the
+     *  ones its guard accepts. Empty for an anonymous room, whose link's
+     *  onion relays are already its own, and any room that has not learnt
+     *  them yet. */
     val roomRelays: List<String> get() = json["fixedRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
     /** [roomRelays] came from the room's signed group invitation, or this
      *  device made the room, rather than from a link's unsigned hints. */
