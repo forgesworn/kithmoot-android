@@ -15,6 +15,8 @@ class EpochRecoveryResponder(
     /** The epoch-0 room key: what a request has to prove it holds before it is answered. */
     roomKey: ByteArray,
     private val policy: RoomPolicy?,
+    /** A conference room's end: a grant lapses with the room. */
+    private val ends: Long? = null,
     private val now: () -> Long,
 ) {
     private val authoritySecretKey = authoritySecretKey.copyOf()
@@ -41,6 +43,7 @@ class EpochRecoveryResponder(
             epoch = if (refused == null) RoomEpoch(durable.currentEpoch, durable.currentSecret) else null,
             removed = durable.removed,
             refused = refused,
+            roomEnds = ends,
         )
     }
 }

@@ -186,6 +186,9 @@ import dev.forgesworn.kithmoot.session.RoomSession
 import dev.forgesworn.kithmoot.session.EpochGateResult
 import dev.forgesworn.kithmoot.session.currentCircleGuestDevices
 import dev.forgesworn.kithmoot.session.QuietTransport
+import dev.forgesworn.kithmoot.session.ConferenceLength
+import dev.forgesworn.kithmoot.session.conferenceEndedMessage
+import dev.forgesworn.kithmoot.protocol.conferenceEnded
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.BoxCadence
 import dev.forgesworn.kithmoot.protocol.CadenceLeaseOptions
@@ -315,6 +318,8 @@ data class StartState(
     val notice: String? = null,
     val roomName: String = "",
     val persistentGroup: Boolean = true,
+    /** How long a new room runs: Never, or a conference room that ends and is wiped from relays. */
+    val conferenceLength: ConferenceLength = ConferenceLength.NEVER,
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
@@ -517,6 +522,10 @@ data class RoomState(
     /** This person's own card as a link, once made. Only the device holding the identity can make one. */
     val myCard: String? = null,
     val canShowCard: Boolean = false,
+    /** A conference room's end, unix seconds; null for a room that does not end. */
+    val endsAt: Long? = null,
+    /** This conference room has reached its end: nothing more is sent, and the link no longer opens it. */
+    val conferenceEnded: Boolean = false,
 ) {
     val self: ParticipantTile? get() = tiles.firstOrNull { it.isSelf }
     val deviceCount: Int get() = self?.deviceCount ?: 1
@@ -1132,7 +1141,7 @@ class RoomViewModel @JvmOverloads constructor(
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
-                invitation?.policy ?: legacy?.policy, localName = room.label)
+                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt)
         }
     }
 
@@ -1237,7 +1246,7 @@ class RoomViewModel @JvmOverloads constructor(
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
-                invitation, admission.delegate, invitation.policy, localName = selected.name)
+                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt)
         }
     }
 
@@ -1903,7 +1912,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ) else emptyList()
                 val readiness = encodeRosterEvent(
                     RosterEntry(identity.participant, identity.devicePubkey, identity.credential, updatedAt = at),
-                    room.id, room.secret, identity.deviceSecretKey,
+                    room.id, room.secret, identity.deviceSecretKey, roomEnds = room.ends,
                 )
                 val route = try {
                     linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get()
@@ -2436,6 +2445,10 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(persistentGroup = value, error = null) }
     }
 
+    fun onConferenceLengthChanged(value: ConferenceLength) {
+        _start.update { it.copy(conferenceLength = value, error = null) }
+    }
+
     /**
      * Opens a room.
      *
@@ -2460,6 +2473,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val name = _start.value.roomName
         val persistent = true
+        val length = _start.value.conferenceLength
         enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
             val secret = Entropy.bytes(32)
@@ -2473,7 +2487,9 @@ class RoomViewModel @JvmOverloads constructor(
                     expiresAt = at + CREDENTIAL_TTL_SECONDS,
                     createdAt = at,
                 )
-            if (persistent) publishGroup(invitationHost, secret, relays, anonymous)
+            // A conference room ends at a fixed time; only a group room can.
+            val ends = if (persistent) length.endsFrom(at) else null
+            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends)
             open(
                 derived = derived,
                 secret = secret,
@@ -2485,6 +2501,7 @@ class RoomViewModel @JvmOverloads constructor(
                 invitationHost = invitationHost,
                 localName = name,
                 anonymous = anonymous,
+                ends = ends,
             )
         }
     }
@@ -2623,6 +2640,12 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val secret = admission.secret
+        // A relay that ignores NIP-40 can still hand over an ended room's invitation.
+        admission.endsAt?.takeIf { conferenceEnded(it, epochSeconds()) }?.let { ends ->
+            secret.fill(0)
+            _start.update { it.copy(busy = false, error = conferenceEndedMessage(ends)) }
+            return
+        }
 
         val derived = deriveRoom(secret)
         val at = epochSeconds()
@@ -2660,6 +2683,7 @@ class RoomViewModel @JvmOverloads constructor(
                 invitationHost = admission.delegate,
                 policy = payload.policy,
                 anonymous = anonymous,
+                ends = admission.endsAt,
             )
             return
         }
@@ -2679,6 +2703,7 @@ class RoomViewModel @JvmOverloads constructor(
             policy = payload.policy,
             localName = synced?.room?.name.orEmpty(),
             anonymous = anonymous,
+            ends = admission.endsAt,
         )
     }
 
@@ -2800,10 +2825,10 @@ class RoomViewModel @JvmOverloads constructor(
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
 
-    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false) {
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds()))) {
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends))) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
             }
@@ -2823,11 +2848,12 @@ class RoomViewModel @JvmOverloads constructor(
      *  creation still loads. Best effort: a refused write is tried again
      *  next round. A private conversation (a link limited to named members) is
      *  left to lapse: keeping its link alive would turn a chance expiry into a
-     *  standing way back in. */
-    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>) {
+     *  standing way back in. A conference room's invitation is signed with its
+     *  end, and is no longer signed once the room has ended. */
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null) {
         scope.launch {
-            while (true) {
-                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds())) }
+            while (!conferenceEnded(ends, epochSeconds())) {
+                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends)) }
                 catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                 catch (_: Exception) { /* Retried next round. */ }
                 // The link that opened the room may name relays the room has
@@ -2837,7 +2863,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val circle = circleRelaySet()
                 val extra = linkOnlyRelays(roomRelays, linkRelays) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
                 if (extra.isNotEmpty()) {
-                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds())) } }
+                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends)) } }
                     catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                     catch (_: Exception) { /* Retried next round. */ }
                 }
@@ -2926,6 +2952,8 @@ class RoomViewModel @JvmOverloads constructor(
         restoring: SavedRoom? = null,
         localName: String = "",
         anonymous: Boolean = false,
+        /** A conference room's end, from its group invitation, when this opening learnt it. */
+        ends: Long? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -2949,6 +2977,10 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Anonymous rooms do not support quiet-room cadence or Bothy delivery.")
         }
         val previous = savedRooms.get(derived.roomId)
+        // An ended conference room is not opened, from its saved copy or from a link.
+        (restoring?.ends ?: ends ?: previous?.ends)?.takeIf { conferenceEnded(it, epochSeconds()) }?.let {
+            throw RoomRecoveryException(conferenceEndedMessage(it))
+        }
         if (previous != null && (previous.participant != who.participant || (!previous.secondary && secondary))) {
             throw RoomRecoveryException("This room is saved with a different identity. Forget the saved room first if you want to replace it.")
         }
@@ -2960,7 +2992,8 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, activeRelays,
             previous?.name ?: localName, epochSeconds(), invitationHost,
-            previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile)
+            previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
+            ends = ends?.takeIf { invitation?.invitation?.persistent == true })
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
         savedRooms.save(record)
         // The signer has most likely just answered: renew the other Ring me
@@ -2982,7 +3015,7 @@ class RoomViewModel @JvmOverloads constructor(
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
         }
         val epochResponder = epochAuthorityHost?.let {
-            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, ::epochSeconds)
+            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, record.ends, ::epochSeconds)
         }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
@@ -3106,6 +3139,7 @@ class RoomViewModel @JvmOverloads constructor(
             authority = record.authority,
             initialEpoch = openedEpoch,
             chatOutbox = pendingChat,
+            ends = record.ends,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
                 withContext(Dispatchers.IO) {
                     cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
@@ -3175,6 +3209,7 @@ class RoomViewModel @JvmOverloads constructor(
             canAddDevice = who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
             canShowCard = who is PrimaryIdentity && !anonymousProfile,
+            endsAt = record.ends,
             notice = if (discardedOldQuiet) "Messages retained under the previous room key were marked Conversation rekeyed." else null,
         )
         observeRoomEpoch(live, scope)
@@ -3223,9 +3258,10 @@ class RoomViewModel @JvmOverloads constructor(
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
                 val linkRelays = if (anonymousProfile || linkConsents.all().any { it.roomId == record.id }) emptyList() else record.invitation?.relays.orEmpty()
-                keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays)
+                keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays, record.ends)
             }
         }
+        record.ends?.let { ends -> endConferenceAt(live, scope, ends) }
         live.join()
         if (pendingChat != null) scope.launch(Dispatchers.IO) {
             try {
@@ -3266,7 +3302,8 @@ class RoomViewModel @JvmOverloads constructor(
                     AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
                     authority=record.authority,initialRoomRelays=record.roomRelayRecord,
-                    onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) })
+                    onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) },
+                    ends=record.ends)
                 roomWork=work
                 scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
                 scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
@@ -3619,6 +3656,29 @@ class RoomViewModel @JvmOverloads constructor(
         engine = null
         _videos.value = emptyMap()
         _room.update { it.copy(micOn = false, micMuted = false, cameraOn = false, screenOn = false, agentCount = 0) }
+    }
+
+    /**
+     * A conference room open at its end stops there: the call and the
+     * session close, nothing more is signed (it would already have lapsed on
+     * every relay that honours NIP-40), and the room says it has ended. The
+     * screen stays, so what was said can still be read until it is left.
+     */
+    private fun endConferenceAt(live: RoomSession, scope: CoroutineScope, ends: Long) {
+        scope.launch {
+            val wait = (ends - epochSeconds()) * 1000
+            if (wait > 0) kotlinx.coroutines.delay(wait)
+            withContext(NonCancellable + Dispatchers.IO) {
+                gate.withLock {
+                    if (session !== live) return@withLock
+                    val ended = conferenceEndedMessage(ends)
+                    _videos.value = emptyMap()
+                    try { live.leave() } finally { closeSession() }
+                    _room.update { it.copy(conferenceEnded = true, canRotateInvitation = false, onCall = false, mediaRunning = false,
+                        micOn = false, micMuted = false, cameraOn = false, screenOn = false, notice = ended) }
+                }
+            }
+        }
     }
 
     private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
@@ -5034,12 +5094,12 @@ class RoomViewModel @JvmOverloads constructor(
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)
                 val url = encodeInvitationUrl(selectedWebApp.joinBase, nextHost.invitation, relayUrls, saved.policy)
-                val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds())
+                val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds(), ends = saved.ends)
                 val next = try {
                     saved.rotated(nextHost, url, retirement).also(savedRooms::save)
                 } catch (_: Exception) { return@withLock note("The new invitation could not be saved. The current link is unchanged.") }

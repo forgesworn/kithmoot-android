@@ -33,6 +33,8 @@ class AssignmentJournal(
     private val now: () -> Long = { System.currentTimeMillis()/1000 },
     initialTrafficRoomId: String = roomId,
     initialTrafficRoomKey: ByteArray = roomKey,
+    /** A conference room's end, applied to every assignment envelope this device publishes. */
+    private val ends: Long? = null,
 ) {
     private data class Pending(val inner: NostrEvent, val outer: NostrEvent)
     private val mutex=Mutex()
@@ -152,7 +154,7 @@ class AssignmentJournal(
                 val outer=encodeChatEvent(
                     "Assignment ${operation.assignmentText("op")}",identity.participant,identity.credential,
                     trafficId,trafficKey,identity.deviceSecretKey,now(),proof=proof,channel=ASSIGNMENT_CHANNEL,
-                    assignment=inner,credentialRoomId=roomId,
+                    assignment=inner,credentialRoomId=roomId,roomEnds=ends,
                 )
                 val value=Pending(inner,outer)
                 persist(events,outbox+(request to value));outbox[request]=value;refresh();value

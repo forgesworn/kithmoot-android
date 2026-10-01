@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
+import dev.forgesworn.kithmoot.session.conferenceEndedMessage
 import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import kotlinx.serialization.json.*
 
@@ -32,7 +33,9 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** The room's invitation has been retired, or its keys have moved on: it still opens (the error explains), but nothing new can join it. */
     val ended: Boolean = false,
     /** There is a link worth sharing: not ended, not a paired secondary device, and the saved link holds an invitation payload. */
-    val canShareInvite: Boolean = false)
+    val canShareInvite: Boolean = false,
+    /** A conference room's end, unix seconds; null for a room that does not end. */
+    val endsAt: Long? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -65,15 +68,25 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val project: String? get() = json["project"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
     val retired: Boolean get() = json["retired"]?.jsonPrimitive?.boolean ?: false
     val movedOn: Boolean get() = json["movedOn"]?.jsonPrimitive?.boolean ?: false
+    /** A conference room's end, unix seconds, from its group invitation.
+     *  Null for a room that does not end, and for every record older than
+     *  conference rooms. */
+    val ends: Long? get() = json["ends"]?.jsonPrimitive?.long
+    /** A conference room past its end: it cannot be opened, replied to or shared. */
+    fun ended(now: Long): Boolean = conferenceEnded(ends, now)
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
-    fun summary(): SavedRoomSummary = SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
-        ended = retired || movedOn, canShareInvite = !retired && !movedOn && !secondary && joinUrl.substringAfter('#', "").isNotBlank())
+    fun summary(now: Long = System.currentTimeMillis() / 1000): SavedRoomSummary {
+        val ended = retired || movedOn || ended(now)
+        return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
+            ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends)
+    }
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
     fun identity(now: Long): RoomIdentity {
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
+        ends?.takeIf { ended(now) }?.let { throw RoomRecoveryException(conferenceEndedMessage(it)) }
         val device = identityJson.text("deviceKey").keyBytes()
         return when (identityJson.text("type")) {
             "primary" -> PrimaryIdentity.create(id, now + SAVED_CREDENTIAL_TTL, now,
@@ -95,6 +108,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     suspend fun identity(now: Long, signer: ParticipantSigner?): RoomIdentity {
         if (!viaAccount) return identity(now)
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
+        ends?.takeIf { ended(now) }?.let { throw RoomRecoveryException(conferenceEndedMessage(it)) }
         if (signer == null || signer.pubkey != participant) throw RoomRecoveryException(accountNeeded())
         val device = identityJson.text("deviceKey").keyBytes()
         // The credential minted last time, while it has life enough left:
@@ -112,7 +126,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      * opening, while it lasts. Null when only a signer could make one.
      */
     fun headlessSigning(now: Long): HeadlessSigning? {
-        if (movedOn) return null
+        if (movedOn || ended(now)) return null
         val device = identityJson.text("deviceKey").keyBytes()
         if (viaAccount) return keptCredential(now, 0)?.let { HeadlessSigning(participant, it, device) }
         val identity = runCatching { identity(now) }.getOrNull() ?: return null
@@ -149,7 +163,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     /** Expired admission delegations cannot be renewed by a saved member. */
     fun host(now: Long): RoomInvitationHost? {
-        if (retired || movedOn) return null
+        if (retired || movedOn || ended(now)) return null
         val host = storedHost() ?: return null
         return host.takeIf { verifyInvitationDelegation(it.invitation, it.delegation, now) != null }
     }
@@ -204,6 +218,9 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             return previous.opened(openedAt)
         }
         return changed {
+            // The end is the room's, not the link's: a later opening that did
+            // not learn it (a synced bookmark) must not forget it.
+            if (ends == null) previous.ends?.let { put("ends", it) }
             put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
             if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
                 put("retired", true)
@@ -238,6 +255,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(relays.all { it.startsWith("wss://") || it.startsWith("ws://") })
         if (anonymous) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList())
         authority?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        json["ends"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: 0L) > 0L) }
+        if (ends != null) require(invitation?.invitation?.persistent == true) { "Only a group room can end." }
         if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
         when (identityJson.text("type")) {
@@ -271,7 +290,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     companion object {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
-                   name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false): SavedRoom {
+                   name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
+                   ends: Long? = null): SavedRoom {
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
@@ -281,6 +301,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("name", cleanName(name, id))
                 put("openedAt", now)
                 if (anonymous) put("anonymous", true)
+                ends?.let { put("ends", it) }
                 authority?.let { put("authority", it) }
                 put("identity", buildJsonObject {
                     put("deviceKey", identity.deviceSecretKey.toHex())

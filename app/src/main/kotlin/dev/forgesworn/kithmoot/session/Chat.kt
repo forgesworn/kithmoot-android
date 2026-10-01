@@ -15,6 +15,7 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
+import dev.forgesworn.kithmoot.protocol.withRoomExpiration
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -106,6 +107,8 @@ fun encodeChatEvent(
     channel: String? = null,
     assignment: NostrEvent? = null,
     credentialRoomId: String = roomId,
+    /** A conference room's end; see `withRoomExpiration`. */
+    roomEnds: Long? = null,
 ): NostrEvent {
     if (assignment != null) {
         val payload = assignmentPayload(assignment, credentialRoomId)
@@ -140,7 +143,7 @@ fun encodeChatEvent(
         secretKey = deviceSecretKey,
         kind = KIND_CHAT,
         createdAt = sentAt,
-        tags = listOf(listOf("d", address.id)),
+        tags = withRoomExpiration(listOf(listOf("d", address.id)), roomEnds),
         content = Nip44.encrypt(plaintext.toString(), address.key, nonce),
         auxRand = auxRand,
     )

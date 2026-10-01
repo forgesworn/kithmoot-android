@@ -152,7 +152,7 @@ object CredentialRenewal {
                 roomId = saved.id,
                 viaAccount = saved.viaAccount,
                 participant = saved.participant,
-                excluded = saved.anonymous || saved.retired || saved.movedOn,
+                excluded = saved.anonymous || saved.retired || saved.movedOn || saved.ended(now),
                 ringMode = if (ringOn) modes.modeFor(saved.id) else CallRingMode.NOTHING,
                 expiresAt = saved.keptCredentialExpiry(now),
             ))

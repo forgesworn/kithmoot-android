@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.CallBell
 import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.callBellTag
+import dev.forgesworn.kithmoot.protocol.conferenceEnded
 
 /**
  * Everything [BackgroundCallListenerService] needs to watch one saved room
@@ -27,7 +28,13 @@ data class BackgroundRoomWatch(
     val relays: List<String>,
     val selfParticipant: String,
     val selfDevice: String,
-)
+    /** A conference room's end, unix seconds; null for a room that does not end. */
+    val ends: Long? = null,
+) {
+    /** A conference room past its end never rings, even for a bell a relay
+     *  still hands over between reconciles. */
+    fun endedAt(now: Long): Boolean = conferenceEnded(ends, now)
+}
 
 private const val ONE_DAY_SECONDS = 86_400L
 

@@ -41,11 +41,13 @@ class RoomWork(
      *  room. Never called for a record this device already holds or an
      *  older one. */
     private val onRoomRelays:(RoomRelaysRecord,Long)->Unit={_,_->},
+    /** A conference room's end: every control and assignment event carries it as its NIP-40 expiration. */
+    private val ends:Long?=null,
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
     val journal=AssignmentJournal(roomId,roomKey,identity,transport,storage,scope,policy,now=now,
-        initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey)
+        initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey,ends=ends)
     private val mutableActions=MutableStateFlow<List<AvailableAssignmentAction>>(emptyList())
     val actions=mutableActions.asStateFlow()
     private val mutableError=MutableStateFlow<String?>(null)
@@ -118,7 +120,7 @@ class RoomWork(
             if(closed)return@launch
             runCatching {
                 val body=encodeRoomRelaysOp(record)
-                val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId)
+                val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
                 transport.publish(event)
             }
         }
@@ -143,7 +145,7 @@ class RoomWork(
         maybeRepostRoomRelays()
         }
         check(!closed) {"This room has closed"}
-        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId)
+        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
         check(transport.publishConfirmed(request)) {"No relay confirmed the agent discovery request"}
         mutableError.value=null
     }

@@ -71,6 +71,7 @@ fun TestScope.session(
     onEpochReady: (EpochKeys) -> Unit = {},
     onVerifiedOwnEvent: (NostrEvent) -> Unit = {},
     chatOutbox: PendingChatOutbox? = null,
+    ends: Long? = null,
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -91,4 +92,5 @@ fun TestScope.session(
     onEpochReady = onEpochReady,
     onVerifiedOwnEvent = onVerifiedOwnEvent,
     chatOutbox = chatOutbox,
+    ends = ends,
 )

@@ -93,4 +93,12 @@ class BackgroundRoomWatchTest {
         assertTrue(callBellTagsFor(a, now).all { it in union })
         assertTrue(callBellTagsFor(b, now).all { it in union })
     }
+
+    @Test
+    fun `an ended conference room never rings`() {
+        val conference = watch("a").copy(ends = 1_000)
+        assertFalse(conference.endedAt(999))
+        assertTrue(conference.endedAt(1_000))
+        assertFalse(watch("b").endedAt(Long.MAX_VALUE))
+    }
 }

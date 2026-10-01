@@ -174,6 +174,13 @@ class RoomSession(
      */
     private val callBellEnabled: Boolean = true,
     private val chatOutbox: PendingChatOutbox? = null,
+    /**
+     * A conference room's end, unix seconds: every event this session signs
+     * carries a NIP-40 `expiration` no later than it, so relays drop the
+     * room's traffic when it ends. Null for a room that does not end, whose
+     * events are unchanged. See `withRoomExpiration`.
+     */
+    private val ends: Long? = null,
 ) {
 
     private val lock = Any()
@@ -484,6 +491,7 @@ class RoomSession(
                 roomId = epoch.id,
                 roomKey = epoch.key,
                 deviceSecretKey = identity.deviceSecretKey,
+                roomEnds = ends,
             ),
         )
         recompute()
@@ -552,6 +560,7 @@ class RoomSession(
                     state = state,
                     call = call,
                     createdAt = now(),
+                    roomEnds = ends,
                 ),
             )
             transport.publish(event)
@@ -625,6 +634,7 @@ class RoomSession(
             proof = proof,
             reaction = reaction,
             credentialRoomId = room.roomId,
+            roomEnds = ends,
         )
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id
@@ -653,6 +663,7 @@ class RoomSession(
             proof = proof,
             reaction = reaction,
             credentialRoomId = room.roomId,
+            roomEnds = ends,
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
@@ -673,7 +684,7 @@ class RoomSession(
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
-            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId)
+            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends)
         decodeOwnChat(event, at, epoch)
         outbox.retain(epoch.id, event)
         onRetained()
@@ -737,6 +748,7 @@ class RoomSession(
             proof = proof,
             invite = invite,
             credentialRoomId = room.roomId,
+            roomEnds = ends,
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
@@ -764,6 +776,7 @@ class RoomSession(
                 // Stamped on the session's own clock, which is what the
                 // recipient's staleness check is measured against.
                 createdAt = now(),
+                roomEnds = ends,
             ).wrap,
         )
     }
@@ -1066,6 +1079,7 @@ class RoomSession(
             coroutineScope {
                 val request = encodeEpochRequest(
                     room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
+                    roomEnds = ends,
                 )
                 val answer = async(start = CoroutineStart.UNDISPATCHED) {
                     withTimeout(EPOCH_RECOVERY_TIMEOUT_MS) {

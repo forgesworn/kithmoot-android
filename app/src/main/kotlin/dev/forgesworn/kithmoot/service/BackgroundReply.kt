@@ -57,7 +57,7 @@ private fun replyRoomOf(application: KithMootApplication, saved: SavedRoom, epoc
     return ReplyRoom(
         anonymous = saved.anonymous,
         quiet = saved.policy?.quiet == true || saved.quietState != null,
-        ended = saved.retired || saved.movedOn,
+        ended = saved.retired || saved.movedOn || saved.ended(now),
         hasEpoch = epoch != null,
         needsProof = saved.policy?.let { it.tier != KindredTier.OPEN } == true,
         account = account,
@@ -89,7 +89,7 @@ suspend fun sendReplyInBackground(context: Context, roomId: String, text: String
     if (!canReplyFromNotice(replyRoomOf(application, saved, epoch, now), now)) return ReplyOutcome.FAILED
     val signing: HeadlessSigning = saved.headlessSigning(now) ?: return ReplyOutcome.FAILED
     val event = encodeChatEvent(text, signing.participant, signing.credential, epoch.id, epoch.key,
-        signing.deviceSecretKey, now, credentialRoomId = saved.id)
+        signing.deviceSecretKey, now, credentialRoomId = saved.id, roomEnds = saved.ends)
     // The room's own check, as an open room's send makes it: never keep what the room would refuse.
     decodeChatEvent(event, epoch.id, epoch.key, now, saved.policy, credentialRoomId = saved.id) ?: return ReplyOutcome.FAILED
     val outbox = PendingChatVault(application, saved.id, saved.participant, saved.devicePubkey).outbox

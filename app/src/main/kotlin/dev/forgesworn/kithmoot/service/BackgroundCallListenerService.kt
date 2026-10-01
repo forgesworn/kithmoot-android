@@ -255,7 +255,8 @@ class BackgroundCallListenerService : Service() {
     private fun watchFor(application: KithMootApplication, roomId: String): Candidate? {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
-            if (saved.movedOn || saved.retired || saved.anonymous) return null
+            // An ended conference room is never watched: it can neither ring nor deliver.
+            if (saved.movedOn || saved.retired || saved.anonymous || saved.ended(now())) return null
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
             val epoch = activeEpochFor(saved, stored) ?: return null
             val usesLink = saved.relays.any { url -> application.linkConsents.activeRoute(saved.participant, saved.id, url) != null }
@@ -267,7 +268,7 @@ class BackgroundCallListenerService : Service() {
                 epochId = epoch.id,
                 needsBunker = usesLink && saved.viaAccount && application.accounts.load()?.method == "bunker",
             ), ActiveRoomRegistry::isOpen)
-            Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey),
+            Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
                 epoch.id, epoch.key, exclusion, saved)
         } catch (_: Exception) {
             null
@@ -415,7 +416,7 @@ class BackgroundCallListenerService : Service() {
     private fun onBell(watch: BackgroundRoomWatch, event: NostrEvent) {
         val tag = event.tagValue("d") ?: return
         val now = now()
-        if (tag !in callBellTagsFor(watch, now)) return
+        if (watch.endedAt(now) || tag !in callBellTagsFor(watch, now)) return
         val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: return
         val participant = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
         // Handed over between reconcile ticks: the open room rings now.

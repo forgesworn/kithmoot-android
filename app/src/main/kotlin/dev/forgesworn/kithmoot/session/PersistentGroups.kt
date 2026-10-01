@@ -28,5 +28,9 @@ suspend fun requestPersistentAdmission(
     if (admissions.map { deriveRoom(it.secret).roomId }.distinct().size != 1) {
         throw GroupInvitationException("This group invitation names conflicting rooms. Ask for a current link.")
     }
+    // Copies re-signed over the room's life all carry one end, or none.
+    if (admissions.map { it.endsAt }.distinct().size != 1) {
+        throw GroupInvitationException("This group invitation names conflicting end times. Ask for a current link.")
+    }
     return admissions.first()
 }
