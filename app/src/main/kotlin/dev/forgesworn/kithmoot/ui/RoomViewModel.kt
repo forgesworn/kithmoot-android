@@ -2811,7 +2811,7 @@ class RoomViewModel @JvmOverloads constructor(
         val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, activeRelays,
             previous?.name ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile)
-            .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds())
+            .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
         savedRooms.save(record)
         var durableEpoch = record.authority?.let {
             roomEpochs.initialise(record.id, it, record.secret, epochSeconds())

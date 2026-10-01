@@ -59,6 +59,53 @@ class AccountRoomTest {
         assertFailsWith<RoomRecoveryException> { restored.identity(now) }
     }
 
+    @Test fun `reopening an account room reuses the credential it kept, without asking the signer`() = runTest {
+        // A bunker behind a relay that has gone away never answers, and a
+        // conversation opened this morning could not be opened again.
+        val secret = Entropy.bytes(32)
+        val room = deriveRoom(secret)
+        val signer = ElsewhereSigner(Entropy.bytes(32))
+        val who = PrimaryIdentity.createWith(signer, room.roomId, now + SAVED_CREDENTIAL_TTL, now)
+        val host = createRoomInvitation(true)
+        val saved = SavedRoom.create(secret, who, encodeInvitationUrl("https://kithmoot.example/j/", host.invitation, relays), relays, "Morgs", now, host, null)
+        val disk = MemoryStorage()
+        RoomRepository(disk).save(saved)
+        val restored = RoomRepository(disk).get(saved.id)!!
+        assertEquals(1, signer.signatures)
+
+        val soon = restored.identity(now + 3600, signer)
+        assertEquals(1, signer.signatures, "the kept credential is used, and the signer is not asked")
+        assertEquals(who.credential.id, soon.credential.id)
+        assertEquals(who.devicePubkey, soon.devicePubkey)
+
+        // Past half its life it would lapse inside a long session, so a fresh one is minted, and kept.
+        val later = restored.identity(now + KEPT_CREDENTIAL_MIN_REMAINING + 1, signer)
+        assertEquals(2, signer.signatures)
+        assertNotEquals(who.credential.id, later.credential.id)
+        val kept = restored.keepingCredential(later)
+        RoomRepository(disk).save(kept)
+        val again = RoomRepository(disk).get(saved.id)!!.identity(now + KEPT_CREDENTIAL_MIN_REMAINING + 2, signer)
+        assertEquals(2, signer.signatures)
+        assertEquals(later.credential.id, again.credential.id)
+    }
+
+    @Test fun `a kept credential is never used by another account or for another device`() = runTest {
+        val secret = Entropy.bytes(32)
+        val room = deriveRoom(secret)
+        val signer = ElsewhereSigner(Entropy.bytes(32))
+        val who = PrimaryIdentity.createWith(signer, room.roomId, now + SAVED_CREDENTIAL_TTL, now)
+        val host = createRoomInvitation(true)
+        val saved = SavedRoom.create(secret, who, encodeInvitationUrl("https://kithmoot.example/j/", host.invitation, relays), relays, "Morgs", now, host, null)
+
+        val other = ElsewhereSigner(Entropy.bytes(32))
+        assertFailsWith<RoomRecoveryException> { saved.identity(now + 10, other) }
+        assertFailsWith<RoomRecoveryException> { saved.identity(now + 10, null) }
+
+        // A credential for some other device is not kept.
+        val stranger = PrimaryIdentity.createWith(signer, room.roomId, now + SAVED_CREDENTIAL_TTL, now + 5)
+        assertSame(saved, saved.keepingCredential(stranger))
+    }
+
     @Test fun `a room with its own key still opens without any account`() = runTest {
         val secret = Entropy.bytes(32)
         val room = deriveRoom(secret)

@@ -13,6 +13,14 @@ import kotlinx.serialization.json.*
 
 internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
 
+/**
+ * The least life a kept account credential must have left to be reused when
+ * the room is opened again. Half its life, because this client does not
+ * renew a credential inside a session: a room opened on one with an hour
+ * left would stop sending an hour later.
+ */
+internal const val KEPT_CREDENTIAL_MIN_REMAINING = SAVED_CREDENTIAL_TTL / 2
+
 class RoomRecoveryException(message: String) : Exception(message)
 
 /** The UI receives labels and identifiers, never the saved capabilities. */
@@ -88,7 +96,33 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         if (!viaAccount) return identity(now)
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
         if (signer == null || signer.pubkey != participant) throw RoomRecoveryException(accountNeeded())
-        return PrimaryIdentity.createWith(signer, id, now + SAVED_CREDENTIAL_TTL, now, identityJson.text("deviceKey").keyBytes())
+        val device = identityJson.text("deviceKey").keyBytes()
+        // The credential minted last time, while it has life enough left:
+        // opening a conversation again must not wait on a bunker or a signer
+        // app that may take seconds, or never answer.
+        keptCredential(now, KEPT_CREDENTIAL_MIN_REMAINING)?.let { return PrimaryIdentity(signer, device, it) }
+        return PrimaryIdentity.createWith(signer, id, now + SAVED_CREDENTIAL_TTL, now, device)
+    }
+
+    /** The account credential kept with this room, if it still authorises this
+     *  device as [participant] here at [now] with at least [minRemaining] seconds left. */
+    private fun keptCredential(now: Long, minRemaining: Long): NostrEvent? {
+        if (!viaAccount) return null
+        val credential = runCatching { NostrEvent.fromJson(identityJson.getValue("credential")) }.getOrNull() ?: return null
+        val check = verifyDeviceCredential(credential, id, now)
+        if (check !is CredentialCheck.Valid || check.participant != participant || check.device != devicePubkey) return null
+        val expiresAt = credential.tagValue("expiration")?.toLongOrNull() ?: return null
+        return credential.takeIf { expiresAt - now >= minRemaining }
+    }
+
+    /** Keeps the credential [identity] carries, for a room joined as an account,
+     *  so the next opening can reuse it. Anything else is returned unchanged. */
+    fun keepingCredential(identity: RoomIdentity): SavedRoom {
+        if (!viaAccount || identity !is PrimaryIdentity || identity.participant != participant || identity.devicePubkey != devicePubkey) return this
+        val check = verifyDeviceCredential(identity.credential, id, identity.credential.createdAt)
+        if (check !is CredentialCheck.Valid) return this
+        return changed { this["identity"] = JsonObject(identityJson.toMutableMap().apply { this["credential"] = identity.credential.toJson() }) }
+            .also { it.validate() }
     }
 
     private fun accountNeeded(): String =
@@ -198,8 +232,14 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 require(SecondaryIdentity.adopt(credential, identityJson.text("deviceKey").keyBytes(), id, credential.createdAt) != null)
             }
             "account" -> {
-                require("participantKey" !in identityJson && "credential" !in identityJson)
+                require("participantKey" !in identityJson)
                 require(identityJson.text("participant").matches(Regex("[0-9a-f]{64}")))
+                // A kept credential is this account's, for this device in this room.
+                identityJson["credential"]?.let {
+                    val credential = NostrEvent.fromJson(it)
+                    val check = verifyDeviceCredential(credential, id, credential.createdAt)
+                    require(check is CredentialCheck.Valid && check.participant == participant && check.device == devicePubkey)
+                }
             }
             else -> error("Unknown saved identity")
         }
@@ -234,6 +274,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                             } else {
                                 put("type", "account")
                                 put("participant", identity.participant)
+                                put("credential", identity.credential.toJson())
                             }
                         }
                         is SecondaryIdentity -> {
