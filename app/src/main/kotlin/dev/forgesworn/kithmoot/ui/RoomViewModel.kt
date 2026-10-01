@@ -18,6 +18,7 @@ import dev.forgesworn.kithmoot.protocol.relaysForPrivateConversation
 import dev.forgesworn.kithmoot.protocol.ContactCardBuilder
 import dev.forgesworn.kithmoot.protocol.ContactCards
 import dev.forgesworn.kithmoot.protocol.Lane
+import dev.forgesworn.kithmoot.protocol.laneOfRelayUrl
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.applyRoomRelays
@@ -120,6 +121,11 @@ import dev.forgesworn.kithmoot.protocol.InvitationPayload
 import dev.forgesworn.kithmoot.protocol.encodePersistentInvitation
 import dev.forgesworn.kithmoot.session.requestPersistentAdmission
 import dev.forgesworn.kithmoot.session.GroupInvitationException
+import dev.forgesworn.kithmoot.session.INVITATION_NOT_FOUND
+import dev.forgesworn.kithmoot.session.MissingGroupInvitationException
+import dev.forgesworn.kithmoot.session.isMissingInvitation
+import dev.forgesworn.kithmoot.session.linkOnlyRelays
+import dev.forgesworn.kithmoot.session.widerInvitationRelays
 import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
@@ -1104,7 +1110,8 @@ class RoomViewModel @JvmOverloads constructor(
             // A group joined on another device lets this one in by the secret
             // its bookmark carries; the signed invitation may be long gone.
             val synced = invitation?.let { syncedGroupFor(it.invitation) }?.takeIf { it.room.roomId == room.roomId }
-            val admission = invitation?.let { synced?.admission ?: requestAdmission(it, relays) ?: throw RoomRecoveryException("Access could not be restored. Keep another member online and try again.") }
+            var foundFurther = emptyList<String>()
+            val admission = invitation?.let { synced?.admission ?: requestAdmission(it, relays) { found -> foundFurther = found } ?: throw RoomRecoveryException("Access could not be restored. Keep another member online and try again.") }
             val secret = admission?.secret ?: legacy!!.secret
             val derived = deriveRoom(secret)
             try { check(derived.roomId == room.roomId) { "This invitation admitted a different room." }; checkSelection() }
@@ -1113,7 +1120,7 @@ class RoomViewModel @JvmOverloads constructor(
             val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
-            open(derived, secret, relays, who, false, localUrl, invitation, admission?.delegate,
+            open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
                 invitation?.policy ?: legacy?.policy, localName = room.label)
         }
     }
@@ -1209,7 +1216,8 @@ class RoomViewModel @JvmOverloads constructor(
             val invitation = decodeInvitationUrl(selected.link) ?: throw RoomRecoveryException("This project needs a persistent room invitation.")
             if (!invitation.invitation.persistent || decodeInvitationPairingLink(selected.link) != null) throw RoomRecoveryException("This is not a project room invitation.")
             val relays = invitation.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
-            val admission = requestAdmission(invitation, relays) ?: throw RoomRecoveryException("The group invitation could not be loaded. Try again.")
+            var foundFurther = emptyList<String>()
+            val admission = requestAdmission(invitation, relays) { foundFurther = it } ?: throw RoomRecoveryException(INVITATION_NOT_FOUND)
             val derived = deriveRoom(admission.secret)
             try { checkProjectRoomAdmission(room.room, derived.roomId); checkSelection() }
             catch (e: Exception) { admission.secret.fill(0); throw e }
@@ -1217,7 +1225,7 @@ class RoomViewModel @JvmOverloads constructor(
             val who = try {
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
-            open(derived, admission.secret, relays, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
+            open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
                 invitation, admission.delegate, invitation.policy, localName = selected.name)
         }
     }
@@ -2581,8 +2589,9 @@ class RoomViewModel @JvmOverloads constructor(
         // drop within a day or two. A room this phone already keeps opens as saved.
         val synced = if (anonymous || decodeInvitationPairingLink(url) != null) null else syncedGroupFor(payload.invitation)
         if (synced != null) savedRooms.get(synced.room.roomId)?.let { synced.admission.secret.fill(0); openSaved(it); return }
+        var foundFurther = emptyList<String>()
         val admission = synced?.admission ?: try {
-            requestAdmission(payload, relays, anonymous)
+            requestAdmission(payload, relays, anonymous) { foundFurther = it }
         } catch (e: GroupInvitationException) {
             _start.update { it.copy(busy = false, error = e.message) }
             return
@@ -2596,7 +2605,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (admission == null) {
             _start.value = _start.value.copy(
                 busy = false,
-                error = if (payload.invitation.persistent) "The group invitation could not be loaded from its relays. Try again."
+                error = if (payload.invitation.persistent) INVITATION_NOT_FOUND
                     else "The room is not answering this invitation. Ask for a fresh link.",
             )
             return
@@ -2631,7 +2640,7 @@ class RoomViewModel @JvmOverloads constructor(
             open(
                 derived,
                 secret,
-                relays,
+                relays + foundFurther,
                 secondary,
                 secondary = true,
                 joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
@@ -2644,10 +2653,12 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
+        // Found beyond the link's relays: the room evidently lives there too,
+        // so it is read and written there as well.
         open(
             derived,
             secret,
-            relays,
+            relays + foundFurther,
             primary,
             secondary = primary is SecondaryIdentity,
             joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
@@ -2669,17 +2680,41 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Exchange the bearer for a traffic secret and a bounded responder
-     * delegation, without an account or prompt. */
-    private suspend fun requestAdmission(payload: InvitationPayload, relays: List<String>, anonymous: Boolean = false): RoomAdmission? {
-        if (payload.invitation.persistent) return withGroupRelays(relays, anonymous) { transport ->
-            try {
-                requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
-                throw GroupInvitationException("The group invitation could not be loaded from its relays. Try again.")
-            } catch (e: GroupInvitationException) { throw e
-            } catch (_: Exception) {
-                throw GroupInvitationException("The group invitation could not be loaded from its relays. Try again.")
+     * delegation, without an account or prompt. When none of a group link's
+     * relays still has its invitation, [onWider] is for asking this device's
+     * relays and the defaults too (see session/InvitationLookup.kt for why that
+     * is safe and where it never goes); it hears the relays that answered. */
+    private suspend fun requestAdmission(
+        payload: InvitationPayload,
+        relays: List<String>,
+        anonymous: Boolean = false,
+        onWider: ((List<String>) -> Unit)? = null,
+    ): RoomAdmission? {
+        if (payload.invitation.persistent) {
+            val fetch: suspend (RelayPool) -> RoomAdmission = { transport ->
+                try {
+                    requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                    throw MissingGroupInvitationException(INVITATION_NOT_FOUND)
+                } catch (e: GroupInvitationException) { throw e
+                } catch (_: Exception) {
+                    throw MissingGroupInvitationException(INVITATION_NOT_FOUND)
+                }
+            }
+            return try { withGroupRelays(relays, anonymous, fetch) }
+            catch (e: GroupInvitationException) {
+                val wider = if (onWider != null && !anonymous && isMissingInvitation(e)) {
+                    val circle = circleRelaySet()
+                    widerInvitationRelays(
+                        relays,
+                        accountRelayChoices().filter { it.read }.map { it.url },
+                        DEFAULT_RELAYS,
+                    ) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
+                } else emptyList()
+                if (wider.isEmpty()) throw e
+                Log.i(JOIN_LOG, "group invitation not on the link's relays; asking ${wider.size} more")
+                withGroupRelays(wider, false, fetch).also { onWider!!(wider) }
             }
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -2777,12 +2812,23 @@ class RoomViewModel @JvmOverloads constructor(
      *  next round. A private conversation (a link limited to named members) is
      *  left to lapse: keeping its link alive would turn a chance expiry into a
      *  standing way back in. */
-    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray) {
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>) {
         scope.launch {
             while (true) {
                 try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds())) }
                 catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                 catch (_: Exception) { /* Retried next round. */ }
+                // The link that opened the room may name relays the room has
+                // since left, and a copy of that link is still out there
+                // looking on them. Circle relays are left to the room's own
+                // connection.
+                val circle = circleRelaySet()
+                val extra = linkOnlyRelays(roomRelays, linkRelays) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
+                if (extra.isNotEmpty()) {
+                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds())) } }
+                    catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
+                    catch (_: Exception) { /* Retried next round. */ }
+                }
                 kotlinx.coroutines.delay(GROUP_INVITATION_REFRESH_MS)
             }
         }
@@ -3156,7 +3202,12 @@ class RoomViewModel @JvmOverloads constructor(
         profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
-            if (host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) keepGroupInvitationAlive(scope, transport, host, secret)
+            if (host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
+                // A room that is anonymous or sheltered behind a Bothy keeps
+                // exactly its own relays, as savedRoomRelays does.
+                val linkRelays = if (anonymousProfile || linkConsents.all().any { it.roomId == record.id }) emptyList() else record.invitation?.relays.orEmpty()
+                keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays)
+            }
         }
         live.join()
         if (pendingChat != null) scope.launch(Dispatchers.IO) {
