@@ -111,6 +111,8 @@ data class EncodeCallBellOptions(
     val nonce: ByteArray = Entropy.bytes(32),
     val deviceAuxRand: ByteArray = Entropy.bytes(32),
     val throwawayAuxRand: ByteArray = Entropy.bytes(32),
+    /** A conference room's end; see [withRoomExpiration]. */
+    val roomEnds: Long? = null,
 )
 
 /** Build a bell, signed by a key minted here and discarded by the caller. */
@@ -125,10 +127,10 @@ fun encodeCallBellEvent(opts: EncodeCallBellOptions): NostrEvent {
         put("device", Schnorr.publicKeyHex(opts.deviceSecretKey))
         put("sig", sig)
     }.toString()
-    val tags = listOf(
+    val tags = withRoomExpiration(listOf(
         listOf("d", callBellTag(opts.key, createdAt)),
         listOf("expiration", (createdAt + CALL_BELL_TTL_SECONDS).toString()),
-    )
+    ), opts.roomEnds)
     val content = Nip44.encrypt(plaintext, callBellContentKey(opts.key), opts.nonce)
     return Events.sign(
         secretKey = opts.throwawaySecretKey,

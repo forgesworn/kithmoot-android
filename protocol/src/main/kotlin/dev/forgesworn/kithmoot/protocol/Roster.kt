@@ -288,11 +288,13 @@ fun encodeRosterEvent(
     deviceSecretKey: ByteArray,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    /** A conference room's end; see [withRoomExpiration]. */
+    roomEnds: Long? = null,
 ): NostrEvent = Events.sign(
     secretKey = deviceSecretKey,
     kind = KIND_ROSTER,
     createdAt = entry.updatedAt,
-    tags = listOf(listOf("d", roomId)),
+    tags = withRoomExpiration(listOf(listOf("d", roomId)), roomEnds),
     content = Nip44.encrypt(entry.toJson().toString(), roomKey, nonce),
     auxRand = auxRand,
 )

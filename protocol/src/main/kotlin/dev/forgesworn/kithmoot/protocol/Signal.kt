@@ -212,6 +212,8 @@ fun wrapSignal(
     innerAuxRand: ByteArray = Entropy.bytes(32),
     outerAuxRand: ByteArray = Entropy.bytes(32),
     nonce: ByteArray = Entropy.bytes(32),
+    /** A conference room's end, applied to the published wrap; see [withRoomExpiration]. */
+    roomEnds: Long? = null,
 ): WrappedSignal {
     val recipientTag = listOf(listOf("p", recipientPubkey))
     val inner = Events.sign(
@@ -227,7 +229,7 @@ fun wrapSignal(
         secretKey = ephemeralSecretKey,
         kind = KIND_SIGNAL_WRAP,
         createdAt = createdAt,
-        tags = recipientTag + listOf(listOf("expiration", (createdAt + SIGNAL_EXPIRATION_SECONDS).toString())),
+        tags = withRoomExpiration(recipientTag + listOf(listOf("expiration", (createdAt + SIGNAL_EXPIRATION_SECONDS).toString())), roomEnds),
         content = Nip44.encrypt(inner.toCompactJson(), conversationKey, nonce),
         auxRand = outerAuxRand,
     )

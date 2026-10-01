@@ -218,6 +218,8 @@ fun encodeEpochRequest(
     proof: KindredProof? = null,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    /** A conference room's end; see [withRoomExpiration]. */
+    roomEnds: Long? = null,
 ): NostrEvent {
     require(deviceSecretKey.size == 32)
     val room = requireHex(roomId, "room id")
@@ -231,7 +233,7 @@ fun encodeEpochRequest(
     }
     val key = Nip44.conversationKey(deviceSecretKey, peer.hexToBytes())
     return try {
-        Events.sign(deviceSecretKey, KIND_EPOCH_REQUEST, now, listOf(listOf("d", room), listOf("p", peer)), Nip44.encrypt(body.toString(), key, nonce), auxRand)
+        Events.sign(deviceSecretKey, KIND_EPOCH_REQUEST, now, withRoomExpiration(listOf(listOf("d", room), listOf("p", peer)), roomEnds), Nip44.encrypt(body.toString(), key, nonce), auxRand)
     } finally { key.fill(0) }
 }
 
@@ -284,6 +286,8 @@ fun encodeEpochGrant(
     refused: String? = null,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    /** A conference room's end; see [withRoomExpiration]. */
+    roomEnds: Long? = null,
 ): NostrEvent {
     require(authoritySecretKey.size == 32)
     val room = requireHex(roomId, "room id")
@@ -304,7 +308,7 @@ fun encodeEpochGrant(
     }
     val key = Nip44.conversationKey(authoritySecretKey, recipient.hexToBytes())
     return try {
-        Events.sign(authoritySecretKey, KIND_EPOCH_GRANT, now, listOf(listOf("d", room), listOf("p", recipient)), Nip44.encrypt(body.toString(), key, nonce), auxRand)
+        Events.sign(authoritySecretKey, KIND_EPOCH_GRANT, now, withRoomExpiration(listOf(listOf("d", room), listOf("p", recipient)), roomEnds), Nip44.encrypt(body.toString(), key, nonce), auxRand)
     } finally { key.fill(0) }
 }
 

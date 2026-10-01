@@ -90,7 +90,12 @@ class RoomInvitationHost(
     }
 }
 
-data class RoomAdmission(val secret: ByteArray, val delegate: RoomInvitationHost?)
+data class RoomAdmission(
+    val secret: ByteArray,
+    val delegate: RoomInvitationHost?,
+    /** A conference room's end, unix seconds, from its group invitation; null for a room that does not end. */
+    val endsAt: Long? = null,
+)
 
 class InvitationPayload(
     val invitation: RoomInvitation,
@@ -415,6 +420,8 @@ fun encodeInvitationRetirement(
     inviterSecretKey: ByteArray,
     now: Long,
     auxRand: ByteArray = Entropy.bytes(32),
+    /** A conference room's end: the tombstone lapses with the room it closes. */
+    ends: Long? = null,
 ): NostrEvent {
     require(Schnorr.publicKeyHex(inviterSecretKey) == invitation.canonicalInviter) {
         "only the root inviter can retire an invitation"
@@ -423,7 +430,7 @@ fun encodeInvitationRetirement(
         secretKey = inviterSecretKey,
         kind = KIND_INVITATION_RETIREMENT,
         createdAt = now,
-        tags = listOf(listOf("d", deriveInvitationId(invitation))),
+        tags = withRoomExpiration(listOf(listOf("d", deriveInvitationId(invitation))), ends),
         content = "{\"v\":1}",
         auxRand = auxRand,
     )
