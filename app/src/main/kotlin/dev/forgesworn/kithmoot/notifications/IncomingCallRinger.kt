@@ -97,7 +97,6 @@ object IncomingCallRinger {
             .setSmallIcon(R.drawable.ic_chat_notice)
             .setContentTitle(callerName)
             .setContentText("Calling in ${roomName.ifBlank { "KithMoot" }.take(120)}")
-            .setStyle(style)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
@@ -111,16 +110,26 @@ object IncomingCallRinger {
         // notification still posts, heads-up, with its Answer and Decline
         // actions - just without taking the screen. The person is asked once
         // (KithMootApp) and can grant it from Notifications & sound.
-        if (canRingFullScreen(context) && !quiet) builder.setFullScreenIntent(fullScreenPending, true)
+        //
+        // `CallStyle` is only accepted with a full-screen intent (or from a
+        // foreground service's own notification): posted without one, Android
+        // throws, and that crashed KithMoot on every ring for a person who had
+        // not allowed full-screen calls. Without it, the same Answer and
+        // Decline go on a plain call notification instead.
+        val takesScreen = canRingFullScreen(context) && !quiet
+        if (takesScreen) builder.setStyle(style).setFullScreenIntent(fullScreenPending, true)
+        else builder.addAction(0, "Decline", declinePending).addAction(0, "Answer", answerPending)
 
         val notification = builder.build()
         // Ring until answered, declined or timed out, like a phone call: a
         // channel sound otherwise plays the ringtone once and stops.
         if (!quiet) notification.flags = notification.flags or Notification.FLAG_INSISTENT
 
+        // A ring is never worth crashing over: anything Android refuses here
+        // leaves the call unrung, and the room still shows it.
         try {
             NotificationManagerCompat.from(context).notify(roomId, NOTIFICATION_ID, notification)
-        } catch (_: SecurityException) {
+        } catch (_: Exception) {
             mutableActive.value = null
             return
         }
