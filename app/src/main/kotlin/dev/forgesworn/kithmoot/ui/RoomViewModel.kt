@@ -363,6 +363,8 @@ data class ContactRow(
 
 data class RoomState(
     val notificationChatRequest: Int = 0,
+    /** Bumped to bring the room to its call view: an answered call opens there. */
+    val callViewRequest: Int = 0,
     val roomId: String = "",
     val name: String = "",
     val joinUrl: String = "",
@@ -3869,6 +3871,9 @@ class RoomViewModel @JvmOverloads constructor(
         val renewed = dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
         if (renewed > 0) showNotice("You can answer calls in your rooms again.")
     }
+
+    /** Shows the call rather than the chat: see [RoomState.callViewRequest]. */
+    fun showCallView() { _room.update { it.copy(callViewRequest = it.callViewRequest + 1) } }
 
     fun leaveCall() {
         val live = session ?: return

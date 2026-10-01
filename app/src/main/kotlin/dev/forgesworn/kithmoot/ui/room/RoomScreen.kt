@@ -122,6 +122,11 @@ fun RoomScreen(
     inPictureInPicture: Boolean = false,
     /** Opens system picture-in-picture, where the device has it. */
     onPopOut: (() -> Unit)? = null,
+    /** A call answered on a phone that is still locked: the call view alone,
+     *  with no header, tabs, chat or other rooms until it is unlocked. */
+    lockedCallOnly: Boolean = false,
+    /** Asks Android to unlock, from anything the locked call view leaves out. */
+    onUnlock: () -> Unit = {},
 ) {
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -132,6 +137,13 @@ fun RoomScreen(
     androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
         if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
     }
+    androidx.compose.runtime.LaunchedEffect(state.callViewRequest, lockedCallOnly) {
+        if (state.callViewRequest > 0 || lockedCallOnly) { callOpen = true; workOpen = false }
+    }
+    // Read through these, never the raw flags: while locked nothing but the
+    // call shows, not even for the frame before the effect above runs.
+    val showCall = callOpen || lockedCallOnly
+    val showWork = workOpen && !lockedCallOnly
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
@@ -159,7 +171,7 @@ fun RoomScreen(
         PipCall(state, videos, eglBase, modifier)
         return
     }
-    val callShowing = callOpen && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null
+    val callShowing = showCall && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null
     val chrome = rememberCallChrome(
         mayHide = callShowing && controlsMayAutoHide(
             videoShowing = videoShowing(state, videos),
@@ -309,8 +321,8 @@ fun RoomScreen(
     ) {
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
-        TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
+        if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
+        if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
@@ -371,11 +383,11 @@ fun RoomScreen(
        }
       }
 
-        if (!state.anonymous && workOpen) {
+        if (!state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
             }
-        } else if (state.anonymous || state.chatOnly || !callOpen) {
+        } else if (state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
@@ -430,8 +442,8 @@ fun RoomScreen(
                     state = state,
                     onToggleMic = onToggleMic,
                     onToggleCamera = onToggleCamera,
-                    onOpenChat = { callOpen = false },
-                    onMore = { moreOpen = true },
+                    onOpenChat = { if (lockedCallOnly) onUnlock() else callOpen = false },
+                    onMore = { if (lockedCallOnly) onUnlock() else moreOpen = true },
                     onLeaveCall = { onLeaveCall(); callOpen = false; workOpen = false },
                 )
             }

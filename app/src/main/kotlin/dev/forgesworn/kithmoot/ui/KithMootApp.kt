@@ -12,6 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -85,6 +88,10 @@ fun KithMootApp(
     onBackToCall: () -> Unit = {},
     /** The room's back arrow while on its call: to the rooms, call kept. */
     onRoomsKeepingCall: (() -> Unit)? = null,
+    /** A call answered on a phone still locked: its call view and nothing
+     *  else - no rooms list, chat or settings - until the phone is unlocked. */
+    lockedCallOnly: Boolean = false,
+    onUnlock: () -> Unit = {},
 ) {
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
@@ -97,6 +104,8 @@ fun KithMootApp(
     // was lost, but back did not go up a level (design-home-rooms.md Q11).
     val roomBack = { if (roomState.onCall && onRoomsKeepingCall != null) onRoomsKeepingCall() else model.leave() }
     androidx.activity.compose.BackHandler(enabled = stage == Stage.ROOM && !inPictureInPicture, onBack = roomBack)
+    // Locked: back goes nowhere the lock screen should be covering.
+    androidx.activity.compose.BackHandler(enabled = lockedCallOnly) { }
 
     // Settings and Projects are pushed over home; back returns to the rooms
     // list rather than leaving the app (design-home-rooms.md section 7).
@@ -332,7 +341,13 @@ fun KithMootApp(
       // Under a dock the room's own header must not clear the status bar again.
       Box(if (dock != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier) {
         val padding = scaffoldPadding
-        when (stage) {
+        if (lockedCallOnly && stage != Stage.ROOM) {
+            // The room is still opening: never the rooms list over the lock screen.
+            Column(Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text("Joining the call…", style = MaterialTheme.typography.headlineSmall)
+            }
+        } else when (stage) {
             Stage.START -> {
                 val homeAccountActions = dev.forgesworn.kithmoot.ui.start.AccountActions(
                     onRefreshSigners = model::refreshSigners,
@@ -427,6 +442,11 @@ fun KithMootApp(
                     onToggleMic = {
                         if (roomState.micOn) {
                             model.toggleMicrophone()
+                        } else if (lockedCallOnly && androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
+                            // Android's permission prompt cannot show over the lock screen.
+                            onUnlock()
                         } else {
                             asker.ask(
                                 PermissionAsk(
@@ -483,6 +503,8 @@ fun KithMootApp(
                     onRotateInvitation = model::rotateInvitation,
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,
+                    lockedCallOnly = lockedCallOnly,
+                    onUnlock = onUnlock,
                     onLeave = model::leave,
                     onBack = roomBack,
                     modifier = Modifier.padding(padding),
@@ -536,13 +558,18 @@ fun KithMootApp(
                     callerLabel = callerName,
                     onAnswer = {
                         model.dismissCallRingBanner()
+                        model.showCallView()
                         if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                             android.content.pm.PackageManager.PERMISSION_GRANTED
                         ) model.joinCall(micOn = true)
                         else answerWithMic.launch(Manifest.permission.RECORD_AUDIO)
                     },
                     onDismiss = model::dismissCallRingBanner,
-                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 12.dp),
+                    // Clear of the status bar and the camera cutout, or Join sits
+                    // under them where it cannot be tapped.
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter)
+                        .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                        .padding(top = 12.dp),
                 )
             }
         }

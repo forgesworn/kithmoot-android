@@ -191,6 +191,8 @@ class MainActivity : ComponentActivity() {
                     val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
                     val micAllowed = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     model.joinCall(micOn = if (micAllowed || !locked) ensureMicForAnswer() else false)
+                    // Straight to the call, not the chat, now and after unlocking.
+                    model.showCallView()
                 } }
                 val overLock by answeredOverLock.collectAsState()
                 LaunchedEffect(overLock) {
@@ -280,17 +282,7 @@ class MainActivity : ComponentActivity() {
                     }
                     locked = false
                 }
-                if (overLock && locked) {
-                    dev.forgesworn.kithmoot.ui.room.LockedCallScreen(
-                        callRoom,
-                        micAllowed = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
-                        onToggleMic = model::toggleMicrophone,
-                        onLeave = model::leaveCall,
-                        onUnlock = {
-                            getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
-                        },
-                    )
-                } else if (visiting) {
+                if (visiting) {
                     KithMootApp(
                         visitor,
                         accountModel = model,
@@ -308,6 +300,8 @@ class MainActivity : ComponentActivity() {
                     visitor.callRoomId = callRoom.roomId
                     visitor.refreshSavedRooms()
                     visiting = true
+                }, lockedCallOnly = overLock && locked, onUnlock = {
+                    getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
                 })
               }
             }
