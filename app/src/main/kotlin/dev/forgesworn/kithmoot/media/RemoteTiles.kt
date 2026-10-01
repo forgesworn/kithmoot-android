@@ -30,6 +30,16 @@ package dev.forgesworn.kithmoot.media
  *   profile-1 answer and as the fallback for a track that arrived before the
  *   map did.
  *
+ * - **Falls back to what the device announced.** A sender whose `a=msid`
+ *   no longer names the track it advertised - a camera swapped under a
+ *   sender by `replaceTrack`, which never updates the msid, or a background
+ *   effect switched on mid-call - still announces the role. A live receiver
+ *   no advert matches takes a role its device advertises
+ *   ([advertisedRoles], best first) that nothing else of that device fills.
+ *   Before this it was dropped, and the person's tile said "Connecting
+ *   video…" over frames that were arriving all along. A device that
+ *   advertises nothing still gets nothing: that is a guess, not a fallback.
+ *
  * Where more than one live, receiving element still resolves to the same
  * role - a brief window mid-renegotiation - the later entry in [remote]
  * wins. That is a name, not a promise: a genuine "packets are actually
@@ -44,11 +54,18 @@ internal fun <T, V> resolveRemoteByRole(
     roleForTrackId: (device: String, trackId: String) -> String?,
     valueFor: (T) -> V,
     declaredRole: (T) -> String? = { null },
+    advertisedRoles: (device: String) -> List<String> = { emptyList() },
 ): Map<String, V> {
     val result = LinkedHashMap<String, V>()
+    val unmatched = mutableListOf<T>()
     for (track in remote) {
         if (!receiving(track)) continue
-        val role = declaredRole(track) ?: roleForTrackId(device(track), trackId(track)) ?: continue
+        val role = declaredRole(track) ?: roleForTrackId(device(track), trackId(track))
+        if (role == null) { unmatched += track; continue }
+        result[roleKey(device(track), role)] = valueFor(track)
+    }
+    for (track in unmatched) {
+        val role = advertisedRoles(device(track)).firstOrNull { roleKey(device(track), it) !in result } ?: continue
         result[roleKey(device(track), role)] = valueFor(track)
     }
     return result
