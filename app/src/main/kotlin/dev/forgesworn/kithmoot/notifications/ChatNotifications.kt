@@ -50,7 +50,8 @@ class ChatNotifications(private val context: Context) {
         val settings = settings.value
         if (!settings.enabled || !allowed() || update.unread.isEmpty()) { cancel(); return }
         val now = android.os.SystemClock.elapsedRealtime()
-        val sound = update.arrived.isNotEmpty() && settings.bell && !onCall && (lastSoundAt == Long.MIN_VALUE || now - lastSoundAt >= 5_000)
+        // On screen already: the count updates, but nothing drops down over the room.
+        val sound = update.arrived.isNotEmpty() && settings.bell && !onCall && !foreground && (lastSoundAt == Long.MIN_VALUE || now - lastSoundAt >= 5_000)
         val content = noticeContent(roomName, private, update.unread.map(::noticeLine), settings.previews)
         val noticeKey = "$roomId:${content.unread}:${content.lines.lastOrNull()?.let { it.id + it.body }}"
         if (noticeKey == lastNotice && update.arrived.isEmpty()) return
