@@ -40,4 +40,16 @@ class PersistentGroupsTest {
         assertEquals(1_800_090_000, requestPersistentAdmission(host.invitation) { listOf(welcome, later) }.endsAt)
         assertNull(requestPersistentAdmission(host.invitation) { listOf(welcome) }.endsAt)
     }
+
+    @Test fun `copies that disagree on the relays keep the newest that names any, as on the web`() = runTest {
+        val older = encodePersistentInvitation(host, secret, 1_800_000_010, relays = listOf("wss://old.example/"))
+        val newer = encodePersistentInvitation(host, secret, 1_800_000_020, relays = listOf("wss://new.example/"))
+        val silent = encodePersistentInvitation(host, secret, 1_800_000_030)
+        for (order in listOf(listOf(older, newer, silent), listOf(silent, newer, older), listOf(newer, silent, older))) {
+            assertEquals(listOf("wss://new.example/"), requestPersistentAdmission(host.invitation) { order }.relays)
+        }
+        assertNull(requestPersistentAdmission(host.invitation) { listOf(welcome, silent) }.relays)
+        val twin = encodePersistentInvitation(host, secret, 1_800_000_010, relays = listOf("wss://twin.example/"))
+        assertEquals(listOf("wss://old.example/"), requestPersistentAdmission(host.invitation) { listOf(older, twin) }.relays)
+    }
 }

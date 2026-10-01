@@ -210,6 +210,32 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             put("sig", record.sig)
         })
     }.also { it.validate() }
+
+    /** The room's own relays: the ones it was made on, fixed, at most eight.
+     *  Every member's pool includes them, ahead of its own (see
+     *  `RoomRelays.atOpen`). Empty for an anonymous room, a room sheltered
+     *  behind a Bothy, and any room that has not learnt them yet. */
+    val roomRelays: List<String> get() = json["fixedRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+    /** [roomRelays] came from the room's signed group invitation, or this
+     *  device made the room, rather than from a link's unsigned hints. */
+    val roomRelaysSigned: Boolean get() = json["fixedRelaysSigned"]?.jsonPrimitive?.boolean ?: false
+    /** Every relay all of this room's members use: [roomRelays], then the
+     *  ones its authority's newest `relays` record added. */
+    val sharedRelays: List<String> get() = (roomRelays + (roomRelayRecord?.relays ?: emptyList())).distinct()
+
+    /** Learns the room's relays. A signed list (from the group invitation)
+     *  replaces whatever was held; an unsigned one (a link's hints) is taken
+     *  only when nothing was. An empty list changes nothing. */
+    fun withRoomRelays(relays: List<String>, signed: Boolean): SavedRoom {
+        if (relays.isEmpty()) return this
+        if (!signed && roomRelays.isNotEmpty()) return this
+        if (relays == roomRelays && signed == roomRelaysSigned) return this
+        return changed {
+            put("fixedRelays", JsonArray(relays.map(::JsonPrimitive)))
+            if (signed) put("fixedRelaysSigned", true) else remove("fixedRelaysSigned")
+        }.also { it.validate() }
+    }
+
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {
@@ -221,6 +247,13 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             // The end is the room's, not the link's: a later opening that did
             // not learn it (a synced bookmark) must not forget it.
             if (ends == null) previous.ends?.let { put("ends", it) }
+            // So are its relays: a link's hints never displace what the
+            // room's signed invitation said, and an authority's record is kept.
+            if (previous.roomRelays.isNotEmpty() && (roomRelays.isEmpty() || (previous.roomRelaysSigned && !roomRelaysSigned))) {
+                put("fixedRelays", JsonArray(previous.roomRelays.map(::JsonPrimitive)))
+                if (previous.roomRelaysSigned) put("fixedRelaysSigned", true) else remove("fixedRelaysSigned")
+            }
+            if (roomRelayRecord == null) previous.json["roomRelays"]?.let { this["roomRelays"] = it }
             put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
             if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
                 put("retired", true)
@@ -286,12 +319,14 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(retirements.size <= 128)
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
         roomRelayRecord?.let { require(it.relays.isNotEmpty() && it.relays.size <= MAX_ROOM_RELAYS && it.version >= 0 && it.sig.matches(Regex("[0-9a-f]{128}"))) }
+        json["fixedRelays"]?.let { require(invitationRelaysOf(it) != null) { "The room's relays are not a valid list." } }
+        json["fixedRelaysSigned"]?.let { require(it is JsonPrimitive && it.booleanOrNull == true && roomRelays.isNotEmpty()) }
     }
 
     companion object {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
-                   ends: Long? = null): SavedRoom {
+                   ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false): SavedRoom {
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
@@ -302,6 +337,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("openedAt", now)
                 if (anonymous) put("anonymous", true)
                 ends?.let { put("ends", it) }
+                if (roomRelays.isNotEmpty()) {
+                    put("fixedRelays", JsonArray(roomRelays.map(::JsonPrimitive)))
+                    if (roomRelaysSigned) put("fixedRelaysSigned", true)
+                }
                 authority?.let { put("authority", it) }
                 put("identity", buildJsonObject {
                     put("deviceKey", identity.deviceSecretKey.toHex())

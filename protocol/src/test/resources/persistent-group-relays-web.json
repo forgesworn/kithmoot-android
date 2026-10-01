@@ -1,0 +1,52 @@
+{
+  "source": "forgesworn/fold-kit 0.4.0 (encodePersistentInvitation with relays); synthetic public test keys",
+  "inviterKey": "1111111111111111111111111111111111111111111111111111111111111111",
+  "secret": "2222222222222222222222222222222222222222222222222222222222222222",
+  "room": "fbd9597e3835c2c5ebd30839e80ea3dc041b8a3b49bad27790dca548be67c3ae",
+  "url": "https://kithmoot.forgesworn.dev/j/#eyJ2IjozLCJqIjoiTXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TXpNek16TSIsImgiOiI0ZjM1NWJkY2I3Y2MwYWY3MjhlZjNjY2ViOTYxNWQ5MDY4NGJiNWIyY2E1Zjg1OWFiMGYwYjcwNDA3NTg3MWFhIiwiciI6WyJ3c3M6Ly9yZWxheS5leGFtcGxlLmNvbS8iXSwiaSI6W119",
+  "nonce": "4444444444444444444444444444444444444444444444444444444444444444",
+  "relays": [
+    "wss://relay.example.com/",
+    "wss://relay.example.org/nostr",
+    "ws://localhost:7777/"
+  ],
+  "open": {
+    "plaintext": "{\"v\":3,\"room\":\"fbd9597e3835c2c5ebd30839e80ea3dc041b8a3b49bad27790dca548be67c3ae\",\"secret\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI\",\"relays\":[\"wss://relay.example.com/\",\"wss://relay.example.org/nostr\",\"ws://localhost:7777/\"]}",
+    "event": {
+      "kind": 1463,
+      "created_at": 1800000000,
+      "tags": [
+        [
+          "d",
+          "cd7b31f33f00b7ee452cb5a92bf7fbf11b70e7bce06fd8ee8a6b374affaeaf9b"
+        ]
+      ],
+      "content": "AkRERERERERERERERERERERERERERERERERERERERERES807z3yEzOev7EcjN2t2WJuq0kuAFBx6ZhZZ5Zior7oVeLNO3sBhHI2udYLqnXNjmf4APMvxU5hJB2oHP/++0InwDS8aOcorha9crU4X+zdPRjfMwrYpC9DLT/fTZUyhfZlr8huZzwB+buknOHCDjG5ZJbhDIvrycQc0LLlb8bPtVv/85tjZy/GGgfmqirHvjoOdr0L6WibtAARnSj8wgmPXL0XrBZFHfGWcPfKs7Zct7MQmmrGL/cJWMyy8cWrZF1+fA/CkdxYD9A1OaVAKJQsH1uLgB1c/q5GXmD/+WKratC4VopuRIrQjpNwLv7DQfVMC/gLzrKz8Vqf2W9Id1Uj5IyijBDmEP0TQQzN5MUombhqHfymxl6CMNB+FTHEWcmA=",
+      "pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+      "id": "592bc901652a5d53abc77f68fbfdc5b1fe9af26d9c64c1c5580333274cf81067",
+      "sig": "265410868e7def9209faafba1a7dcd3555a98846d4d5fc6695d71e8d39665a46fd1d49d035bd5e6eab88fed05a8ecd313e9590224ad69c046c47e50f026b430f"
+    }
+  },
+  "conference": {
+    "ends": 1800086400,
+    "plaintext": "{\"v\":3,\"room\":\"fbd9597e3835c2c5ebd30839e80ea3dc041b8a3b49bad27790dca548be67c3ae\",\"secret\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI\",\"ends\":1800086400,\"relays\":[\"wss://relay.example.com/\",\"wss://relay.example.org/nostr\",\"ws://localhost:7777/\"]}",
+    "event": {
+      "kind": 1463,
+      "created_at": 1800000000,
+      "tags": [
+        [
+          "d",
+          "cd7b31f33f00b7ee452cb5a92bf7fbf11b70e7bce06fd8ee8a6b374affaeaf9b"
+        ],
+        [
+          "expiration",
+          "1800086400"
+        ]
+      ],
+      "content": "AkRERERERERERERERERERERERERERERERERERERERERES987z3yEzOev7EcjN2t2WJuq0kuAFBx6ZhZZ5Zior7oVeLNO3sBhHI2udYLqnXNjmf4APMvxU5hJB2oHP/++0InwDS8aOcorha9crU4X+zdPRjfMwrYpC9DLT/fTZUyhfZlr8huZzwB+buknOHCDjG5ZJbhDIvrycQc0LLlb8bPtVv/85tjZy/GGge6hgqO0x5CfxFC9EWPjHxs5DSE0lyzLJAa8Lt9VIXXJf/L8pNk75pl5zf+U6MJSZGG2ZCSWSxGNXuzsPxYf/hJbYlxDfx0ZnKGqRVcurdKRmD/+EL/BoW5JuunDTttAxbBj0MOkR2Q1yTXcjvGBVqf2W9Id1Uj5o4CLCFaAgEe/DK81En+UcJHQ5rtcffgl2weVAFHTlIc=",
+      "pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+      "id": "a7821ac170e65a9eb019fc56de7286299f850303356612d07a19b2732c601828",
+      "sig": "43e4f824914c96599d1411d6ef777f286d8a5c05dd84377596ce5b0e5cccd9e63e624fc4aabafb9919e23a5efae88fc20644141461b218e9401655f2271caea9"
+    }
+  }
+}

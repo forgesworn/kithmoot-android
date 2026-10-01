@@ -95,6 +95,8 @@ data class RoomAdmission(
     val delegate: RoomInvitationHost?,
     /** A conference room's end, unix seconds, from its group invitation; null for a room that does not end. */
     val endsAt: Long? = null,
+    /** The room's own relays, from its group invitation: every member's pool includes them. Null when it names none. */
+    val relays: List<String>? = null,
 )
 
 class InvitationPayload(

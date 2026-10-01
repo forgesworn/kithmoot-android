@@ -22,6 +22,8 @@ import dev.forgesworn.kithmoot.protocol.laneOfRelayUrl
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.applyRoomRelays
+import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
+import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -593,6 +595,8 @@ private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 private const val INVITATION_TIMEOUT_MS = 60_000L
 private const val INVITATION_RETRY_MS = 2_000L
 private const val GROUP_INVITATION_REFRESH_MS = 6L * 60 * 60 * 1000
+/** How long the one background read of a group invitation, for the room's relays, may take. */
+private const val ROOM_RELAYS_READ_MS = 20_000L
 private const val CIRCLE_GRANT_LIFETIME_SECONDS = 30L * 24 * 60 * 60
 private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
 
@@ -2053,17 +2057,17 @@ class RoomViewModel @JvmOverloads constructor(
 
     /**
      * A saved room reads every relay its links name, not only the ones saved
-     * here: its history may live on a relay this device never saved. A room
-     * sheltered behind a Bothy, or an anonymous one, keeps exactly its saved
-     * relays, because adding public relays would undo that choice.
+     * here: its history may live on a relay this device never saved. The
+     * room's own relays come first and are never cut, whatever a stale
+     * bookmark or link says. A room sheltered behind a Bothy, or an anonymous
+     * one, keeps exactly its saved relays, because adding public relays would
+     * undo that choice.
      */
     private fun savedRoomRelays(saved: SavedRoom, openedFrom: String? = null): List<String> {
-        if (saved.anonymous || linkConsents.all().any { it.roomId == saved.id }) return saved.relays
+        if (keepsOwnRelays(saved)) return saved.relays
         val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == saved.id }?.link
-        val linked = listOfNotNull(saved.joinUrl, bookmark, openedFrom).distinct().map { link ->
-            runCatching { decodeInvitationUrl(link)?.relays ?: decodeJoinUrl(link).relays }.getOrDefault(emptyList())
-        }
-        return RoomRelays.atOpen(saved.relays, linked)
+        val linked = listOfNotNull(saved.joinUrl, bookmark, openedFrom).distinct().map(::linkRelays)
+        return RoomRelays.atOpen(saved.relays, linked, room = saved.sharedRelays)
     }
 
     private fun openingLine(name: String?, fallback: String): String =
@@ -2489,7 +2493,11 @@ class RoomViewModel @JvmOverloads constructor(
                 )
             // A conference room ends at a fixed time; only a group room can.
             val ends = if (persistent) length.endsFrom(at) else null
-            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends)
+            // The room's own relays: the ones this device both reads and
+            // writes, fixed now and named in the signed invitation, so every
+            // member uses them whatever else they use.
+            val roomRelays = if (anonymous) emptyList() else invitationRelaysFrom(relays.filter { it in selectedReadRelays(relays) && it in selectedWriteRelays(relays) })
+            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays)
             open(
                 derived = derived,
                 secret = secret,
@@ -2502,6 +2510,8 @@ class RoomViewModel @JvmOverloads constructor(
                 localName = name,
                 anonymous = anonymous,
                 ends = ends,
+                roomRelays = roomRelays,
+                roomRelaysSigned = true,
             )
         }
     }
@@ -2555,11 +2565,16 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val derived = deriveRoom(payload.secret)
-        val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        val ownRelays = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
+        val relays = payload.relays.ifEmpty { ownRelays }
         val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
             _start.value = _start.value.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.")
             return
         }
+        // The link's relays are the room's own, on first sight; this device's
+        // own relays join them rather than standing in for them.
+        val pooled = if (anonymous) relays else RoomRelays.atOpen(payload.relays, listOf(ownRelays))
+        val roomRelays = if (anonymous) emptyList() else invitationRelaysFrom(payload.relays)
         val at = epochSeconds()
 
         // A pairing link carries a device key and a credential, so this device
@@ -2583,12 +2598,13 @@ class RoomViewModel @JvmOverloads constructor(
             open(
                 derived,
                 payload.secret,
-                relays,
+                pooled,
                 secondary,
                 secondary = true,
                 joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
                 policy = payload.policy,
                 anonymous = anonymous,
+                roomRelays = roomRelays,
             )
             return
         }
@@ -2598,17 +2614,19 @@ class RoomViewModel @JvmOverloads constructor(
         open(
             derived,
             payload.secret,
-            relays,
+            pooled,
             primary,
             secondary = primary is SecondaryIdentity,
             joinUrl = encodeJoinUrl(selectedWebApp.joinBase, payload.secret, relays, payload.policy),
             policy = payload.policy,
             anonymous = anonymous,
+            roomRelays = roomRelays,
         )
     }
 
     private suspend fun joinInvitation(url: String, payload: InvitationPayload) {
-        val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
+        val ownRelays = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
+        val relays = payload.relays.ifEmpty { ownRelays }
         val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
             _start.update { it.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.") }
             return
@@ -2650,6 +2668,13 @@ class RoomViewModel @JvmOverloads constructor(
         val derived = deriveRoom(secret)
         val at = epochSeconds()
         val pairing = decodeInvitationPairingLink(url)
+        // The room's own relays: what its signed invitation names, else the
+        // link's hints on first sight. Found beyond the link's relays, the
+        // room evidently lives there too, so it is read and written there as
+        // well, and so are this device's own relays.
+        val signedRelays = admission.relays?.takeUnless { anonymous }
+        val roomRelays = if (anonymous) emptyList() else signedRelays ?: invitationRelaysFrom(payload.relays)
+        val pooled = if (anonymous) relays + foundFurther else RoomRelays.atOpen(payload.relays, listOf(foundFurther, ownRelays))
         if (pairing == null && !payload.invitation.persistent) {
             savedRooms.get(derived.roomId)?.takeIf { it.invitation?.invitation?.persistent == true }
                 ?.let { openSaved(it); return }
@@ -2675,7 +2700,7 @@ class RoomViewModel @JvmOverloads constructor(
             open(
                 derived,
                 secret,
-                relays + foundFurther,
+                pooled,
                 secondary,
                 secondary = true,
                 joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
@@ -2684,17 +2709,17 @@ class RoomViewModel @JvmOverloads constructor(
                 policy = payload.policy,
                 anonymous = anonymous,
                 ends = admission.endsAt,
+                roomRelays = roomRelays,
+                roomRelaysSigned = signedRelays != null,
             )
             return
         }
 
         val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
-        // Found beyond the link's relays: the room evidently lives there too,
-        // so it is read and written there as well.
         open(
             derived,
             secret,
-            relays + foundFurther,
+            pooled,
             primary,
             secondary = primary is SecondaryIdentity,
             joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, payload.invitation, relays, payload.policy),
@@ -2704,6 +2729,8 @@ class RoomViewModel @JvmOverloads constructor(
             localName = synced?.room?.name.orEmpty(),
             anonymous = anonymous,
             ends = admission.endsAt,
+            roomRelays = roomRelays,
+            roomRelaysSigned = signedRelays != null,
         )
     }
 
@@ -2825,10 +2852,10 @@ class RoomViewModel @JvmOverloads constructor(
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
 
-    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null) {
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends))) {
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }))) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
             }
@@ -2850,10 +2877,10 @@ class RoomViewModel @JvmOverloads constructor(
      *  left to lapse: keeping its link alive would turn a chance expiry into a
      *  standing way back in. A conference room's invitation is signed with its
      *  end, and is no longer signed once the room has ended. */
-    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null) {
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null, fixedRelays: List<String>? = null) {
         scope.launch {
             while (!conferenceEnded(ends, epochSeconds())) {
-                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends)) }
+                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) }
                 catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                 catch (_: Exception) { /* Retried next round. */ }
                 // The link that opened the room may name relays the room has
@@ -2863,7 +2890,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val circle = circleRelaySet()
                 val extra = linkOnlyRelays(roomRelays, linkRelays) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
                 if (extra.isNotEmpty()) {
-                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends)) } }
+                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) } }
                     catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                     catch (_: Exception) { /* Retried next round. */ }
                 }
@@ -2954,6 +2981,10 @@ class RoomViewModel @JvmOverloads constructor(
         anonymous: Boolean = false,
         /** A conference room's end, from its group invitation, when this opening learnt it. */
         ends: Long? = null,
+        /** The room's own relays, when this opening learnt them: from its
+         *  signed group invitation ([roomRelaysSigned]) or a link's hints. */
+        roomRelays: List<String> = emptyList(),
+        roomRelaysSigned: Boolean = false,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -2972,7 +3003,7 @@ class RoomViewModel @JvmOverloads constructor(
             return@withLock
         }
         val anonymousProfile = restoring?.anonymous ?: anonymous
-        val activeRelays = if (anonymousProfile) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList()) else relays
+        val ownRelays = if (anonymousProfile) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList()) else relays
         if (anonymousProfile && policy?.quiet == true) {
             throw RoomRecoveryException("Anonymous rooms do not support quiet-room cadence or Bothy delivery.")
         }
@@ -2990,12 +3021,18 @@ class RoomViewModel @JvmOverloads constructor(
         if (anonymousProfile && (secondary || who !is PrimaryIdentity || who.participantKeyForStorage() == null)) {
             throw RoomRecoveryException("Anonymous rooms need a new local primary identity.")
         }
-        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, activeRelays,
+        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
             previous?.name ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
             ends = ends?.takeIf { invitation?.invitation?.persistent == true })
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
+            .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
         savedRooms.save(record)
+        // Every member's pool includes the room's own relays, first and never
+        // cut, so two members always share one. An anonymous room, or one
+        // sheltered behind a Bothy, keeps exactly its own relays.
+        val activeRelays = if (keepsOwnRelays(record)) ownRelays else RoomRelays.atOpen(ownRelays, emptyList(), room = record.sharedRelays)
+        val forcedRelays = if (keepsOwnRelays(record)) emptySet() else RoomRelays.ofRoom(activeRelays, record.sharedRelays)
         // The signer has most likely just answered: renew the other Ring me
         // rooms while it will still do so without asking.
         if (record.viaAccount) viewModelScope.launch(Dispatchers.IO) {
@@ -3041,8 +3078,8 @@ class RoomViewModel @JvmOverloads constructor(
             } else null
         }
         val transport = RelayPool(activeRelays, socketFactory, scope,
-            readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays),
-            writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays),
+            readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
+            writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
             authenticators = authenticators)
         // A quiet room's chat rides in drops: wrap the pool, and keep what the
@@ -3258,9 +3295,11 @@ class RoomViewModel @JvmOverloads constructor(
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
                 val linkRelays = if (anonymousProfile || linkConsents.all().any { it.roomId == record.id }) emptyList() else record.invitation?.relays.orEmpty()
-                keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays, record.ends)
+                keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays, record.ends,
+                    record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) })
             }
         }
+        readRoomRelaysOnce(scope, transport, record)
         record.ends?.let { ends -> endConferenceAt(live, scope, ends) }
         live.join()
         if (pendingChat != null) scope.launch(Dispatchers.IO) {
@@ -4889,7 +4928,8 @@ class RoomViewModel @JvmOverloads constructor(
                 val invitation = InvitationPayload(host.invitation, relays, policy)
                 val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
 
-                publishGroup(host, secret, relays)
+                val roomRelays = invitationRelaysFrom(relays)
+                publishGroup(host, secret, relays, roomRelays = roomRelays)
                 val at = epochSeconds()
                 val who = PrimaryIdentity.createWith(signer, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
                 val sealed = sealInvite(link, peer, derived.roomId, signer)
@@ -4909,6 +4949,8 @@ class RoomViewModel @JvmOverloads constructor(
                     now = epochSeconds(),
                     host = host,
                     authority = host.invitation.canonicalInviter,
+                    roomRelays = roomRelays,
+                    roomRelaysSigned = roomRelays.isNotEmpty(),
                 )
                 savedRooms.save(retained)
                 _start.update { it.copy(savedRooms = savedRooms.list()) }
@@ -5094,11 +5136,14 @@ class RoomViewModel @JvmOverloads constructor(
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned }) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
-                val nextInvitation = InvitationPayload(nextHost.invitation, relayUrls, saved.policy)
-                val url = encodeInvitationUrl(selectedWebApp.joinBase, nextHost.invitation, relayUrls, saved.policy)
+                // The link names the room's own relays first, then the rest of
+                // this pool, within the eight a link may carry.
+                val linkRelays = if (keepsOwnRelays(saved)) relayUrls else RoomRelays.atOpen(relayUrls, emptyList(), room = saved.sharedRelays).take(MAX_INVITATION_RELAYS)
+                val nextInvitation = InvitationPayload(nextHost.invitation, linkRelays, saved.policy)
+                val url = encodeInvitationUrl(selectedWebApp.joinBase, nextHost.invitation, linkRelays, saved.policy)
                 val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds(), ends = saved.ends)
                 val next = try {
                     saved.rotated(nextHost, url, retirement).also(savedRooms::save)
@@ -5128,33 +5173,127 @@ class RoomViewModel @JvmOverloads constructor(
     /**
      * A `relays` record from the room's authority has verified and outranks
      * anything this device held. Adds the listed relays to the live
-     * connection - no rejoin - and to the saved room, so reopening it later
-     * uses them too, then tells the person unless they made the room
-     * themselves. Mirrors `ingestRoomRelays`/`adoptRoomRelays` in the web
-     * client's `app/src/main.ts`.
+     * connection - no rejoin - and keeps the record with the saved room, so
+     * reopening it later uses them too, then tells the person unless they
+     * made the room themselves. The record's relays join the room's own,
+     * ahead of this device's and never cut; the saved list of this device's
+     * own relays is left alone. Mirrors `ingestRoomRelays`/`adoptRoomRelays`
+     * in the web client's `app/src/main.ts`. An anonymous room, or one
+     * sheltered behind a Bothy, keeps its relays as before: the record is
+     * merged into them, within the eight-relay cap.
      */
     private fun onRoomRelaysReceived(roomId: String, record: RoomRelaysRecord, sentAt: Long) {
         if (savedRoom?.id != roomId) return
         viewModelScope.launch(Dispatchers.IO) {
-            val (next, added) = applyRoomRelays(relayUrls, record)
-            persistLiveRoom(roomId) { it.withRelays(next).withRoomRelaysRecord(record) }
+            val room = savedRoom?.takeIf { it.id == roomId } ?: return@launch
+            val added = if (keepsOwnRelays(room)) {
+                val (next, added) = applyRoomRelays(relayUrls, record)
+                persistLiveRoom(roomId) { it.withRelays(next).withRoomRelaysRecord(record) }
+                if (added.isEmpty() || savedRoom?.id != roomId) return@launch
+                val transport = pool ?: return@launch
+                transport.addRelays(added)
+                relayUrls = next
+                added
+            } else {
+                persistLiveRoom(roomId) { it.withRoomRelaysRecord(record) }
+                adoptSharedRelays(roomId)
+            }
             if (added.isEmpty() || savedRoom?.id != roomId) return@launch
-            val transport = pool ?: return@launch
-            transport.addRelays(added)
-            relayUrls = next
             val ownRoom = savedRoom?.let { room ->
                 room.host(epochSeconds())?.let { it.delegation.isEmpty() && room.authority == Schnorr.publicKeyHex(it.inviterSecretKey) } == true
             } == true
             withContext(Dispatchers.Main) {
                 _room.update {
                     if (it.roomId != roomId) it else it.copy(
-                        relaysTotal = next.size,
-                        lane = if (anonymousRoom) it.lane else laneOfRelays(next, circleRelaySet()),
+                        relaysTotal = relayUrls.size,
+                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
                         notice = if (ownRoom) it.notice else "This room now also uses ${added.joinToString(", ")}, as its owner asked.",
                     )
                 }
             }
         }
+    }
+
+    /** A room that keeps exactly the relays saved for it: an anonymous room,
+     *  whose relays must all be onion services, or one sheltered behind a
+     *  Bothy, where adding public relays would undo that choice. Neither takes
+     *  the room's own relays into its pool. */
+    private fun keepsOwnRelays(room: SavedRoom): Boolean =
+        room.anonymous || linkConsents.all().any { it.roomId == room.id }
+
+    /** This device made the room: it holds the inviter key itself, so what it
+     *  says the room's relays are is what the group invitation will say. */
+    private fun madeHere(room: SavedRoom): Boolean =
+        room.invitation?.invitation?.persistent == true && room.host(epochSeconds())?.delegation?.isEmpty() == true
+
+    /**
+     * The room's own relays, as this opening settles them: a signed list from
+     * the group invitation wins; else what the saved room already holds; else
+     * the link's hints, on first sight. The device that made the room signs
+     * what it holds, which is how a room made before invitations carried
+     * relays gets them: [keepGroupInvitationAlive] republishes with them.
+     */
+    private fun learnRoomRelays(room: SavedRoom, learnt: List<String>, signed: Boolean): SavedRoom {
+        if (keepsOwnRelays(room)) return room
+        var next = room.withRoomRelays(learnt, signed)
+        if (next.roomRelays.isEmpty()) next = next.withRoomRelays(invitationRelaysFrom(linkRelays(next.joinUrl)), signed = false)
+        if (next.roomRelays.isNotEmpty() && !next.roomRelaysSigned && madeHere(next)) next = next.withRoomRelays(next.roomRelays, signed = true)
+        return next
+    }
+
+    private fun linkRelays(link: String): List<String> =
+        runCatching { decodeInvitationUrl(link)?.relays ?: decodeJoinUrl(link).relays }.getOrDefault(emptyList())
+
+    /**
+     * A member of a group room whose relays did not come from its signed
+     * invitation reads that invitation once, in the background, after
+     * opening, and adopts the relays it names. This is how members of a room
+     * made before invitations carried relays converge on them. It never
+     * fails the room: a retirement, a missing invitation or a timeout here
+     * changes nothing.
+     */
+    private fun readRoomRelaysOnce(scope: CoroutineScope, transport: RelayPool, room: SavedRoom) {
+        val invitation = room.invitation?.invitation ?: return
+        if (!invitation.persistent || room.roomRelaysSigned || keepsOwnRelays(room)) return
+        scope.launch(Dispatchers.IO) {
+            val admission = try {
+                withTimeoutOrNull(ROOM_RELAYS_READ_MS) { requestPersistentAdmission(invitation) { transport.queryStored(it) } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                null
+            } catch (_: Exception) { null }
+            admission?.secret?.fill(0)
+            val relays = admission?.relays ?: return@launch
+            if (savedRoom?.id != room.id) return@launch
+            persistLiveRoom(room.id) { it.withRoomRelays(relays, signed = true) }
+            val added = adoptSharedRelays(room.id)
+            if (added.isNotEmpty()) withContext(Dispatchers.Main) {
+                _room.update {
+                    if (it.roomId != room.id) it else it.copy(
+                        relaysTotal = relayUrls.size,
+                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Adds to the live pool whichever of the room's shared relays it lacks,
+     * after the saved room learnt more of them. No rejoin. An own relay the
+     * sixteen-relay cap would now leave out stays connected until the room is
+     * next opened: a running pool can add a relay, not drop one. Returns the
+     * relays added.
+     */
+    private fun adoptSharedRelays(roomId: String): List<String> {
+        val room = savedRoom?.takeIf { it.id == roomId } ?: return emptyList()
+        if (keepsOwnRelays(room)) return emptyList()
+        val transport = pool ?: return emptyList()
+        val added = RoomRelays.missing(relayUrls, RoomRelays.atOpen(relayUrls, emptyList(), room = room.sharedRelays))
+        if (added.isEmpty()) return emptyList()
+        transport.addRelays(added)
+        relayUrls = relayUrls + added
+        return added
     }
 
     /** Says something short to the person in the room. Shown once, then cleared. */

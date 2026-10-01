@@ -87,6 +87,14 @@ for retirement before entering. Creation and link replacement wait for a relay
 to acknowledge storage before exposing the new link. Uncheck the group option
 for a temporary meeting using the existing v2 live handshake.
 
+A group room's own relays - the ones it was made on, named in its signed
+invitation - come first in every member's relay list and are never cut, so
+two members always share at least one relay. This device's own relays fill
+the rest, up to sixteen. A room opened from a link that names no relays
+learns them from the invitation; a room saved before invitations carried
+relays reads its invitation once in the background to learn them. Anonymous
+rooms and rooms sheltered behind a Bothy keep exactly their own relays.
+
 Group membership is saved without a twelve-hour limit. Members receive no
 inviter signing key or admission delegation. Creator keys remain in the encrypted
 local vault, and returning from an old temporary link cannot overwrite saved
@@ -234,6 +242,10 @@ contact book's serial pin and refresh rules.
 TypeScript implementation at `171de0a`. Native tests decode its welcome and
 retirement, then reproduce its encrypted content and event id using the same
 nonce. The original 95-vector file remains unchanged.
+`persistent-group-relays-web.json` is the same kind of fixture from
+`@forgesworn/fold-kit` 0.4.0: a group invitation whose body carries the
+room's own relays after `ends`, with and without an end, reproduced
+byte for byte from its plaintext and nonce.
 
 One guard is worth its own paragraph, because it caught something. A roster
 vector used to be checked by parsing the expected entry through the same

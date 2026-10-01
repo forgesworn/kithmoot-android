@@ -23,8 +23,9 @@ import java.net.URI
  * The invite link fixes the relays a room starts on, and nobody could move
  * everybody in a room onto a better one. This record lets the pinned
  * authority add relays for every member at once. A member unions it with the
- * relays it already uses; it never takes one away, only what the eight-relay
- * cap forces a choice about. `version` orders successive records, so a
+ * relays it already uses; it never takes one away. Most rooms put these
+ * relays ahead of their own and never cut them (the app's `RoomRelays.atOpen`);
+ * an anonymous room, or one sheltered behind a Bothy, uses [applyRoomRelays]. `version` orders successive records, so a
  * member replaying an old list cannot undo a newer one, and any member may
  * repost the newest one it holds, since the signature - not who sent it -
  * is what a device believes.
@@ -115,7 +116,8 @@ fun verifyRoomRelays(roomId: String, version: Long, relays: List<String>, sig: S
     Schnorr.verify(signature, relaysMessage(requireRoomId(roomId), requireVersion(version), canonical), authority.hexToBytes())
 }.getOrDefault(false)
 
-/** The relays this device should use for the room once [record] is adopted:
+/** For a room that keeps exactly its own relays (anonymous, or sheltered
+ *  behind a Bothy): the relays this device should use once [record] is adopted:
  *  the record's own relays first, then as many of [current] as still fit
  *  under the [MAX_ROOM_RELAYS] cap. Mirrors `adoptRoomRelays` in the web
  *  client's `app/src/main.ts`: nothing already used is dropped unless the cap

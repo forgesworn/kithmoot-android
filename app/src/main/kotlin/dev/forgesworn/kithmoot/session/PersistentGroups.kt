@@ -23,7 +23,8 @@ suspend fun requestPersistentAdmission(
     if (events.any { decodeInvitationRetirement(it, invitation) }) {
         throw GroupInvitationException("This invitation was retired. Ask for the current room link.")
     }
-    val admissions = events.mapNotNull { decodePersistentInvitation(it, invitation) }
+    val copies = events.mapNotNull { event -> decodePersistentInvitation(event, invitation)?.let { event to it } }
+    val admissions = copies.map { it.second }
     if (admissions.isEmpty()) throw MissingGroupInvitationException(INVITATION_NOT_FOUND)
     if (admissions.map { deriveRoom(it.secret).roomId }.distinct().size != 1) {
         throw GroupInvitationException("This group invitation names conflicting rooms. Ask for a current link.")
@@ -34,5 +35,9 @@ suspend fun requestPersistentAdmission(
     // removes an end another copy carries, and refusing would open the link
     // on one client and not the other.
     val endsAt = admissions.mapNotNull { it.endsAt }.minOrNull()
-    return admissions.first().copy(endsAt = endsAt)
+    // The room's relays, likewise as on the web: the newest copy that names
+    // any stands, a copy naming none says nothing about them, and between
+    // copies signed in the same second the first heard stays.
+    val relays = copies.filter { it.second.relays != null }.reduceOrNull { kept, next -> if (next.first.createdAt > kept.first.createdAt) next else kept }?.second?.relays
+    return admissions.first().copy(endsAt = endsAt, relays = relays)
 }
