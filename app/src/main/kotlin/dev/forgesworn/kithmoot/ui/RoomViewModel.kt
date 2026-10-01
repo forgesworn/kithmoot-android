@@ -2657,7 +2657,9 @@ class RoomViewModel @JvmOverloads constructor(
      *  link is only as durable as that event. The device that made the link
      *  signs it again while the room is open, so a link shared long after
      *  creation still loads. Best effort: a refused write is tried again
-     *  next round. */
+     *  next round. A private conversation (a link limited to named members) is
+     *  left to lapse: keeping its link alive would turn a chance expiry into a
+     *  standing way back in. */
     private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray) {
         scope.launch {
             while (true) {
@@ -3037,7 +3039,7 @@ class RoomViewModel @JvmOverloads constructor(
         profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret)
-            if (host.invitation.persistent && host.delegation.isEmpty()) keepGroupInvitationAlive(scope, transport, host, secret)
+            if (host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) keepGroupInvitationAlive(scope, transport, host, secret)
         }
         live.join()
         if (pendingChat != null) scope.launch(Dispatchers.IO) {
