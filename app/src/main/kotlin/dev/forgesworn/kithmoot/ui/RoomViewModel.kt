@@ -4005,7 +4005,12 @@ class RoomViewModel @JvmOverloads constructor(
         val signer = accountSigner ?: return@launch note("Sign in to stay reachable for calls.")
         if (!_renewingCalls.compareAndSet(false, true)) return@launch
         try {
-            val renewed = dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
+            val renewed = try {
+                dev.forgesworn.kithmoot.service.CredentialRenewal.renewWith(getApplication(), signer)
+            } catch (e: SignerException) {
+                // The signer did not answer in time: say so, and the button is ready to try again.
+                return@launch note(e.message ?: "Your signer did not answer. Try again.")
+            }
             if (renewed > 0) showNotice("You can answer calls in your rooms again.")
             else if (reachability.value.isNotEmpty()) showNotice("Your signer did not confirm this phone. Try again.")
         } finally {

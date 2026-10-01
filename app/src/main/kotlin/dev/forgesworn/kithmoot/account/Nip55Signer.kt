@@ -75,7 +75,7 @@ class Nip55Signer(
             putExtra("current_user", pubkey)
             putExtra("permissions", Nip55.permissions(kinds))
         }
-        val answer = bridge.request(intent) ?: throw SignerException("Bothy permission was cancelled in ${appLabel()}.")
+        val answer = askBridge(intent) ?: throw SignerException("Bothy permission was cancelled in ${appLabel()}.")
         if (answer.getBooleanExtra("rejected", false)) throw SignerException("${appLabel()} declined Bothy permission.")
         val confirmed = Nip55.publicKeyFromResult(answer.getStringExtra("result") ?: answer.getStringExtra("signature"))
         if (confirmed != pubkey) throw SignerException("${appLabel()} answered for a different account.")
@@ -95,9 +95,16 @@ class Nip55Signer(
             putExtra("current_user", pubkey)
             if (peer != null) putExtra("pubkey", peer)
         }
-        val answer = bridge.request(intent) ?: return null
+        val answer = askBridge(intent) ?: return null
         if (answer.getBooleanExtra("rejected", false)) throw SignerException("${appLabel()} declined to sign.")
         return answer
+    }
+
+    /** The intent path, with the signer's own name in the error when it does not answer in time. */
+    private suspend fun askBridge(intent: Intent): Intent? = try {
+        bridge.request(intent)
+    } catch (e: SignerTimeoutException) {
+        throw SignerTimeoutException(signerDidNotAnswer(appLabel()))
     }
 
     /**
@@ -105,8 +112,13 @@ class Nip55Signer(
      * `content://<package>.<TYPE>` with the payload, the other party's key and
      * our own key as the projection; a null cursor means "ask by intent".
      */
-    private suspend fun viaProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? = withContext(Dispatchers.IO) {
+    private suspend fun viaProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? =
+        withSignerTimeout(SIGNER_SILENT_TIMEOUT_MS, ::appLabel) { queryProvider(type, payload, peer) }
+
+    private suspend fun queryProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? = withContext(Dispatchers.IO) {
         val uri = Uri.parse("content://$packageName.${type.uppercase()}")
+        // Blocking, and it cannot be interrupted: when the wait is over the caller is released at once
+        // (withContext is cancelled promptly) and this thread's answer, whenever it comes, is discarded.
         val response = runCatching {
             context.contentResolver.query(uri, arrayOf(payload, peer ?: "", pubkey), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
@@ -143,7 +155,10 @@ class Nip55Signer(
                 putExtra("type", Nip55.TYPE_GET_PUBLIC_KEY)
                 putExtra("permissions", Nip55.permissions())
             }
-            val answer = bridge.request(intent) ?: throw SignerException("Sign-in was cancelled.")
+            val answer = try { bridge.request(intent) } catch (e: SignerTimeoutException) {
+                val name = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString() }.getOrNull()
+                throw SignerTimeoutException(signerDidNotAnswer(name))
+            } ?: throw SignerException("Sign-in was cancelled.")
             if (answer.getBooleanExtra("rejected", false)) throw SignerException("The signer app declined.")
             val pubkey = Nip55.publicKeyFromResult(answer.getStringExtra("result") ?: answer.getStringExtra("signature"))
                 ?: throw SignerException("The signer app did not return a public key.")
@@ -151,4 +166,16 @@ class Nip55Signer(
             return Nip55Signer(pubkey, chosen, context, bridge)
         }
     }
+}
+
+/**
+ * Runs [block], giving up after [timeoutMs] with a [SignerTimeoutException]
+ * that names the signer ([appName]) and says how to retry. Time spent is the
+ * signer's, so only it is limited: a caller cancelled from outside is not
+ * mistaken for a signer that did not answer.
+ */
+suspend fun <T> withSignerTimeout(timeoutMs: Long, appName: () -> String?, block: suspend () -> T): T {
+    class Done(val value: T)
+    val done = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { Done(block()) }
+    return (done ?: throw SignerTimeoutException(signerDidNotAnswer(appName()))).value
 }

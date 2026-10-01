@@ -36,7 +36,20 @@ interface ParticipantSigner {
     fun close() {}
 }
 
-class SignerException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class SignerException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/** The signer was asked and did not answer in time. Retryable: nothing was signed, and a late answer is ignored. */
+class SignerTimeoutException(message: String) : SignerException(message)
+
+/** How long KithMoot waits for a signer app to answer on screen: time to unlock it and approve. */
+const val SIGNER_INTENT_TIMEOUT_MS: Long = 60_000
+
+/** How long the silent query to a signer's content provider may take: it answers at once or not at all. */
+const val SIGNER_SILENT_TIMEOUT_MS: Long = 10_000
+
+/** What the person is told when a signer app did not answer. [appName] is the signer's own name, when it is known. */
+fun signerDidNotAnswer(appName: String?): String =
+    "${appName?.takeIf { it.isNotBlank() } ?: "Your signer"} didn't answer. Open it, unlock it, then try again."
 
 /** A key held in memory on this device. Rooms started with no account use one per room. */
 class LocalSigner(private val secretKey: ByteArray) : ParticipantSigner {

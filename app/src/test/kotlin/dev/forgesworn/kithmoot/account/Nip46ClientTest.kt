@@ -163,8 +163,9 @@ class Nip46ClientTest {
             override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = MutableSharedFlow()
         }
         val client = Nip46Client(BunkerPointer("ab".repeat(32), listOf("wss://quiet"), null), Entropy.bytes(32), quiet, this, now = { 1 }, timeoutMs = 1_000)
-        val error = assertFailsWith<SignerException> { client.getPublicKey() }
+        val error = assertFailsWith<SignerTimeoutException> { client.getPublicKey() }
         assertTrue("did not answer" in error.message!!)
+        assertTrue("then try again" in error.message!!)
         client.close()
     }
 

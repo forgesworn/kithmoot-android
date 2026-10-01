@@ -22,6 +22,9 @@ import dev.forgesworn.kithmoot.epoch.EpochVault
  * Live connections belong to the view model that opened the room.
  */
 class KithMootApplication : Application() {
+    /** Where signer intents wait for their answer, so an activity recreated meanwhile does not lose it. */
+    val signerRelay = dev.forgesworn.kithmoot.account.SignerRelay()
+
     val savedRooms: RoomRepository by lazy { RoomRepository(EncryptedRoomStorage(this)) }
 
     /** The Nostr account this phone is signed in as, in its own vault. */

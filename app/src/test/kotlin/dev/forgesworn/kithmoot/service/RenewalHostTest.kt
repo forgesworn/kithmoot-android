@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.NostrAccount
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.SignerTimeoutException
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.notifications.CallRingMode
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -86,6 +87,16 @@ class RenewalHostTest {
         override fun cancelNotice() { cancelled++ }
     }
 
+    private class TimedOutSigner(key: ByteArray) : ParticipantSigner {
+        private val local = LocalSigner(key)
+        override val pubkey = local.pubkey
+        override val method = "nip55"
+        override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent =
+            throw SignerTimeoutException("My Signet didn't answer. Open it, unlock it, then try again.")
+        override suspend fun nip44Encrypt(peer: String, plaintext: String) = local.nip44Encrypt(peer, plaintext)
+        override suspend fun nip44Decrypt(peer: String, payload: String) = local.nip44Decrypt(peer, payload)
+    }
+
     private fun nip55() = NostrAccount(me.pubkey, "nip55", signerPackage = "com.example.signer")
 
     @Test fun `a signer that needs a screen still gets the notice again`() = runTest {
@@ -100,6 +111,20 @@ class RenewalHostTest {
         val host = FakeHost(Result.success(nip55()), quietSigner = LockedSigner(key))
         renewQuietlyVia(host, now)
         assertEquals(emptyList(), host.kept)
+        assertEquals(listOf(listOf("Untitled test")), host.notified)
+    }
+
+    @Test fun `a signer that times out tells the person who pressed the button, and settles first`() = runTest {
+        val host = FakeHost(Result.success(nip55()), quietSigner = null)
+        val error = kotlin.test.assertFailsWith<SignerTimeoutException> { renewRooms(host, TimedOutSigner(key), now) }
+        assertEquals("My Signet didn't answer. Open it, unlock it, then try again.", error.message)
+        assertEquals(emptyList(), host.kept)
+        assertEquals(listOf(listOf("Untitled test")), host.notified, "the banner's answer and the notice are right either way")
+    }
+
+    @Test fun `a timeout in the quiet path ends the attempt without crashing the background loop`() = runTest {
+        val host = FakeHost(Result.success(nip55()), quietSigner = TimedOutSigner(key))
+        renewQuietlyVia(host, now)
         assertEquals(listOf(listOf("Untitled test")), host.notified)
     }
 

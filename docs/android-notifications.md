@@ -44,3 +44,9 @@ The "Listening for calls" notification's action was "Turn off": one silent tap t
 
 While ringing is off and any saved room is set to Ring me (`ringingSwitchedOff`), a banner on the rooms list and in a Ring me room says "Calls won't ring while KithMoot is closed." with one button, **Turn on**, which switches ringing on and starts the listener. The same row is at the top of Notifications & sound. The banner shows however ringing was switched off, including deliberately in Settings; set the rooms to Notify quietly or Nothing, or switch the room's ringing off, to clear it. The listener cancels the follow-up whenever it finds ringing on, so every way of turning it on clears it.
 
+
+## Waiting on a signer
+
+KithMoot never waits on a NIP-55 signer for longer than it chooses to. The silent query to the signer's content provider gets 10 seconds (`SIGNER_SILENT_TIMEOUT_MS`); a request by intent gets 60 seconds from the moment the signer is opened (`SIGNER_INTENT_TIMEOUT_MS`), not counting time spent queued behind another request. Past either, the request fails with a `SignerTimeoutException` ("My Signet didn't answer. Open it, unlock it, then try again.", or "Your signer" when the name is not known), and the button or screen that asked is ready to try again. A NIP-46 bunker request waits 60 seconds and fails the same way.
+
+The pending request lives in `account/SignerRelay.kt`, owned by the application, not in `MainActivity`: a language or font-size change recreates the activity while the signer is still up, and the result Android redelivers to the new activity completes the same request. A result that arrives after its request timed out or was cancelled is dropped (matched by the `id` the request carried, or by launch order for a signer that does not echo it), and a result with nothing waiting, as after the process was killed, is dropped too. A request made while no activity is attached waits five seconds for one, then fails cleanly.

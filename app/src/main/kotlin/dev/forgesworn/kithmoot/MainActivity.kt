@@ -34,7 +34,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import dev.forgesworn.kithmoot.account.Nip55Bridge
 import dev.forgesworn.kithmoot.account.SignetSignIn
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
@@ -70,19 +69,17 @@ class MainActivity : ComponentActivity() {
     private val renewRequested = MutableStateFlow(false)
 
     /**
-     * Signer intents, one at a time. A NIP-55 signer app is another activity
-     * started for a result, and only the activity can do that; the view model
-     * asks through this and waits.
+     * Signer intents. A NIP-55 signer app is another activity started for a
+     * result, and only an activity can do that; the view model asks through
+     * the application's [dev.forgesworn.kithmoot.account.SignerRelay], which keeps
+     * the request and its timeout, so this activity being recreated while the
+     * signer is up neither loses the answer nor leaves the request waiting.
      */
-    private var signerAnswer: CompletableDeferred<Intent?>? = null
+    private val signerRelay get() = (application as KithMootApplication).signerRelay
     private val signerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        // Completion may resume the next queued signer request on another
-        // dispatcher immediately. Detach this request before waking it, or
-        // clearing the field afterwards can erase that next request's answer.
-        val answer = signerAnswer
-        signerAnswer = null
-        answer?.complete(if (result.resultCode == RESULT_OK) result.data ?: Intent() else null)
+        signerRelay.deliver(result.resultCode == RESULT_OK, result.data)
     }
+    private val startSigner: (Intent) -> Unit = { intent -> signerLauncher.launch(intent) }
 
     /**
      * RECORD_AUDIO for a call answered straight in, like Signal or WhatsApp -
@@ -108,21 +105,14 @@ class MainActivity : ComponentActivity() {
             false
         }
     }
-    private val signerTurn = Mutex()
-    private val signerBridge = Nip55Bridge { intent ->
-        signerTurn.withLock {
-            val answer = CompletableDeferred<Intent?>()
-            signerAnswer = answer
-            try { signerLauncher.launch(intent) } catch (e: Exception) {
-                signerAnswer = null
-                throw dev.forgesworn.kithmoot.account.SignerException("The signer app could not be opened: ${e.message}")
-            }
-            answer.await()
-        }
+    override fun onDestroy() {
+        signerRelay.detach(startSigner)
+        super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        signerRelay.attach(startSigner)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
         else if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) renewRequested.value = true
@@ -137,7 +127,7 @@ class MainActivity : ComponentActivity() {
             KithMootTheme(textScale = textSize.scale) {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model: RoomViewModel = viewModel()
-                model.signerBridge = signerBridge
+                model.signerBridge = signerRelay
                 // Beside a call, another room opens in a second, chat-only
                 // instance, so the call's session, engine and notifications
                 // carry on untouched. Nothing a person navigates to ends a call.

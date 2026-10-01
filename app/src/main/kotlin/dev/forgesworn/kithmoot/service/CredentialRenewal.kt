@@ -14,6 +14,7 @@ import dev.forgesworn.kithmoot.R
 import dev.forgesworn.kithmoot.account.Nip55Bridge
 import dev.forgesworn.kithmoot.account.NostrAccount
 import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.SignerTimeoutException
 import dev.forgesworn.kithmoot.account.openAccount
 import dev.forgesworn.kithmoot.notifications.CallRingMode
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
@@ -318,8 +319,9 @@ internal fun settle(host: RenewalHost, now: Long, post: Boolean, signer: String?
 internal suspend fun renewQuietlyVia(host: RenewalHost, now: Long) {
     val read = host.account()
     val account = read.getOrNull()
+    // A signer that does not answer in time has already been settled by renewRooms; nothing more to do quietly.
     val ran = account != null && account.method != "bunker" &&
-        host.runWithQuietSigner(account) { signer -> renewRooms(host, signer, now) }
+        try { host.runWithQuietSigner(account) { signer -> renewRooms(host, signer, now) } } catch (_: SignerTimeoutException) { true }
     if (!ran) settle(host, now, post = true)
 }
 
@@ -333,6 +335,10 @@ internal suspend fun renewRooms(host: RenewalHost, signer: ParticipantSigner, no
             val identity = saved.identity(now, signer, RING_CREDENTIAL_TTL, RING_CREDENTIAL_RENEW_BELOW)
             host.keep(id, identity)
             renewed++
+        } catch (e: SignerTimeoutException) {
+            // Settled first, so the banner and notice are right; the person who pressed the button is told.
+            settle(host, now, post = true, signer = signer.pubkey)
+            throw e
         } catch (e: SignerException) {
             // Locked, or no standing permission: the next chance will do.
             Log.i("KithMootRenew", "room=${id.take(8)} not renewed: ${e.message}")

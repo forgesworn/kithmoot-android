@@ -131,7 +131,7 @@ class Nip46Client(
         val answer = withTimeoutOrNull(timeoutMs) { waiting.await() }
         if (answer == null) {
             synchronized(lock) { pending.remove(id) }
-            throw SignerException("The signer did not answer. Check it is running and can reach ${pointer.relays.joinToString()}.")
+            throw SignerTimeoutException("The signer did not answer. Check it is running and can reach ${pointer.relays.joinToString()}, then try again.")
         }
         if (answer.error != null) throw SignerException("The signer refused: ${answer.error}")
         return answer.result ?: throw SignerException("The signer sent an empty answer.")
