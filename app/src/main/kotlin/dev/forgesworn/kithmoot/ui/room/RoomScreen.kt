@@ -37,6 +37,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.QrCode2
+import dev.forgesworn.kithmoot.session.conferenceEndedMessage
+import dev.forgesworn.kithmoot.session.conferenceEndsLine
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
@@ -149,6 +152,10 @@ fun RoomScreen(
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var backgroundOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     val chatState = rememberSaveableStateHolder()
+    // Every member can share the room's link; a two-person conversation's
+    // went to the other person sealed, and an ended room's no longer works.
+    val canInvite = !state.privateConversation && state.movedOn == null && !state.conferenceEnded &&
+        state.joinUrl.isNotBlank() && !state.privateConversationBusy
 
     // Keep the screen awake while this device is actually on the call, so a
     // dark timeout does not drop the video or make the mic button hard to
@@ -171,7 +178,7 @@ fun RoomScreen(
         PipCall(state, videos, eglBase, modifier)
         return
     }
-    val callShowing = showCall && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null
+    val callShowing = showCall && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null && !state.conferenceEnded
     val chrome = rememberCallChrome(
         mayHide = callShowing && controlsMayAutoHide(
             videoShowing = videoShowing(state, videos),
@@ -200,6 +207,7 @@ fun RoomScreen(
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
             onToggleAgentsMayHear = onToggleAgentsMayHear,
             onPopOut = onPopOut,
+            onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null,
         )
     }
     if (backgroundOpen) {
@@ -216,30 +224,21 @@ fun RoomScreen(
     }
     if (inviteOpen) {
         // What the link is and what keeps it working is said here, to the
-        // person inviting, not over their own picture on the call.
-        AlertDialog(
+        // person inviting, not over their own picture on the call. The QR is
+        // for somebody across the table: one tap from the details or the
+        // call's More sheet.
+        ModalBottomSheet(
             onDismissRequest = { inviteOpen = false },
-            title = { Text("Invite people") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Anyone forwarded this link can walk in. It is an invitation, not the room's " +
-                            "traffic key. Keep this device online so it can answer new arrivals.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    ShareRoomRow(state.joinUrl)
-                    if (state.canRotateInvitation) {
-                        OutlinedButton(onClick = onRotateInvitation, modifier = Modifier.fillMaxWidth()) { Text("New link") }
-                        Text(
-                            "The old link stops admitting new people. Anyone already in the room stays.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { inviteOpen = false }) { Text("Done") } },
-        )
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            InviteSheet(
+                joinUrl = state.joinUrl,
+                endsAt = state.endsAt,
+                canRotateInvitation = state.canRotateInvitation,
+                onRotateInvitation = onRotateInvitation,
+                onDone = { inviteOpen = false },
+            )
+        }
     }
     if (privateOpen) {
         AlertDialog(
@@ -272,10 +271,20 @@ fun RoomScreen(
                 Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
+                state.endsAt?.let {
+                    Text(if (state.conferenceEnded) conferenceEndedMessage(it) else "Conference room. ${conferenceEndsLine(it)}",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
                 if (state.secondary) Text("You are here as another of your own devices.")
                 if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here.")
-                if (!state.privateConversation) TextButton(onClick = { detailsOpen = false; inviteOpen = true },
-                    enabled = state.movedOn == null && state.joinUrl.isNotBlank() && !state.privateConversationBusy) { Text("Invite people") }
+                if (!state.privateConversation) {
+                    TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) { Text("Invite people") }
+                    TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) {
+                        Icon(Icons.Filled.QrCode2, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Invite by QR")
+                    }
+                }
                 if (!state.anonymous) TextButton(onClick = { detailsOpen = false; onOpenCards() }) { Text("People") }
                 TextButton(onClick = { detailsOpen = false; onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
                 if (state.privateConversationPeers.isNotEmpty()) TextButton(onClick = { detailsOpen = false; privateOpen = true }, enabled = !state.privateConversationBusy) { Text("Start a private conversation") }
@@ -352,7 +361,7 @@ fun RoomScreen(
         // On the call view the control bar carries Leave, so the row is only
         // for joining, and for saying what is happening while it changes.
         val barLeaves = callShowing && state.onCall && !state.callChanging
-        if (!barLeaves && !state.anonymous && !state.chatOnly && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        if (!barLeaves && !state.anonymous && !state.chatOnly && !state.conferenceEnded && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -375,9 +384,9 @@ fun RoomScreen(
                 }
             }
         }
-        if (state.movedOn != null) {
+        if (state.movedOn != null || state.conferenceEnded) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                RoomUpdatePanel(state.roomUpdate, state.notice, onRetryRoomUpdate)
+                RoomUpdatePanel(if (state.conferenceEnded) "ended" else state.roomUpdate, state.notice, onRetryRoomUpdate)
             }
         }
        }
@@ -558,7 +567,7 @@ private fun relayLine(state: RoomState): String = when {
 @Composable
 private fun AloneLine(state: RoomState) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val offerLink = !state.privateConversation && state.movedOn == null && state.joinUrl.isNotBlank()
+    val offerLink = !state.privateConversation && state.movedOn == null && !state.conferenceEnded && state.joinUrl.isNotBlank()
     Surface(
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
@@ -616,6 +625,7 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
     val title = when (state) {
         "removed" -> "You were removed from this room"
         "closed" -> "This room was closed"
+        "ended" -> "This conference room has ended"
         "updating" -> "Updating this secure room"
         "recovery" -> "Room update needs attention"
         else -> "This room has moved on"
@@ -623,6 +633,7 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
     val message = detail ?: when (state) {
         "removed" -> "This device was not given the successor key and cannot rejoin or publish."
         "closed" -> "The authority ended this room. This device will not rejoin or publish."
+        "ended" -> "Nothing more can be sent, and relays delete what was said."
         "updating" -> "Nothing will be sent under the previous room key while Bothy retires its old schedule."
         "recovery" -> "Nothing will be sent under the previous room key. Retry when the authority and Bothy are reachable."
         else -> "The room changed its key and this device cannot safely continue."

@@ -3,6 +3,9 @@ package dev.forgesworn.kithmoot.ui.start
 import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
+import dev.forgesworn.kithmoot.protocol.conferenceEnded
+import dev.forgesworn.kithmoot.session.conferenceEndedMessage
+import dev.forgesworn.kithmoot.session.conferenceEndsLine
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -22,6 +25,8 @@ internal data class HomeRoom(
     val id: String, val label: String, val source: RoomSource, val openedAt: Long,
     val project: String?, val account: String?, val anonymous: Boolean,
     val secondary: Boolean, val ended: Boolean, val canShareInvite: Boolean,
+    /** A conference room's end, unix seconds; null for a room that does not end. */
+    val endsAt: Long? = null,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -55,7 +60,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             id = room.id, label = roomLabel(room.name, room.id), source = RoomSource.PHONE,
             openedAt = room.openedAt, project = room.project, account = room.account,
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
-            canShareInvite = room.canShareInvite,
+            canShareInvite = room.canShareInvite, endsAt = room.endsAt,
         )
     }
     if (!signedIn) return fromSaved
@@ -102,12 +107,15 @@ internal fun roomRowState(
     now: Long, zone: ZoneId, locale: Locale, is24Hour: Boolean,
     selfParticipant: String? = null, nameOf: (String) -> String = { it },
 ): RoomRowState {
+    val conferenceOver = conferenceEnded(room.endsAt, now)
     val status = when {
-        room.id == callRoomId -> "On a call now."
+        room.id == callRoomId && !conferenceOver -> "On a call now."
+        conferenceOver -> conferenceEndedMessage(room.endsAt!!, zone, locale)
         room.ended -> "Ended. Its invite link no longer works."
         room.account != null && room.account != signedInAs ->
             "Joined as ${shortNpub(room.account)}. Sign in with that account to open it."
         room.source == RoomSource.ACCOUNT -> "From your other devices."
+        room.endsAt != null && activity == null -> "Conference room. ${conferenceEndsLine(room.endsAt, zone, locale)}."
         activity == null -> if (room.anonymous) "Tor-only room." else null
         !activity.readsChat -> "Quiet room. Open it to read."
         else -> previewLine(activity.latest, selfParticipant.orEmpty(), nameOf) ?: "No messages yet"

@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -11,12 +12,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.session.ConferenceLength
 
 /**
- * The name field, the Tor row and the Start button: the whole of "starting
+ * The name field, the Tor row, when the room ends and the Start button: the whole of "starting
  * a room" in one reusable shape, used inline on the cold screen and the
  * expanded pane, and inside the New room sheet everywhere else.
  */
@@ -33,6 +36,9 @@ internal fun NewRoomForm(
     onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     nameFieldModifier: Modifier = Modifier,
+    conferenceLength: ConferenceLength = ConferenceLength.NEVER,
+    /** Null hides the choice, as the disabled preview behind the storage error does. */
+    onConferenceLengthChanged: ((ConferenceLength) -> Unit)? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
@@ -57,11 +63,37 @@ internal fun NewRoomForm(
             }
             Switch(checked = anonymousMode, onCheckedChange = null, enabled = enabled)
         }
+        if (onConferenceLengthChanged != null) ConferenceLengthChoice(conferenceLength, onConferenceLengthChanged, enabled)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onStartRoom, enabled = enabled && !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Start a room") }
             if (onCancel != null) TextButton(onCancel, Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    }
+}
+
+/**
+ * When the room ends: Never, the default, or a conference room that ends
+ * after a day, three or seven, and is wiped from relays when it does.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ConferenceLengthChoice(selected: ConferenceLength, onSelected: (ConferenceLength) -> Unit, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Ends", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (length in ConferenceLength.entries) {
+                FilterChip(
+                    selected = length == selected, onClick = { onSelected(length) }, enabled = enabled,
+                    label = { Text(length.label) },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { role = Role.RadioButton },
+                )
+            }
+        }
+        if (selected != ConferenceLength.NEVER) Text(
+            "A conference room: when it ends it closes for everyone and relays delete it.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

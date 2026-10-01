@@ -164,4 +164,15 @@ class RoomRowsTest {
             presenceText(listOf(Presence("a", false), Presence("b", false), Presence("c", true))))
         assertEquals("nobody here", presenceText(emptyList()).second)
     }
+
+    @Test fun `a conference room says when it ends, and that it has ended`() {
+        val london = ZoneId.of("Europe/London")
+        val ends = 1_759_597_200L // Sat 4 Oct 2025, 18:00 in London
+        val conference = room(canShareInvite = true).copy(endsAt = ends)
+        assertEquals("Conference room. Ends Sat 4 Oct, 18:00.",
+            roomRowState(conference, null, null, null, ends - 60, london, Locale.UK, true).status)
+        assertEquals("This conference room ended on Sat 4 Oct, 18:00.",
+            roomRowState(conference, null, "room-1", null, ends, london, Locale.UK, true).status)
+        assertEquals(ends, mergeRooms(listOf(SavedRoomSummary("a", "A", false, 10, endsAt = ends)), emptyList(), false).single().endsAt)
+    }
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.session.conferenceEndsLine
 import dev.forgesworn.kithmoot.ui.qr.QrCode
 
 /**
@@ -194,6 +195,72 @@ fun ShareRoomRow(joinUrl: String, modifier: Modifier = Modifier) {
             modifier = Modifier.heightIn(min = 56.dp),
         ) {
             Text("Send", style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+/**
+ * Invite people: the room's link as a large QR, for somebody across the
+ * table to scan with their camera or KithMoot, with Copy and Send beneath it
+ * for everybody else. Any member can show it; the link only invites, it is
+ * not the room's traffic key. A conference room says when it ends, since the
+ * link stops working then.
+ */
+@Composable
+fun InviteSheet(
+    joinUrl: String,
+    endsAt: Long?,
+    canRotateInvitation: Boolean,
+    onRotateInvitation: () -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+    ) {
+        Text("Invite people", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Anyone who scans this or is forwarded the link can walk in. It is an invitation, not the room's " +
+                "traffic key. Keep this device online so it can answer new arrivals.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        endsAt?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(conferenceEndsLine(it), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        }
+        Spacer(Modifier.height(16.dp))
+        // White behind the code whatever the theme: scanners want the quiet
+        // zone light, and a dark sheet would swallow it.
+        QrCode(
+            text = joinUrl,
+            contentDescription = "Room invitation QR code",
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(androidx.compose.ui.graphics.Color.White)
+                .padding(12.dp),
+        )
+        Spacer(Modifier.height(20.dp))
+        ShareRoomRow(joinUrl)
+        if (canRotateInvitation) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onRotateInvitation, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("New link") }
+            Text(
+                "The old link stops admitting new people. Anyone already in the room stays.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+            Text("Done", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

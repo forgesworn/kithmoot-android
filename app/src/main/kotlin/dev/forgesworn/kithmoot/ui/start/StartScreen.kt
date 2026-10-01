@@ -28,6 +28,7 @@ import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
+import dev.forgesworn.kithmoot.session.ConferenceLength
 import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
 import kotlin.math.roundToInt
 
@@ -46,6 +47,7 @@ fun StartScreen(
     onAnonymousModeChanged: (Boolean) -> Unit,
     onPersistentGroupChanged: (Boolean) -> Unit,
     onStartRoom: () -> Unit,
+    onConferenceLengthChanged: (ConferenceLength) -> Unit = {},
     onJoin: () -> Unit,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
@@ -155,6 +157,7 @@ fun StartScreen(
             !returning -> ColdContent(
                 layout = layout, state = state, enabled = enabled,
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onConferenceLengthChanged = onConferenceLengthChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
             )
@@ -167,6 +170,7 @@ fun StartScreen(
                 now = System.currentTimeMillis() / 1000, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onConferenceLengthChanged = onConferenceLengthChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
             )
@@ -315,6 +319,7 @@ private fun ColumnScope.Preamble(state: StartState, onAddOfferedCard: () -> Unit
 private fun BoxWithConstraintsScope.ColdContent(
     layout: HomeLayout, state: StartState, enabled: Boolean,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
 ) {
@@ -344,7 +349,8 @@ private fun BoxWithConstraintsScope.ColdContent(
             }
             Column(Modifier.weight(1f).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom)
+                    enabled, state.busy, state.error, onStartRoom,
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
                 Foot()
             }
         }
@@ -358,7 +364,8 @@ private fun BoxWithConstraintsScope.ColdContent(
             Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
             Intro()
             NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                enabled, state.busy, state.error, onStartRoom)
+                enabled, state.busy, state.error, onStartRoom,
+                conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
             Foot()
         }
     }
@@ -373,6 +380,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
 ) {
@@ -455,7 +463,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
             Column(Modifier.width(360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom)
+                    enabled, state.busy, state.error, onStartRoom,
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
             }
         }
     } else {
@@ -482,7 +491,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) })
+                    enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) },
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
             }
         }
     }

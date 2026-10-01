@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Landscape
@@ -313,6 +314,8 @@ internal fun MoreCallSheet(
     onToggleSelfHidden: () -> Unit,
     onToggleAgentsMayHear: () -> Unit,
     onPopOut: (() -> Unit)?,
+    /** Shows the room's invitation as a QR for somebody in the same room to scan; null where there is none to show. */
+    onInviteByQr: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
@@ -348,6 +351,7 @@ internal fun MoreCallSheet(
                 if (state.agentsMayHear) "Agents can hear and see you: stop" else "Let agents hear and see you",
                 closing(onToggleAgentsMayHear),
             )
+            if (onInviteByQr != null) SheetRow(Icons.Filled.QrCode2, "Invite by QR", closing(onInviteByQr))
             if (state.canAddDevice) SheetRow(Icons.Filled.PersonAdd, "Add your device", closing(onAddDevice))
             SheetRow(Icons.Filled.Contacts, if (state.contacts.isEmpty()) "Cards" else "Cards (${state.contacts.size})", closing(onOpenCards))
         }
