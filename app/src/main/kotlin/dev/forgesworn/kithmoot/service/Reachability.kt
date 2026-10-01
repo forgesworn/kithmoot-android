@@ -53,3 +53,6 @@ fun reachabilityBanner(atRisk: List<AtRiskRoom>, signerLabel: String?, inRoom: S
         action = "Confirm with ${signerDisplayName(signerLabel)}",
     )
 }
+
+/** A banner, or a settings row, with the one button that puts it right, and whether pressing it is under way. */
+class ReachabilityPrompt(val banner: ReachabilityBanner, val busy: Boolean, val onAction: () -> Unit)

@@ -305,6 +305,19 @@ fun KithMootApp(
         return
     }
 
+    val atRiskRooms by model.reachability.collectAsState()
+    val confirmingCalls by model.renewingCalls.collectAsState()
+    val ringingOff by model.ringingOff.collectAsState()
+    // What is stopping calls from ringing, and the one press that fixes it: ringing switched off,
+    // or the signer having to confirm this phone again. Never both: with ringing off no credential matters.
+    fun promptFor(inRoom: String?): dev.forgesworn.kithmoot.service.ReachabilityPrompt? = when {
+        ringingOff -> dev.forgesworn.kithmoot.service.ReachabilityPrompt(
+            dev.forgesworn.kithmoot.service.ringingOffBanner(), busy = false, onAction = { model.turnBackgroundRingOn() })
+        startState.account == null -> null
+        else -> dev.forgesworn.kithmoot.service.reachabilityBanner(atRiskRooms, startState.account?.signerLabel, inRoom)?.let {
+            dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, confirmingCalls) { model.renewCallCredentials() }
+        }
+    }
     val accountMenu: @Composable () -> Unit = {
                 val account = accountModel
                 val accountState by account.start.collectAsState()
@@ -325,17 +338,17 @@ fun KithMootApp(
                             override fun mode() = model.callRingMode(roomState.roomId)
                             override fun setMode(mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = model.setCallRingMode(roomState.roomId, mode)
                         } else null
-                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom)
+                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, prompt = promptFor(null))
                     })
     }
 
     // Calls cannot ring this phone until the signer confirms it again: said on the
     // rooms list and in the room, for as long as it is true, whatever became of the notification.
-    val atRiskRooms by model.reachability.collectAsState()
-    val confirmingCalls by model.renewingCalls.collectAsState()
-    val reachBanner = if (lockedCallOnly || inPictureInPicture || startState.account == null) null else when (stage) {
-        Stage.START -> if (homePage == HomePage.ROOMS) dev.forgesworn.kithmoot.service.reachabilityBanner(atRiskRooms, startState.account?.signerLabel) else null
-        Stage.ROOM -> if (roomState.onCall) null else dev.forgesworn.kithmoot.service.reachabilityBanner(atRiskRooms, startState.account?.signerLabel, inRoom = roomState.roomId)
+    val reachBanner = if (lockedCallOnly || inPictureInPicture) null else when (stage) {
+        Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) else null
+        // A room that is not set to Ring me has nothing to say about ringing being off.
+        Stage.ROOM -> if (roomState.onCall || (ringingOff && model.callRingMode(roomState.roomId) != dev.forgesworn.kithmoot.notifications.CallRingMode.RING)) null
+            else promptFor(roomState.roomId)
     }
     // Under a dock or the banner the status bar is already cleared.
     val topCleared = dock != null || reachBanner != null
@@ -346,7 +359,7 @@ fun KithMootApp(
             Column {
                 dock?.invoke()
                 reachBanner?.let {
-                    ReachabilityBannerView(it, confirmingCalls, onConfirm = model::renewCallCredentials, clearStatusBar = dock == null)
+                    ReachabilityBannerView(it.banner, it.busy, onConfirm = it.onAction, clearStatusBar = dock == null)
                 }
                 // Settings and Projects bring their own app bar; home's stays
                 // hidden underneath so there is only ever one visible.
@@ -473,7 +486,7 @@ fun KithMootApp(
                         ),
                         relayChoices = model.accountRelayChoices(),
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
-                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false) },
+                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
                         onBack = { homePage = HomePage.ROOMS },
                     )
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })

@@ -4,17 +4,18 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** "Turn off" on the background notification: the same as turning both
- *  background switches off in Notification settings, without opening the app. */
+/**
+ * The background notification's "Stop ringing", and the follow-up's "Turn back
+ * on". See [handleRingAction]: this only hands the press to it.
+ */
 class BackgroundRingActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_TURN_OFF) return
-        BackgroundRingSettings(context).setEnabled(false)
-        BackgroundDeliverySettings(context).setEnabled(false)
-        BackgroundCallListenerService.stop(context)
+        handleRingAction(intent.action, AndroidRingHost(context))
     }
 
     companion object {
+        /** Kept as it was, so a notification already in the tray from an older build still works. */
         const val ACTION_TURN_OFF = "dev.forgesworn.kithmoot.BACKGROUND_RING_TURN_OFF"
+        const val ACTION_TURN_ON = "dev.forgesworn.kithmoot.BACKGROUND_RING_TURN_ON"
     }
 }

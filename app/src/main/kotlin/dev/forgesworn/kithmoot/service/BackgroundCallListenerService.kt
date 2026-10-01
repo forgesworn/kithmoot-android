@@ -70,7 +70,7 @@ import java.time.ZoneOffset
  * Optional, opt-in foreground service with two jobs, each behind its own
  * switch: ringing for a call in a Ring me room ([BackgroundRingSettings], on
  * by default) and receiving messages for saved rooms while KithMoot is closed
- * ([BackgroundDeliverySettings], off by default). See the P4-01 delivery
+ * ([BackgroundDeliverySettings], on by default). See the P4-01 delivery
  * ticket and `BackgroundDelivery.kt` for the rules.
  *
  * Each watched room gets its own pool, built from the same hybrid socket
@@ -203,6 +203,9 @@ class BackgroundCallListenerService : Service() {
         val ringSettings = CallRingSettings(this)
         val ringToggle = BackgroundRingSettings(this).enabled()
         val deliveryToggle = BackgroundDeliverySettings(this).enabled()
+        // However ringing came back on - Settings, the banner, the follow-up's own button - the
+        // service is running by now, and the offer to turn it back on has had its answer.
+        if (ringToggle) cancelTurnOnOffer(this)
         val savedIds = savedRoomIdsOrNone(application.savedRooms)
         val notificationsPermitted = NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (!shouldRunBackgroundService(ringToggle, deliveryToggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
@@ -510,7 +513,7 @@ class BackgroundCallListenerService : Service() {
         )
         val title = if (delivering > 0) "Messages: ${state.label}" else "Listening for calls"
         val text = if (jobs.isEmpty()) "Waiting for a room to watch." else "Watching " + jobs.joinToString(" and ") + "."
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_chat_notice)
             .setContentTitle(title)
             .setContentText(text)
@@ -518,8 +521,9 @@ class BackgroundCallListenerService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(open)
-            .addAction(0, "Turn off", turnOff)
-            .build()
+        // Only while ringing is on: it stops ringing and nothing else, and says so.
+        if (BackgroundRingSettings(this).enabled()) builder.addAction(0, STOP_RINGING_LABEL, turnOff)
+        return builder.build()
     }
 
     companion object {

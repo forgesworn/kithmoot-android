@@ -895,7 +895,7 @@ class RoomViewModel @JvmOverloads constructor(
             kotlinx.coroutines.flow.merge(
                 start.map { it.account?.pubkey to it.savedRooms }.distinctUntilChanged().map { },
                 kotlinx.coroutines.flow.flow { while (true) { emit(Unit); delay(REACHABILITY_CHECK_MS) } },
-            ).collect { runCatching { dev.forgesworn.kithmoot.service.CredentialRenewal.refresh(getApplication()) } }
+            ).collect { runCatching { dev.forgesworn.kithmoot.service.CredentialRenewal.refresh(getApplication(), post = false) } }
         }
         // The call's instance owns the account, its sync and the box checks;
         // a chat-only one is handed the account by `borrowAccount`.
@@ -3979,6 +3979,16 @@ class RoomViewModel @JvmOverloads constructor(
     /** The Ring me rooms that cannot ring this phone: what the banner on the rooms list and in the room shows. */
     val reachability: StateFlow<List<dev.forgesworn.kithmoot.service.AtRiskRoom>> =
         dev.forgesworn.kithmoot.service.CredentialRenewal.atRisk
+
+    /** Ringing in the background is off while a room is set to Ring me: the banner offers to turn it back on. */
+    val ringingOff: StateFlow<Boolean> = dev.forgesworn.kithmoot.service.CredentialRenewal.ringingOff
+
+    /** The banner's "Turn on": ringing in the background again, as the notification's "Turn back on" does. */
+    fun turnBackgroundRingOn() = viewModelScope.launch(Dispatchers.IO) {
+        dev.forgesworn.kithmoot.service.turnRingingOn(getApplication())
+        dev.forgesworn.kithmoot.service.CredentialRenewal.refresh(getApplication(), post = false)
+        showNotice("Calls will ring while KithMoot is closed.")
+    }
 
     private val _renewingCalls = MutableStateFlow(false)
     /** The banner's button was pressed and the signer has not answered yet. */

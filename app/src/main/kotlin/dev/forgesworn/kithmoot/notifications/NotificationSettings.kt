@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
 import dev.forgesworn.kithmoot.service.BackgroundDeliverySettings
 import dev.forgesworn.kithmoot.service.BackgroundRingSettings
+import dev.forgesworn.kithmoot.service.ReachabilityPrompt
 
 @Composable
 fun NotificationSettings(
@@ -29,6 +30,8 @@ fun NotificationSettings(
     room: CallRingRoom? = null,
     /** False inside Settings, whose section label already names it. */
     showHeading: Boolean = true,
+    /** What is stopping calls from ringing, with its one button: a second, permanent way to put it right. */
+    prompt: ReachabilityPrompt? = null,
 ) {
     val value by notices.settings.collectAsState()
     var allowed by remember { mutableStateOf(notices.allowed()) }
@@ -41,6 +44,12 @@ fun NotificationSettings(
         allowed = granted; notices.save(notices.settings.value.copy(enabled = granted))
     }
     if (showHeading) Text("Notifications & sound", style = MaterialTheme.typography.headlineSmall)
+    prompt?.let {
+        Text(it.banner.message, style = MaterialTheme.typography.titleSmall)
+        Text(it.banner.detail)
+        Button(it.onAction, Modifier.heightIn(min = 48.dp), enabled = !it.busy) { Text(if (it.busy) "Waiting for your signer…" else it.banner.action) }
+        HorizontalDivider()
+    }
     Text("New messages in your rooms, including while KithMoot is closed when receiving in the background is on below.")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Message notifications", Modifier.weight(1f))

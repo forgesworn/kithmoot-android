@@ -49,6 +49,12 @@ class CredentialRenewalTest {
     }
 
     @Test
+    fun `an account that cannot be read counts every room joined as one`() {
+        val rooms = listOf(room("mine", hour), room("theirs", hour, participant = "b".repeat(64)), room("local", hour, viaAccount = false))
+        assertEquals(listOf("mine", "theirs"), roomsAtRisk(rooms, null, now))
+    }
+
+    @Test
     fun `names the rooms that cannot ring, and only those`() {
         val rooms = listOf(room("soon", hour), room("fine", 2 * day), room("quiet", null, mode = CallRingMode.QUIET), room("expired", null))
         assertEquals(listOf("soon", "expired"), roomsAtRisk(rooms, me, now))
