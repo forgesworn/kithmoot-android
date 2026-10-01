@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
 import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
 
 /**
@@ -47,6 +48,26 @@ object RoomRelays {
             if (seen.add(key)) out += url
         }
         return withPublicFallback(out)
+    }
+
+    /** At most this many relays ride in any link: an invitation, a fresh
+     *  link after rotation, or a pairing link. Matches the web client's
+     *  `MAX_RELAY_HINTS`. */
+    const val MAX_LINK: Int = MAX_INVITATION_RELAYS
+
+    /**
+     * The relays a link names, from those this device's [pool] actually
+     * uses: the room's own relays first, then the rest, cut at [MAX_LINK].
+     * Duplicates collapse by canonical form. A room relay the pool does not
+     * use (one a Tor-only or sheltered room turned away) is never named. A
+     * room with more than eight relays of its own fills the link with them;
+     * this device's own relays are what the cap cuts.
+     */
+    fun forLink(pool: List<String>, room: List<String>): List<String> {
+        val roomKeys = room.map(::canonicalOrSelf).toSet()
+        val seen = mutableSetOf<String>()
+        val (shared, own) = pool.partition { canonicalOrSelf(it) in roomKeys }
+        return (shared + own).filter { seen.add(canonicalOrSelf(it)) }.take(MAX_LINK)
     }
 
     fun withPublicFallback(relays: List<String>): List<String> {

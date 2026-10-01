@@ -64,4 +64,33 @@ class RoomRelaysTest {
         val relays = RoomRelays.atOpen(listOf("wss://b.example"), listOf(listOf("wss://b.example/")), room = listOf("wss://a.example/"))
         assertEquals(listOf("wss://a.example/", "wss://b.example"), relays)
     }
+
+    @Test fun aLinkNamesAtMostEightRelaysTheRoomsOwnFirst() {
+        val own = (1..10).map { "wss://own$it.example" }
+        val room = (1..3).map { "wss://room$it.example/" }
+        val pool = RoomRelays.atOpen(own, emptyList(), room = room)
+        assertEquals(13, pool.size)
+        val link = RoomRelays.forLink(pool, room)
+        assertEquals(8, link.size)
+        assertEquals(room + own.take(5), link)
+        // The room's order wins even when the pool lists its relays later.
+        assertEquals(room + own.take(5), RoomRelays.forLink(own + room, room))
+    }
+
+    @Test fun aRoomWithMoreThanEightRelaysFillsTheLinkWithThem() {
+        val room = (1..10).map { "wss://room$it.example/" }
+        val pool = RoomRelays.atOpen(listOf("wss://own.example"), emptyList(), room = room)
+        assertEquals(room.take(8), RoomRelays.forLink(pool, room))
+    }
+
+    @Test fun aLinkKeepsThePoolsSpellingAndNamesEachRelayOnce() {
+        val pool = listOf("wss://own.example", "wss://shared.example", "wss://own.example/")
+        assertEquals(listOf("wss://shared.example", "wss://own.example"), RoomRelays.forLink(pool, listOf("wss://shared.example/")))
+    }
+
+    @Test fun aLinkNeverNamesARoomRelayThePoolDoesNotUse() {
+        // A sheltered or Tor-only room turned this room relay away.
+        val pool = listOf("ws://own.example/events")
+        assertEquals(pool, RoomRelays.forLink(pool, listOf("wss://public.example/")))
+    }
 }

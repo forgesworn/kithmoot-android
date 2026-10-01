@@ -23,7 +23,6 @@ import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.applyRoomRelays
 import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
-import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -5144,12 +5143,15 @@ class RoomViewModel @JvmOverloads constructor(
         } catch (e: SignerException) {
             return@launch note(e.message ?: "Your signer did not sign the pairing.")
         }
+        // Eight relays at most, as in every other link: the room's own
+        // first, then this device's.
+        val linkRelays = RoomRelays.forLink(relayUrls, savedRoom?.sharedRelays.orEmpty())
         _room.update { it.copy(
             pairingLink = roomInvitation?.let { invitation ->
                 encodeInvitationPairingLink(
                     base = selectedWebApp.joinBase,
                     invitation = invitation.invitation,
-                    relays = relayUrls,
+                    relays = linkRelays,
                     policy = invitation.policy,
                     deviceSecretKey = deviceKey,
                     credential = credential,
@@ -5157,7 +5159,7 @@ class RoomViewModel @JvmOverloads constructor(
             } ?: encodePairingLink(
                     base = selectedWebApp.joinBase,
                     secret = secret,
-                    relays = relayUrls,
+                    relays = linkRelays,
                     deviceSecretKey = deviceKey,
                     credential = credential,
                 ),
@@ -5188,7 +5190,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
                 // The link names the room's own relays first, then the rest of
                 // this pool, within the eight a link may carry.
-                val linkRelays = if (keepsOwnRelays(saved)) relayUrls else RoomRelays.atOpen(relayUrls, emptyList(), room = saved.sharedRelays).take(MAX_INVITATION_RELAYS)
+                val linkRelays = if (keepsOwnRelays(saved)) relayUrls.take(RoomRelays.MAX_LINK) else RoomRelays.forLink(relayUrls, saved.sharedRelays)
                 val nextInvitation = InvitationPayload(nextHost.invitation, linkRelays, saved.policy)
                 val url = encodeInvitationUrl(selectedWebApp.joinBase, nextHost.invitation, linkRelays, saved.policy)
                 val retirement = encodeInvitationRetirement(oldHost.invitation, oldHost.inviterSecretKey, epochSeconds(), ends = saved.ends)
