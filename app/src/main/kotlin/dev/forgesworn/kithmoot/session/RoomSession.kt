@@ -719,12 +719,13 @@ class RoomSession(
         check(event.createdAt >= now() - CHAT_RETENTION_SECONDS) {
             "This message is too old to replay. It remains on this phone."
         }
+        check(ends == null || now() < ends) { "This conference room has ended. The message remains on this phone." }
         val message = decodeOwnChat(event, event.createdAt, epoch)
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         if (!transport.publishConfirmedGuarded(event, generation, {
-                publicationAllowed && now() < credentialDeadline && now() < accessDeadline &&
+                publicationAllowed && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)) return false
         if (ingestChat(message)) retainOwnOuterEvent(event, message)

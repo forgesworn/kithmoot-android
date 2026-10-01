@@ -558,7 +558,7 @@ fun KithMootApp(
                             lane = roomState.lane,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
-                            canSend = roomState.movedOn == null,
+                            canSend = roomState.movedOn == null && !roomState.conferenceEnded,
                             sending = roomState.chatSending,
                             pending = roomState.chatPending,
                             onRetryPending = model::retryPendingChat,
