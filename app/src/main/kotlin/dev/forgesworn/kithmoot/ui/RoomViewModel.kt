@@ -5191,7 +5191,7 @@ class RoomViewModel @JvmOverloads constructor(
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned }) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned && !keepsOwnRelays(saved) }) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 // The link names the room's own relays first, then the rest of
