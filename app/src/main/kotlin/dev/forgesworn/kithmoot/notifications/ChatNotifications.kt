@@ -33,6 +33,10 @@ class ChatNotifications(private val context: Context) {
     @Volatile var foreground = false
     @Volatile var reading = false
     @Volatile var onCall = false
+    /** Whether this room's notification offers Reply, asked at each post: a credential's life runs down. */
+    @Volatile var replyable: () -> Boolean = { false }
+    /** Replied from the notification: it shows the reply until something new arrives or the room is read. */
+    private var keepReply = false
     private var lastNotice = ""
     private var messages: List<ChatMessage> = emptyList()
     fun allowed() = NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -45,8 +49,12 @@ class ChatNotifications(private val context: Context) {
         end(); roomId = id; roomName = name; this.private = private; tracker = ChatNoticeState(since, self)
     }
     @Synchronized fun accept(value: List<ChatMessage>) { messages = value; refresh() }
+    /** A reply sent from the notification: what it showed is read, and [MessageNotices.replied] shows the reply. */
+    @Synchronized fun replied() { tracker?.read(); keepReply = true; lastNotice = "" }
     @Synchronized fun refresh() {
         val update = tracker?.update(messages, foreground && reading) ?: return
+        if (keepReply && update.unread.isEmpty() && !(foreground && reading)) return
+        keepReply = false
         val settings = settings.value
         if (!settings.enabled || !allowed() || update.unread.isEmpty()) { cancel(); return }
         val now = android.os.SystemClock.elapsedRealtime()
@@ -55,7 +63,7 @@ class ChatNotifications(private val context: Context) {
         val content = noticeContent(roomName, private, update.unread.map(::noticeLine), settings.previews)
         val noticeKey = "$roomId:${content.unread}:${content.lines.lastOrNull()?.let { it.id + it.body }}"
         if (noticeKey == lastNotice && update.arrived.isEmpty()) return
-        if (!MessageNotices.post(context, roomId, content, sound)) { lastNotice = ""; return }
+        if (!MessageNotices.post(context, roomId, content, sound, replyable())) { lastNotice = ""; return }
         if (sound) lastSoundAt = now
         lastNotice = noticeKey
     }
@@ -74,7 +82,7 @@ class ChatNotifications(private val context: Context) {
     }
     private fun soundUri() = soundUri(context)
     fun cancel() { lastNotice = ""; if (roomId.isNotEmpty()) MessageNotices.cancel(context, roomId) }
-    @Synchronized fun end() { cancel(); tracker = null; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
+    @Synchronized fun end() { cancel(); tracker = null; keepReply = false; replyable = { false }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
     companion object {
         // A new id because a channel's importance cannot be raised once
         // created, and messages now arrive as heads-up notices.

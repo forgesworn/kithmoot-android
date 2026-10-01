@@ -565,6 +565,8 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
+/** How long a reply from a notification waits for a relay: a receiver has ten seconds in all. */
+private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
@@ -724,6 +726,8 @@ class RoomViewModel @JvmOverloads constructor(
     private var quietTransport: QuietTransport? = null
     private var session: RoomSession? = null
     private var roomWork: RoomWork? = null
+    /** This room's send path for a reply typed on its notification, as registered with [dev.forgesworn.kithmoot.notifications.OpenRoomReplies]. */
+    private var noticeReplier: Pair<String, suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome>? = null
     private var engine: WebRtcEngine? = null
     /** Screen-share drawing, received over signalling. See session/RoomSession.kt
      *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
@@ -3195,6 +3199,17 @@ class RoomViewModel @JvmOverloads constructor(
             // was closed is now read.
             withContext(Dispatchers.IO) { markBackgroundRead(record) }
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
+            // Reply on this room's notification goes through this session, not a second connection.
+            // Read once, off the main thread; whether its credential still lasts is asked at each post.
+            val replyRoom = withContext(Dispatchers.IO) {
+                dev.forgesworn.kithmoot.service.noticeReplyRoom(getApplication(), record.id, epochSeconds())
+            }
+            if (!chatOnly) notifications.replyable = {
+                replyRoom != null && dev.forgesworn.kithmoot.notifications.canReplyFromNotice(replyRoom, epochSeconds())
+            }
+            val replier: suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome = { text -> replyFromNotice(live, text) }
+            noticeReplier = record.id to replier
+            dev.forgesworn.kithmoot.notifications.OpenRoomReplies.register(record.id, replier)
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
@@ -3677,6 +3692,9 @@ class RoomViewModel @JvmOverloads constructor(
         pool = null
         if (!chatOnly) notifications.end()
         callRinger.end()
+        // At once, unlike the registry's unmark below: a reply arriving now takes the background path.
+        noticeReplier?.let { (id, replier) -> dev.forgesworn.kithmoot.notifications.OpenRoomReplies.unregister(id, replier) }
+        noticeReplier = null
         // Read through now before the background service takes the room back,
         // or its catch-up would count messages already shown here.
         savedRoom?.let { closed -> CoroutineScope(Dispatchers.IO).launch {
@@ -4546,6 +4564,41 @@ class RoomViewModel @JvmOverloads constructor(
                 val pending = runCatching { live.pendingChat() }.getOrDefault(false)
                 if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
             }
+        }
+    }
+
+    /**
+     * A reply typed on this room's notification, sent as the composer sends:
+     * kept on this phone before it is first published, and held to the
+     * receiver's few seconds rather than the room's long confirmation wait.
+     * Unconfirmed in that time, it stays kept and this room retries it as
+     * it would its own. Refused, without sending, while another message is
+     * being sent or waits for a retry.
+     */
+    private suspend fun replyFromNotice(live: RoomSession, text: String): dev.forgesworn.kithmoot.notifications.ReplyOutcome {
+        val failed = dev.forgesworn.kithmoot.notifications.ReplyOutcome.FAILED
+        val began = withContext(Dispatchers.Main.immediate) {
+            val state = _room.value
+            if (session !== live || state.chatSending || state.chatPending || state.cadence?.busy == true ||
+                state.anonymous || state.quiet) false
+            else { _room.update { it.copy(chatSending = true, chatSendError = null) }; true }
+        }
+        if (!began) return failed
+        var retained = false
+        val kept = dev.forgesworn.kithmoot.notifications.ReplyOutcome.KEPT
+        return try {
+            val confirmed = withTimeoutOrNull(NOTICE_REPLY_CONFIRM_MS) { live.sendChatDurable(text, null) { retained = true } }
+            if (confirmed == true) dev.forgesworn.kithmoot.notifications.ReplyOutcome.SENT
+            else if (retained) kept else failed
+        } catch (cancelled: CancellationException) {
+            if (cancelled is TimeoutCancellationException) { if (retained) kept else failed } else throw cancelled
+        } catch (error: Exception) {
+            if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The message could not be confirmed.") }
+            if (retained) kept else failed
+        } finally {
+            val pending = runCatching { live.pendingChat() }.getOrDefault(retained)
+            if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+            if (!chatOnly) notifications.replied()
         }
     }
 

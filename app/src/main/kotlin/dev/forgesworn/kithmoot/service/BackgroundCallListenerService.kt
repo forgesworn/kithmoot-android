@@ -49,6 +49,7 @@ import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayAuthenticator
 import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.RelayPool
+import dev.forgesworn.kithmoot.session.PendingChatOutbox
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.storage.BackgroundInboxVault
@@ -86,7 +87,8 @@ import java.time.ZoneOffset
  * The only thing it ever publishes is a room's retained pending message: the
  * exact event the person already signed, on the epoch it was sealed for,
  * cleared only when a relay confirms it. No presence, roster entry, read
- * receipt or credential.
+ * receipt or credential. A reply typed on a message notification is such a
+ * message, and goes out over the room's pool here (see `BackgroundReply.kt`).
  *
  * Modelled on Cambium's `HeartwoodKeepAliveService` (`specialUse` foreground
  * type with a declared subtype, `START_STICKY`, a boot receiver gated on a
@@ -125,6 +127,7 @@ class BackgroundCallListenerService : Service() {
     override fun onCreate() {
         super.onCreate()
         alive = true
+        running = this
         channel()
         watchNetwork()
         ActiveRoomRegistry.listen(registryListener)
@@ -150,6 +153,7 @@ class BackgroundCallListenerService : Service() {
 
     override fun onDestroy() {
         alive = false
+        if (running === this) running = null
         ActiveRoomRegistry.unlisten(registryListener)
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         loopJob?.cancel()
@@ -404,11 +408,8 @@ class BackgroundCallListenerService : Service() {
             .copy(unread = unread.size)
         val now = android.os.SystemClock.elapsedRealtime()
         val sound = settings.bell && noticeSoundAt[id].let { it == null || now - it >= 5_000 }
-        if (MessageNotices.post(this, id, content, sound) && sound) noticeSoundAt[id] = now
+        if (MessageNotices.post(this, id, content, sound, noticeReplyAvailable(this, id)) && sound) noticeSoundAt[id] = now
     }
-
-    /** Logs name a room by a short digest of its id, never its name or key. */
-    private fun label(roomId: String) = Digests.sha256(roomId.toByteArray(Charsets.UTF_8)).toHex().take(8)
 
     private fun onBell(watch: BackgroundRoomWatch, event: NostrEvent) {
         val tag = event.tagValue("d") ?: return
@@ -528,6 +529,29 @@ class BackgroundCallListenerService : Service() {
         /** True while this process runs the service; a fresh process after force-stop starts false. */
         @Volatile var alive = false
             private set
+
+        @Volatile private var running: BackgroundCallListenerService? = null
+
+        /** Logs name a room by a short digest of its id, never its name or key. */
+        internal fun label(roomId: String) = Digests.sha256(roomId.toByteArray(Charsets.UTF_8)).toHex().take(8)
+
+        /**
+         * Sends a room's retained message, a notification reply, over this
+         * service's own pool for the room, so a reply opens no second
+         * connection. Null when the service is not running or does not watch
+         * the room on [epochId]. Shares the reconnect flush's guard: while
+         * that is already sending the same message, this leaves it to it.
+         */
+        internal suspend fun flushWatched(roomId: String, epochId: String, outbox: PendingChatOutbox, timeoutMs: Long): FlushOutcome? {
+            val service = running ?: return null
+            val handle = service.rooms[roomId]?.takeIf { it.epochId == epochId } ?: return null
+            if (!service.flushing.add(roomId)) return FlushOutcome.NOT_CONFIRMED
+            return try {
+                flushPending(outbox, epochId, handle.pool, timeoutMs)
+            } catch (_: Exception) {
+                FlushOutcome.NOT_CONFIRMED
+            } finally { service.flushing.remove(roomId) }
+        }
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, BackgroundCallListenerService::class.java))

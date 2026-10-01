@@ -26,4 +26,6 @@ class ChatNoticeState(private val since: Long, private val self: String) {
         while (seen.size > 5_000) seen.remove(seen.first())
         return Update(unread.values.toList(), arrived)
     }
+    /** Everything unread so far is read, as when the person replies from the notification. */
+    fun read() = unread.clear()
 }

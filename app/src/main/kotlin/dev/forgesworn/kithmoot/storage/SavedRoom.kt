@@ -104,6 +104,21 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return PrimaryIdentity.createWith(signer, id, now + SAVED_CREDENTIAL_TTL, now, device)
     }
 
+    /**
+     * What signs a message sent without opening the room, as a reply from a
+     * notification: this device's key and a credential no signer has to be
+     * asked for. A key held here mints its own; a paired device has its
+     * pairing's; an account room has the credential kept from its last
+     * opening, while it lasts. Null when only a signer could make one.
+     */
+    fun headlessSigning(now: Long): HeadlessSigning? {
+        if (movedOn) return null
+        val device = identityJson.text("deviceKey").keyBytes()
+        if (viaAccount) return keptCredential(now, 0)?.let { HeadlessSigning(participant, it, device) }
+        val identity = runCatching { identity(now) }.getOrNull() ?: return null
+        return HeadlessSigning(identity.participant, identity.credential, identity.deviceSecretKey)
+    }
+
     /** The account credential kept with this room, if it still authorises this
      *  device as [participant] here at [now] with at least [minRemaining] seconds left. */
     private fun keptCredential(now: Long, minRemaining: Long): NostrEvent? {
@@ -294,6 +309,13 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             put("delegation", JsonArray(host.delegation.map { it.toJson() }))
         }
     }
+}
+
+/** Everything a chat event needs signed: never the participant key. Contains a secret. */
+class HeadlessSigning(val participant: String, val credential: NostrEvent, val deviceSecretKey: ByteArray) {
+    /** When [credential] stops authorising this device; zero if it does not say. */
+    val credentialExpiresAt: Long get() = credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+    override fun toString(): String = "HeadlessSigning(redacted)"
 }
 
 private fun JsonObject.text(key: String): String = getValue(key).jsonPrimitive.content

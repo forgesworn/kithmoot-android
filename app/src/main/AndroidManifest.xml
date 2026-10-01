@@ -106,6 +106,10 @@
             android:name=".notifications.IncomingCallActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".notifications.NoticeReplyReceiver"
+            android:exported="false" />
+
         <provider android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.images" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/image_paths" />
