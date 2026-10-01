@@ -15,9 +15,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.Icons
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -111,14 +113,24 @@ fun ChatPane(
                 .any { it.contains(query.trim(), ignoreCase = true) }
         }
     }
-    LaunchedEffect(conversation.lastOrNull()?.id, query) {
+    // Opening a conversation shows its latest message, and keeps showing it
+    // while history loads in around it and new messages arrive, until the
+    // person scrolls up to read. History arrives in batches from several
+    // relays, and the list keeps whatever was on screen in place as each
+    // lands, so scrolling once at the first message used to leave a long
+    // conversation open somewhere near its start.
+    var following by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) following = !listState.canScrollForward
+        }
+    }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(visible.size, conversation.lastOrNull()?.id, query) {
         val latest = conversation.lastOrNull()
-        if (query.isBlank() && latest != null && latest.id != lastMessageId) {
-            val wasAtEnd = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
-                ?.let { it >= visible.lastIndex - 1 } == true
-            if (lastMessageId == null || wasAtEnd || latest.participant == selfParticipant) {
-                listState.animateScrollToItem(visible.lastIndex)
-            }
+        if (query.isBlank() && latest != null && visible.isNotEmpty()) {
+            if (latest.id != lastMessageId && latest.participant == selfParticipant && lastMessageId != null) following = true
+            if (following) listState.scrollToItem(visible.lastIndex)
             lastMessageId = latest.id
         }
     }
@@ -235,6 +247,12 @@ fun ChatPane(
                         }
                     }
                 }
+            }
+            if (!following && query.isBlank() && visible.isNotEmpty()) {
+                SmallFloatingActionButton(
+                    onClick = { following = true; scope.launch { listState.scrollToItem(visible.lastIndex) } },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                ) { Icon(Icons.Filled.KeyboardArrowDown, "Jump to the latest message") }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
