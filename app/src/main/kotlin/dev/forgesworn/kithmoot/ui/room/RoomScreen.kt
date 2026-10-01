@@ -330,7 +330,8 @@ fun RoomScreen(
     ) {
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu)
+        if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu,
+            onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
         if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -529,7 +530,16 @@ private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeI
 ).format(java.util.Date(Math.multiplyExact(epoch, 3_600_000L)))
 
 @Composable
-private fun Header(state: RoomState, onLeave: () -> Unit, onDetails: () -> Unit, onSearch: () -> Unit, accountMenu: @Composable () -> Unit) {
+private fun Header(
+    state: RoomState,
+    onLeave: () -> Unit,
+    onDetails: () -> Unit,
+    onSearch: () -> Unit,
+    accountMenu: @Composable () -> Unit,
+    /** Shows the room's join link as a QR, with Share and Copy under it.
+     *  Null where this person cannot invite, so the action is not shown. */
+    onInviteByQr: (() -> Unit)? = null,
+) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -544,6 +554,7 @@ private fun Header(state: RoomState, onLeave: () -> Unit, onDetails: () -> Unit,
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     color = if (state.relaysUp == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (onInviteByQr != null) IconButton(onClick = onInviteByQr) { Icon(Icons.Filled.QrCode2, "Invite by QR") }
             IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search messages") }
             accountMenu()
         }
