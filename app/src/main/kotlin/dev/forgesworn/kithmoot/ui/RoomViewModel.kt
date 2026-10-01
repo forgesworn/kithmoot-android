@@ -990,7 +990,7 @@ class RoomViewModel @JvmOverloads constructor(
         val bookmarks = roomBookmarks ?: return@withLock
         roomBookmarkScope?.launch {
             bookmarks.state.first { it.ready || it.error != null }
-            if (bookmarks.state.value.ready) bookmarks.retry()
+            if (bookmarks.state.value.ready) { bookmarks.retry(); changeRoomBookmarks { shareGroupAdmissions(it) } }
         }
     } } }
 
@@ -1012,8 +1012,26 @@ class RoomViewModel @JvmOverloads constructor(
     private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
         if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
         return try { RoomBookmarks.validateLink(room.joinUrl, room.id)
-            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt)
+            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room))
         } catch (_: Exception) { null }
+    }
+
+    /** The secret of a group this phone has joined, for the account's bookmark.
+     *  Persistent groups only: they carry no delegated, expiring permission. */
+    private fun groupAdmission(room: SavedRoom): String? =
+        if (room.invitation?.invitation?.persistent == true) room.secret.toHex() else null
+
+    /** Rooms already bookmarked without their secret get it once, so a new
+     *  device can open them. Never adds a room to the account on its own. */
+    private suspend fun shareGroupAdmissions(bookmarks: RoomBookmarks) {
+        val listed = bookmarks.state.value.rooms.associateBy { it.roomId }
+        for (summary in savedRooms.list()) {
+            val bookmarked = listed[summary.id] ?: continue
+            if (bookmarked.admission != null) continue
+            val saved = savedRooms.get(summary.id) ?: continue
+            val mine = accountBookmark(saved, bookmarks.identity) ?: continue
+            if (mine.admission != null && mine.link == bookmarked.link) bookmarks.save(mine.copy(name = bookmarked.name, openedAt = bookmarked.openedAt))
+        }
     }
 
     fun importAccountRooms() = changeRoomBookmarks { bookmarks ->

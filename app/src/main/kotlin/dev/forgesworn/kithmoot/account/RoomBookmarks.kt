@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
@@ -11,8 +12,15 @@ import kotlinx.serialization.json.*
 import java.util.Base64
 import java.util.UUID
 
-/** An invitation, never an admitted device or a copied message archive. */
-data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long) {
+/** An invitation, never an admitted device or a copied message archive.
+ *  [admission] is the room secret (hex) of a group this account has joined, so
+ *  another device opens the room without the group's signed invitation, which
+ *  public relays drop within a day or two. It sits beside `room` in the record,
+ *  is encrypted to the account's own key like the rest of it, and never names a
+ *  temporary delegated admission. A relay may keep an old copy of a replaceable
+ *  record, so a tombstone removes it only from the record the account reads.
+ *  Wire-compatible with `admission` in app/src/room-bookmarks.ts. */
+data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long, val admission: String? = null) {
     val label: String get() = name ?: "Room ${roomId.take(8)}"
     override fun toString(): String = "AccountRoom($roomId)"
 }
@@ -78,7 +86,15 @@ class RoomBookmarks(
         validateLink(link, id)
         val opened = obj.getValue("openedAt").jsonPrimitive
         require(!opened.isString && opened.long >= 0)
-        return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long)
+        return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long, admission(value, id))
+    }
+
+    /** A secret is kept only when it derives the room's own id; otherwise the
+     *  room is still listed and the secret is ignored. */
+    private fun admission(value: JsonObject, roomId: String): String? {
+        val secret = (value["admission"] as? JsonObject)?.get("secret")?.jsonPrimitive?.takeIf { it.isString }?.content ?: return null
+        if (!HEX.matches(secret)) return null
+        return try { secret.takeIf { deriveRoom(it.hexToBytes()).roomId == roomId } } catch (_: Exception) { null }
     }
 
     private suspend fun persist(next: Map<String, Record> = records, out: Map<String, Record> = pending) {
@@ -181,8 +197,10 @@ class RoomBookmarks(
             live(); check(loaded && fatal == null) { "Room bookmarks are unavailable" }
             val old = pending[roomId] ?: records[roomId]
             val previous = old?.let { room(it.value) }
-            val cleaned = room?.copy(name = DisplayName.sanitise(room.name))
-            if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name) return@withLock
+            // A save from a device that holds no secret keeps the one the record
+            // carries: the record is last-writer-wins and would otherwise drop it.
+            val cleaned = room?.copy(name = DisplayName.sanitise(room.name), admission = room.admission ?: previous?.admission)
+            if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name && previous?.admission == cleaned?.admission) return@withLock
             val at = maxOf(now(), ((old?.event?.createdAt ?: -1) + 1) * 1000)
             check(at <= now() + 60_000) { "Too many room changes at once. Try again shortly." }
             val value = buildJsonObject {
@@ -191,6 +209,7 @@ class RoomBookmarks(
                     put("roomId", r.roomId); put("link", r.link); r.name?.let { put("name", it) }
                     put("openedAt", r.openedAt); put("readAt", 0)
                 }) }
+                cleaned?.admission?.let { put("admission", buildJsonObject { put("secret", it) }) }
             }
             val content = signer.nip44Encrypt(identity, value.toString()); live()
             val tags = listOf(listOf("d", old?.d ?: "$APP.${UUID.randomUUID()}"), listOf("l", APP))

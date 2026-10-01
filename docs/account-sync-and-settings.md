@@ -115,3 +115,19 @@ Conversation rows expose an explicit Open button. Their overflow menu contains r
 RoomState copy updates use StateFlow.update: incoming chat/presence, notices and media updates must not overwrite a concurrent send completion with a stale chatSending value. Typing and emoji selection remain available while a send awaits a relay receipt; Send remains disabled until the current attempt completes. The confirmation wait is described in words beside the composer.
 
 The account activity regression exercises repeated relay echoes followed by acknowledgements, a withheld acknowledgement through the existing 75-second timeout, preservation of the next typed draft and successful sending afterwards. It also covers opening from both list types and cancelling their separate removal confirmations.
+
+## A joined group follows the account to its other devices
+
+A room bookmark now carries the room secret of each persistent group this phone
+has joined, as `admission: { secret }` beside `room` in the record, encrypted to
+the account's own key like the rest of it. Another device then opens the room
+without the group's signed invitation, which public relays drop within a day or
+two. Temporary delegated admissions never sync. A secret is used only when it
+derives the room's own id, and a save from a device without one keeps the secret
+the record already carries. A relay may keep an old copy of a replaceable
+record, so a removal tombstone takes the secret out of the record the account
+reads, not necessarily off every relay. Wire-compatible with the web client's
+`app/src/room-bookmarks.ts`. After the bookmarks load, rooms already bookmarked
+without their secret are saved once with it; no room is added to the account
+that was not already there. Reading a secret on Android, to open a room that
+only another device holds, is not built yet.

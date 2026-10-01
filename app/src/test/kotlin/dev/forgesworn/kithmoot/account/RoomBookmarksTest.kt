@@ -71,6 +71,47 @@ class RoomBookmarksTest {
         first.close(); second.close(); foreign.close()
     }
 
+    private val groupSecret = ByteArray(32) { 7 }
+    private val groupRoom get() = AccountRoom(deriveRoom(groupSecret).roomId, link, "Private chat", now / 1000, groupSecret.joinToString("") { "%02x".format(it) })
+
+    @Test fun carriesAGroupsSecretBesideTheRoomAndRestoresItOnAnotherDevice() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(groupRoom); runCurrent()
+        val plain = Json.parseToJsonElement(signer.nip44Decrypt(signer.pubkey, net.sent.single().content)).jsonObject
+        assertEquals(setOf("roomId", "at", "room", "admission"), plain.keys)
+        assertEquals(setOf("roomId", "link", "name", "openedAt", "readAt"), plain.getValue("room").jsonObject.keys)
+        assertEquals(setOf("secret"), plain.getValue("admission").jsonObject.keys)
+        assertFalse(net.sent.single().content.contains(groupRoom.admission!!))
+        val second = log(Store(), net); second.open()
+        assertEquals(groupRoom.admission, second.state.value.rooms.single().admission)
+        first.close(); second.close()
+    }
+
+    @Test fun ignoresASecretThatIsNotTheRoomsOwnButStillListsTheRoom() = runTest {
+        val wrong = groupRoom.copy(admission = "b".repeat(64))
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(wrong); runCurrent()
+        val second = log(Store(), net); second.open()
+        val listed = second.state.value.rooms.single()
+        assertEquals("Private chat", listed.name); assertNull(listed.admission)
+        first.close(); second.close()
+    }
+
+    @Test fun aSaveFromADeviceWithoutTheSecretKeepsTheOneTheRecordCarries() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(groupRoom); runCurrent()
+        val second = log(Store(), net); second.open()
+        second.save(second.state.value.rooms.single().copy(name = "Renamed", admission = null)); runCurrent()
+        val plain = Json.parseToJsonElement(signer.nip44Decrypt(signer.pubkey, net.sent.last().content)).jsonObject
+        assertEquals("Renamed", plain.getValue("room").jsonObject.getValue("name").jsonPrimitive.content)
+        assertEquals(groupRoom.admission, plain.getValue("admission").jsonObject.getValue("secret").jsonPrimitive.content)
+        first.close(); second.close()
+    }
+
+    @Test fun savesAgainWhenARoomGainsASecretItWasBookmarkedWithout() = runTest {
+        val net = Network(); val log = log(Store(), net); log.open()
+        log.save(groupRoom.copy(admission = null)); runCurrent(); log.save(groupRoom); runCurrent()
+        assertEquals(2, net.sent.size)
+        assertEquals(groupRoom.admission, log.state.value.rooms.single().admission); log.close()
+    }
+
     @Test fun cachesBeforeSendingAndRetriesExactEventAfterRestart() = runTest {
         val net = Network(); net.ack = false; val store = Store(); var log = log(store, net); log.open()
         net.beforeSend = { assertNotNull(store.raw) }
