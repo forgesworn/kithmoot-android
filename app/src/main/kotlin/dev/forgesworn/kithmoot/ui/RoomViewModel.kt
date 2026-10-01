@@ -41,6 +41,8 @@ import dev.forgesworn.kithmoot.relay.combinedRelayHealth
 import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.account.RoomBookmarks
 import dev.forgesworn.kithmoot.account.RoomBookmarkSnapshot
+import dev.forgesworn.kithmoot.account.SyncedGroup
+import dev.forgesworn.kithmoot.account.syncedGroup
 import dev.forgesworn.kithmoot.storage.RoomBookmarkVault
 import dev.forgesworn.kithmoot.account.SharedProjects
 import dev.forgesworn.kithmoot.account.ProjectAccountSnapshot
@@ -1099,7 +1101,10 @@ class RoomViewModel @JvmOverloads constructor(
             val legacy = if (invitation == null) decodeJoinUrl(room.link) else null
             val relays = (invitation?.relays ?: legacy!!.relays).ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
             check(!anonymousFor(relays)) { "Anonymous rooms stay on their original device." }
-            val admission = invitation?.let { requestAdmission(it, relays) ?: throw RoomRecoveryException("Access could not be restored. Keep another member online and try again.") }
+            // A group joined on another device lets this one in by the secret
+            // its bookmark carries; the signed invitation may be long gone.
+            val synced = invitation?.let { syncedGroupFor(it.invitation) }?.takeIf { it.room.roomId == room.roomId }
+            val admission = invitation?.let { synced?.admission ?: requestAdmission(it, relays) ?: throw RoomRecoveryException("Access could not be restored. Keep another member online and try again.") }
             val secret = admission?.secret ?: legacy!!.secret
             val derived = deriveRoom(secret)
             try { check(derived.roomId == room.roomId) { "This invitation admitted a different room." }; checkSelection() }
@@ -2571,7 +2576,12 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.") }
             return
         }
-        val admission = try {
+        // A group this account joined on another device opens by the secret its
+        // bookmark carries, without the signed invitation, which public relays
+        // drop within a day or two. A room this phone already keeps opens as saved.
+        val synced = if (anonymous || decodeInvitationPairingLink(url) != null) null else syncedGroupFor(payload.invitation)
+        if (synced != null) savedRooms.get(synced.room.roomId)?.let { synced.admission.secret.fill(0); openSaved(it); return }
+        val admission = synced?.admission ?: try {
             requestAdmission(payload, relays, anonymous)
         } catch (e: GroupInvitationException) {
             _start.update { it.copy(busy = false, error = e.message) }
@@ -2644,8 +2654,18 @@ class RoomViewModel @JvmOverloads constructor(
             invitation = payload,
             invitationHost = admission.delegate,
             policy = payload.policy,
+            localName = synced?.room?.name.orEmpty(),
             anonymous = anonymous,
         )
+    }
+
+    /** The group [invitation] names, from the signed-in account's own room
+     *  bookmarks, when one carries the room's secret. Null when signed out or
+     *  while the bookmarks still belong to the previous account. */
+    private fun syncedGroupFor(invitation: dev.forgesworn.kithmoot.protocol.RoomInvitation): SyncedGroup? {
+        val bookmarks = roomBookmarks ?: return null
+        if (bookmarks.identity != accountSigner?.pubkey) return null
+        return syncedGroup(bookmarks.state.value.rooms, invitation)
     }
 
     /** Exchange the bearer for a traffic secret and a bounded responder

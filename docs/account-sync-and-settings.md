@@ -129,5 +129,19 @@ record, so a removal tombstone takes the secret out of the record the account
 reads, not necessarily off every relay. Wire-compatible with the web client's
 `app/src/room-bookmarks.ts`. After the bookmarks load, rooms already bookmarked
 without their secret are saved once with it; no room is added to the account
-that was not already there. Reading a secret on Android, to open a room that
-only another device holds, is not built yet.
+that was not already there.
+
+Android also reads a secret that only another device holds. Opening such a room,
+from the rooms list or by its group link, takes the secret from the signed-in
+account's bookmark instead of fetching the signed invitation (the same admission
+the fetch would give), and the room is then saved on the phone exactly as after
+any other join; later visits open the saved room and fetch nothing.
+The secret is used only for a persistent group link, only when it derives the
+bookmark's own room id, and never when two bookmarks name one invitation for
+different rooms. A room the phone already keeps opens as saved, with the
+membership it has. Signed out, or before the bookmarks of a newly signed-in
+account have loaded, the invitation is fetched as before. Nothing is saved when
+the bookmarks arrive, only when the room is opened: a saved room needs a device
+credential the signer must approve, and a room forgotten on the phone stays
+forgotten. `account/SyncedAdmission.kt`; the web client adopts at load instead,
+in `groupAdmissions()` in `app/src/main.ts`.

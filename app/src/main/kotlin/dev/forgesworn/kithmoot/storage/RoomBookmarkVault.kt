@@ -5,7 +5,9 @@ import dev.forgesworn.kithmoot.account.ProjectStorage
 import dev.forgesworn.kithmoot.account.RoomBookmarks
 import java.util.concurrent.ConcurrentHashMap
 
-/** Separate account cache: room admissions and device credentials never enter this journal. */
+/** Separate account cache, encrypted at rest: device credentials and delegated
+ *  admissions never enter this journal. The only room secrets in it are those of
+ *  persistent groups the account has joined, carried by their bookmarks. */
 class RoomBookmarkVault(context: Context, identity: String) : ProjectStorage {
     private val alias = "kithmoot.bookmarks.$identity"
     private val owner = Any()
