@@ -1,1 +1,1 @@
-<inset xmlns:android="http://schemas.android.com/apk/res/android" android:insetLeft="12%" android:insetRight="12%" android:insetTop="12%" android:insetBottom="12%"><bitmap android:src="@drawable/brand_artwork" android:gravity="fill" android:filter="true"/></inset>
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:insetLeft="24%" android:insetRight="24%" android:insetTop="24%" android:insetBottom="24%"><bitmap android:src="@drawable/brand_artwork" android:gravity="fill" android:filter="true"/></inset>
