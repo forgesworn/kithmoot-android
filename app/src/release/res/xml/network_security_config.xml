@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release builds only.
+
+  Cleartext stays refused: a ws:// relay on the open internet would show a
+  passive observer which room ids a device is talking about. The one
+  exception is an onion service. A Tor-only room reaches it only through
+  Orbot, inside a Tor circuit that is encrypted and authenticated to the
+  onion end to end, so there is no such observer; refusing it only made
+  ws:// onion relays unusable. Removing the domain-config restores the
+  platform default.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">onion</domain>
+    </domain-config>
+</network-security-config>

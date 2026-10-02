@@ -2,8 +2,8 @@
 <!--
   Debug builds only.
 
-  Release builds keep the platform default, which refuses cleartext outright:
-  a ws:// relay would show a passive observer which room ids a device is
+  Release builds refuse cleartext except to onion services (see
+  src/release/res/xml/network_security_config.xml): a ws:// relay would show a passive observer which room ids a device is
   talking about, even though it could not read a word of the traffic. During
   development a relay on the machine running the emulator is worth the trade,
   and only for that machine.
