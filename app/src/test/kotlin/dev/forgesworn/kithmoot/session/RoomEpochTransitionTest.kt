@@ -13,6 +13,9 @@ import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
+import dev.forgesworn.kithmoot.relay.Filter
+import kotlin.test.assertFalse
 import kotlinx.coroutines.launch
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -282,5 +285,175 @@ class RoomEpochTransitionTest {
         assertIs<RoomEpochState.Removed>(live.epochState.value)
         assertTrue(relay.publicationBlocked)
         assertFailsWith<IllegalStateException> { live.sendChat("cannot return") }
+    }
+
+    /** An authority somewhere else on the relay: answers every epoch request for [room] with [answer] while [answering]. */
+    private fun kotlinx.coroutines.test.TestScope.authorityOnRelay(
+        relay: FakeRelay,
+        room: dev.forgesworn.kithmoot.protocol.Room,
+        answering: () -> Boolean = { true },
+        answer: (dev.forgesworn.kithmoot.protocol.EpochRequest) -> dev.forgesworn.kithmoot.protocol.NostrEvent,
+    ) {
+        backgroundScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            relay.transport().subscribe(listOf(Filter(kinds = listOf(KIND_EPOCH_REQUEST), tags = mapOf("#d" to listOf(room.roomId)))))
+                .collect { event ->
+                    if (!answering()) return@collect
+                    val request = decodeEpochRequest(event, room.roomId, authoritySecret, room.roomKey, currentTime / 1000) ?: return@collect
+                    relay.publish(answer(request))
+                }
+        }
+    }
+
+    @Test fun `told at admission the room is ahead, a device asks its authority before saying anything`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        val granted = RoomEpoch(1, ByteArray(32) { 60 })
+        authorityOnRelay(relay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, epoch = granted)
+        }
+        val committed = mutableListOf<RekeyNotice>()
+        val live = session(
+            stable, identity, relay, authority = authority, expectedEpoch = 1, epochSettleMs = 1_500,
+            epochGate = { _, notice -> committed += notice; EpochGateResult.COMMITTED },
+        )
+
+        live.join()
+        // Told, it does not wait out the settle, and holds everything until answered.
+        assertEquals(0L, currentTime)
+        assertEquals(0, relay.countOfKind(KIND_ROSTER))
+        runCurrent()
+
+        assertEquals(1, relay.countOfKind(KIND_EPOCH_REQUEST))
+        assertEquals(1, live.epochKeys().epoch)
+        assertIs<RoomEpochState.Active>(live.epochState.value)
+        assertTrue(committed.single().catchUp)
+        val successor = deriveEpoch(granted).id
+        assertTrue(relay.countOfKind(KIND_ROSTER) > 0)
+        assertTrue(relay.published.filter { it.kind == KIND_ROSTER }.all { it.tagValue("d") == successor })
+        live.sendChat("on the room everybody else is in")
+        assertEquals(successor, relay.published.last().tagValue("d"))
+    }
+
+    @Test fun `told the room is ahead with nobody answering, the room says it needs recovery and a retry asks again`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        var answering = false
+        val granted = RoomEpoch(1, ByteArray(32) { 61 })
+        authorityOnRelay(relay, stable, answering = { answering }) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, epoch = granted)
+        }
+        val live = session(
+            stable, identity, relay, authority = authority, expectedEpoch = 1,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+        )
+        live.join()
+        advanceTimeBy(30_001)
+        runCurrent()
+
+        val stuck = assertIs<RoomEpochState.RecoveryNeeded>(live.epochState.value)
+        assertEquals(1, stuck.expectedEpoch)
+        assertEquals(1, live.movedOn.value)
+        assertEquals(0, relay.countOfKind(KIND_ROSTER))
+        assertFailsWith<IllegalStateException> { live.sendChat("not under the old key") }
+
+        answering = true
+        live.retryEpoch()
+        runCurrent()
+        assertEquals(2, relay.countOfKind(KIND_EPOCH_REQUEST))
+        assertEquals(1, live.epochKeys().epoch)
+        assertIs<RoomEpochState.Active>(live.epochState.value)
+        assertTrue(relay.countOfKind(KIND_ROSTER) > 0)
+    }
+
+    @Test fun `told nothing, a device asks once and follows an authority that has moved on`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        val granted = RoomEpoch(2, ByteArray(32) { 62 })
+        authorityOnRelay(relay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, epoch = granted)
+        }
+        val committed = mutableListOf<RekeyNotice>()
+        val live = session(
+            stable, identity, relay, authority = authority, epochProbe = true,
+            epochGate = { _, notice -> committed += notice; EpochGateResult.COMMITTED },
+        )
+        live.join()
+        runCurrent()
+
+        assertEquals(1, relay.countOfKind(KIND_EPOCH_REQUEST))
+        assertEquals(2, live.epochKeys().epoch)
+        assertTrue(committed.single().catchUp)
+        assertIs<RoomEpochState.Active>(live.epochState.value)
+        assertEquals(deriveEpoch(granted).id, relay.published.last { it.kind == KIND_ROSTER }.tagValue("d"))
+    }
+
+    @Test fun `told nothing, an unanswered or current answer changes nothing`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val silentRelay = FakeRelay()
+        val silent = session(
+            stable, identity, silentRelay, authority = authority, epochProbe = true,
+            epochGate = { _, _ -> error("nothing to commit") },
+        )
+        silent.join()
+        advanceTimeBy(20_001)
+        runCurrent()
+        assertEquals(1, silentRelay.countOfKind(KIND_EPOCH_REQUEST))
+        assertIs<RoomEpochState.Active>(silent.epochState.value)
+        assertEquals(0, silent.epochKeys().epoch)
+        assertFalse(silentRelay.publicationBlocked)
+
+        val currentRelay = FakeRelay()
+        authorityOnRelay(currentRelay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000,
+                epoch = RoomEpoch(0, ByteArray(32) { 7 }))
+        }
+        val current = session(
+            stable, identity, currentRelay, authority = authority, epochProbe = true,
+            epochGate = { _, _ -> error("nothing to commit") },
+        )
+        current.join()
+        runCurrent()
+        assertIs<RoomEpochState.Active>(current.epochState.value)
+        assertEquals(0, current.epochKeys().epoch)
+        assertFalse(currentRelay.publicationBlocked)
+    }
+
+    @Test fun `told nothing, a refusal from the authority is final`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        authorityOnRelay(relay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, refused = "removed")
+        }
+        val live = session(
+            stable, identity, relay, authority = authority, epochProbe = true,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+        )
+        live.join()
+        runCurrent()
+
+        assertIs<RoomEpochState.Removed>(live.epochState.value)
+        assertTrue(relay.publicationBlocked)
+        assertFailsWith<IllegalStateException> { live.sendChat("cannot return") }
+    }
+
+    @Test fun `the authority device never asks itself`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        val live = session(
+            stable, identity, relay, authority = authority, epochProbe = true, expectedEpoch = 3,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+            epochResponder = { null },
+        )
+        live.join()
+        advanceTimeBy(30_001)
+        runCurrent()
+        assertEquals(0, relay.countOfKind(KIND_EPOCH_REQUEST))
+        assertIs<RoomEpochState.Active>(live.epochState.value)
     }
 }

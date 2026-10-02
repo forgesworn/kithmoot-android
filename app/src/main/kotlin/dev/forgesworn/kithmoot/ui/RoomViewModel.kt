@@ -1192,7 +1192,7 @@ class RoomViewModel @JvmOverloads constructor(
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
-                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt)
+                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch)
         }
     }
 
@@ -1297,7 +1297,7 @@ class RoomViewModel @JvmOverloads constructor(
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
-                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt)
+                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch)
         }
     }
 
@@ -2786,6 +2786,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ends = admission.endsAt,
                 roomRelays = roomRelays,
                 roomRelaysSigned = signedRelays != null,
+                expectedEpoch = admission.epoch,
             )
             return
         }
@@ -2806,6 +2807,7 @@ class RoomViewModel @JvmOverloads constructor(
             ends = admission.endsAt,
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
+            expectedEpoch = admission.epoch,
         )
     }
 
@@ -2981,6 +2983,9 @@ class RoomViewModel @JvmOverloads constructor(
         transport: RelayPool,
         host: RoomInvitationHost,
         secret: ByteArray,
+        /** The epoch this device is at, asked on every grant: the joiner is
+         *  told whether [secret] opens the live room (fold-kit's `epoch`). */
+        epoch: () -> Int?,
     ): Job {
         val invitationId = deriveInvitationId(host.invitation)
         val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
@@ -3033,6 +3038,7 @@ class RoomViewModel @JvmOverloads constructor(
                         request.requestId,
                         secret,
                         epochSeconds(),
+                        epoch = epoch(),
                     ),
                 )
             }
@@ -3060,6 +3066,9 @@ class RoomViewModel @JvmOverloads constructor(
          *  signed group invitation ([roomRelaysSigned]) or a link's hints. */
         roomRelays: List<String> = emptyList(),
         roomRelaysSigned: Boolean = false,
+        /** The epoch the responder that admitted this device said the room
+         *  is at (`RoomAdmission.epoch`), when this opening asked one. */
+        expectedEpoch: Int? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3102,6 +3111,10 @@ class RoomViewModel @JvmOverloads constructor(
             ends = ends?.takeIf { invitation?.invitation?.persistent == true })
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
+            // A room saved before its authority was recorded never followed a
+            // rekey; pin the one its link names, as a fresh join would.
+            .withInvitationAuthority()
+            .withEpochHint(expectedEpoch)
         savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
@@ -3125,6 +3138,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         if (durableEpoch?.phase == EpochPhase.REMOVED) throw RoomRecoveryException("You were removed from this room")
         if (durableEpoch?.phase == EpochPhase.CLOSED) throw RoomRecoveryException("This room was closed")
+        Log.i(JOIN_LOG, "epoch at open durable=${durableEpoch?.currentEpoch ?: "none"} hint=${record.epochHint ?: "none"} authority=${record.authority != null}")
         val openedEpoch = durableEpoch?.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) }
             ?: EpochKeys(0, derived.roomId, derived.roomKey)
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
@@ -3255,6 +3269,12 @@ class RoomViewModel @JvmOverloads constructor(
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
             initialEpoch = openedEpoch,
+            // Told the room is further on than this device, ask its authority
+            // before saying anything, as the web client does; told nothing,
+            // ask once without holding the room up - except in a quiet room,
+            // whose traffic is shaped not to say when a member opens it.
+            expectedEpoch = record.epochHint,
+            epochProbe = quietMembers == null,
             chatOutbox = pendingChat,
             ends = record.ends,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
@@ -3373,7 +3393,7 @@ class RoomViewModel @JvmOverloads constructor(
         transport.start()
         profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
-            invitationHostJob = serveInvitation(scope, transport, host, secret)
+            invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
@@ -5218,6 +5238,7 @@ class RoomViewModel @JvmOverloads constructor(
                     invitationHost = admission.delegate,
                     policy = payload.policy,
                     localName = "Private with ${shortNpub(peer)}",
+                    expectedEpoch = admission.epoch,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -5327,7 +5348,7 @@ class RoomViewModel @JvmOverloads constructor(
                 invitationHostJob?.cancel()
                 roomInvitationHost = nextHost
                 roomInvitation = nextInvitation
-                invitationHostJob = serveInvitation(scope, transport, nextHost, secret)
+                invitationHostJob = serveInvitation(scope, transport, nextHost, secret) { session?.epochKeys()?.epoch }
                 _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
             }
         }

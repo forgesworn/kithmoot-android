@@ -40,6 +40,8 @@ import dev.forgesworn.kithmoot.protocol.isValidScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.unwrapSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
+import dev.forgesworn.kithmoot.epoch.EpochOpening
+import dev.forgesworn.kithmoot.epoch.epochOpening
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import kotlinx.coroutines.CoroutineScope
@@ -48,7 +50,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,13 +62,15 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.TreeMap
 import kotlin.random.Random
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
 private const val DEFAULT_EPOCH_SETTLE_MS = 1_500L
 private const val EPOCH_RECOVERY_TIMEOUT_MS = 30_000L
+/** How long an unprompted epoch question waits for an answer: the web client's request timeout. */
+private const val EPOCH_PROBE_TIMEOUT_MS = 20_000L
 
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
@@ -164,6 +167,20 @@ class RoomSession(
     private val onEpochReady: (EpochKeys) -> Unit = {},
     /** Present only on the authority device; validates a request and returns its signed answer. */
     private val epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
+    /**
+     * The epoch the responder that admitted this device said the room is at
+     * (`RoomAdmission.epoch`), or one this device was told earlier and has not
+     * reached. Above [initialEpoch], the session asks the authority for it
+     * before it says anything, as the web client's `expectedEpoch` does. See
+     * [epochOpening].
+     */
+    private val expectedEpoch: Int? = null,
+    /**
+     * Whether, told nothing newer, the session may ask the authority once as
+     * it opens whether the room has moved on. Off by default; the app turns it
+     * on for rooms whose traffic shape does not matter (not a quiet room).
+     */
+    private val epochProbe: Boolean = false,
     /**
      * A device-local, encrypted metadata catalogue for the signed-in person's
      * verified outer events. It is deliberately not a relay operation.
@@ -279,7 +296,15 @@ class RoomSession(
 
     suspend fun retryEpoch() = epochMutex.withLock {
         check(epochGate != null) { "This room has no pinned epoch authority" }
-        drainRekeys()
+        val state = _epochState.value
+        val current = epochKeys().epoch
+        // Told the room is ahead, with no rekey in hand to read: only the
+        // authority can help, so ask it again rather than draining nothing.
+        if (state is RoomEpochState.RecoveryNeeded && state.expectedEpoch > current && pendingRekeys.keys.none { it > current }) {
+            recoverFromAuthority(state.expectedEpoch, state.reason)
+        } else {
+            drainRekeys()
+        }
     }
 
     private val _agentDevices = MutableStateFlow<Set<String>>(emptySet())
@@ -352,7 +377,15 @@ class RoomSession(
                     }
                 }
             }
-            if (epochSettleMs > 0) delay(epochSettleMs)
+            val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe)
+            // Told where the room is, there is nothing to wait for; told
+            // nothing, wait for the rekeys a relay replays.
+            if (opening !is EpochOpening.Recover && epochSettleMs > 0) delay(epochSettleMs)
+            when (opening) {
+                is EpochOpening.Recover -> beginRecoveryAtOpen(opening.epoch)
+                EpochOpening.Probe -> jobs += scope.launch { probeAuthority() }
+                EpochOpening.None -> Unit
+            }
         }
         settled = true
         var resumedTransition = false
@@ -1080,38 +1113,101 @@ class RoomSession(
         }
     }
 
+    /**
+     * Told at admission that the room is at [target], past this device: hold
+     * every publication now, before `join` decides whether traffic may start,
+     * and ask the authority without holding `join` up. Applying the answer
+     * starts traffic under the recovered epoch (see [applyEpoch]); no answer
+     * leaves the room saying it needs recovery, never looking current.
+     */
+    private suspend fun beginRecoveryAtOpen(target: Int) {
+        val held = epochMutex.withLock {
+            if (epochKeys().epoch >= target || _epochState.value !is RoomEpochState.Active) return@withLock false
+            blockForRekey()
+            _epochState.value = RoomEpochState.Updating(target)
+            true
+        }
+        if (!held) return
+        jobs += scope.launch {
+            epochMutex.withLock {
+                // A replayed rekey may have carried this device there already.
+                if (epochKeys().epoch < target) recoverFromAuthority(target, "The room has moved on and its authority has not restored this device yet")
+            }
+        }
+    }
+
+    /**
+     * Ask the authority, once and without blocking anything, where the room
+     * is. An answer naming a newer epoch is followed exactly as a recovery
+     * would be; a refusal is the authority's word and is final; silence, or an
+     * answer no further on than this device, changes nothing.
+     */
+    private suspend fun probeAuthority() {
+        val response = try {
+            askAuthority(EPOCH_PROBE_TIMEOUT_MS)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return
+        epochMutex.withLock {
+            if (_epochState.value !is RoomEpochState.Active) return
+            val (_, grant) = response
+            val current = epochKeys().epoch
+            val target = when (grant) {
+                is EpochGrant.Current -> grant.epoch.takeIf { it > current && grant.secret != null } ?: return
+                is EpochGrant.Refused -> current + 1
+            }
+            blockForRekey()
+            _epochState.value = RoomEpochState.Updating(target)
+            answerFromAuthority(response, target, "The room has moved on and its authority has not restored this device yet")
+        }
+    }
+
+    /** One epoch request to the authority and its decoded answer; null when none came in [timeoutMs]. */
+    private suspend fun askAuthority(timeoutMs: Long): Pair<NostrEvent, EpochGrant>? {
+        val trusted = requireNotNull(authority)
+        return coroutineScope {
+            val request = encodeEpochRequest(
+                room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
+                roomEnds = ends,
+            )
+            val answer = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeoutOrNull(timeoutMs) {
+                    transport.subscribe(listOf(epochGrantFilter())).mapNotNull { event ->
+                        decodeEpochGrant(
+                            event, room.roomId, trusted, identity.deviceSecretKey, request.id, now(),
+                        )?.let { event to it }
+                    }.first()
+                }
+            }
+            transport.publishRecovery(request)
+            answer.await()
+        }
+    }
+
     /** Recover directly to the authority's signed current epoch over the stable room channel. */
     private suspend fun recoverFromAuthority(expectedEpoch: Int, reason: String) {
-        val trusted = authority ?: return requireRecovery(expectedEpoch, reason)
+        if (authority == null) return requireRecovery(expectedEpoch, reason)
         blockForRekey()
         _epochState.value = RoomEpochState.Updating(expectedEpoch)
         val response = try {
-            coroutineScope {
-                val request = encodeEpochRequest(
-                    room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
-                    roomEnds = ends,
-                )
-                val answer = async(start = CoroutineStart.UNDISPATCHED) {
-                    withTimeout(EPOCH_RECOVERY_TIMEOUT_MS) {
-                        transport.subscribe(listOf(epochGrantFilter())).mapNotNull { event ->
-                            decodeEpochGrant(
-                                event, room.roomId, trusted, identity.deviceSecretKey, request.id, now(),
-                            )?.let { event to it }
-                        }.first()
-                    }
-                }
-                transport.publishRecovery(request)
-                answer.await()
-            }
-        } catch (timeout: TimeoutCancellationException) {
-            requireRecovery(expectedEpoch, reason)
-            return
+            askAuthority(EPOCH_RECOVERY_TIMEOUT_MS)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             requireRecovery(expectedEpoch, error.message ?: reason)
             return
         }
+        if (response == null) {
+            requireRecovery(expectedEpoch, reason)
+            return
+        }
+        answerFromAuthority(response, expectedEpoch, reason)
+    }
+
+    /** Follow the authority's signed answer: a refusal is terminal, a newer epoch is committed and entered. */
+    private suspend fun answerFromAuthority(response: Pair<NostrEvent, EpochGrant>, expectedEpoch: Int, reason: String) {
         val (event, grant) = response
         when (grant) {
             is EpochGrant.Refused -> {
