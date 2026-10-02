@@ -134,8 +134,9 @@
             android:name=".service.BackgroundRingActionReceiver"
             android:exported="false" />
 
-        <!-- BOOT_COMPLETED and MY_PACKAGE_REPLACED are protected broadcasts: only
-             the system can send them, so this is safe to export.
+        <!-- BOOT_COMPLETED, MY_PACKAGE_REPLACED and APP_BLOCK_STATE_CHANGED are
+             protected broadcasts: only the system can send them, so this is
+             safe to export.
              BackgroundRingBootReceiver itself checks the toggle and saved rooms
              before doing anything. -->
         <receiver
@@ -145,6 +146,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.APP_BLOCK_STATE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

@@ -21,6 +21,7 @@ import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
 import dev.forgesworn.kithmoot.service.BackgroundDeliverySettings
 import dev.forgesworn.kithmoot.service.BackgroundRingSettings
 import dev.forgesworn.kithmoot.service.ReachabilityPrompt
+import kotlinx.coroutines.launch
 
 @Composable
 fun NotificationSettings(
@@ -36,12 +37,16 @@ fun NotificationSettings(
     val value by notices.settings.collectAsState()
     var allowed by remember { mutableStateOf(notices.allowed()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val appContext = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) allowed = notices.allowed() }
         lifecycle.addObserver(observer); onDispose { lifecycle.removeObserver(observer) }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         allowed = granted; notices.save(notices.settings.value.copy(enabled = granted))
+        // The background service needs notifications, so it was not running until now.
+        if (granted) scope.launch { dev.forgesworn.kithmoot.service.startBackgroundServiceIfWanted(appContext) }
     }
     if (showHeading) Text("Notifications & sound", style = MaterialTheme.typography.headlineSmall)
     prompt?.let {

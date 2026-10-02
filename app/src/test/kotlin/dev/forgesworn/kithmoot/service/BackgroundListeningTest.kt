@@ -76,4 +76,13 @@ class BackgroundListeningTest {
         assertFalse(ringingSwitchedOff(false, listOf(room("a", excluded = true))), "an ended room does not count")
         assertTrue(ringingSwitchedOff(false, listOf(room("a", CallRingMode.QUIET), room("b"))))
     }
+
+    @Test fun `the service starts on a reboot, an update, or notifications unblocked, and on nothing else`() {
+        assertTrue(startsBackgroundService("android.intent.action.BOOT_COMPLETED", blocked = true))
+        assertTrue(startsBackgroundService("android.intent.action.MY_PACKAGE_REPLACED", blocked = true))
+        assertTrue(startsBackgroundService("android.app.action.APP_BLOCK_STATE_CHANGED", blocked = false))
+        assertFalse(startsBackgroundService("android.app.action.APP_BLOCK_STATE_CHANGED", blocked = true), "notifications blocked: nothing to start")
+        assertFalse(startsBackgroundService("android.intent.action.SCREEN_ON", blocked = false))
+        assertFalse(startsBackgroundService(null, blocked = false))
+    }
 }

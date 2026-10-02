@@ -244,11 +244,12 @@ class MainActivity : ComponentActivity() {
                 // Ring when KithMoot is closed is on by default (see
                 // `service/BackgroundRingSettings.kt`), so most installs
                 // reach the service through here rather than the Settings
-                // switch or a reboot: reconciled once per app start, which
-                // is enough since the running service keeps itself current.
-                LaunchedEffect(Unit) {
-                    val app = application as KithMootApplication
-                    val toggle = dev.forgesworn.kithmoot.service.BackgroundRingSettings(this@MainActivity).enabled()
+                // switch or a reboot: reconciled each time the app comes to
+                // the front, not once per start, so notifications allowed in
+                // Android's settings meanwhile start it on the way back.
+                // The running service keeps itself current.
+                LaunchedEffect(onScreen) {
+                    if (!onScreen) return@LaunchedEffect
                     val delivery = dev.forgesworn.kithmoot.service.BackgroundDeliverySettings(this@MainActivity)
                     // A run that ended without the service saying so (force-stop, crash)
                     // is shown as such until the restarted service reports again.
@@ -257,15 +258,7 @@ class MainActivity : ComponentActivity() {
                             delivery.report(dev.forgesworn.kithmoot.service.DeliveryState.STOPPED, running = false)
                         }
                     }
-                    val ringSettings = dev.forgesworn.kithmoot.notifications.CallRingSettings(this@MainActivity)
-                    // Off the main thread: this decrypts the saved rooms.
-                    val savedIds = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        dev.forgesworn.kithmoot.service.savedRoomIdsOrNone(app.savedRooms)
-                    }
-                    val notificationsPermitted = androidx.core.app.NotificationManagerCompat.from(this@MainActivity).areNotificationsEnabled()
-                    if (dev.forgesworn.kithmoot.service.shouldRunBackgroundService(toggle, delivery.enabled(), savedIds, ringSettings::modeFor, notificationsPermitted)) {
-                        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.start(this@MainActivity)
-                    }
+                    dev.forgesworn.kithmoot.service.startBackgroundServiceIfWanted(this@MainActivity)
                 }
                 val inPip by pictureInPicture.collectAsState()
                 // Still locked: the call alone, never the rest of the room.

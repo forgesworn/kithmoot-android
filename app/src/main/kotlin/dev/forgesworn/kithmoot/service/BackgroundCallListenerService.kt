@@ -104,6 +104,8 @@ class BackgroundCallListenerService : Service() {
     private val flushing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var network = true
     @Volatile private var reconciled = false
+    /** The notification last shown, so a start while running (the app coming to the front) keeps it. */
+    @Volatile private var shown: Notification? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var accountSigner: ParticipantSigner? = null
     private var accountLoaded = false
@@ -136,7 +138,7 @@ class BackgroundCallListenerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(DeliveryState.RECONNECTING, 0, 0), type)
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, shown ?: notification(DeliveryState.RECONNECTING, 0, 0), type)
         } catch (e: Exception) {
             // The OS can refuse a foreground start from the background on API 31+.
             // Say so; the next toggle-driven start or launch retries.
@@ -490,7 +492,9 @@ class BackgroundCallListenerService : Service() {
 
     private fun updateNotification(state: DeliveryState, ringing: Int, delivering: Int) {
         try {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(state, ringing, delivering))
+            val next = notification(state, ringing, delivering)
+            shown = next
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, next)
         } catch (_: SecurityException) {
             // Notification permission withdrawn mid-run: the service still
             // works, it just cannot say so.
