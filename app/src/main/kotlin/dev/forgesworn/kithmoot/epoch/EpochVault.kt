@@ -1,7 +1,11 @@
 package dev.forgesworn.kithmoot.epoch
 
 import dev.forgesworn.kithmoot.protocol.MAX_EPOCH
+import dev.forgesworn.kithmoot.protocol.MAX_MEMBER_EPOCH_CHAIN
+import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
+import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -58,8 +62,18 @@ class StoredRoomEpoch(
     val currentSecret = currentSecret.copyOf()
 }
 
-/** Monotonic, rollback-resistant room epoch journal. */
-class EpochVault(private val storage: RoomStorage) {
+/**
+ * Monotonic, rollback-resistant room epoch journal.
+ *
+ * Beside it, in [history] when one is given, the vault keeps what this device
+ * needs to bring another member's device up to date (`MemberEpochResponder`):
+ * the secrets of the room's recent epochs and the authority's rekey into each,
+ * the newest [MAX_MEMBER_EPOCH_CHAIN] of them. That store is advisory - a
+ * requester checks everything it is handed against the authority's signatures
+ * - so it lives apart from the journal, never holds the journal up, and an old
+ * build that does not know it still reads the journal unchanged.
+ */
+class EpochVault(private val storage: RoomStorage, private val history: RoomStorage? = null) {
     @Synchronized fun get(stableRoom: String): StoredRoomEpoch? = read().singleOrNull { it.stableRoom == stableRoom }?.copyOut()
 
     @Synchronized fun initialise(stableRoom: String, authority: String, secret: ByteArray, now: Long): StoredRoomEpoch {
@@ -148,6 +162,11 @@ class EpochVault(private val storage: RoomStorage) {
         )
         records[index] = next
         write(records)
+        val learnt = listOfNotNull(
+            current.takeIf { it.currentEpoch > 0 }?.let { RoomEpoch(it.currentEpoch, it.currentSecret) },
+            RoomEpoch(pending.epoch, pending.secret),
+        )
+        rememberChecked(current.stableRoom, current.authority, learnt, emptyList())
         return next.copyOut()
     }
 
@@ -170,7 +189,142 @@ class EpochVault(private val storage: RoomStorage) {
         )
         records[index] = next
         write(records)
+        // Nothing of a room this device has left is handed on.
+        forgetHistory(stableRoom)
         return next.copyOut()
+    }
+
+    /**
+     * Keep [secrets] and the authority-signed [rekeys] among them for handing
+     * on later. A rekey is kept only if it is the room authority's, for this
+     * room, checked as `peekRekeyEpoch` checks it; only the newest
+     * [MAX_MEMBER_EPOCH_CHAIN] epochs are kept. Never throws: what cannot be
+     * kept is simply not offered to anybody later.
+     */
+    @Synchronized fun remember(stableRoom: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>) {
+        val record = runCatching { get(stableRoom) }.getOrNull() ?: return
+        if (record.phase == EpochPhase.REMOVED || record.phase == EpochPhase.CLOSED) return
+        rememberChecked(stableRoom, record.authority, secrets, rekeys)
+    }
+
+    /** The secret of [epoch] this device still holds: the current one, or one kept in history. */
+    @Synchronized fun secretAt(stableRoom: String, epoch: Int): ByteArray? {
+        if (epoch < 1) return null
+        val record = runCatching { get(stableRoom) }.getOrNull() ?: return null
+        if (record.phase == EpochPhase.REMOVED || record.phase == EpochPhase.CLOSED) return null
+        if (record.currentEpoch == epoch) return record.currentSecret
+        return readHistory()[stableRoom]?.get(epoch)?.secret?.copyOf()
+    }
+
+    /** The authority's rekey into [epoch], as this device kept it. */
+    @Synchronized fun rekeyAt(stableRoom: String, epoch: Int): NostrEvent? = readHistory()[stableRoom]?.get(epoch)?.rekey
+
+    private fun rememberChecked(stableRoom: String, authority: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>) {
+        val store = history ?: return
+        try {
+            val all = readHistory().toMutableMap()
+            val entries = all[stableRoom]?.toMutableMap() ?: mutableMapOf()
+            var changed = false
+            for (value in secrets) {
+                if (value.epoch < 1) continue
+                val old = entries[value.epoch]
+                if (old?.secret?.contentEquals(value.secret) == true) continue
+                entries[value.epoch] = HistoryEntry(value.secret, old?.rekey)
+                changed = true
+            }
+            for (event in rekeys) {
+                val epoch = peekRekeyEpoch(event, stableRoom, authority) ?: continue
+                val old = entries[epoch]
+                if (old?.rekey?.id == event.id) continue
+                entries[epoch] = HistoryEntry(old?.secret, event)
+                changed = true
+            }
+            if (!changed) return
+            val newest = entries.keys.max()
+            entries.keys.removeAll { it <= newest - MAX_MEMBER_EPOCH_CHAIN }
+            all[stableRoom] = entries
+            writeHistory(store, all)
+        } catch (_: Exception) {
+            // Advisory: a history that cannot be written leaves this device able to
+            // hand on less, never able to hand on something wrong.
+        }
+    }
+
+    private fun forgetHistory(stableRoom: String) {
+        val store = history ?: return
+        try {
+            val all = readHistory()
+            if (stableRoom in all) writeHistory(store, all - stableRoom)
+        } catch (_: Exception) {
+            historyCache = null
+        }
+    }
+
+    private class HistoryEntry(secret: ByteArray?, val rekey: NostrEvent?) {
+        val secret = secret?.copyOf()
+    }
+
+    /** The history as last read or written: it is advisory, so one copy in memory is enough. */
+    private var historyCache: Map<String, Map<Int, HistoryEntry>>? = null
+
+    private fun readHistory(): Map<String, Map<Int, HistoryEntry>> {
+        historyCache?.let { return it }
+        val store = history ?: return emptyMap()
+        val parsed = try {
+            val bytes = store.read()
+            if (bytes == null) emptyMap() else try {
+                val root = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
+                require(root.getValue("version").jsonPrimitive.int == 1)
+                root.getValue("rooms").jsonArray.associate { room ->
+                    val value = room.jsonObject
+                    val id = value.text("stableRoom").also(::validateHex)
+                    id to value.getValue("epochs").jsonArray.associate { item ->
+                        val entry = item.jsonObject
+                        val epoch = entry.integer("epoch").also { require(it in 1..MAX_EPOCH) }
+                        epoch to HistoryEntry(
+                            entry["secret"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let(::decodeSecret),
+                            entry["rekey"]?.takeUnless { it == JsonNull }?.let(NostrEvent::fromJson),
+                        )
+                    }
+                }
+            } finally { bytes?.fill(0) }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+        historyCache = parsed
+        return parsed
+    }
+
+    private fun writeHistory(store: RoomStorage, rooms: Map<String, Map<Int, HistoryEntry>>) {
+        val trimmed = rooms.mapValues { it.value.toMutableMap() }.toMutableMap()
+        while (true) {
+            val bytes = buildJsonObject {
+                put("version", 1)
+                put("rooms", JsonArray(trimmed.entries.sortedBy { it.key }.map { (id, entries) ->
+                    buildJsonObject {
+                        put("stableRoom", id)
+                        put("epochs", JsonArray(entries.entries.sortedBy { it.key }.map { (epoch, entry) ->
+                            buildJsonObject {
+                                put("epoch", epoch)
+                                put("secret", entry.secret?.let { JsonPrimitive(encodeSecret(it)) } ?: JsonNull)
+                                put("rekey", entry.rekey?.toJson() ?: JsonNull)
+                            }
+                        }))
+                    }
+                }))
+            }.toString().toByteArray()
+            try {
+                if (bytes.size <= HISTORY_MAX_BYTES) {
+                    store.write(bytes)
+                    historyCache = trimmed
+                    return
+                }
+            } finally { bytes.fill(0) }
+            // Over budget: drop the oldest epoch of the room keeping the most.
+            val (id, entries) = trimmed.entries.filter { it.value.isNotEmpty() }.maxByOrNull { it.value.size } ?: return
+            entries.remove(entries.keys.min())
+            if (entries.isEmpty()) trimmed.remove(id)
+        }
     }
 
     private fun read(): List<StoredRoomEpoch> = guarded {
@@ -272,6 +426,8 @@ class EpochVault(private val storage: RoomStorage) {
     private companion object {
         const val MAX_ROOMS = 256
         const val MAX_BYTES = 1024 * 1024
+        /** Under the history store's own cap; see `KithMootApplication.roomEpochs`. */
+        const val HISTORY_MAX_BYTES = 4 * 1024 * 1024 - 64 * 1024
         val HEX = Regex("[0-9a-f]{64}")
         val ID = Regex("[0-9a-f]{64}")
         val SHORT_ID = Regex("[0-9a-f]{32}")
