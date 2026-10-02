@@ -73,6 +73,11 @@ class SiteAddressUiTest {
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].dismissPairingLink() }
         ui.click("Leave room")
         ui.home()
-        activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
+        // Home refuses a site change while it is busy, which it can still be just after leaving.
+        ui.await("the default site to be accepted") {
+            var accepted = false
+            activity.scenario.onActivity { accepted = ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN) }
+            accepted
+        }
     }
 }
