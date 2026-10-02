@@ -60,6 +60,12 @@ data class ChatMessage(
     val body: String,
     val sentAt: Long,
     val name: String? = null,
+    /**
+     * The same moment in milliseconds, for order only: two messages in one
+     * second otherwise fall to their ids. Inside the ciphertext alone; kept
+     * only within [sentAt]'s second. See [compareMessages].
+     */
+    val sentAtMs: Long? = null,
     val reaction: ChatReaction? = null,
     /** The message this answers, and the root of its thread. See Messages.kt. */
     val reply: MessageRef? = null,
@@ -109,7 +115,10 @@ fun encodeChatEvent(
     credentialRoomId: String = roomId,
     /** A conference room's end; see `withRoomExpiration`. */
     roomEnds: Long? = null,
+    /** [sentAt] in milliseconds, within its second; see [ChatMessage.sentAtMs]. */
+    sentAtMs: Long? = null,
 ): NostrEvent {
+    require(sentAtMs == null || Math.floorDiv(sentAtMs, 1000L) == sentAt) { "sentAtMs must fall within sentAt's second" }
     if (assignment != null) {
         val payload = assignmentPayload(assignment, credentialRoomId)
         require(channel == ASSIGNMENT_CHANNEL && payload != null && assignment.pubkey == participant &&
@@ -130,6 +139,7 @@ fun encodeChatEvent(
         proof?.let { put("proof", it.toJson()) }
         put("text", body)
         put("sentAt", sentAt)
+        sentAtMs?.let { put("sentAtMs", it) }
         reaction?.let { put("reaction", it.toJson()) }
         reply?.let { put("reply", it.toJson()) }
         thread?.let { put("thread", it.toJson()) }
@@ -178,6 +188,9 @@ fun decodeChatEvent(
             val id = json.getValue("id").jsonPrimitive.content
             val body = json.getValue("text").jsonPrimitive.content
             val sentAt = json.getValue("sentAt").jsonPrimitive.long
+            // Order only, so one that is not an integer within sentAt's second is dropped and the message kept.
+            val sentAtMs = (json["sentAtMs"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toLongOrNull()
+                ?.takeIf { Math.floorDiv(it, 1000L) == sentAt }
             val proof = (json["proof"] as? JsonObject)?.let { KindredProof.fromJson(it) }
             val reaction = json["reaction"]?.let(::parseReaction)
             val check = verifyDeviceCredential(credential, credentialRoomId, sentAt)
@@ -227,6 +240,7 @@ fun decodeChatEvent(
                     device = device,
                     body = body,
                     sentAt = sentAt,
+                    sentAtMs = sentAtMs,
                     name = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise((json["name"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content),
                     reaction = reaction,
                     // A reference that does not check out is dropped and the

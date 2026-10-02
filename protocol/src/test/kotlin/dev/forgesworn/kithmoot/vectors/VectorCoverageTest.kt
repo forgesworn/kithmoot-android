@@ -24,7 +24,7 @@ class VectorCoverageTest {
             "channelDerivation" to 3,
             "joinUrl" to 10,
             "deviceCredential" to 4,
-            "rosterEvent" to 16,
+            "rosterEvent" to 26,
             "signalWrap" to 10,
             "signalCompatibility" to 12,
             "memberPass" to 11,
@@ -43,6 +43,7 @@ class VectorCoverageTest {
             "verificationWords" to 6,
             "chatThread" to 6,
             "chatEdit" to 7,
+            "chatOrder" to 4,
             "chatRetract" to 4,
             "chatMention" to 4,
             "chatInvite" to 3,
@@ -54,12 +55,12 @@ class VectorCoverageTest {
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 217, expectedSizes.values.sum())
+        assertEquals("total vectors", 231, expectedSizes.values.sum())
     }
 
     @Test
     fun everyDecidingGroupCarriesNegatives() {
-        for (group in listOf("joinUrl", "deviceCredential", "rosterEvent", "signalWrap", "accessEvaluation", "epochRequestAdmission", "chatThread", "chatEdit", "chatRetract", "chatMention", "chatInvite", "readPosition", "callBell", "roomRelays")) {
+        for (group in listOf("joinUrl", "deviceCredential", "rosterEvent", "signalWrap", "accessEvaluation", "epochRequestAdmission", "chatThread", "chatEdit", "chatOrder", "chatRetract", "chatMention", "chatInvite", "readPosition", "callBell", "roomRelays")) {
             val negatives = Vectors.group(group).count { it.text("kind") == "negative" }
             assertTrue("$group must carry negative vectors", negatives > 0)
         }

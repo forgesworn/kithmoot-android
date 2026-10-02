@@ -89,7 +89,8 @@ suspend fun sendReplyInBackground(context: Context, roomId: String, text: String
     if (!canReplyFromNotice(replyRoomOf(application, saved, epoch, now), now)) return ReplyOutcome.FAILED
     val signing: HeadlessSigning = saved.headlessSigning(now) ?: return ReplyOutcome.FAILED
     val event = encodeChatEvent(text, signing.participant, signing.credential, epoch.id, epoch.key,
-        signing.deviceSecretKey, now, credentialRoomId = saved.id, roomEnds = saved.ends)
+        signing.deviceSecretKey, now, credentialRoomId = saved.id, roomEnds = saved.ends,
+        sentAtMs = System.currentTimeMillis().takeIf { Math.floorDiv(it, 1000L) == now })
     // The room's own check, as an open room's send makes it: never keep what the room would refuse.
     decodeChatEvent(event, epoch.id, epoch.key, now, saved.policy, credentialRoomId = saved.id) ?: return ReplyOutcome.FAILED
     val outbox = PendingChatVault(application, saved.id, saved.participant, saved.devicePubkey).outbox

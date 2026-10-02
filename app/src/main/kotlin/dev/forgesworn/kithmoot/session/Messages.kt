@@ -142,10 +142,17 @@ data class ResolvedMessage(
 
 class Conversation(val stream: List<ResolvedMessage>, val byKey: Map<String, ResolvedMessage>)
 
-/** Later wins: greater `sentAt`, then greater id. The reactions rule. */
-fun later(a: ChatMessage, b: ChatMessage): Boolean = a.sentAt > b.sentAt || (a.sentAt == b.sentAt && a.id > b.id)
+/** When a message was sent, in milliseconds: `sentAtMs`, or the start of its second from a client that writes none. */
+val ChatMessage.sentAtMillis: Long get() = sentAtMs ?: (sentAt * 1000)
 
-private val byTime = compareBy<ChatMessage> { it.sentAt }.thenBy { it.id }
+/** Order by send time, to the millisecond where the sender gave it, then id, so every client
+ *  in the room reaches the same order. Mirrors `compareMessages` in src/message-order.ts. */
+val compareMessages: Comparator<ChatMessage> = compareBy<ChatMessage> { it.sentAtMillis }.thenBy { it.id }
+
+/** Later wins: later send time, then greater id. The reactions rule. */
+fun later(a: ChatMessage, b: ChatMessage): Boolean = compareMessages.compare(a, b) > 0
+
+private val byTime = compareMessages
 
 /**
  * One conversation's verified messages, as a reader shows them. Edits attach
@@ -195,7 +202,7 @@ fun resolveConversation(messages: List<ChatMessage>): Conversation {
     for (key in retracted) byKey[key]?.retracted = true
 
     val stream = mutableListOf<ResolvedMessage>()
-    for (resolved in byKey.values.sortedWith(compareBy<ResolvedMessage> { it.original.sentAt }.thenBy { it.original.id })) {
+    for (resolved in byKey.values.sortedWith(compareBy(compareMessages) { it.original })) {
         val thread = resolved.thread
         if (thread == null) { stream.add(resolved); continue }
         val root = rootOf(resolved, byKey)

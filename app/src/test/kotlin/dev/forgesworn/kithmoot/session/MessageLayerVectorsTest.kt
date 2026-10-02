@@ -74,6 +74,7 @@ class MessageLayerVectorsTest {
                     val w = want.jsonObject
                     assertEquals(w.text("id"), decoded.id)
                     assertEquals(w.text("text"), decoded.body)
+                    assertEquals(w["sentAtMs"]?.jsonPrimitive?.long, decoded.sentAtMs, "${vector.text("name")} event $i sentAtMs")
                     assertEquals(w["replaces"]?.jsonPrimitive?.content, decoded.replaces)
                     assertEquals(w["retracts"]?.jsonPrimitive?.content, decoded.retracts)
                     assertEquals(w["reply"]?.let { parseMessageRef(it) }, decoded.reply)
@@ -88,6 +89,7 @@ class MessageLayerVectorsTest {
 
     @Test fun `threads resolve as the reference does`() = conversationGroup("chatThread")
     @Test fun `edits resolve as the reference does`() = conversationGroup("chatEdit")
+    @Test fun `messages in one second order as the reference does`() = conversationGroup("chatOrder")
     @Test fun `retractions resolve as the reference does`() = conversationGroup("chatRetract")
 
     @Test

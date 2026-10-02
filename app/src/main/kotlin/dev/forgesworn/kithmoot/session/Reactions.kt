@@ -27,7 +27,7 @@ fun parseReaction(value: JsonElement): ChatReaction? = runCatching {
 fun reactionUpdates(messages: List<ChatMessage>, target: ChatMessage): List<ChatMessage> = messages
     .filter { it.reaction?.messageId == target.id && it.reaction.participant == target.participant }
     .groupBy { it.participant to it.reaction!!.emoji }
-    .values.map { updates -> updates.maxWith(compareBy<ChatMessage> { it.reaction!!.revision }.thenBy { it.sentAt }.thenBy { it.id }) }
+    .values.map { updates -> updates.maxWith(compareBy<ChatMessage> { it.reaction!!.revision }.then(compareMessages)) }
 
 fun toggleReaction(messages: List<ChatMessage>, target: ChatMessage, self: String, emoji: String): ChatReaction {
     require(emoji in REACTION_EMOJIS)

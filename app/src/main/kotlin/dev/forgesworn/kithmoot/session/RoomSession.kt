@@ -141,6 +141,8 @@ class RoomSession(
     private val timing: SessionTiming = SessionTiming(),
     /** Unix seconds, as the wire format uses. */
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** Milliseconds, for chat's `sentAtMs`; written only when it agrees with [now]'s second. */
+    private val nowMs: () -> Long = System::currentTimeMillis,
     private val random: Random = SecureTimingRandom(),
     private val policy: RoomPolicy? = null,
     private val proof: KindredProof? = null,
@@ -616,6 +618,9 @@ class RoomSession(
         announce()
     }
 
+    /** [sentAt] in milliseconds when the clocks agree on the second; a test's fixed [now] gets none. */
+    private fun millisWithin(sentAt: Long): Long? = nowMs().takeIf { Math.floorDiv(it, 1000L) == sentAt }
+
     fun sendChat(body: String, reaction: ChatReaction? = null) {
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
@@ -631,6 +636,7 @@ class RoomSession(
             roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
+            sentAtMs = millisWithin(sentAt),
             proof = proof,
             reaction = reaction,
             credentialRoomId = room.roomId,
@@ -660,6 +666,7 @@ class RoomSession(
             roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
+            sentAtMs = millisWithin(sentAt),
             proof = proof,
             reaction = reaction,
             credentialRoomId = room.roomId,
@@ -684,7 +691,8 @@ class RoomSession(
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
-            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends)
+            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
+            sentAtMs = millisWithin(at))
         decodeOwnChat(event, at, epoch)
         outbox.retain(epoch.id, event)
         onRetained()
@@ -746,6 +754,7 @@ class RoomSession(
             roomKey = epoch.key,
             deviceSecretKey = identity.deviceSecretKey,
             sentAt = sentAt,
+            sentAtMs = millisWithin(sentAt),
             proof = proof,
             invite = invite,
             credentialRoomId = room.roomId,
