@@ -57,9 +57,16 @@ class KithMootApplication : Application() {
         CadenceLeaseVault(RollbackResistantRoomStorage(this, "kithmoot.cadence.v1", 1024 * 1024))
     }
 
-    /** Active and pending room epoch secrets have their own rollback-resistant journal. */
+    /**
+     * Active and pending room epoch secrets have their own rollback-resistant journal. The
+     * recent epochs this device can hand on to another member's device live beside it, in an
+     * encrypted store of their own: advisory, since a requester checks all of it.
+     */
     val roomEpochs: EpochVault by lazy {
-        EpochVault(RollbackResistantRoomStorage(this, "kithmoot.epoch.v1", 1024 * 1024))
+        EpochVault(
+            RollbackResistantRoomStorage(this, "kithmoot.epoch.v1", 1024 * 1024),
+            EncryptedRoomStorage(this, "kithmoot.epoch-history.v1", 4 * 1024 * 1024),
+        )
     }
 
     /** One engine owner for the whole process; room consent selects any usable route later. */

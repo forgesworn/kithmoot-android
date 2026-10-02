@@ -85,7 +85,7 @@ class FakeRelay {
         }
 
         override fun publishRecovery(event: NostrEvent) {
-            require(event.kind in setOf(1462, 20_468, 20_469))
+            require(event.kind in setOf(1462, 20_468, 20_469, 20_471, 20_472))
             this@FakeRelay.publish(event)
         }
     }

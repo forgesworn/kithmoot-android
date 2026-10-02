@@ -74,6 +74,8 @@ fun TestScope.session(
     onVerifiedOwnEvent: (NostrEvent) -> Unit = {},
     chatOutbox: PendingChatOutbox? = null,
     ends: Long? = null,
+    memberEpochDesk: dev.forgesworn.kithmoot.epoch.MemberEpochDesk? = null,
+    onEpochHistory: suspend (List<dev.forgesworn.kithmoot.protocol.RoomEpoch>, List<NostrEvent>) -> Unit = { _, _ -> },
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -97,4 +99,6 @@ fun TestScope.session(
     onVerifiedOwnEvent = onVerifiedOwnEvent,
     chatOutbox = chatOutbox,
     ends = ends,
+    memberEpochDesk = memberEpochDesk,
+    onEpochHistory = onEpochHistory,
 )

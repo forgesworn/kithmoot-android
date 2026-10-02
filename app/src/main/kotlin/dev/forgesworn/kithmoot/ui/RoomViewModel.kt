@@ -87,6 +87,8 @@ import dev.forgesworn.kithmoot.epoch.EpochPhase
 import dev.forgesworn.kithmoot.epoch.activeEpochFor
 import dev.forgesworn.kithmoot.epoch.EpochVault
 import dev.forgesworn.kithmoot.epoch.EpochRecoveryResponder
+import dev.forgesworn.kithmoot.epoch.MemberEpochResponder
+import dev.forgesworn.kithmoot.epoch.asDesk
 import dev.forgesworn.kithmoot.epoch.StoredRoomEpoch
 import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -3147,6 +3149,24 @@ class RoomViewModel @JvmOverloads constructor(
         val epochResponder = epochAuthorityHost?.let {
             EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, record.ends, ::epochSeconds)
         }
+        // Any member in step at an epoch past 0 can bring another member's device up to date
+        // while the authority's device is away (kind 20471/20472). Not on the authority's own
+        // device, which answers as the authority, and never in an anonymous room.
+        val memberDesk = record.authority?.takeIf { !anonymousProfile && epochResponder == null }?.let { roomAuthority ->
+            MemberEpochResponder(
+                record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
+                current = {
+                    roomEpochs.get(record.id)?.takeIf { it.phase == EpochPhase.ACTIVE && it.currentEpoch > 0 }
+                        ?.let { RoomEpoch(it.currentEpoch, it.currentSecret) }
+                },
+                secretAt = { roomEpochs.secretAt(record.id, it) },
+                rekeyAt = { roomEpochs.rekeyAt(record.id, it) },
+                removed = { roomEpochs.get(record.id)?.removed.orEmpty() },
+                closed = { roomEpochs.get(record.id)?.phase == EpochPhase.CLOSED },
+                now = ::epochSeconds,
+                ends = record.ends,
+            ).asDesk(Dispatchers.IO)
+        }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
         roomBookmarks?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
@@ -3291,6 +3311,10 @@ class RoomViewModel @JvmOverloads constructor(
             },
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
+            },
+            memberEpochDesk = memberDesk,
+            onEpochHistory = if (anonymousProfile || record.authority == null) { _, _ -> } else { secrets, rekeys ->
+                withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys) }
             },
             onVerifiedOwnEvent = if (!anonymousProfile && accountSession?.account?.pubkey == who.participant) {
                 { event: NostrEvent ->

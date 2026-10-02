@@ -358,7 +358,7 @@ class RelayPool(
     }
 
     override fun publishRecovery(event: NostrEvent) {
-        require(event.kind in setOf(1462, 20_468, 20_469)) { "event is not room recovery control" }
+        require(event.kind in setOf(1462, 20_468, 20_469, 20_471, 20_472)) { "event is not room recovery control" }
         trackWrite(event)
         val frame = RelayCodec.publishFrame(event)
         val targets = synchronized(lock) { links.values.filter { it.url in writeRelays } }

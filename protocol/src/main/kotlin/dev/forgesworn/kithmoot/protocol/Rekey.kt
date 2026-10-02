@@ -32,6 +32,8 @@ private const val EPOCH_KEY_INFO = "kithmoot/v1/epoch-key"
 /** HKDF info for the key an epoch request's admission proof is made under: its own domain, like the media key's. */
 private const val EPOCH_REQUEST_KEY_INFO = "kithmoot/v1/epoch-request-key"
 private const val EPOCH_REQUEST_MESSAGE = "kithmoot/v1/epoch-request:"
+/** The epoch commitment's message prefix; see [epochCommitment]. */
+const val EPOCH_COMMIT_PREFIX = "kithmoot/v1/epoch-commit:"
 private val HEX64 = Regex("[0-9a-fA-F]{64}")
 private val EPOCH_TAG = Regex("^[1-9][0-9]{0,6}$")
 
@@ -63,6 +65,8 @@ class RekeyNotice(
     val at: Long,
     /** True only for an authority grant that proves the current epoch after a gap. */
     val catchUp: Boolean = false,
+    /** The rekey body's [epochCommitment], when the authority wrote one. */
+    val commit: String? = null,
 ) {
     val removed = removed.toList()
     val secret = secret?.copyOf()
@@ -92,7 +96,7 @@ fun deriveEpoch(value: RoomEpoch): EpochKeys {
 
 fun peekRekeyEpoch(event: NostrEvent, roomId: String, authority: String): Int? = runCatching {
     if (event.kind != KIND_ROOM_REKEY || !event.pubkey.hexEquals(authority)) return null
-    if (event.tagValue("d")?.hexEquals(requireHex(roomId, "room id")) != true) return null
+    if (event.tagValue("d")?.hexEquals(requireEpochHex(roomId, "room id")) != true) return null
     val tag = event.tagValue("epoch") ?: return null
     if (!EPOCH_TAG.matches(tag)) return null
     val epoch = tag.toIntOrNull()?.takeIf { it <= MAX_EPOCH } ?: return null
@@ -110,18 +114,24 @@ fun encodeRekeyEvent(
     now: Long,
     by: String? = null,
     closed: Boolean = false,
+    /**
+     * Write the [epochCommitment] into the body, so any current member can
+     * bring a device that missed this rekey up to date (see `MemberEpoch.kt`).
+     * Off, the event is byte-identical to a rekey written before it existed.
+     */
+    commit: Boolean = false,
     recipientNonces: Map<String, ByteArray> = emptyMap(),
     bodyNonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
 ): NostrEvent {
     require(authoritySecretKey.size == 32)
-    val room = requireHex(roomId, "room id")
+    val room = requireEpochHex(roomId, "room id")
     require(next.epoch == current.epoch + 1) { "a rekey moves the room forward by exactly one epoch" }
-    val canonicalRemoved = removed.map { requireHex(it, "removed participant") }.distinct().sorted()
+    val canonicalRemoved = removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted()
     val sealed = buildJsonObject { put("v", 1); put("secret", base64UrlEncode(next.secret)) }.toString()
     val keys = buildJsonObject {
         if (!closed) recipients.forEach { raw ->
-            val device = requireHex(raw, "recipient device")
+            val device = requireEpochHex(raw, "recipient device")
             val key = Nip44.conversationKey(authoritySecretKey, device.hexToBytes())
             try {
                 put(device, Nip44.encrypt(sealed, key, recipientNonces[device] ?: Entropy.bytes(32)))
@@ -130,8 +140,9 @@ fun encodeRekeyEvent(
     }
     val body = buildJsonObject {
         put("v", 1); put("epoch", next.epoch); put("removed", strings(canonicalRemoved))
-        if (by != null) put("by", requireHex(by, "admin"))
+        if (by != null) put("by", requireEpochHex(by, "admin"))
         if (closed) put("closed", true)
+        if (commit) put("commit", epochCommitment(room, next.epoch, next.secret))
         put("keys", keys)
     }
     return Events.sign(
@@ -159,6 +170,7 @@ fun decodeRekeyEvent(
     val keys = body["keys"] as? JsonObject ?: return null
     val closed = body["closed"]?.jsonPrimitive?.booleanOrNull == true
     val by = body["by"]?.jsonPrimitive?.content?.takeIf(HEX64::matches)?.normaliseHex()
+    val commit = (body["commit"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX64::matches)?.normaliseHex()
     var secret: ByteArray? = null
     val device = Schnorr.publicKeyHex(deviceSecretKey)
     val mine = keys.entries.firstOrNull { it.key.hexEquals(device) }?.value?.jsonPrimitive?.content
@@ -172,9 +184,62 @@ fun decodeRekeyEvent(
         } finally { conversation.fill(0) }
     }
     try {
-        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt)
+        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit)
     } finally { secret?.fill(0) }
 }.getOrNull()
+
+/**
+ * The epoch commitment: what lets a member who is not the authority hand an epoch on, and the
+ * requester check it without trusting that member.
+ *
+ * A rekey already commits to the secret of the epoch it LEAVES (its body is NIP-44 under that
+ * epoch's key, signed by the authority, and NIP-44's MAC verifies under no other key). What it
+ * does not commit to, in a form a third party can check, is the secret of the epoch it ENTERS.
+ * This closes that gap: `HMAC-SHA256(key = secret, "kithmoot/v1/epoch-commit:" + roomId + ":" +
+ * epoch)` as lower-case hex, the room id lower-case hex and the epoch decimal. It rides inside
+ * the encrypted rekey body and is used nowhere else on the wire.
+ */
+fun epochCommitment(roomId: String, epoch: Int, secret: ByteArray): String {
+    val room = requireEpochHex(roomId, "room id")
+    require(epoch in 1..MAX_EPOCH) { "only an epoch after 0 has a commitment" }
+    require(secret.size == 32) { "epoch secret must be 32 bytes" }
+    return Digests.hmacSha256(secret, "$EPOCH_COMMIT_PREFIX$room:$epoch".toByteArray(Charsets.UTF_8)).toHex()
+}
+
+/** What a rekey body says, read with the key of the epoch it leaves. */
+data class RekeyEvidence(
+    val epoch: Int,
+    val removed: List<String>,
+    val closed: Boolean,
+    /** The epoch commitment, when the authority wrote one. */
+    val commit: String? = null,
+)
+
+/**
+ * Read an authority-signed rekey with the key of the epoch it leaves, needing no seal of one's
+ * own. Null for anything that does not check out: not the authority, not this room, not epoch
+ * [previousEpoch] + 1, or not encrypted under [previousKey]. Both sides of a member grant use it
+ * to check the chain.
+ */
+fun readRekeyEvidence(event: NostrEvent, roomId: String, authority: String, previousEpoch: Int, previousKey: ByteArray): RekeyEvidence? = runCatching {
+    val epoch = peekRekeyEpoch(event, roomId, authority) ?: return null
+    if (epoch != previousEpoch + 1) return null
+    val body = Json.parseToJsonElement(Nip44.decrypt(event.content, previousKey)).jsonObject
+    if (body["v"].exactInt() != 1 || body["epoch"].exactInt() != epoch) return null
+    val removedRaw = body["removed"] as? JsonArray ?: return null
+    val removed = removedRaw.map { (it as JsonPrimitive).takeIf { p -> p.isString }?.content ?: return null }
+        .takeIf { it.all(HEX64::matches) }?.map(String::normaliseHex)?.distinct()?.sorted() ?: return null
+    val closed = (body["closed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
+    val commit = (body["commit"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX64::matches)?.normaliseHex()
+    RekeyEvidence(epoch, removed, closed, commit)
+}.getOrNull()
+
+/** A JSON number that is an integer, as `Number.isSafeInteger` would see it; null otherwise. */
+internal fun kotlinx.serialization.json.JsonElement?.exactInt(): Int? {
+    val primitive = this as? JsonPrimitive ?: return null
+    if (primitive.isString) return null
+    return primitive.content.toIntOrNull()
+}
 
 /**
  * The key an epoch request's admission proof is computed under: the EPOCH-0 room key,
@@ -199,8 +264,8 @@ fun deriveEpochRequestKey(roomKey: ByteArray): ByteArray {
  */
 fun epochRequestAdmission(roomKey: ByteArray, roomId: String, authority: String, device: String, createdAt: Long): String {
     require(createdAt >= 0) { "created_at must be a non-negative integer" }
-    val message = EPOCH_REQUEST_MESSAGE + requireHex(roomId, "room id") + ":" + requireHex(authority, "authority pubkey") +
-        ":" + requireHex(device, "device pubkey") + ":" + createdAt
+    val message = EPOCH_REQUEST_MESSAGE + requireEpochHex(roomId, "room id") + ":" + requireEpochHex(authority, "authority pubkey") +
+        ":" + requireEpochHex(device, "device pubkey") + ":" + createdAt
     val key = deriveEpochRequestKey(roomKey)
     return try {
         Digests.hmacSha256(key, message.toByteArray(Charsets.UTF_8)).toHex()
@@ -222,8 +287,8 @@ fun encodeEpochRequest(
     roomEnds: Long? = null,
 ): NostrEvent {
     require(deviceSecretKey.size == 32)
-    val room = requireHex(roomId, "room id")
-    val peer = requireHex(authority, "authority pubkey")
+    val room = requireEpochHex(roomId, "room id")
+    val peer = requireEpochHex(authority, "authority pubkey")
     val admission = epochRequestAdmission(roomKey, room, peer, Schnorr.publicKeyHex(deviceSecretKey), now)
     val body = buildJsonObject {
         put("v", 1)
@@ -253,8 +318,8 @@ fun decodeEpochRequest(
     maxAgeSeconds: Long = EPOCH_MAX_AGE_SECONDS,
 ): EpochRequest? = runCatching {
     require(authoritySecretKey.size == 32)
-    if (event.kind != KIND_EPOCH_REQUEST || !Events.verify(event) || !fresh(event.createdAt, now, maxAgeSeconds)) return null
-    val room = requireHex(roomId, "room id")
+    if (event.kind != KIND_EPOCH_REQUEST || !Events.verify(event) || !epochFresh(event.createdAt, now, maxAgeSeconds)) return null
+    val room = requireEpochHex(roomId, "room id")
     val authority = Schnorr.publicKeyHex(authoritySecretKey)
     if (event.tagValue("d")?.hexEquals(room) != true || event.tagValue("p")?.hexEquals(authority) != true) return null
     val key = Nip44.conversationKey(authoritySecretKey, event.pubkey.hexToBytes())
@@ -290,9 +355,9 @@ fun encodeEpochGrant(
     roomEnds: Long? = null,
 ): NostrEvent {
     require(authoritySecretKey.size == 32)
-    val room = requireHex(roomId, "room id")
-    val recipient = requireHex(device, "device pubkey")
-    val requestId = requireHex(request, "request id")
+    val room = requireEpochHex(roomId, "room id")
+    val recipient = requireEpochHex(device, "device pubkey")
+    val requestId = requireEpochHex(request, "request id")
     require(refused in setOf(null, "removed", "closed"))
     require((refused == null) == (epoch != null)) { "a grant carries an epoch or a refusal" }
     val body = buildJsonObject {
@@ -302,7 +367,7 @@ fun encodeEpochGrant(
             put("epoch", current.epoch)
             if (current.epoch > 0) put("secret", base64UrlEncode(current.secret))
             put("removed", buildJsonArray {
-                removed.map { requireHex(it, "removed participant") }.distinct().sorted().forEach { add(JsonPrimitive(it)) }
+                removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted().forEach { add(JsonPrimitive(it)) }
             })
         }
     }
@@ -322,8 +387,8 @@ fun decodeEpochGrant(
     maxAgeSeconds: Long = EPOCH_MAX_AGE_SECONDS,
 ): EpochGrant? = runCatching {
     require(deviceSecretKey.size == 32)
-    if (event.kind != KIND_EPOCH_GRANT || !event.pubkey.hexEquals(authority) || !Events.verify(event) || !fresh(event.createdAt, now, maxAgeSeconds)) return null
-    val room = requireHex(roomId, "room id")
+    if (event.kind != KIND_EPOCH_GRANT || !event.pubkey.hexEquals(authority) || !Events.verify(event) || !epochFresh(event.createdAt, now, maxAgeSeconds)) return null
+    val room = requireEpochHex(roomId, "room id")
     val device = Schnorr.publicKeyHex(deviceSecretKey)
     if (event.tagValue("d")?.hexEquals(room) != true || event.tagValue("p")?.hexEquals(device) != true) return null
     val key = Nip44.conversationKey(deviceSecretKey, event.pubkey.hexToBytes())
@@ -340,15 +405,15 @@ fun decodeEpochGrant(
     } finally { secret.fill(0) }
 }.getOrNull()
 
-fun canonicalAdmins(admins: List<String>): List<String> = admins.map { requireHex(it, "admin pubkey") }.distinct().sorted()
+fun canonicalAdmins(admins: List<String>): List<String> = admins.map { requireEpochHex(it, "admin pubkey") }.distinct().sorted()
 
 fun signAdmins(roomId: String, epoch: Int, admins: List<String>, authoritySecretKey: ByteArray, auxRand: ByteArray = Entropy.bytes(32)): String {
     require(authoritySecretKey.size == 32)
-    return Schnorr.sign(adminsMessage(requireHex(roomId, "room id"), requireEpoch(epoch), canonicalAdmins(admins)), authoritySecretKey, auxRand).toHex()
+    return Schnorr.sign(adminsMessage(requireEpochHex(roomId, "room id"), requireEpoch(epoch), canonicalAdmins(admins)), authoritySecretKey, auxRand).toHex()
 }
 
 fun verifyAdmins(roomId: String, epoch: Int, admins: List<String>, signature: String, authority: String): Boolean = runCatching {
-    Schnorr.verify(signature.hexToBytes(), adminsMessage(requireHex(roomId, "room id"), requireEpoch(epoch), canonicalAdmins(admins)), requireHex(authority, "authority").hexToBytes())
+    Schnorr.verify(signature.hexToBytes(), adminsMessage(requireEpochHex(roomId, "room id"), requireEpoch(epoch), canonicalAdmins(admins)), requireEpochHex(authority, "authority").hexToBytes())
 }.getOrDefault(false)
 
 private fun adminsMessage(roomId: String, epoch: Int, admins: List<String>) =
@@ -356,9 +421,9 @@ private fun adminsMessage(roomId: String, epoch: Int, admins: List<String>) =
 
 private fun strings(values: List<String>) = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }
 
-private fun requireHex(value: String, name: String): String = value.also { require(HEX64.matches(it)) { "$name must be 32-byte hex" } }.normaliseHex()
+internal fun requireEpochHex(value: String, name: String): String = value.also { require(HEX64.matches(it)) { "$name must be 32-byte hex" } }.normaliseHex()
 private fun requireEpoch(value: Int): Int = value.also { require(it in 0..MAX_EPOCH) { "epoch must be a small non-negative integer" } }
-private fun fresh(createdAt: Long, now: Long, maxAge: Long): Boolean {
+internal fun epochFresh(createdAt: Long, now: Long, maxAge: Long): Boolean {
     if (createdAt < 0 || now < 0 || maxAge < 0) return false
     return if (createdAt >= now) createdAt - now <= maxAge else now - createdAt <= maxAge
 }

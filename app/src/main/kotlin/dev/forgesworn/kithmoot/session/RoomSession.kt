@@ -15,6 +15,11 @@ import dev.forgesworn.kithmoot.protocol.decodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.encodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
+import dev.forgesworn.kithmoot.protocol.KIND_MEMBER_EPOCH_GRANT
+import dev.forgesworn.kithmoot.protocol.KIND_MEMBER_EPOCH_REQUEST
+import dev.forgesworn.kithmoot.protocol.MemberEpochGrant
+import dev.forgesworn.kithmoot.protocol.decodeMemberEpochGrant
+import dev.forgesworn.kithmoot.protocol.encodeMemberEpochRequest
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.CallBellState
@@ -42,12 +47,14 @@ import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
 import dev.forgesworn.kithmoot.epoch.EpochOpening
 import dev.forgesworn.kithmoot.epoch.epochOpening
+import dev.forgesworn.kithmoot.epoch.MemberDeskDecision
+import dev.forgesworn.kithmoot.epoch.MemberEpochDesk
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -57,8 +64,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,6 +76,12 @@ private const val DEFAULT_EPOCH_SETTLE_MS = 1_500L
 private const val EPOCH_RECOVERY_TIMEOUT_MS = 30_000L
 /** How long an unprompted epoch question waits for an answer: the web client's request timeout. */
 private const val EPOCH_PROBE_TIMEOUT_MS = 20_000L
+/** How often a fresh member epoch request goes out while an epoch question is open: fold-kit's `retryMs`. */
+private const val MEMBER_EPOCH_RETRY_MS = 4_000L
+/** How long the first member request waits for the relays to replay the room's rekeys, so the rollback floor is known. */
+private const val REKEY_REPLAY_WAIT_MS = 1_500L
+/** How many of this device's member request ids a grant may answer. */
+private const val MEMBER_EPOCH_REQUESTS_KEPT = 16
 
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
@@ -168,6 +179,18 @@ class RoomSession(
     /** Present only on the authority device; validates a request and returns its signed answer. */
     private val epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
     /**
+     * The member desk (`MemberEpochResponder`): lets this device, while in step at an epoch
+     * above 0, bring another member's device up to date when the authority's device is away.
+     * Null where the room is not followed, on the authority device, and in anonymous rooms.
+     */
+    private val memberEpochDesk: MemberEpochDesk? = null,
+    /**
+     * Epoch secrets and authority rekeys this session has learnt, for the member desk to hand
+     * on later: every authority-signed rekey the relays show, and every epoch a member grant
+     * proved. Advisory; see `EpochVault.remember`.
+     */
+    private val onEpochHistory: suspend (List<RoomEpoch>, List<NostrEvent>) -> Unit = { _, _ -> },
+    /**
      * The epoch the responder that admitted this device said the room is at
      * (`RoomAdmission.epoch`), or one this device was told earlier and has not
      * reached. Above [initialEpoch], the session asks the authority for it
@@ -206,6 +229,15 @@ class RoomSession(
     private val epochMutex = Mutex()
     private var activeEpoch = initialEpoch
     private val pendingRekeys = TreeMap<Int, NostrEvent>()
+    /**
+     * The rollback floor: the newest epoch an authority-signed rekey has been seen for on the
+     * relays. A member grant short of it is refused, so a member removed at that epoch cannot
+     * hold this device one epoch back on a key it still has. Read outside [epochMutex], since an
+     * epoch question is asked while holding it.
+     */
+    private val rekeyFloor = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Completes once the relays have had [REKEY_REPLAY_WAIT_MS] to replay the room's rekeys. */
+    private val rekeysReplayed = CompletableDeferred<Unit>()
     private val roster = linkedMapOf<String, RosterEntry>()
 
     /**
@@ -370,6 +402,11 @@ class RoomSession(
             jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)
             }
+            jobs += scope.launch {
+                delay(REKEY_REPLAY_WAIT_MS)
+                rekeysReplayed.complete(Unit)
+            }
+            if (memberEpochDesk != null && epochResponder == null) startMemberDesk(memberEpochDesk)
             if (epochResponder != null) {
                 jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                     transport.subscribe(listOf(epochRequestFilter())).collect { request ->
@@ -1034,9 +1071,16 @@ class RoomSession(
      * fallen several epochs behind still sees every later rekey and can
      * still say how far behind it is.
      */
-    private suspend fun onRekeyEvent(event: NostrEvent) = epochMutex.withLock {
+    private suspend fun onRekeyEvent(event: NostrEvent) {
         val trusted = authority ?: return
         val epoch = peekRekeyEpoch(event, room.roomId, trusted) ?: return
+        // Before the lock: an epoch question in progress holds it, and must see the floor rise.
+        rekeyFloor.accumulateAndGet(epoch, ::maxOf)
+        runCatching { onEpochHistory(emptyList(), listOf(event)) }.onFailure { if (it is CancellationException) throw it }
+        epochMutex.withLock { onAuthorityRekey(event, epoch) }
+    }
+
+    private suspend fun onAuthorityRekey(event: NostrEvent, epoch: Int) {
         val current = epochKeys()
         if (epoch <= current.epoch) return
         pendingRekeys[epoch] = event
@@ -1152,11 +1196,13 @@ class RoomSession(
         } ?: return
         epochMutex.withLock {
             if (_epochState.value !is RoomEpochState.Active) return
-            val (_, grant) = response
             val current = epochKeys().epoch
-            val target = when (grant) {
-                is EpochGrant.Current -> grant.epoch.takeIf { it > current && grant.secret != null } ?: return
-                is EpochGrant.Refused -> current + 1
+            val target = when (response) {
+                is EpochAnswer.Member -> response.grant.epoch.epoch.takeIf { it > current } ?: return
+                is EpochAnswer.Authority -> when (val grant = response.grant) {
+                    is EpochGrant.Current -> grant.epoch.takeIf { it > current && grant.secret != null } ?: return
+                    is EpochGrant.Refused -> current + 1
+                }
             }
             blockForRekey()
             _epochState.value = RoomEpochState.Updating(target)
@@ -1164,25 +1210,70 @@ class RoomSession(
         }
     }
 
-    /** One epoch request to the authority and its decoded answer; null when none came in [timeoutMs]. */
-    private suspend fun askAuthority(timeoutMs: Long): Pair<NostrEvent, EpochGrant>? {
+    /** An answer to an epoch question: the authority's grant or refusal, or a member's verified grant. */
+    private sealed interface EpochAnswer {
+        val event: NostrEvent
+        class Authority(override val event: NostrEvent, val grant: EpochGrant) : EpochAnswer
+        class Member(override val event: NostrEvent, val grant: MemberEpochGrant) : EpochAnswer
+    }
+
+    /**
+     * One epoch question, and the first answer that checks out; null when none came in
+     * [timeoutMs]. The authority is asked once (kind 20468). The room's current members are
+     * asked too (kind 20471), every [MEMBER_EPOCH_RETRY_MS] with a fresh request, once the
+     * relays have had their chance to replay the room's rekeys: a member's grant is believed
+     * only as far as the authority's own signatures prove it, and never short of the newest
+     * rekey seen ([rekeyFloor]). As fold-kit's `requestRoomEpoch({ members })` does.
+     */
+    private suspend fun askAuthority(timeoutMs: Long): EpochAnswer? {
         val trusted = requireNotNull(authority)
         return coroutineScope {
+            val settled = CompletableDeferred<EpochAnswer>()
             val request = encodeEpochRequest(
                 room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
                 roomEnds = ends,
             )
-            val answer = async(start = CoroutineStart.UNDISPATCHED) {
-                withTimeoutOrNull(timeoutMs) {
-                    transport.subscribe(listOf(epochGrantFilter())).mapNotNull { event ->
-                        decodeEpochGrant(
-                            event, room.roomId, trusted, identity.deviceSecretKey, request.id, now(),
-                        )?.let { event to it }
-                    }.first()
+            val listeners = mutableListOf<Job>()
+            listeners += launch(start = CoroutineStart.UNDISPATCHED) {
+                transport.subscribe(listOf(epochGrantFilter())).collect { event ->
+                    if (settled.isCompleted) return@collect
+                    decodeEpochGrant(event, room.roomId, trusted, identity.deviceSecretKey, request.id, now())
+                        ?.let { settled.complete(EpochAnswer.Authority(event, it)) }
                 }
             }
-            transport.publishRecovery(request)
-            answer.await()
+            val asked = ArrayDeque<String>()
+            listeners += launch(start = CoroutineStart.UNDISPATCHED) {
+                transport.subscribe(listOf(memberGrantFilter())).collect { event ->
+                    if (settled.isCompleted) return@collect
+                    val current = epochKeys()
+                    val ids = synchronized(asked) { asked.toList() }
+                    decodeMemberEpochGrant(
+                        event, room.roomId, trusted, identity.deviceSecretKey, ids, current.epoch, current.key,
+                        identity.participant, now(), expected = rekeyFloor.get().takeIf { it > 0 },
+                    )?.let { settled.complete(EpochAnswer.Member(event, it)) }
+                }
+            }
+            listeners += launch {
+                rekeysReplayed.await()
+                while (!settled.isCompleted) {
+                    val ask = encodeMemberEpochRequest(
+                        room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential,
+                        epochKeys().epoch, now(), proof, roomEnds = ends,
+                    )
+                    synchronized(asked) {
+                        asked.addLast(ask.id)
+                        while (asked.size > MEMBER_EPOCH_REQUESTS_KEPT) asked.removeFirst()
+                    }
+                    transport.publishRecovery(ask)
+                    delay(MEMBER_EPOCH_RETRY_MS)
+                }
+            }
+            try {
+                transport.publishRecovery(request)
+                withTimeoutOrNull(timeoutMs) { settled.await() }
+            } finally {
+                listeners.forEach(Job::cancel)
+            }
         }
     }
 
@@ -1206,10 +1297,14 @@ class RoomSession(
         answerFromAuthority(response, expectedEpoch, reason)
     }
 
-    /** Follow the authority's signed answer: a refusal is terminal, a newer epoch is committed and entered. */
-    private suspend fun answerFromAuthority(response: Pair<NostrEvent, EpochGrant>, expectedEpoch: Int, reason: String) {
-        val (event, grant) = response
-        when (grant) {
+    /**
+     * Follow an answer: the authority's refusal is terminal, and a newer epoch - the
+     * authority's, or one a member's grant proved - is committed and entered.
+     */
+    private suspend fun answerFromAuthority(response: EpochAnswer, expectedEpoch: Int, reason: String) {
+        if (response is EpochAnswer.Member) return answerFromMember(response, expectedEpoch, reason)
+        val event = response.event
+        when (val grant = (response as EpochAnswer.Authority).grant) {
             is EpochGrant.Refused -> {
                 val current = epochKeys()
                 val terminal = RekeyNotice(
@@ -1258,6 +1353,68 @@ class RoomSession(
                     throw cancelled
                 } catch (error: Exception) {
                     requireRecovery(notice.epoch, error.message ?: "The recovered room update could not move every local subsystem")
+                }
+            }
+        }
+    }
+
+    /**
+     * Enter the epoch a member's grant proved. `decodeMemberEpochGrant` has already checked
+     * the whole chain against the authority's signatures, so it is committed as a catch-up,
+     * exactly as the authority's own grant would be; the chain is kept so this device can hand
+     * it on in turn.
+     */
+    private suspend fun answerFromMember(response: EpochAnswer.Member, expectedEpoch: Int, reason: String) {
+        val grant = response.grant
+        if (grant.epoch.epoch <= epochKeys().epoch) {
+            requireRecovery(expectedEpoch, "The answer did not prove a newer room epoch")
+            return
+        }
+        val notice = RekeyNotice(grant.epoch.epoch, grant.removed, null, false, grant.epoch.secret, response.event.createdAt, catchUp = true)
+        val outcome = try {
+            requireNotNull(epochGate).invoke(response.event, notice)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            requireRecovery(expectedEpoch, error.message ?: reason)
+            return
+        }
+        if (outcome == EpochGateResult.PENDING) return
+        try {
+            applyEpoch(notice)
+            pendingRekeys.keys.removeAll { it <= notice.epoch }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            requireRecovery(notice.epoch, error.message ?: "The recovered room update could not move every local subsystem")
+            return
+        }
+        runCatching { onEpochHistory(grant.chain, grant.rekeys) }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    /** The epoch this session is in step at, above 0, for the member desk; null when it is not. */
+    private fun inStepEpoch(): Int? {
+        val state = _epochState.value as? RoomEpochState.Active ?: return null
+        return state.epoch.takeIf { it > 0 && it == epochKeys().epoch }
+    }
+
+    /**
+     * Run the member desk for as long as the session lasts: every 20472 on the room tells it
+     * somebody answered a device, and every 20471 may be answered after its jitter. Each
+     * answer is a child of the request listener, so leaving the room cancels it.
+     */
+    private fun startMemberDesk(desk: MemberEpochDesk) {
+        jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.subscribe(listOf(memberGrantSeenFilter())).collect { desk.onGrant(it) }
+        }
+        jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            coroutineScope {
+                transport.subscribe(listOf(memberRequestFilter())).collect { event ->
+                    val decision = desk.onRequest(event, inStepEpoch())
+                    if (decision is MemberDeskDecision.Answer) launch {
+                        if (decision.delayMs > 0) delay(decision.delayMs)
+                        desk.answer(decision.request, inStepEpoch())?.let(transport::publishRecovery)
+                    }
                 }
             }
         }
@@ -1330,6 +1487,21 @@ class RoomSession(
         kinds = listOf(KIND_EPOCH_GRANT),
         authors = listOfNotNull(authority),
         tags = mapOf("#d" to listOf(room.roomId), "#p" to listOf(identity.devicePubkey)),
+    )
+
+    private fun memberGrantFilter() = Filter(
+        kinds = listOf(KIND_MEMBER_EPOCH_GRANT),
+        tags = mapOf("#d" to listOf(room.roomId), "#p" to listOf(identity.devicePubkey)),
+    )
+
+    private fun memberGrantSeenFilter() = Filter(
+        kinds = listOf(KIND_MEMBER_EPOCH_GRANT),
+        tags = mapOf("#d" to listOf(room.roomId)),
+    )
+
+    private fun memberRequestFilter() = Filter(
+        kinds = listOf(KIND_MEMBER_EPOCH_REQUEST),
+        tags = mapOf("#d" to listOf(room.roomId)),
     )
 
     private fun rosterFilter() = Filter(
