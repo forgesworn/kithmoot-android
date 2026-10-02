@@ -1,8 +1,10 @@
 package dev.forgesworn.kithmoot.telecom
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -15,6 +17,7 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.media.CallAudioRouting
 import dev.forgesworn.kithmoot.notifications.HandledCalls
@@ -255,6 +258,12 @@ object CallTelecom {
                     goLive(connection)
                 }
                 JoinStep.PLACE -> {
+                    // MANAGE_OWN_CALLS is a normal permission granted at install, but
+                    // checked all the same: without it the call runs without Telecom.
+                    if (ContextCompat.checkSelfPermission(app, Manifest.permission.MANAGE_OWN_CALLS) != PackageManager.PERMISSION_GRANTED) {
+                        Log.w(TAG, "no MANAGE_OWN_CALLS; the call runs without Telecom")
+                        return@onMain
+                    }
                     val handle = register(app) ?: return@onMain
                     outgoing = roomName
                     val extras = Bundle().apply {
