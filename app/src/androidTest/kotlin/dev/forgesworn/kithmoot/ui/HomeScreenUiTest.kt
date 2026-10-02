@@ -75,7 +75,8 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Tor-only room (Orbot)").assertIsDisplayed()
         compose.onNodeWithText("Start a room").assertIsDisplayed()
         compose.onNodeWithText("Open an invite link").assertIsDisplayed()
-        compose.onNodeWithText("Already on Nostr? Sign in").assertIsDisplayed()
+        // Below the fold of a 360 x 640 screen since the start form grew: reached by scrolling.
+        compose.onNodeWithText("Already on Nostr? Sign in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("New room").assertDoesNotExist()
         compose.onNodeWithText("Chats").assertDoesNotExist()
         compose.onNodeWithText("Projects").assertDoesNotExist()
@@ -102,9 +103,9 @@ class HomeScreenUiTest {
         assertEquals("Collapsed", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
         toggle.performClick()
         assertEquals("Expanded", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
-        compose.onNodeWithText("Invite link").assertIsDisplayed()
-        compose.onNodeWithText("Scan QR code").assertIsDisplayed()
-        compose.onNodeWithText("Open").performClick()
+        compose.onNodeWithText("Invite link").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Scan QR code").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open").performScrollTo().performClick()
         assertTrue(joined)
     }
 
