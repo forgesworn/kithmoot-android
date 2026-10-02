@@ -81,6 +81,16 @@ class MlsVaultTest {
         assertEquals(refused(VaultRefusal.Unauthorised), vault.enrol(ctx, RecordingSigner(), now + 3600))
     }
 
+    @Test fun `refuses an over-long or past expiry before asking the signer`() = runBlocking {
+        val v = MlsVault(MemoryStores(), now = { clock })
+        val bob = RecordingSigner()
+        val c = v.context(principal, bob.pubkey)
+        assertEquals(refused(VaultRefusal.Malformed), v.enrol(c, bob, now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS + 1))
+        assertEquals(refused(VaultRefusal.Malformed), v.enrol(c, bob, now))
+        assertTrue(bob.signed.isEmpty())
+        assertTrue(v.enrol(c, bob, now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS) is VaultResult.Ok)
+    }
+
     @Test fun `refuses a credential the signer altered`() = runBlocking {
         val v = MlsVault(MemoryStores(), now = { clock })
         val sly = RecordingSigner(alterTags = { tags -> tags.filterNot { it.first() == "scope" } })

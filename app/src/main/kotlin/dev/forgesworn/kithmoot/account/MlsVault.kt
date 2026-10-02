@@ -97,6 +97,9 @@ class MlsVault(
     suspend fun enrol(ctx: VaultContext, signer: ParticipantSigner, expiresAt: Long, replace: Boolean = false): VaultResult<EnrolledDevice> {
         if (!current(ctx)) return refuse(VaultRefusal.Stale)
         if (!HEX64.matches(ctx.persona) || signer.pubkey != ctx.persona) return refuse(VaultRefusal.Unauthorised)
+        // The engine's lifetime rule, before the person is asked to sign.
+        val at = now()
+        if (expiresAt <= at || expiresAt - at > LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS) return refuse(VaultRefusal.Malformed)
         val enrolled = locked { open(ctx.persona)?.device?.also { it.wipe() } != null }
         if (enrolled && !replace) return refuse(VaultRefusal.Unauthorised)
         val scalar = newScalar()
@@ -497,7 +500,7 @@ class MlsVault(
         /** An operation may be at most this far in the future (inclusive). */
         const val MAX_OPERATION_SECONDS = 600L
         /** The largest unsigned body (8,125 bytes) is 10,836 base64 characters. */
-        private const val MAX_BODY_BASE64 = 10_836
+        internal const val MAX_BODY_BASE64 = 10_836
         private const val RECORD_VERSION = 1
         private const val AAD_PREFIX = "kithmoot.mls-vault.v1"
         internal const val INSTALLATION = "installation"
@@ -616,7 +619,7 @@ private fun signRequestShape(value: JsonElement): VaultResult<SignRequest> {
     val operation = value.hex64("operation") ?: return refuse(VaultRefusal.Malformed)
     val digest = value.hex64("digest") ?: return refuse(VaultRefusal.Malformed)
     val body = (value["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-    if (body == null || body.isEmpty() || body.length > 10_836) return refuse(VaultRefusal.Malformed)
+    if (body == null || body.isEmpty() || body.length > MlsVault.MAX_BODY_BASE64) return refuse(VaultRefusal.Malformed)
     val expiresAt = value.uint("expires_at") ?: return refuse(VaultRefusal.Malformed)
     return VaultResult.Ok(SignRequest(operation, body, digest, expiresAt))
 }
