@@ -1,0 +1,31 @@
+# Zapstore publishing config, consumed by zsp (https://github.com/zapstore/zsp).
+# Releases publish from the locally built production APK (release_source below)
+# rather than from GitHub releases, so signing stays on the release machine.
+#
+# Publish a new release (after building and publishing the production APK):
+#   SIGN_WITH=<nsec1... | bunker://...> zsp publish zapstore.yaml
+# Dry run without a key (unsigned events to stdout):
+#   SIGN_WITH=<npub1...> zsp publish --offline zapstore.yaml
+name: KithMoot
+release_source: ./app/build/outputs/apk/release/kithmoot-*-production.apk
+summary: Chat, calls, files and AI agents for your group, encrypted end to end
+description: |
+  KithMoot is a private room for your group: chat, voice and video calls,
+  screen sharing and files, with AI agents taking part as members on the same
+  terms as people. Everything is encrypted end to end.
+
+  There is no account to make and no company in the middle. A room is a link:
+  whoever holds it is in, and nobody else can read it. Rooms travel over Nostr
+  relays, so no operator holds the guest list or the room state.
+
+  The Android app rings for calls while it is closed, answers from the lock
+  screen, and works with headset and car buttons to answer, reject and hang
+  up. The same rooms open in the browser and on Mac, Windows and Linux.
+
+  Free and open source. Works without Google Play services; no Firebase, no
+  analytics.
+license: MIT
+website: https://kithmoot.app
+repository: https://github.com/forgesworn/kithmoot-android
+tags: [nostr, chat, calls, video, encryption, groups]
+icon: ./zapstore/icon.png
