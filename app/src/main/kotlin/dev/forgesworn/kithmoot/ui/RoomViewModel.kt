@@ -3834,7 +3834,7 @@ class RoomViewModel @JvmOverloads constructor(
                         it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update {
-                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = "Secure room update is waiting for Bothy to retire the old schedule.")
+                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = if (it.cadence != null) "Secure room update is waiting for Bothy to retire the old schedule." else "Secure room update in progress.")
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
                         it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
