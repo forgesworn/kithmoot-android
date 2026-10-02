@@ -26,8 +26,9 @@ is what CI runs on pull requests and pushes to `main` (`.github/workflows/ci.yml
 ## Structure
 
 ```
-protocol/       pure JVM module: crypto (BIP-340, NIP-44 v2) and protocol
+protocol/       pure JVM module: crypto (BIP-340, NIP-44 v2), protocol
                  (events, rooms, credentials, roster, signalling, access, TURN)
+                 and vmls (the VMLS/1 leaf-binding reader the MLS vault checks)
 app/             the Android application
   account/       Nostr account: signer apps (NIP-55), bunkers (NIP-46), Signet, npub
   relay/         relay pool, sockets, filters, de-duplication
