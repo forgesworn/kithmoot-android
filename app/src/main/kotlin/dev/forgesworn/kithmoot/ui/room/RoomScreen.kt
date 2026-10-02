@@ -113,6 +113,7 @@ fun RoomScreen(
     onOfferRoomHistory: () -> Unit = {},
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
+    onRenewCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
     onSearch: () -> Unit = {},
@@ -305,7 +306,7 @@ fun RoomScreen(
                 }
                 if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
                     HorizontalDivider()
-                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
+                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence, onRenewCadence) }
                     state.nip77?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
                 }
                 TextButton(onClick = { detailsOpen = false; onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
@@ -496,6 +497,7 @@ private fun CadencePanel(
     onRefresh: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onRenew: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
@@ -513,10 +515,20 @@ private fun CadencePanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                cadence.renewedUntilEpoch?.let {
+                    Text(
+                        "Renewed to ${cadenceTime(it)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             when (cadence.state) {
                 "off" -> TextButton(onClick = onStart, enabled = cadence.eligible && !cadence.busy) { Text("Schedule") }
-                "staged", "active" -> TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                "staged", "active" -> Row {
+                    if (cadence.renewable) TextButton(onClick = onRenew, enabled = !cadence.busy) { Text("Renew") }
+                    TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                }
                 else -> TextButton(onClick = onRefresh, enabled = cadence.eligible && !cadence.busy) { Text("Retry") }
             }
         }

@@ -554,6 +554,7 @@ fun KithMootApp(
                     onOfferRoomHistory = model::offerComparedHistoryToBothy,
                     onStartCadence = model::startCadence,
                     onStopCadence = model::stopCadence,
+                    onRenewCadence = model::renewCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },

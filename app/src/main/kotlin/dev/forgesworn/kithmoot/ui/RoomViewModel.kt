@@ -77,7 +77,10 @@ import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceOwnership
+import dev.forgesworn.kithmoot.cadence.CadenceRenewal
 import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
+import dev.forgesworn.kithmoot.cadence.CadenceSchedule
+import dev.forgesworn.kithmoot.cadence.CadenceScopeKey
 import dev.forgesworn.kithmoot.cadence.StoredCadenceLease
 import dev.forgesworn.kithmoot.epoch.CadenceEpochCoordinate
 import dev.forgesworn.kithmoot.epoch.EpochPhase
@@ -542,6 +545,10 @@ data class CadenceViewState(
     val queueCount: Int = 0,
     val sentCount: Int = 0,
     val failedCount: Int = 0,
+    /** Offered while the running lease can still be followed by a contiguous one. */
+    val renewable: Boolean = false,
+    /** End of a staged renewal that follows the shown lease. */
+    val renewedUntilEpoch: Long? = null,
 )
 
 data class Nip77ViewState(
@@ -1662,6 +1669,8 @@ class RoomViewModel @JvmOverloads constructor(
 
     private data class CadenceAccess(val context: CadenceContext?, val reason: String?)
 
+    private val CadenceContext.key get() = CadenceScopeKey(scope.nodeId, scope.trafficRoom, scope.roomGeneration)
+
     private fun activeRoomEpoch(record: SavedRoom): EpochKeys {
         val stored = record.authority?.let { roomEpochs.get(record.id) }
         return activeEpochFor(record, stored) ?: throw IllegalArgumentException(
@@ -1705,13 +1714,32 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun initialCadenceView(access: CadenceAccess, room: String, device: String): CadenceViewState {
         if (access.context == null) return CadenceViewState(detail = access.reason ?: "Cadence is unavailable.")
-        return runCatching {
-            cadenceLeases.all(room, device).filter { it.ownership != CadenceOwnership.ENDED }.maxByOrNull { it.plan.generation }
-                ?.let { cadenceView(it, eligible = true) }
-                ?: CadenceViewState(eligible = true, detail = "Bothy can take over this phone's quiet cadence for up to twelve hours.")
-        }.getOrElse {
+        return runCatching { scheduleView(access.context, room, device) }.getOrElse {
             CadenceViewState(state = "blocked", detail = "The cadence ownership journal could not be opened. Delegated counters remain unavailable.")
         }
+    }
+
+    /** The lease Bothy is running now, with any renewal that follows it. */
+    private fun scheduleView(context: CadenceContext, room: String, device: String): CadenceViewState {
+        val leases = cadenceLeases.all(room, device)
+        val epoch = DeadDrop.epochIndexAt(epochSeconds())
+        val primary = CadenceSchedule.primary(leases, context.key, epoch)
+            ?: return CadenceViewState(eligible = true, detail = "Bothy can take over this phone's quiet cadence for up to twelve hours.")
+        val view = cadenceView(primary, eligible = true)
+        val successor = CadenceSchedule.successor(leases, context.key, primary)
+        if (successor?.ownership == CadenceOwnership.CLIENT_EXCLUDED) return view.copy(
+            state = "unresolved",
+            detail = "Bothy's reply to the renewal was not confirmed. KithMoot kept its exact bytes and will retry without reclaiming the counters.",
+        )
+        // Stop lowers only real sends; a staged renewal's cover is already promised to its end.
+        val detail = if (successor != null && view.state in setOf("stopping", "cover")) {
+            "Real sends stop at the safe boundary. Bothy keeps the fixed cover pattern until the renewal's end, which a stop cannot shorten."
+        } else view.detail
+        return view.copy(
+            detail = detail,
+            renewable = CadenceSchedule.renewable(leases, context.key, epoch),
+            renewedUntilEpoch = successor?.plan?.endEpoch,
+        )
     }
 
     private fun cadenceView(lease: StoredCadenceLease, eligible: Boolean, busy: Boolean = false): CadenceViewState {
@@ -3191,7 +3219,8 @@ class RoomViewModel @JvmOverloads constructor(
                                         epochSeconds(), cadenceLeases,
                                     ).get()
                                 }
-                                _room.update { state -> state.copy(cadence = cadenceView(result.lease, eligible = true)) }
+                                val view = scheduleView(context, derived.roomId, who.devicePubkey)
+                                _room.update { state -> state.copy(cadence = view) }
                                 queued.complete(true)
                             } catch (error: Exception) {
                                 queued.completeExceptionally((error as? java.util.concurrent.ExecutionException)?.cause ?: error)
@@ -4554,7 +4583,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun startCadence() = cadenceAction { record, who, secondary ->
         val access = cadenceAccess(record, who, secondary)
         val context = requireNotNull(access.context) { access.reason ?: "Cadence is unavailable." }
-        val existing = currentCadence(record.id, who.devicePubkey)
+        val existing = CadenceSchedule.primary(
+            cadenceLeases.all(record.id, who.devicePubkey), context.key, DeadDrop.epochIndexAt(epochSeconds()),
+        )
         if (existing != null) {
             refreshCadence(record, who, secondary)
             return@cadenceAction
@@ -4585,12 +4616,51 @@ class RoomViewModel @JvmOverloads constructor(
             context.scope, cadenceId(), cadenceId(), generation, context.deviceSlot,
             status.currentEpoch, start, end, context.roomKey, context.publicRelays, listOf("local"), epochSeconds(),
         )
-        val result = cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
-        _room.update { it.copy(cadence = cadenceView(result.lease, eligible = true)) }
+        cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
+    }
+
+    /**
+     * Stage the next generation of the running lease, starting exactly at its
+     * end so there is never a second scheduler or a gap. Only ever pressed by
+     * the person; a lease that is not renewed ends at its promised boundary.
+     */
+    fun renewCadence() = cadenceAction { record, who, secondary ->
+        val access = cadenceAccess(record, who, secondary)
+        val context = requireNotNull(access.context) { access.reason ?: "Cadence is unavailable." }
+        val status = cadenceClient.status(who.participant, context.scope, cadenceId(), who, epochSeconds()).get().answer
+        val credentialExpiry = who.credential.tagValue("expiration")?.toLongOrNull()
+            ?: throw IllegalStateException("The device credential has no expiry.")
+        val renewal = if (!status.ready) CadenceRenewal.Refused("Bothy is not ready: ${status.missing.joinToString(", ")}.")
+            else CadenceSchedule.renewal(
+                cadenceLeases.all(record.id, who.devicePubkey), context.key, status.currentEpoch,
+                status.earliestStartEpoch, credentialExpiry / 3600, context.grantExpiresAt / 3600,
+            )
+        when (renewal) {
+            is CadenceRenewal.Refused -> {
+                val view = scheduleView(context, record.id, who.devicePubkey).copy(detail = renewal.reason)
+                _room.update { it.copy(cadence = view) }
+            }
+            is CadenceRenewal.Ready -> {
+                val options = CadenceLeaseOptions(
+                    context.scope, cadenceId(), renewal.leaseId, renewal.generation, context.deviceSlot,
+                    status.currentEpoch, renewal.startEpoch, renewal.endEpoch, context.roomKey, context.publicRelays,
+                    listOf("local"), epochSeconds(),
+                )
+                cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
+                val view = scheduleView(context, record.id, who.devicePubkey)
+                _room.update { it.copy(cadence = view) }
+            }
+        }
     }
 
     fun stopCadence() = cadenceAction { record, who, secondary ->
-        stopCadence(record, who, secondary, "Bothy could not stop the schedule.")
+        val access = cadenceAccess(record, who, secondary)
+        val context = requireNotNull(access.context) { access.reason ?: "Bothy could not stop the schedule." }
+        val failure = runCatching { stopCadenceLeases(context, who, record.id) }.exceptionOrNull()
+        runCatching { scheduleView(context, record.id, who.devicePubkey) }.onSuccess { view -> _room.update { it.copy(cadence = view) } }
+        failure?.let { throw it }
     }
 
     private fun cadenceAction(action: suspend (SavedRoom, RoomIdentity, Boolean) -> Unit) {
@@ -4620,8 +4690,8 @@ class RoomViewModel @JvmOverloads constructor(
             _room.update { it.copy(cadence = CadenceViewState(detail = access.reason ?: "Cadence is unavailable.")) }
             return
         }
-        val current = currentCadence(record.id, who.devicePubkey)
-        if (current == null) {
+        val live = CadenceSchedule.live(cadenceLeases.all(record.id, who.devicePubkey), context.key)
+        if (live.isEmpty()) {
             val status = cadenceClient.status(who.participant, context.scope, cadenceId(), who, epochSeconds()).get().answer
             _room.update { it.copy(cadence = CadenceViewState(
                 eligible = true,
@@ -4631,47 +4701,57 @@ class RoomViewModel @JvmOverloads constructor(
             )) }
             return
         }
-        val result = if (current.ownership == CadenceOwnership.CLIENT_EXCLUDED) {
+        // A renewal leaves two live leases; each is resolved, because the earlier one is the one Bothy is running.
+        for (current in live) {
+            val resolved = resolveCadence(context, who, current)
+            val result = if (resolved === current) {
+                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
+            } else resolved
+            recoverCadenceQueue(context, who, result)
+        }
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
+    }
+
+    /** Learn the outcome of a lease whose reply was lost, never reclaiming its counters on a timeout. */
+    private fun resolveCadence(context: CadenceContext, who: RoomIdentity, current: StoredCadenceLease): StoredCadenceLease {
+        if (current.ownership != CadenceOwnership.CLIENT_EXCLUDED) return current
+        return try {
+            cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get().lease
+        } catch (_: Exception) {
+            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
+        }
+    }
+
+    /** Stop every live lease, including a staged renewal, each at its own safe boundary. */
+    private fun stopCadenceLeases(context: CadenceContext, who: RoomIdentity, room: String) {
+        CadenceSchedule.live(cadenceLeases.all(room, who.devicePubkey), context.key).forEach { resolveCadence(context, who, it) }
+        val targets = CadenceSchedule.stopTargets(
+            cadenceLeases.all(room, who.devicePubkey), context.key, DeadDrop.epochIndexAt(epochSeconds()),
+        )
+        var failure: Exception? = null
+        for ((lease, boundary) in targets) {
             try {
-                cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get()
-            } catch (_: Exception) {
-                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
+                cadenceClient.stop(who.participant, context.scope, who, lease, cadenceId(), boundary, epochSeconds(), cadenceLeases).get()
+            } catch (error: Exception) {
+                failure = failure ?: error
             }
-        } else {
-            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
         }
-        val lease = recoverCadenceQueue(context, who, result.lease)
-        _room.update { it.copy(cadence = cadenceView(lease, eligible = true)) }
+        failure?.let { throw it }
     }
 
-    private fun stopCadence(record: SavedRoom, who: RoomIdentity, secondary: Boolean, failure: String) {
-        val access = cadenceAccess(record, who, secondary)
-        val context = requireNotNull(access.context) { access.reason ?: failure }
-        val current = currentCadence(record.id, who.devicePubkey) ?: return
-        if (current.ownership != CadenceOwnership.BOX_OWNED || current.receipt?.state in setOf("cover", "ended")) return
-        val boundary = maxOf(DeadDrop.epochIndexAt(epochSeconds()) + 2, current.plan.startEpoch)
-        if (boundary > current.plan.endEpoch) {
-            refreshCadence(record, who, secondary)
-            return
+    /**
+     * Bothy's rekey retires every lease under the old key but reports only its
+     * target, so the target is the lease holding this epoch's queued messages.
+     */
+    private fun epochCadence(record: SavedRoom, who: RoomIdentity, epoch: EpochKeys): StoredCadenceLease? {
+        val live = cadenceLeases.all(record.id, who.devicePubkey).filter {
+            it.ownership != CadenceOwnership.ENDED &&
+                it.plan.trafficRoom == epoch.id && it.plan.roomGeneration == epoch.epoch.toLong() + 1
         }
-        val result = cadenceClient.stop(
-            who.participant, context.scope, who, current, cadenceId(), boundary,
-            epochSeconds(), cadenceLeases,
-        ).get()
-        _room.update { it.copy(cadence = cadenceView(result.lease, eligible = true)) }
+        val now = DeadDrop.epochIndexAt(epochSeconds())
+        return live.firstOrNull { now in it.plan.startEpoch until it.plan.endEpoch } ?: live.minByOrNull { it.plan.startEpoch }
     }
-
-    private fun currentCadence(room: String, device: String): StoredCadenceLease? = cadenceLeases.all(room, device)
-        .filter { it.ownership != CadenceOwnership.ENDED }
-        .maxByOrNull { it.plan.generation }
-
-    private fun epochCadence(record: SavedRoom, who: RoomIdentity, epoch: EpochKeys): StoredCadenceLease? =
-        cadenceLeases.all(record.id, who.devicePubkey)
-            .filter {
-                it.ownership != CadenceOwnership.ENDED &&
-                    it.plan.trafficRoom == epoch.id && it.plan.roomGeneration == epoch.epoch.toLong() + 1
-            }
-            .maxByOrNull { it.plan.generation }
 
     private fun cadenceCoordinate(lease: StoredCadenceLease?) = lease?.let {
         CadenceEpochCoordinate(
@@ -4818,23 +4898,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** Real sends stop before the Link route and its circle authority are retired. */
     private suspend fun stopCadenceBeforeDisconnect(record: SavedRoom, signer: ParticipantSigner) = cadenceGate.withLock {
         val who = record.identity(epochSeconds(), signer)
-        var current = currentCadence(record.id, who.devicePubkey) ?: return@withLock
+        if (cadenceLeases.all(record.id, who.devicePubkey).none { it.ownership != CadenceOwnership.ENDED }) return@withLock
         val access = cadenceAccess(record, who, record.secondary)
         val context = access.context ?: throw RoomRecoveryException(access.reason ?: "Cadence authority is unavailable.")
-        if (current.ownership == CadenceOwnership.CLIENT_EXCLUDED) {
-            current = try {
-                cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get().lease
-            } catch (_: Exception) {
-                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
-            }
-        }
-        if (current.receipt?.state in setOf("cover", "ended") || current.ownership != CadenceOwnership.BOX_OWNED) return@withLock
-        val boundary = maxOf(DeadDrop.epochIndexAt(epochSeconds()) + 2, current.plan.startEpoch)
-        if (boundary <= current.plan.endEpoch) {
-            cadenceClient.stop(who.participant, context.scope, who, current, cadenceId(), boundary, epochSeconds(), cadenceLeases).get()
-        } else {
-            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
-        }
+        stopCadenceLeases(context, who, record.id)
     }
 
     fun sendChat(body: String) = sendChat(body, null)

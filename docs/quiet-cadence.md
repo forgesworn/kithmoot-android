@@ -38,6 +38,17 @@ phone does not reclaim counters early. Disconnecting Bothy first resolves any
 uncertain lease and requests this safe stop; only then can the Link route and
 circle authority be retired.
 
+**Renew** stages the same lease id at the next generation, starting exactly at
+the running lease's end, for up to twelve more hours within the device
+credential and the self grant. There is no gap and no second scheduler. It is
+offered only while the running lease is staged or active, has not been renewed
+and ends at least two epochs from now; a stopping, cover or unconfirmed lease
+ends at its boundary and is never extended, and nothing renews automatically.
+The phone sends nothing in the renewed window, so renewal does not wait for the
+phone's queued quiet messages as a first hand-off does. Once staged, the
+renewal's cover is promised: Stop ends real sends in both leases at their safe
+boundaries, but Bothy keeps fillers until the renewal's end.
+
 A room rekey uses the stricter `/rekey` mutation. Android first persists the
 successor secret as pending, blocks every ordinary publication path and asks
 Bothy to advance the room-generation high-water mark. Bothy fails uncommitted
