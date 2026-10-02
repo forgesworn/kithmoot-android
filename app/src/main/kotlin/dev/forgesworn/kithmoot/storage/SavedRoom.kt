@@ -64,6 +64,14 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val policy: RoomPolicy? get() = invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
     val relays: List<String> get() = json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
     val authority: String? get() = json["authority"]?.jsonPrimitive?.content
+    /**
+     * The highest epoch this device has been told the room is at - by the
+     * responder that admitted it (`RoomAdmission.epoch`) - kept so a room
+     * whose authority did not answer at the time asks again next time, and
+     * says it needs recovery meanwhile, rather than opening as if current.
+     * Null for a room never told, and every record older than this field.
+     */
+    val epochHint: Int? get() = json["epochHint"]?.jsonPrimitive?.intOrNull
     /** Old records predate this mode and therefore remain ordinary direct rooms. */
     val anonymous: Boolean get() = json["anonymous"]?.jsonPrimitive?.boolean ?: false
     val secondary: Boolean get() = identityJson.text("type") == "secondary"
@@ -265,6 +273,25 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         }.also { it.validate() }
     }
 
+    /** Remember [epoch] as told, keeping the highest; a null or no-higher hint changes nothing. */
+    fun withEpochHint(epoch: Int?): SavedRoom {
+        if (epoch == null || epoch < 0 || epoch <= (epochHint ?: -1)) return this
+        return changed { put("epochHint", epoch.toLong()) }.also { it.validate() }
+    }
+
+    /**
+     * Pin the root inviter of this room's invitation link as its authority,
+     * for a record saved before the authority was recorded. That is what the
+     * web client pins for the same link (`link.invitation.inviter`), and
+     * without it the room never follows a rekey. A record with an authority,
+     * or with no invitation (a legacy secret link), is unchanged.
+     */
+    fun withInvitationAuthority(): SavedRoom {
+        if (authority != null) return this
+        val inviter = invitation?.invitation?.canonicalInviter ?: return this
+        return changed { put("authority", inviter) }.also { it.validate() }
+    }
+
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {
@@ -276,6 +303,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             // The end is the room's, not the link's: a later opening that did
             // not learn it (a synced bookmark) must not forget it.
             if (ends == null) previous.ends?.let { put("ends", it) }
+            // What this device was told about the room's epoch is the room's too.
+            previous.epochHint?.takeIf { it > (epochHint ?: -1) }?.let { put("epochHint", it.toLong()) }
             // So are its relays: a link's hints never displace what the
             // room's signed invitation said, and an authority's record is kept.
             if (previous.roomRelays.isNotEmpty() && (roomRelays.isEmpty() || (previous.roomRelaysSigned && !roomRelaysSigned))) {
@@ -317,6 +346,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(relays.all { it.startsWith("wss://") || it.startsWith("ws://") })
         if (anonymous) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList())
         authority?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        json["epochHint"]?.let { require(it is JsonPrimitive && !it.isString && (it.intOrNull ?: -1) >= 0) }
         json["ends"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: 0L) > 0L) }
         if (ends != null) require(invitation?.invitation?.persistent == true) { "Only a group room can end." }
         if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))

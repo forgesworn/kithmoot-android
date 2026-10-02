@@ -395,7 +395,9 @@ private fun BoxWithConstraintsScope.ReturningContent(
 
     @Composable
     fun ListPane(modifier: Modifier) {
-        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
+        // Padded for the keyboard: the invite field is this list's last item,
+        // and without it the keyboard covers the field and its Open button.
+        LazyColumn(modifier.imePadding(), state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

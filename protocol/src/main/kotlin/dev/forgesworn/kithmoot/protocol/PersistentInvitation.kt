@@ -98,6 +98,7 @@ fun decodePersistentInvitation(event: NostrEvent, invitation: RoomInvitation): R
         expirations.singleOrNull()?.let { require(ends != null && it.getOrNull(1) == ends.toString()) }
         val relays = if ("relays" in body) requireNotNull(invitationRelaysOf(body["relays"])) else null
         if (body["v"]?.jsonPrimitive?.longOrNull != 3L || deriveRoom(secret).roomId != body["room"]?.jsonPrimitive?.content) null
-        else RoomAdmission(secret, null, ends, relays)
+        // A group invitation always opens epoch 0, as fold-kit's says.
+        else RoomAdmission(secret, null, ends, relays, epoch = 0)
     }
 } catch (_: Exception) { null }

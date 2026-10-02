@@ -97,6 +97,13 @@ data class RoomAdmission(
     val endsAt: Long? = null,
     /** The room's own relays, from its group invitation: every member's pool includes them. Null when it names none. */
     val relays: List<String>? = null,
+    /**
+     * The epoch the responder says the room is at: a hint, not a key. [secret]
+     * opens epoch 0; a joiner told a later epoch asks the room's authority for
+     * it before it says anything (fold-kit `RoomAdmission.epoch`). Null when
+     * the responder did not say, which is a responder that predates epochs.
+     */
+    val epoch: Int? = null,
 )
 
 class InvitationPayload(
@@ -328,6 +335,9 @@ fun encodeInvitationGrant(
     now: Long,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    /** The epoch this responder is at, so the requester knows whether the
+     *  secret it receives is the room's current one. Omitted when null. */
+    epoch: Int? = null,
 ): NostrEvent {
     require(roomSecret.size == 32) { "a room secret is 32 bytes" }
     require(requester.matches(Regex("^[0-9a-fA-F]{64}$"))) { "a requester is a 32-byte hex pubkey" }
@@ -353,6 +363,7 @@ fun encodeInvitationGrant(
         put("request", requestId.lowercase())
         put("secret", base64UrlEncode(roomSecret))
         put("delegation", buildJsonArray { for (certificate in chain) add(certificate.toJson()) })
+        if (epoch != null && epoch >= 0) put("epoch", epoch)
     }
     val conversationKey = Nip44.conversationKey(host.inviterSecretKey, canonicalRequester.hexToBytes())
     return Events.sign(
@@ -411,7 +422,11 @@ fun decodeRoomAdmissionGrant(
         if (!delegation.first().room.equals(deriveRoom(secret).roomId, ignoreCase = true)) return null
         if (verifyInvitationDelegation(invitation, delegation, now) != requester) return null
         if (!delegation.last().issuer.equals(event.pubkey, ignoreCase = true)) return null
-        RoomAdmission(secret, RoomInvitationHost(invitation, requesterSecretKey, delegation))
+        // A hint, so a malformed one is dropped rather than refusing the
+        // admission, as fold-kit's decoder does.
+        val epoch = (body["epoch"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+            ?.takeIf { it in 0..Int.MAX_VALUE.toLong() }?.toInt()
+        RoomAdmission(secret, RoomInvitationHost(invitation, requesterSecretKey, delegation), epoch = epoch)
     } catch (_: Exception) {
         null
     }
