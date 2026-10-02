@@ -17,7 +17,7 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
 
     fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
-        while (!predicate()) {
+        while (!declineNotificationAsk() && !predicate()) {
             if (SystemClock.uptimeMillis() >= deadline) {
                 throw AssertionError("Timed out waiting for $description. Visible UI:\n" + nodes().mapNotNull {
                     (it.text ?: it.contentDescription ?: it.hintText)?.toString()
@@ -25,6 +25,19 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
             }
             SystemClock.sleep(50)
         }
+    }
+
+    /**
+     * The first room opened asks about notifications (see KithMootApp), and
+     * on a fresh install or after a restart it can be up whatever the test is
+     * waiting for: its dialog window hides the screen beneath from the tree.
+     * Declined as a person would. Always false, so the wait goes on.
+     */
+    private fun declineNotificationAsk(): Boolean {
+        if (nodes().any { it.text?.toString() == "Know when someone writes" }) {
+            button("Not now")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        return false
     }
 
     private fun nodes(): List<AccessibilityNodeInfo> {
