@@ -28,6 +28,8 @@ data class AccountSettingsActions(
     val retrySync: () -> Unit = {},
     val circleBoxes: (String) -> Unit = {},
     val signOut: () -> Unit = {},
+    /** Leaves the open room, for signing in: an account cannot replace the identity a room was joined with. */
+    val leaveRoom: () -> Unit = {},
 )
 
 /** One account entry point on home, projects and inside a room. */
@@ -82,7 +84,14 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (page) {
-                "signin" -> AccountSection(state, signIn, !inRoom && !state.busy)
+                // In a room the sheet used to open with every control disabled and no
+                // reason. Say why, and offer the way there, as the web client does.
+                "signin" -> if (inRoom) {
+                    Text("Sign in with Nostr", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+                    Text("You are in this room with just a name: a separate identity, not your Nostr account. " +
+                        "Leave the room to sign in with your usual account. Leaving ends any call you are on; your saved rooms stay on this phone.")
+                    Button({ page = null; actions.leaveRoom() }, Modifier.heightIn(min = 48.dp)) { Text("Leave to sign in") }
+                } else AccountSection(state, signIn, !state.busy)
                 "profile" -> ProfileEditorFields(state, actions)
                 "notifications" -> notificationSettings()
                 "relays" -> RelayEditor(state, choices, inRoom, actions)

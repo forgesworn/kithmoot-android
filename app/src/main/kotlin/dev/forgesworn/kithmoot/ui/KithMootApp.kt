@@ -331,6 +331,7 @@ fun KithMootApp(
                         loadDmRelays = account::loadDmRelays, publishDmRelays = account::publishDmRelays,
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
+                        leaveRoom = model::leave,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
                     notificationSettings = {
                         val ringRoom = if (stage == Stage.ROOM) object : dev.forgesworn.kithmoot.notifications.CallRingRoom {
