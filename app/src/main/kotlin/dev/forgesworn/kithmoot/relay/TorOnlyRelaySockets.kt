@@ -1,14 +1,21 @@
 package dev.forgesworn.kithmoot.relay
 
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.bouncycastle.crypto.digests.SHA3Digest
+import java.io.IOException
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.net.Socket
+import java.net.SocketAddress
 import java.net.URI
+import java.net.UnknownHostException
+import javax.net.SocketFactory
 import java.util.concurrent.TimeUnit
 
 /**
@@ -95,18 +102,24 @@ class TorOnlyRelaySockets(private val tor: TorRelaySocketFactory) : RelaySocketF
 
 /**
  * The concrete Android carrier for a locally running Orbot. Guardian Project
- * documents Orbot's loopback HTTP proxy at port 8118; OkHttp tunnels the
- * WebSocket CONNECT through that proxy and never consults the device's normal
- * proxy selector. An unavailable proxy reports a failed relay socket, rather
- * than falling back to [OkHttpRelaySockets].
+ * documents Orbot's loopback HTTP proxy at port 8118, and every relay reaches
+ * it as a CONNECT to the onion, never consulting the device's normal proxy
+ * selector. OkHttp does that itself only for `wss://`: a `ws://` URL through an
+ * HTTP proxy goes as a plain proxied GET, which never reaches the onion. So a
+ * `ws://` relay dials through [OrbotConnectTunnel] instead. An unavailable or
+ * refusing proxy reports a failed relay socket, rather than falling back to
+ * [OkHttpRelaySockets].
  */
 class OrbotTorRelaySockets(
     private val client: OkHttpClient = defaultClient(),
 ) : RelaySocketFactory {
+    private val plainClient: OkHttpClient by lazy { OrbotConnectTunnel.plainClient(client) }
+
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
-        val request = Request.Builder().url(TorOnlyRelayUrls.normalise(url)).build()
+        val relay = TorOnlyRelayUrls.normalise(url)
+        val request = Request.Builder().url(relay).build()
         val adapter = Adapter(listener)
-        val socket = client.newWebSocket(request, adapter)
+        val socket = (if (relay.startsWith("ws://")) plainClient else client).newWebSocket(request, adapter)
         return object : RelaySocket {
             override fun send(text: String) { socket.send(text) }
             // A socket still waiting on its upgrade has nothing to send a
@@ -146,5 +159,91 @@ class OrbotTorRelaySockets(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
+    }
+}
+
+/**
+ * A `ws://` onion relay through Orbot's HTTP proxy, as a CONNECT tunnel.
+ *
+ * The client it builds has no proxy of its own, so two pieces keep every byte
+ * on the proxy. [dns] answers only for v3 onion names, and with a placeholder
+ * address that carries the name and is never looked up. [TunnelSocket] ignores
+ * that address: it dials only the proxy and asks it, by name, for the onion.
+ * Anything that is not an onion is refused before a socket opens.
+ */
+internal object OrbotConnectTunnel {
+    private val placeholder = byteArrayOf(0, 0, 0, 0)
+
+    val dns: Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val onion = try { TorOnlyRelayUrls.assertV3OnionHostname(hostname) }
+                catch (_: IllegalArgumentException) { throw UnknownHostException("Tor-only relays resolve only v3 onion names.") }
+            return listOf(InetAddress.getByAddress(onion, placeholder))
+        }
+    }
+
+    /** [base] with its HTTP proxy replaced by a CONNECT tunnel to that same proxy. */
+    fun plainClient(base: OkHttpClient): OkHttpClient {
+        val proxy = requireNotNull(base.proxy) { "The Orbot carrier needs its proxy." }
+        require(proxy.type() == Proxy.Type.HTTP) { "The Orbot carrier needs an HTTP proxy." }
+        val address = proxy.address() as InetSocketAddress
+        return base.newBuilder()
+            .proxy(Proxy.NO_PROXY)
+            .dns(dns)
+            .socketFactory(Factory(address, base.connectTimeoutMillis))
+            .build()
+    }
+
+    private class Factory(private val proxy: InetSocketAddress, private val timeoutMs: Int) : SocketFactory() {
+        override fun createSocket(): Socket = TunnelSocket(proxy, timeoutMs)
+        // OkHttp creates sockets unconnected; a connected one would skip the tunnel.
+        override fun createSocket(host: String?, port: Int): Socket = throw IOException("Unsupported.")
+        override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket = throw IOException("Unsupported.")
+        override fun createSocket(host: InetAddress?, port: Int): Socket = throw IOException("Unsupported.")
+        override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket = throw IOException("Unsupported.")
+    }
+
+    /** Dials the proxy whatever it is asked for, then CONNECTs to the onion it was asked for by name. */
+    private class TunnelSocket(private val proxy: InetSocketAddress, private val defaultTimeoutMs: Int) : Socket() {
+        override fun connect(endpoint: SocketAddress?) = connect(endpoint, defaultTimeoutMs)
+
+        override fun connect(endpoint: SocketAddress?, timeout: Int) {
+            val target = endpoint as? InetSocketAddress ?: throw IOException("Tor-only relays need an onion address.")
+            // getHostString, never getHostName: the name must not be looked up.
+            val onion = try { TorOnlyRelayUrls.assertV3OnionHostname(target.hostString) }
+                catch (_: IllegalArgumentException) { throw IOException("Tor-only relays dial only v3 onion names.") }
+            super.connect(proxy, timeout)
+            val before = soTimeout
+            soTimeout = if (timeout > 0) timeout else 30_000
+            try {
+                val authority = "$onion:${target.port}"
+                getOutputStream().apply { write("CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n\r\n".toByteArray(Charsets.US_ASCII)); flush() }
+                val status = readHead().firstOrNull().orEmpty()
+                if (!Regex("^HTTP/1\\.[01] 2\\d\\d( .*)?$").matches(status)) throw IOException("Orbot refused the tunnel: ${status.take(64)}")
+            } catch (e: IOException) {
+                runCatching { close() }
+                throw e
+            }
+            soTimeout = before
+        }
+
+        /** The proxy's reply head, byte by byte, so nothing after it is consumed. */
+        private fun readHead(): List<String> {
+            val input = getInputStream()
+            val lines = mutableListOf<String>()
+            val line = StringBuilder()
+            var total = 0
+            while (true) {
+                val b = input.read()
+                if (b < 0) throw IOException("Orbot closed the tunnel.")
+                if (++total > 8192) throw IOException("Orbot's reply was too long.")
+                if (b == '\n'.code) {
+                    val done = line.toString().trimEnd('\r')
+                    if (done.isEmpty()) return lines
+                    lines += done
+                    line.clear()
+                } else line.append(b.toChar())
+            }
+        }
     }
 }
