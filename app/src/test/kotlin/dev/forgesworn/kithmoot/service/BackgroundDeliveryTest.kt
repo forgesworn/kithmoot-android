@@ -154,6 +154,31 @@ class BackgroundDeliveryTest {
         assertEquals(listOf("m3"), box.state().unread.map { it.id })
     }
 
+    // P4-02: the process dies while the room is open, and the service restarts.
+    @Test fun `what the open room read or alerted is never alerted again after the process dies`() {
+        val store = MemoryStore()
+        inbox(store).markRead(1_000)
+        // Read live in the open room, so read through then.
+        inbox(store).markRead(1_006)
+        // Alerted by the open room and still unread.
+        assertTrue(inbox(store).recordAlerted(message("m2", sentAt = 1_010)))
+        assertFalse(inbox(store).recordAlerted(message("m2", sentAt = 1_010)))
+        // The restarted service resubscribes from before the cursor.
+        assertFalse(inbox(store).record("e1", 1_005, message("m1", sentAt = 1_005)))
+        assertFalse(inbox(store).record("e2", 1_010, message("m2", sentAt = 1_010)))
+        assertTrue(inbox(store).record("e3", 1_030, message("m3", sentAt = 1_030)))
+        assertEquals(listOf("m2", "m3"), inbox(store).state().unread.map { it.id })
+        // The open room's subscription is not this one's: alerting moves no cursor.
+        assertEquals(1_030, inbox(store).state().cursor)
+        val fresh = MemoryStore()
+        inbox(fresh).markRead(1_000)
+        inbox(fresh).recordAlerted(message("late", sentAt = 1_050))
+        assertEquals(1_000, inbox(fresh).state().cursor)
+        // Own messages and statements are seen, never unread.
+        assertFalse(inbox(fresh).recordAlerted(message("mine", from = self, sentAt = 1_060)))
+        assertEquals(listOf("late"), inbox(fresh).state().unread.map { it.id })
+    }
+
     @Test fun `a room first watched now does not count its retained history`() {
         val box = inbox(MemoryStore())
         // What the service does on first watching a room: start counting from now.

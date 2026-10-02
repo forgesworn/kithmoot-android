@@ -36,6 +36,7 @@ import dev.forgesworn.kithmoot.notifications.MessageNotices
 import dev.forgesworn.kithmoot.notifications.NoticeLine
 import dev.forgesworn.kithmoot.notifications.noticeContent
 import dev.forgesworn.kithmoot.notifications.noticeLine
+import dev.forgesworn.kithmoot.notifications.restoredNoticeLines
 import dev.forgesworn.kithmoot.session.isDmPolicy
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
 import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
@@ -308,6 +309,7 @@ class BackgroundCallListenerService : Service() {
                 // First watched now: count from here, not the room's whole retained history.
                 if (inbox.state().cursor == 0L) inbox.markRead(now())
                 Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} watching unread=${inbox.state().unread.size}")
+                restoreNotice(candidate, inbox)
             }
             jobs += scope.launch {
                 // Rebuilt from the inbox at every send, first REQ and every
@@ -416,6 +418,27 @@ class BackgroundCallListenerService : Service() {
         val now = android.os.SystemClock.elapsedRealtime()
         val sound = settings.bell && noticeSoundAt[id].let { it == null || now - it >= 5_000 }
         if (MessageNotices.post(this, id, content, sound, noticeReplyAvailable(this, id)) && sound) noticeSoundAt[id] = now
+    }
+
+    /**
+     * After a restart or reboot the inbox still counts unread messages, but
+     * this process has no text for them and a reboot emptied the tray. Picks
+     * the lines up from the tray where they are still there; otherwise posts
+     * them again, silently, saying "New message". Once per room per process.
+     */
+    private fun restoreNotice(candidate: Candidate, inbox: dev.forgesworn.kithmoot.session.BackgroundInbox) {
+        val id = candidate.watch.stableRoomId
+        if (noticeLines.containsKey(id)) return
+        val unread = inbox.state().unread
+        val settings = ChatNotifications.load(this)
+        if (unread.isEmpty() || !settings.enabled) return
+        val shown = MessageNotices.shown(this, id)
+        val lines = restoredNoticeLines(unread, shown.orEmpty())
+        noticeLines[id] = lines
+        if (shown != null) return
+        val content = noticeContent(candidate.watch.roomName, isDmPolicy(candidate.saved.policy), lines, settings.previews)
+            .copy(unread = unread.size)
+        MessageNotices.post(this, id, content, sound = false, replyable = noticeReplyAvailable(this, id))
     }
 
     private fun onBell(watch: BackgroundRoomWatch, event: NostrEvent) {

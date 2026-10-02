@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.notifications
 
+import dev.forgesworn.kithmoot.session.BackgroundInbox
 import dev.forgesworn.kithmoot.session.ChatMessage
 import org.junit.Assert.*
 import org.junit.Test
@@ -39,5 +40,17 @@ class NoticeContentTest {
         assertEquals(MAX_NOTICE_BODY, line.body.length)
         assertEquals("Morgs", noticeSender(message.copy(name = "Morgs")))
         assertEquals("abcdef012345", noticeSender(message.copy(name = "  ")))
+    }
+
+    @Test fun afterARestartTheTrayKeepsItsTextAndAnythingElseSaysOnlyThatAMessageCame() {
+        val unread = listOf(BackgroundInbox.Unread("m1", "morgs-key", 10), BackgroundInbox.Unread("m2", "ash-key", 20))
+        val shown = listOf(ShownLine("morgs-key", "Morgs", 10_000, "Still here"), ShownLine("ash-key", "Ash", 21_000, "Another second"))
+        val lines = restoredNoticeLines(unread, shown)
+        assertEquals(listOf("Still here", "New message"), lines.map { it.body })
+        assertEquals(listOf("Morgs", "ash-key"), lines.map { it.sender })
+        assertEquals(listOf("m1", "m2"), lines.map { it.id })
+        assertEquals(listOf("New message", "New message"), restoredNoticeLines(unread, emptyList()).map { it.body })
+        val many = (1..10).map { BackgroundInbox.Unread("m$it", "k", it.toLong()) }.reversed()
+        assertEquals((5..10).map { "m$it" }, restoredNoticeLines(many, emptyList()).map { it.id })
     }
 }

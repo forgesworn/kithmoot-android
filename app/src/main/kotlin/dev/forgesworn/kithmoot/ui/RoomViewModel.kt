@@ -586,6 +586,8 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 /** How long a reply from a notification waits for a relay: a receiver has ten seconds in all. */
 private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
+/** One at a time, in order, so an open room's inbox writes never land after its close's read-through. */
+private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
@@ -3415,6 +3417,18 @@ class RoomViewModel @JvmOverloads constructor(
             // and this room shows its messages. What it received while the room
             // was closed is now read.
             withContext(Dispatchers.IO) { markBackgroundRead(record) }
+            // Kept current while open, not only at open and close: if the process
+            // dies with the room open, the restarted service must neither alert
+            // what was read here again nor lose what alerted here unread.
+            if (!chatOnly) notifications.inbox = { read, alerted ->
+                CoroutineScope(backgroundInboxWrites).launch {
+                    runCatching {
+                        val inbox = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox
+                        alerted.forEach(inbox::recordAlerted)
+                        if (read) inbox.markRead(epochSeconds())
+                    }
+                }
+            }
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
             // Reply on this room's notification goes through this session, not a second connection.
             // Read once, off the main thread; whether its credential still lasts is asked at each post.
@@ -3949,7 +3963,7 @@ class RoomViewModel @JvmOverloads constructor(
         noticeReplier = null
         // Read through now before the background service takes the room back,
         // or its catch-up would count messages already shown here.
-        savedRoom?.let { closed -> CoroutineScope(Dispatchers.IO).launch {
+        savedRoom?.let { closed -> CoroutineScope(backgroundInboxWrites).launch {
             markBackgroundRead(closed)
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(closed.id)
         } }

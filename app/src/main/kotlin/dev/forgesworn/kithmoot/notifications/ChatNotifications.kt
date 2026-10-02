@@ -35,6 +35,12 @@ class ChatNotifications(private val context: Context) {
     @Volatile var onCall = false
     /** Whether this room's notification offers Reply, asked at each post: a credential's life runs down. */
     @Volatile var replyable: () -> Boolean = { false }
+    /**
+     * Told what this room has read ([read] true) and what it has alerted, so
+     * the background inbox knows it too and a restart after the process dies
+     * neither alerts it again nor counts it as unread. Must not block.
+     */
+    @Volatile var inbox: (read: Boolean, alerted: List<ChatMessage>) -> Unit = { _, _ -> }
     /** Replied from the notification: it shows the reply until something new arrives or the room is read. */
     private var keepReply = false
     private var lastNotice = ""
@@ -50,9 +56,10 @@ class ChatNotifications(private val context: Context) {
     }
     @Synchronized fun accept(value: List<ChatMessage>) { messages = value; refresh() }
     /** A reply sent from the notification: what it showed is read, and [MessageNotices.replied] shows the reply. */
-    @Synchronized fun replied() { tracker?.read(); keepReply = true; lastNotice = "" }
+    @Synchronized fun replied() { tracker?.read() ?: return; keepReply = true; lastNotice = ""; inbox(true, emptyList()) }
     @Synchronized fun refresh() {
         val update = tracker?.update(messages, foreground && reading) ?: return
+        if (update.read || update.arrived.isNotEmpty()) inbox(update.read, update.arrived)
         if (keepReply && update.unread.isEmpty() && !(foreground && reading)) return
         keepReply = false
         val settings = settings.value
@@ -82,7 +89,7 @@ class ChatNotifications(private val context: Context) {
     }
     private fun soundUri() = soundUri(context)
     fun cancel() { lastNotice = ""; if (roomId.isNotEmpty()) MessageNotices.cancel(context, roomId) }
-    @Synchronized fun end() { cancel(); tracker = null; keepReply = false; replyable = { false }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
+    @Synchronized fun end() { cancel(); tracker = null; keepReply = false; replyable = { false }; inbox = { _, _ -> }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
     companion object {
         // A new id because a channel's importance cannot be raised once
         // created, and messages now arrive as heads-up notices.

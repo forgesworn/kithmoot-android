@@ -43,13 +43,29 @@ class BackgroundInbox(
      */
     @Synchronized fun record(eventId: String, createdAt: Long, message: ChatMessage): Boolean {
         val current = state()
-        val messageKey = refOf(message).key
         val cursor = maxOf(current.cursor, createdAt)
-        if (eventId in current.seen || messageKey in current.seen) {
+        if (eventId in current.seen || refOf(message).key in current.seen) {
             if (cursor != current.cursor) write(current.copy(cursor = cursor))
             return false
         }
-        val seen = (current.seen + eventId + messageKey).takeLast(MAX_SEEN)
+        return add(current, listOf(eventId), cursor, createdAt, message)
+    }
+
+    /**
+     * The open room alerted [message] and nobody has read it yet. Recorded as
+     * seen, and unread by the same rule as [record], so a background service
+     * restarted after the process died while the room was open neither
+     * alerts it again nor loses it. The cursor stays where it is: the room's
+     * subscription is not this one's.
+     */
+    @Synchronized fun recordAlerted(message: ChatMessage): Boolean {
+        val current = state()
+        if (refOf(message).key in current.seen) return false
+        return add(current, emptyList(), current.cursor, message.sentAt, message)
+    }
+
+    private fun add(current: State, ids: List<String>, cursor: Long, createdAt: Long, message: ChatMessage): Boolean {
+        val seen = (current.seen + ids + refOf(message).key).takeLast(MAX_SEEN)
         val counts = !message.participant.hexEquals(participant) && message.reaction == null &&
             message.replaces == null && message.retracts == null && message.invite == null &&
             maxOf(message.sentAt, createdAt) > current.readThrough
@@ -60,8 +76,8 @@ class BackgroundInbox(
     }
 
     /**
-     * The room is open, or has just closed, at [at]: everything sent until then
-     * has been read. The next background subscription resumes a little before
+     * The room is open, has just closed, or the open room has just been read,
+     * at [at]: everything sent until then has been read. The next background subscription resumes a little before
      * the cursor, so without this a message shown live would count again.
      */
     @Synchronized fun markRead(at: Long) {
