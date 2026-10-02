@@ -1731,7 +1731,12 @@ class RoomViewModel @JvmOverloads constructor(
             state = "unresolved",
             detail = "Bothy's reply to the renewal was not confirmed. KithMoot kept its exact bytes and will retry without reclaiming the counters.",
         )
+        // Stop lowers only real sends; a staged renewal's cover is already promised to its end.
+        val detail = if (successor != null && view.state in setOf("stopping", "cover")) {
+            "Real sends stop at the safe boundary. Bothy keeps the fixed cover pattern until the renewal's end, which a stop cannot shorten."
+        } else view.detail
         return view.copy(
+            detail = detail,
             renewable = CadenceSchedule.renewable(leases, context.key, epoch),
             renewedUntilEpoch = successor?.plan?.endEpoch,
         )
@@ -3214,7 +3219,8 @@ class RoomViewModel @JvmOverloads constructor(
                                         epochSeconds(), cadenceLeases,
                                     ).get()
                                 }
-                                _room.update { state -> state.copy(cadence = scheduleView(context, derived.roomId, who.devicePubkey)) }
+                                val view = scheduleView(context, derived.roomId, who.devicePubkey)
+                                _room.update { state -> state.copy(cadence = view) }
                                 queued.complete(true)
                             } catch (error: Exception) {
                                 queued.completeExceptionally((error as? java.util.concurrent.ExecutionException)?.cause ?: error)
@@ -4611,7 +4617,8 @@ class RoomViewModel @JvmOverloads constructor(
             status.currentEpoch, start, end, context.roomKey, context.publicRelays, listOf("local"), epochSeconds(),
         )
         cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
-        _room.update { it.copy(cadence = scheduleView(context, record.id, who.devicePubkey)) }
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
     }
 
     /**
@@ -4631,8 +4638,9 @@ class RoomViewModel @JvmOverloads constructor(
                 status.earliestStartEpoch, credentialExpiry / 3600, context.grantExpiresAt / 3600,
             )
         when (renewal) {
-            is CadenceRenewal.Refused -> _room.update {
-                it.copy(cadence = scheduleView(context, record.id, who.devicePubkey).copy(detail = renewal.reason))
+            is CadenceRenewal.Refused -> {
+                val view = scheduleView(context, record.id, who.devicePubkey).copy(detail = renewal.reason)
+                _room.update { it.copy(cadence = view) }
             }
             is CadenceRenewal.Ready -> {
                 val options = CadenceLeaseOptions(
@@ -4641,7 +4649,8 @@ class RoomViewModel @JvmOverloads constructor(
                     listOf("local"), epochSeconds(),
                 )
                 cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
-                _room.update { it.copy(cadence = scheduleView(context, record.id, who.devicePubkey)) }
+                val view = scheduleView(context, record.id, who.devicePubkey)
+                _room.update { it.copy(cadence = view) }
             }
         }
     }
@@ -4649,11 +4658,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun stopCadence() = cadenceAction { record, who, secondary ->
         val access = cadenceAccess(record, who, secondary)
         val context = requireNotNull(access.context) { access.reason ?: "Bothy could not stop the schedule." }
-        try {
-            stopCadenceLeases(context, who, record.id)
-        } finally {
-            _room.update { it.copy(cadence = scheduleView(context, record.id, who.devicePubkey)) }
-        }
+        val failure = runCatching { stopCadenceLeases(context, who, record.id) }.exceptionOrNull()
+        runCatching { scheduleView(context, record.id, who.devicePubkey) }.onSuccess { view -> _room.update { it.copy(cadence = view) } }
+        failure?.let { throw it }
     }
 
     private fun cadenceAction(action: suspend (SavedRoom, RoomIdentity, Boolean) -> Unit) {
@@ -4702,7 +4709,8 @@ class RoomViewModel @JvmOverloads constructor(
             } else resolved
             recoverCadenceQueue(context, who, result)
         }
-        _room.update { it.copy(cadence = scheduleView(context, record.id, who.devicePubkey)) }
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
     }
 
     /** Learn the outcome of a lease whose reply was lost, never reclaiming its counters on a timeout. */
