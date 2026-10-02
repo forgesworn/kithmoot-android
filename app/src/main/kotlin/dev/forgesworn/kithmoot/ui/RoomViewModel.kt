@@ -229,6 +229,7 @@ import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
 import dev.forgesworn.kithmoot.ui.room.shortId
+import dev.forgesworn.kithmoot.ui.room.roomLane
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -3277,7 +3278,7 @@ class RoomViewModel @JvmOverloads constructor(
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
-            lane = if (anonymousProfile) null else laneOfRelays(activeRelays, circleRelaySet()),
+            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
             privateConversation = isDmPolicy(policy),
             chatOnly = chatOnly,
             profilesEnabled = !anonymousProfile && display.getBoolean("publicProfiles", true),
@@ -5306,7 +5307,7 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update {
                     if (it.roomId != roomId) it else it.copy(
                         relaysTotal = relayUrls.size,
-                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
+                        lane = roomLane(relayUrls, anonymousRoom, ::circleRelaySet),
                         notice = notice ?: it.notice,
                     )
                 }
@@ -5394,7 +5395,7 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update {
                     if (it.roomId != room.id) it else it.copy(
                         relaysTotal = relayUrls.size,
-                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
+                        lane = roomLane(relayUrls, anonymousRoom, ::circleRelaySet),
                     )
                 }
             }
@@ -5523,7 +5524,7 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { state ->
             state.copy(
                 contacts = rows,
-                lane = if (relayUrls.isEmpty()) state.lane else laneOfRelays(relayUrls, circle),
+                lane = if (relayUrls.isEmpty()) state.lane else roomLane(relayUrls, anonymousRoom) { circle },
                 tiles = if (live == null) state.tiles else buildTiles(live.participants.value, state.selfParticipant, state.selfDevice, cardNames, volumesFor(live.participants.value)),
             )
         }

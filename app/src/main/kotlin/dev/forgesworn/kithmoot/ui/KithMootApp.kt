@@ -333,6 +333,7 @@ fun KithMootApp(
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                         leaveRoom = model::leave,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
+                    torOnlyRoom = stage == Stage.ROOM && roomState.anonymous,
                     notificationSettings = {
                         val ringRoom = if (stage == Stage.ROOM) object : dev.forgesworn.kithmoot.notifications.CallRingRoom {
                             override val roomId = roomState.roomId
@@ -584,6 +585,7 @@ fun KithMootApp(
                             profiles = roomState.profiles,
                             onProfilesEnabled = model::setProfilesEnabled,
                             lane = roomState.lane,
+                            torOnly = roomState.anonymous,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,

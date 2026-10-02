@@ -57,6 +57,8 @@ fun ChatPane(
     onProfilesEnabled: (Boolean) -> Unit = {},
     /** The lane the next message will take; null when the room cannot say. */
     lane: Lane? = null,
+    /** A Tor-only (anonymous) room: said beside the lane, which stays public. */
+    torOnly: Boolean = false,
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
@@ -182,9 +184,9 @@ fun ChatPane(
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
-            Text("Encrypted" + when (lane) { Lane.PUBLIC -> " · public relays"; Lane.SHELTERED -> " · circle relays"; Lane.DIRECT -> " · direct"; null -> " · checking connection" } + if (quiet) " · quiet" else "",
+            Text(privacyLine(lane, torOnly, quiet),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (lane?.meaning ?: "Transport unknown.") })
+                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly) ?: "Transport unknown.") })
         }
         if (quiet && !quietCanSend) Text(QuietTransport.CANNOT_SEND, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (searching) {
@@ -299,7 +301,7 @@ fun ChatPane(
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Messages are encrypted to the room.")
-            Text(lane?.meaning ?: "The transport for the next message is not yet known.")
+            Text(privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
             if (quiet) Text(QuietTransport.MEANING)
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Show public profiles") }
