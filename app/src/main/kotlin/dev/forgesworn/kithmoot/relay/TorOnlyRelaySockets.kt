@@ -190,12 +190,12 @@ internal object OrbotConnectTunnel {
         return base.newBuilder()
             .proxy(Proxy.NO_PROXY)
             .dns(dns)
-            .socketFactory(Factory(address, base.connectTimeoutMillis))
+            .socketFactory(Factory(address, base.connectTimeoutMillis, base.readTimeoutMillis))
             .build()
     }
 
-    private class Factory(private val proxy: InetSocketAddress, private val timeoutMs: Int) : SocketFactory() {
-        override fun createSocket(): Socket = TunnelSocket(proxy, timeoutMs)
+    private class Factory(private val proxy: InetSocketAddress, private val connectMs: Int, private val replyMs: Int) : SocketFactory() {
+        override fun createSocket(): Socket = TunnelSocket(proxy, connectMs, replyMs)
         // OkHttp creates sockets unconnected; a connected one would skip the tunnel.
         override fun createSocket(host: String?, port: Int): Socket = throw IOException("Unsupported.")
         override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket = throw IOException("Unsupported.")
@@ -204,8 +204,18 @@ internal object OrbotConnectTunnel {
     }
 
     /** Dials the proxy whatever it is asked for, then CONNECTs to the onion it was asked for by name. */
-    private class TunnelSocket(private val proxy: InetSocketAddress, private val defaultTimeoutMs: Int) : Socket() {
-        override fun connect(endpoint: SocketAddress?) = connect(endpoint, defaultTimeoutMs)
+    private class TunnelSocket(
+        private val proxy: InetSocketAddress,
+        private val connectMs: Int,
+        /**
+         * How long Orbot may take to answer the CONNECT: the client's read
+         * timeout, as OkHttp gives a `wss://` tunnel. Orbot answers once the
+         * onion circuit is built, which can take longer than connecting to
+         * it; the relay pool's open timeout and `cancel()` still end the wait.
+         */
+        private val replyMs: Int,
+    ) : Socket() {
+        override fun connect(endpoint: SocketAddress?) = connect(endpoint, connectMs)
 
         override fun connect(endpoint: SocketAddress?, timeout: Int) {
             val target = endpoint as? InetSocketAddress ?: throw IOException("Tor-only relays need an onion address.")
@@ -214,7 +224,7 @@ internal object OrbotConnectTunnel {
                 catch (_: IllegalArgumentException) { throw IOException("Tor-only relays dial only v3 onion names.") }
             super.connect(proxy, timeout)
             val before = soTimeout
-            soTimeout = if (timeout > 0) timeout else 30_000
+            soTimeout = replyMs
             try {
                 val authority = "$onion:${target.port}"
                 getOutputStream().apply { write("CONNECT $authority HTTP/1.1\r\nHost: $authority\r\n\r\n".toByteArray(Charsets.US_ASCII)); flush() }

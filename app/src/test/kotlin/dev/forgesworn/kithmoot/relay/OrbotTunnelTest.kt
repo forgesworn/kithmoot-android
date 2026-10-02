@@ -46,7 +46,7 @@ class OrbotTunnelTest {
     }
 
     /** A stand-in for Orbot's HTTP proxy: records each request line, then tunnels to a one-message relay. */
-    private class FakeOrbot(private val answer: String = "HTTP/1.1 200 Connection established") {
+    private class FakeOrbot(private val answer: String = "HTTP/1.1 200 Connection established", private val replyAfterMs: Long = 0) {
         val server = ServerSocket(0, 8, InetAddress.getLoopbackAddress())
         val requestLines = java.util.Collections.synchronizedList(mutableListOf<String>())
         private val worker = thread(isDaemon = true) {
@@ -61,6 +61,7 @@ class OrbotTunnelTest {
             val head = readHead(input)
             requestLines += head.first()
             if (!head.first().startsWith("CONNECT ")) return@use
+            Thread.sleep(replyAfterMs)
             it.getOutputStream().write("$answer\r\n\r\n".toByteArray())
             if (!answer.contains(" 200 ")) return@use
             val upgrade = readHead(input)
@@ -90,15 +91,16 @@ class OrbotTunnelTest {
             return lines
         }
 
-        fun client(): OkHttpClient = OkHttpClient.Builder()
+        fun client(connectMs: Long = 5_000): OkHttpClient = OkHttpClient.Builder()
             .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(InetAddress.getLoopbackAddress(), server.localPort)))
-            .connectTimeout(5, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
+            .connectTimeout(connectMs, TimeUnit.MILLISECONDS).readTimeout(0, TimeUnit.MILLISECONDS).build()
 
         fun close() { server.close(); worker.join(1000) }
     }
 
     private val proxies = mutableListOf<FakeOrbot>()
-    private fun orbot(answer: String = "HTTP/1.1 200 Connection established") = FakeOrbot(answer).also { proxies += it }
+    private fun orbot(answer: String = "HTTP/1.1 200 Connection established", replyAfterMs: Long = 0) =
+        FakeOrbot(answer, replyAfterMs).also { proxies += it }
     @AfterTest fun closeProxies() = proxies.forEach { it.close() }
 
     private class Heard : RelaySocketListener {
@@ -130,6 +132,15 @@ class OrbotTunnelTest {
             it.close()
         }
         assertEquals(listOf("CONNECT $onion:7777 HTTP/1.1"), proxy.requestLines.toList())
+    }
+
+    @Test fun `Orbot may take longer to build the circuit than to accept the connection`() {
+        val proxy = orbot(replyAfterMs = 2_000)
+        val heard = Heard()
+        OrbotTorRelaySockets(proxy.client(connectMs = 500)).open("ws://$onion", heard).also {
+            assertTrue(heard.message.await(10, TimeUnit.SECONDS), "relay never spoke: ${heard.reason}")
+            it.close()
+        }
     }
 
     @Test fun `a wss onion relay still reaches the proxy as CONNECT`() {
