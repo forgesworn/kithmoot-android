@@ -117,6 +117,7 @@ fun RoomScreen(
     onRenewCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
     onDismissEpochTrouble: () -> Unit = {},
+    onAnswerLetIn: (String, Boolean) -> Unit = { _, _ -> },
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
@@ -410,6 +411,11 @@ fun RoomScreen(
                 EpochTroublePanel(state.epochTrouble, onDismissEpochTrouble)
             }
         }
+        for (ask in state.letInAsks) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                LetInPanel(ask, onAnswerLetIn)
+            }
+        }
        }
       }
 
@@ -684,6 +690,28 @@ private fun EpochTroublePanel(lines: List<String>, onDismiss: () -> Unit) {
     }
 }
 
+/** Somebody the room does not know asking to come in, after a removal (kithmoot#207). */
+@Composable
+private fun LetInPanel(ask: dev.forgesworn.kithmoot.ui.LetInAsk, onAnswer: (String, Boolean) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = "${ask.label} wants to join.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Row(modifier = Modifier.align(Alignment.End)) {
+            TextButton(onClick = { onAnswer(ask.participant, false) }) { Text("Decline") }
+            Button(onClick = { onAnswer(ask.participant, true) }) { Text("Let in") }
+        }
+    }
+}
+
 @Composable
 private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
     val title = when (state) {
@@ -692,6 +720,7 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
         "ended" -> "This conference room has ended"
         "updating" -> "Updating this secure room"
         "recovery" -> "Room update needs attention"
+        "letin" -> "Waiting to be let in"
         else -> "This room has moved on"
     }
     val message = detail ?: when (state) {
@@ -700,6 +729,7 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
         "ended" -> "Nothing more can be sent, and relays delete what was said."
         "updating" -> "Nothing will be sent under the previous room key while Bothy retires its old schedule."
         "recovery" -> "Nothing will be sent under the previous room key. Retry when the authority and Bothy are reachable."
+        "letin" -> "Waiting for somebody in this room to let you in. Retry once they have."
         else -> "The room changed its key and this device cannot safely continue."
     }
     Column(

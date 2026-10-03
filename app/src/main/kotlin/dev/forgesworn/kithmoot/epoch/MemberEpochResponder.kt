@@ -62,6 +62,10 @@ fun memberGrantChain(
     return MemberChain(epochs, rekeys)
 }
 
+/** How often a desk reports the same unknown participant while they keep asking, as fold-kit's
+ *  `REPORT_UNKNOWN_EVERY_SECONDS`: often enough that a missed "let them in?" comes back. */
+const val REPORT_UNKNOWN_EVERY_SECONDS = 60L
+
 /** What a desk does with one member epoch request. */
 sealed interface MemberDeskDecision {
     /** Not for this desk: malformed, a stranger's, already seen, its own, or nothing to hand on. */
@@ -76,7 +80,8 @@ sealed interface MemberDeskDecision {
  * The member desk: what any member at the current epoch runs beside its room session, so a
  * device that missed a rekey can catch up while the authority's device is away. It holds no
  * authority key. It answers only an admitted, credentialled device that is not removed, in a
- * room that is not closed, and only when it can hand over the whole chain from the requester's
+ * room that is not closed, from a participant the room knows once anybody has been removed
+ * (kithmoot#207), and only when it can hand over the whole chain from the requester's
  * epoch to its own with the authority's rekeys to prove it. See fold-kit's
  * `docs/member-epoch-catch-up.md`, "Desk rules".
  *
@@ -101,6 +106,13 @@ class MemberEpochResponder(
     private val rekeyAt: (Int) -> NostrEvent?,
     /** The cumulative removed set, as the authority's rekeys told this device. */
     private val removed: () -> Collection<String>,
+    /**
+     * Whether the room knows this participant (kithmoot#207): on the authority's member list,
+     * in the room's roster, or let in from this device. Asked only once somebody has been
+     * removed; then nobody else is answered, because a removed person under a fresh key looks
+     * exactly like a newcomer with the link.
+     */
+    private val known: (String) -> Boolean,
     private val closed: () -> Boolean,
     private val now: () -> Long,
     /** A conference room's end: a grant lapses with the room. */
@@ -108,6 +120,9 @@ class MemberEpochResponder(
     private val jitterMs: Long = MEMBER_EPOCH_JITTER_MS,
     private val random: () -> Double = SecureRandom()::nextDouble,
     private val maxGrantBytes: Int = MAX_MEMBER_GRANT_BYTES,
+    /** Somebody the room does not know asked, after a removal: what the app asks "let them in?"
+     *  about. Once per participant, and again every [REPORT_UNKNOWN_EVERY_SECONDS] while they ask. */
+    private val onUnknown: (MemberEpochRequest) -> Unit = {},
 ) {
     private val roomKey = roomKey.copyOf()
     private val self = Schnorr.publicKeyHex(deviceSecretKey)
@@ -118,6 +133,8 @@ class MemberEpochResponder(
     private val stoodDown = Bounded()
     /** Ids of the grants this desk published: each has a one-time signer, so they are told apart by id. */
     private val mine = Bounded()
+    /** When each unknown participant was last reported: a requester asks afresh every few seconds. */
+    private val reported = LinkedHashMap<String, Long>()
 
     /** A 20472 seen on the room: notes that somebody answered its device, unless it was this desk. */
     @Synchronized fun onGrant(event: NostrEvent) {
@@ -133,6 +150,18 @@ class MemberEpochResponder(
         answered += request.request
         if (closed()) return MemberDeskDecision.Refused(request, "closed")
         if (removed().any { it.hexEquals(request.participant) }) return MemberDeskDecision.Refused(request, "removed")
+        if (!admissible(request)) {
+            // Looked at afresh on the next ask: letting them in is making [known] say yes.
+            answered -= request.request
+            val last = reported[request.participant]
+            if (last == null || now() - last >= REPORT_UNKNOWN_EVERY_SECONDS) {
+                reported[request.participant] = now()
+                if (reported.size > 256) reported.remove(reported.keys.first())
+                onUnknown(request)
+            }
+            return MemberDeskDecision.Refused(request, "unknown")
+        }
+        reported.remove(request.participant)
         val here = inStepCurrent(inStep) ?: return MemberDeskDecision.Ignore
         if (request.have >= here.epoch) return MemberDeskDecision.Ignore
         grantSeen -= request.device
@@ -148,7 +177,7 @@ class MemberEpochResponder(
         }
         stoodDown -= request.device
         // Asked again now the wait is over: the room may have moved.
-        if (closed() || removed().any { it.hexEquals(request.participant) }) return null
+        if (closed() || removed().any { it.hexEquals(request.participant) } || !admissible(request)) return null
         val here = inStepCurrent(inStep) ?: return null
         if (request.have >= here.epoch) return null
         val chain = memberGrantChain(stableRoom, authority, roomKey, request.have, here, secretAt, rekeyAt) ?: return null
@@ -158,6 +187,13 @@ class MemberEpochResponder(
         if (grant.toCompactJson().toByteArray(Charsets.UTF_8).size > maxGrantBytes) return null
         mine += grant.id
         return grant
+    }
+
+    /** Not removed, and, once anybody has been, known (kithmoot#207). */
+    private fun admissible(request: MemberEpochRequest): Boolean {
+        val gone = removed()
+        if (gone.any { it.hexEquals(request.participant) }) return false
+        return gone.isEmpty() || known(request.participant.lowercase())
     }
 
     private fun inStepCurrent(inStep: Int?): RoomEpoch? {

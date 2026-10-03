@@ -79,6 +79,9 @@ class MemberEpochCatchUpTest {
             secretAt = { vault.secretAt(stable.roomId, it) },
             rekeyAt = { vault.rekeyAt(stable.roomId, it) },
             removed = { vault.get(stable.roomId)?.removed.orEmpty() },
+            // Every asker here is a member the room knows; the gate itself (kithmoot#207) is
+            // MemberEpochResponderTest's business.
+            known = { true },
             closed = { vault.get(stable.roomId)?.phase == EpochPhase.CLOSED },
             now = { currentTime / 1000 },
             random = { 0.5 },

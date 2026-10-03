@@ -83,7 +83,10 @@ class MemberEpochGrant(
     chain: List<RoomEpoch>,
     /** The authority's rekey into each of [chain], in the same order. */
     rekeys: List<NostrEvent>,
+    /** The newest member list (#207) any rekey in the chain carried. */
+    members: List<String>? = null,
 ) {
+    val members = members?.toList()
     val removed = removed.toList()
     val chain = chain.toList()
     val rekeys = rekeys.toList()
@@ -282,12 +285,14 @@ fun decodeMemberEpochGrant(
     var previousKey = currentKey
     val chain = mutableListOf<RoomEpoch>()
     val events = mutableListOf<NostrEvent>()
+    var members: List<String>? = null
     for (i in 0 until length) {
         val rekey = NostrEvent.fromJson(rekeys[i].jsonObject)
         val evidence = readRekeyEvidence(rekey, room, authority, previousEpoch, previousKey) ?: return null
         if (evidence.closed) return null
         if (self in evidence.removed) return null
         cumulative += evidence.removed
+        if (evidence.members != null) members = evidence.members
         val raw = (secrets[i] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
         if ('=' in raw) return null
         val secret = base64UrlDecode(raw)
@@ -307,5 +312,5 @@ fun decodeMemberEpochGrant(
         previousKey = keys.key
         secret.fill(0)
     }
-    MemberEpochGrant(chain.last(), cumulative.sorted(), chain, events)
+    MemberEpochGrant(chain.last(), cumulative.sorted(), chain, events, members)
 }.getOrNull()

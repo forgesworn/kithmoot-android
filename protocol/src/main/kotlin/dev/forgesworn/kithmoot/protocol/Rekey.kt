@@ -67,20 +67,41 @@ class RekeyNotice(
     val catchUp: Boolean = false,
     /** The rekey body's [epochCommitment], when the authority wrote one. */
     val commit: String? = null,
+    /** The authority's member list (#207), when the rekey or grant carried one. */
+    members: List<String>? = null,
 ) {
     val removed = removed.toList()
     val secret = secret?.copyOf()
+    val members = members?.toList()
 }
 
 data class EpochRequest(val device: String, val participant: String, val request: String)
 
 sealed interface EpochGrant {
-    class Current(val epoch: Int, secret: ByteArray?, removed: List<String>) : EpochGrant {
+    class Current(val epoch: Int, secret: ByteArray?, removed: List<String>, members: List<String>? = null) : EpochGrant {
         val secret = secret?.copyOf()
         val removed = removed.toList()
+        /** The participants the room knows (#207), when the authority's answer carried them. */
+        val members = members?.toList()
     }
     data class Refused(val reason: String) : EpochGrant
 }
+
+/**
+ * A member list as a body carries it (#207): lower-case, deduplicated and sorted, or null when
+ * the field is absent or is not a list of 32-byte hex keys. Null is the safe reading, since it
+ * makes nobody known. Matches fold-kit's `readMemberList`.
+ */
+fun readMemberList(raw: kotlinx.serialization.json.JsonElement?): List<String>? {
+    val list = raw as? JsonArray ?: return null
+    val keys = list.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
+    if (!keys.all(HEX64::matches)) return null
+    return keys.map(String::normaliseHex).distinct().sorted()
+}
+
+/** Why the authority would not hand an epoch over. `unknown` is not final (#207): the room has
+ *  removed somebody and does not know this participant yet, so it waits for a member to let them in. */
+val EPOCH_REFUSALS = setOf("removed", "closed", "unknown")
 
 fun deriveEpoch(value: RoomEpoch): EpochKeys {
     if (value.epoch == 0) {
@@ -120,6 +141,9 @@ fun encodeRekeyEvent(
      * Off, the event is byte-identical to a rekey written before it existed.
      */
     commit: Boolean = false,
+    /** The authority's member list (#207): written after `commit`, removed participants
+     *  dropped. Null, the event is byte-identical to before. */
+    members: List<String>? = null,
     recipientNonces: Map<String, ByteArray> = emptyMap(),
     bodyNonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
@@ -143,6 +167,7 @@ fun encodeRekeyEvent(
         if (by != null) put("by", requireEpochHex(by, "admin"))
         if (closed) put("closed", true)
         if (commit) put("commit", epochCommitment(room, next.epoch, next.secret))
+        if (members != null) put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in canonicalRemoved }.sorted()))
         put("keys", keys)
     }
     return Events.sign(
@@ -184,7 +209,7 @@ fun decodeRekeyEvent(
         } finally { conversation.fill(0) }
     }
     try {
-        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit)
+        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit, members = readMemberList(body["members"]))
     } finally { secret?.fill(0) }
 }.getOrNull()
 
@@ -213,6 +238,8 @@ data class RekeyEvidence(
     val closed: Boolean,
     /** The epoch commitment, when the authority wrote one. */
     val commit: String? = null,
+    /** The authority's member list (#207), when it wrote one. */
+    val members: List<String>? = null,
 )
 
 /**
@@ -231,7 +258,7 @@ fun readRekeyEvidence(event: NostrEvent, roomId: String, authority: String, prev
         .takeIf { it.all(HEX64::matches) }?.map(String::normaliseHex)?.distinct()?.sorted() ?: return null
     val closed = (body["closed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
     val commit = (body["commit"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX64::matches)?.normaliseHex()
-    RekeyEvidence(epoch, removed, closed, commit)
+    RekeyEvidence(epoch, removed, closed, commit, readMemberList(body["members"]))
 }.getOrNull()
 
 /** A JSON number that is an integer, as `Number.isSafeInteger` would see it; null otherwise. */
@@ -349,6 +376,8 @@ fun encodeEpochGrant(
     epoch: RoomEpoch? = null,
     removed: List<String> = emptyList(),
     refused: String? = null,
+    /** The participants the room knows (#207), so the requester's own member desk knows them. */
+    members: List<String>? = null,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
     /** A conference room's end; see [withRoomExpiration]. */
@@ -358,7 +387,7 @@ fun encodeEpochGrant(
     val room = requireEpochHex(roomId, "room id")
     val recipient = requireEpochHex(device, "device pubkey")
     val requestId = requireEpochHex(request, "request id")
-    require(refused in setOf(null, "removed", "closed"))
+    require(refused == null || refused in EPOCH_REFUSALS)
     require((refused == null) == (epoch != null)) { "a grant carries an epoch or a refusal" }
     val body = buildJsonObject {
         put("v", 1); put("request", requestId)
@@ -369,6 +398,10 @@ fun encodeEpochGrant(
             put("removed", buildJsonArray {
                 removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted().forEach { add(JsonPrimitive(it)) }
             })
+            if (members != null) {
+                val gone = removed.map(String::normaliseHex).toSet()
+                put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in gone }.sorted()))
+            }
         }
     }
     val key = Nip44.conversationKey(authoritySecretKey, recipient.hexToBytes())
@@ -394,14 +427,15 @@ fun decodeEpochGrant(
     val key = Nip44.conversationKey(deviceSecretKey, event.pubkey.hexToBytes())
     val body = try { Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject } finally { key.fill(0) }
     if (body["v"]?.jsonPrimitive?.intOrNull != 1 || body["request"]?.jsonPrimitive?.content?.hexEquals(request) != true) return null
-    body["refused"]?.jsonPrimitive?.content?.let { if (it in setOf("removed", "closed")) return EpochGrant.Refused(it) }
+    body["refused"]?.jsonPrimitive?.content?.let { if (it in EPOCH_REFUSALS) return EpochGrant.Refused(it) }
     val epoch = body["epoch"]?.jsonPrimitive?.intOrNull?.takeIf { it in 0..MAX_EPOCH } ?: return null
     val removed = (body["removed"] as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.content.takeIf(HEX64::matches) }
         .map(String::normaliseHex).distinct().sorted()
-    if (epoch == 0) return EpochGrant.Current(0, null, removed)
+    val members = readMemberList(body["members"])
+    if (epoch == 0) return EpochGrant.Current(0, null, removed, members)
     val secret = body["secret"]?.jsonPrimitive?.content?.let(::base64UrlDecode)?.takeIf { it.size == 32 } ?: return null
     try {
-        EpochGrant.Current(epoch, secret, removed)
+        EpochGrant.Current(epoch, secret, removed, members)
     } finally { secret.fill(0) }
 }.getOrNull()
 

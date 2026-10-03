@@ -16,6 +16,7 @@ import dev.forgesworn.kithmoot.relay.Nip77OfferArchive
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.epoch.EpochVault
+import dev.forgesworn.kithmoot.epoch.RoomMembers
 
 /**
  * Owns one serialised repository for saved room access across activities.
@@ -68,6 +69,9 @@ class KithMootApplication : Application() {
             EncryptedRoomStorage(this, "kithmoot.epoch-history.v1", 4 * 1024 * 1024),
         )
     }
+
+    /** Who each room knows, for its epoch desks (kithmoot#207). Advisory: see `RoomMembers`. */
+    val roomMembers: RoomMembers by lazy { RoomMembers(EncryptedRoomStorage(this, "kithmoot.room-members.v1", 1024 * 1024)) }
 
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }

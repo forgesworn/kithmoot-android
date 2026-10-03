@@ -38,6 +38,10 @@ class MemberEpochResponderTest {
     private class World(var current: RoomEpoch?, var rekeys: List<NostrEvent>, var secrets: Map<Int, ByteArray>) {
         var removed: List<String> = emptyList()
         var closed = false
+        /** Who the room knows (kithmoot#207); the asker is a member unless a test says not. */
+        val known = mutableSetOf<String>()
+        val reported = mutableListOf<String>()
+        var clock = 1_000L
     }
 
     private fun desk(world: World, jitter: Long = 1_500, random: Double = 0.5, maxBytes: Int = 60_000) = MemberEpochResponder(
@@ -46,14 +50,16 @@ class MemberEpochResponderTest {
         secretAt = { world.secrets[it] },
         rekeyAt = { n -> world.rekeys.getOrNull(n - 1) },
         removed = { world.removed },
+        known = { it in world.known },
         closed = { world.closed },
-        now = { now },
+        now = { world.clock },
         jitterMs = jitter,
         random = { random },
         maxGrantBytes = maxBytes,
+        onUnknown = { world.reported += it.participant },
     )
 
-    private fun world() = World(epochs.last(), rekeys(), epochs.associate { it.epoch to it.secret })
+    private fun world() = World(epochs.last(), rekeys(), epochs.associate { it.epoch to it.secret }).also { it.known += asker.participant.lowercase() }
     private fun ask(have: Int = 0, from: dev.forgesworn.kithmoot.session.PrimaryIdentity = asker, at: Long = now) =
         encodeMemberEpochRequest(room.roomId, authority, room.roomKey, from.deviceSecretKey, from.credential, have, at)
 
@@ -106,6 +112,32 @@ class MemberEpochResponderTest {
         w.removed = emptyList()
         w.closed = true
         assertEquals("closed", assertIs<MemberDeskDecision.Refused>(desk(w).onRequest(ask(), 3)).why)
+    }
+
+    @Test fun `after a removal a participant the room does not know is not answered, and is reported once a minute`() {
+        val w = world()
+        w.removed = listOf(Fixtures.primary(room, 9, 10).participant)
+        val stranger = Fixtures.primary(room, 11, 12)
+        val desk = desk(w)
+        assertEquals("unknown", assertIs<MemberDeskDecision.Refused>(desk.onRequest(ask(from = stranger), 3)).why)
+        // A fresh request every few seconds while they wait: reported once.
+        assertEquals("unknown", assertIs<MemberDeskDecision.Refused>(desk.onRequest(ask(from = stranger, at = now + 1), 3)).why)
+        assertEquals(listOf(stranger.participant), w.reported)
+        w.clock += 60
+        desk.onRequest(ask(from = stranger, at = now + 60), 3)
+        assertEquals(2, w.reported.size)
+        // The member the room knows is answered as ever.
+        assertIs<MemberDeskDecision.Answer>(desk.onRequest(ask(at = now + 60), 3))
+        // Let in: their next ask is answered.
+        w.known += stranger.participant.lowercase()
+        val decision = assertIs<MemberDeskDecision.Answer>(desk.onRequest(ask(from = stranger, at = now + 61), 3))
+        assertNotNull(desk.answer(decision.request, 3))
+    }
+
+    @Test fun `a room that never removed anybody answers a newcomer as it always did`() {
+        val w = world()
+        w.known.clear()
+        assertIs<MemberDeskDecision.Answer>(desk(w).onRequest(ask(), 3))
     }
 
     @Test fun `only a device in step and ahead answers`() {

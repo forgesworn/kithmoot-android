@@ -82,6 +82,8 @@ private const val MEMBER_EPOCH_RETRY_MS = 4_000L
 private const val REKEY_REPLAY_WAIT_MS = 1_500L
 /** How many of this device's member request ids a grant may answer. */
 private const val MEMBER_EPOCH_REQUESTS_KEPT = 16
+/** What a device waiting to be let in is told (kithmoot#207), as the web client says it. */
+const val WAITING_TO_BE_LET_IN = "Waiting for somebody in this room to let you in"
 
 /**
  * The timings that govern presence. All of them are guesses that can be tuned;
@@ -148,7 +150,9 @@ class PastEpoch(val keys: EpochKeys, val leftAt: Long)
 sealed interface RoomEpochState {
     data class Active(val epoch: Int, val trafficRoom: String) : RoomEpochState
     data class Updating(val epoch: Int) : RoomEpochState
-    data class RecoveryNeeded(val expectedEpoch: Int, val reason: String) : RoomEpochState
+    /** [waitingToBeLetIn]: the authority answered that the room does not know this participant
+     *  yet (kithmoot#207). Not a refusal; a member lets them in, and asking again then works. */
+    data class RecoveryNeeded(val expectedEpoch: Int, val reason: String, val waitingToBeLetIn: Boolean = false) : RoomEpochState
     data class Removed(val epoch: Int) : RoomEpochState
     data class Closed(val epoch: Int) : RoomEpochState
 }
@@ -254,6 +258,11 @@ class RoomSession(
     initialPastEpochs: List<PastEpoch> = emptyList(),
     /** Everybody the room's rekeys have removed, as the epoch journal holds them: refused on [initialPastEpochs]. */
     initialRemoved: Collection<String> = emptyList(),
+    /**
+     * The authority's member list (kithmoot#207), each time a rekey this session follows, or an
+     * answer that brings it up to date, carries one: what this device's desk then knows.
+     */
+    private val onMembers: suspend (List<String>) -> Unit = {},
 ) {
 
     private val lock = Any()
@@ -292,6 +301,14 @@ class RoomSession(
         }
     }
     private val roster = linkedMapOf<String, RosterEntry>()
+
+    /** Whether [participant] is in this room's roster now: they hold its current key. */
+    fun hasParticipant(participant: String): Boolean = synchronized(lock) {
+        roster.values.any { it.participant.equals(participant, ignoreCase = true) }
+    }
+
+    /** True while the authority's latest answer was that it does not know this participant. */
+    @Volatile private var unknownHere = false
 
     /**
      * Devices we have already answered.
@@ -1187,6 +1204,7 @@ class RoomSession(
                 recoverFromAuthority(current.epoch + 1, "The room update could not be authenticated")
                 return
             }
+            notice.members?.let { onMembers(it) }
             if (notice.secret == null && !notice.closed && notice.removed.none { it.equals(identity.participant, ignoreCase = true) }) {
                 recoverFromAuthority(notice.epoch, "The room authority must restore this device")
                 return
@@ -1319,8 +1337,14 @@ class RoomSession(
             listeners += launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(epochGrantFilter())).collect { event ->
                     if (settled.isCompleted) return@collect
-                    decodeEpochGrant(event, room.roomId, trusted, identity.deviceSecretKey, request.id, now())
-                        ?.let { settled.complete(EpochAnswer.Authority(event, it)) }
+                    when (val grant = decodeEpochGrant(event, room.roomId, trusted, identity.deviceSecretKey, request.id, now())) {
+                        null -> Unit
+                        // Not final (kithmoot#207): the room does not know this participant yet.
+                        // Keep listening; a member who lets them in answers with a grant.
+                        is EpochGrant.Refused -> if (grant.reason == "unknown") unknownHere = true
+                            else settled.complete(EpochAnswer.Authority(event, grant))
+                        is EpochGrant.Current -> settled.complete(EpochAnswer.Authority(event, grant))
+                    }
                 }
             }
             val asked = ArrayDeque<String>()
@@ -1351,8 +1375,9 @@ class RoomSession(
                 }
             }
             try {
+                unknownHere = false
                 transport.publishRecovery(request)
-                withTimeoutOrNull(timeoutMs) { settled.await() }
+                withTimeoutOrNull(timeoutMs) { settled.await() }?.also { unknownHere = false }
             } finally {
                 listeners.forEach(Job::cancel)
             }
@@ -1373,7 +1398,8 @@ class RoomSession(
             return
         }
         if (response == null) {
-            requireRecovery(expectedEpoch, reason)
+            if (unknownHere) requireRecovery(expectedEpoch, WAITING_TO_BE_LET_IN, waitingToBeLetIn = true)
+            else requireRecovery(expectedEpoch, reason)
             return
         }
         answerFromAuthority(response, expectedEpoch, reason)
@@ -1388,6 +1414,10 @@ class RoomSession(
         val event = response.event
         when (val grant = (response as EpochAnswer.Authority).grant) {
             is EpochGrant.Refused -> {
+                if (grant.reason == "unknown") {
+                    requireRecovery(expectedEpoch, WAITING_TO_BE_LET_IN, waitingToBeLetIn = true)
+                    return
+                }
                 val current = epochKeys()
                 val terminal = RekeyNotice(
                     current.epoch + 1,
@@ -1418,6 +1448,7 @@ class RoomSession(
                     requireRecovery(expectedEpoch, "The authority did not prove a newer room epoch")
                     return
                 }
+                grant.members?.let { onMembers(it) }
                 val notice = RekeyNotice(grant.epoch, grant.removed, null, false, secret, event.createdAt, catchUp = true)
                 val outcome = try {
                     requireNotNull(epochGate).invoke(event, notice)
@@ -1452,6 +1483,7 @@ class RoomSession(
             requireRecovery(expectedEpoch, "The answer did not prove a newer room epoch")
             return
         }
+        grant.members?.let { onMembers(it) }
         val notice = RekeyNotice(grant.epoch.epoch, grant.removed, null, false, grant.epoch.secret, response.event.createdAt, catchUp = true)
         val outcome = try {
             requireNotNull(epochGate).invoke(response.event, notice)
@@ -1504,9 +1536,9 @@ class RoomSession(
         }
     }
 
-    private suspend fun requireRecovery(epoch: Int, reason: String) {
+    private suspend fun requireRecovery(epoch: Int, reason: String, waitingToBeLetIn: Boolean = false) {
         blockForRekey()
-        _epochState.value = RoomEpochState.RecoveryNeeded(epoch, reason)
+        _epochState.value = RoomEpochState.RecoveryNeeded(epoch, reason, waitingToBeLetIn)
         if (epoch > (_movedOn.value ?: 0)) _movedOn.value = epoch
     }
 

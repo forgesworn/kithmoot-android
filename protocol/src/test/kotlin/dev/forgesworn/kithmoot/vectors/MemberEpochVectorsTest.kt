@@ -52,7 +52,7 @@ class MemberEpochVectorsTest {
     @Test fun `the file is in the KithMoot vector format and every vector is counted`() {
         assertEquals("kithmoot/v1", root.text("protocolVersion"))
         assertEquals(setOf("memberEpoch"), root.child("groups").keys)
-        assertEquals(12, vectors.size)
+        assertEquals(13, vectors.size)
         assertEquals(7, vectors.count { it.text("name").startsWith("member-grant-") })
         assertEquals(6, vectors.count { it.text("kind") == "negative" })
         for (v in vectors) {
@@ -77,8 +77,14 @@ class MemberEpochVectorsTest {
         assertEquals(v.child("output").text("keyHex"), Digests.hkdfSha256(roomKey, null, "kithmoot/v1/member-epoch-request-key".toByteArray(), 32).toHex())
     }
 
-    @Test fun `both rekeys rebuild byte for byte and read as the recorded evidence`() {
-        for (name in listOf("rekey-with-commitment", "rekey-without-commitment")) {
+    @Test fun `every rekey rebuilds byte for byte and reads as the recorded evidence`() {
+        val bodyKeys = mapOf(
+            "rekey-with-commitment" to listOf("v", "epoch", "removed", "commit", "keys"),
+            "rekey-without-commitment" to listOf("v", "epoch", "removed", "keys"),
+            // The known-members gate (#207): the authority's member list, removed dropped.
+            "rekey-with-members" to listOf("v", "epoch", "removed", "commit", "members", "keys"),
+        )
+        for ((name, wantedKeys) in bodyKeys) {
             val v = vec(name)
             val i = v.child("input")
             val random = draws(i)
@@ -89,7 +95,8 @@ class MemberEpochVectorsTest {
             val rebuilt = encodeRekeyEvent(
                 i.text("roomId"), i.bytes("authoritySkHex"), keys(i.number("previousEpoch").toInt(), previousKey),
                 RoomEpoch(next.number("epoch").toInt(), next.bytes("secretHex")), recipients, i.strings("removed"), i.number("createdAt"),
-                commit = name == "rekey-with-commitment",
+                commit = name != "rekey-without-commitment",
+                members = if ("members" in i) i.strings("members") else null,
                 recipientNonces = recipients.withIndex().associate { (n, r) -> r to random[n] },
                 bodyNonce = random[recipients.size], auxRand = random[recipients.size + 1],
             )
@@ -101,12 +108,10 @@ class MemberEpochVectorsTest {
             assertEquals(out.strings("removed"), evidence.removed)
             assertEquals(out.flag("closed"), evidence.closed)
             assertEquals(out.textOrNull("commit"), evidence.commit)
+            assertEquals(if ("members" in out) out.strings("members") else null, evidence.members)
             val body = Json.parseToJsonElement(Nip44.decrypt(i.child("event").text("content"), previousKey)).jsonObject
-            assertEquals(
-                if (name == "rekey-with-commitment") listOf("v", "epoch", "removed", "commit", "keys") else listOf("v", "epoch", "removed", "keys"),
-                body.keys.toList(),
-            )
-            if (name == "rekey-with-commitment") {
+            assertEquals(wantedKeys, body.keys.toList())
+            if (name != "rekey-without-commitment") {
                 assertEquals(i.text("previousKeyHex"), deriveEpoch(RoomEpoch(1, i.bytes("previousSecretHex"))).key.toHex())
             }
         }
