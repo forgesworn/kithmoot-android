@@ -4,8 +4,15 @@ package dev.forgesworn.kithmoot.notifications
 data class IncomingCall(val id: String, val caller: String)
 
 sealed interface IncomingCallChange {
+    /** Ring for someone else's call, replacing any [OwnCallElsewhere] notice. */
     data class Ring(val call: IncomingCall) : IncomingCallChange
+    /** Stop the ring. */
     data object Stop : IncomingCallChange
+    /** This person's own call, started on another of their devices: a quiet
+     *  notice with no ring, replacing any [Ring]. */
+    data class OwnCallElsewhere(val call: IncomingCall) : IncomingCallChange
+    /** Take the [OwnCallElsewhere] notice down. */
+    data object OwnCallElsewhereStop : IncomingCallChange
 }
 
 /**
@@ -18,32 +25,49 @@ sealed interface IncomingCallChange {
  * are participant identities (stable across a person's own devices), not
  * device identities, so this rule alone is what keeps a person's own other
  * devices silent.
+ *
+ * Silent, but not unannounced: a person's own call elsewhere is shown once,
+ * as [IncomingCallChange.OwnCallElsewhere], until it ends or this device
+ * joins. At most one of the ring and that notice is up at a time; each
+ * replaces the other, so a stop only ever names the one that is showing.
  */
 class IncomingCallTracker {
     private val seen = mutableSetOf<String>()
     private var ringing: String? = null
+    private var elsewhere: String? = null
 
     @Synchronized
     fun update(call: IncomingCall?, self: String?, joined: Boolean): IncomingCallChange? {
-        if (call == null || joined || call.caller == self) {
+        if (call == null || joined) {
             if (call != null) seen.add(call.id)
-            if (ringing == null) return null
-            ringing = null
-            return IncomingCallChange.Stop
+            return stop()
         }
-        if (ringing == call.id || seen.contains(call.id)) return null
+        if (ringing == call.id || elsewhere == call.id) return null
+        // Back to a call already seen: whatever is up belongs to another call.
+        if (seen.contains(call.id)) return stop()
         seen.add(call.id)
-        ringing = call.id
-        return IncomingCallChange.Ring(call)
+        return if (call.caller == self) {
+            ringing = null
+            elsewhere = call.id
+            IncomingCallChange.OwnCallElsewhere(call)
+        } else {
+            elsewhere = null
+            ringing = call.id
+            IncomingCallChange.Ring(call)
+        }
     }
 
     /** A freshly opened room may ring for whatever call is already running in it. */
     @Synchronized
     fun reset(): IncomingCallChange? {
         seen.clear()
-        if (ringing == null) return null
-        ringing = null
-        return IncomingCallChange.Stop
+        return stop()
+    }
+
+    private fun stop(): IncomingCallChange? = when {
+        ringing != null -> { ringing = null; IncomingCallChange.Stop }
+        elsewhere != null -> { elsewhere = null; IncomingCallChange.OwnCallElsewhereStop }
+        else -> null
     }
 }
 

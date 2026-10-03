@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * Glues [IncomingCallTracker]'s pure ring/stop decision to this device: the
  * per-room choice in [CallRingSettings], whether this room is the one on
  * screen right now, and ringing through [CallTelecom] (which posts
- * [IncomingCallRinger]'s notification either way) or cancelling it.
+ * [IncomingCallRinger]'s notification either way) or cancelling it - or,
+ * for this person's own call on another device, [OwnCallElsewhereNotice].
  *
  * One instance per open room (see `RoomViewModel`), same as
  * [ChatNotifications] - a call starting in a visited chat-only room rings
@@ -22,8 +23,14 @@ class IncomingCallRingCoordinator(private val context: Context) {
 
     /** Set by whichever screen is actually showing this room; see
      *  `RoomViewModel.setCallRingForeground`. A call starting in a room
-     *  already on screen shows as [banner] instead of ringing. */
+     *  already on screen shows as [banner] instead of ringing. Coming on
+     *  screen also takes down an [OwnCallElsewhereNotice]: the room's own
+     *  call UI now shows that call. */
     @Volatile var foreground = false
+        set(value) {
+            field = value
+            if (value && currentRoomId.isNotEmpty()) OwnCallElsewhereNotice.cancel(context, currentRoomId)
+        }
 
     private var currentRoomId = ""
 
@@ -51,7 +58,19 @@ class IncomingCallRingCoordinator(private val context: Context) {
                 mutableBanner.value = null
                 IncomingCallRinger.stop(context, roomId)
             }
+            is IncomingCallChange.OwnCallElsewhereStop -> OwnCallElsewhereNotice.cancel(context, roomId)
+            is IncomingCallChange.OwnCallElsewhere -> {
+                // Replaces a ring for someone else's call, should one be up.
+                mutableBanner.value = null
+                IncomingCallRinger.stop(context, roomId)
+                // On screen, the room's own call UI already shows it. Rooms
+                // set to Nothing stay silent about calls altogether; Ring me
+                // and Notify quietly both get the notice, which is quiet either way.
+                if (foreground || settings.modeFor(roomId) == CallRingMode.NOTHING) return
+                OwnCallElsewhereNotice.post(context, roomId, roomName, change.call.id)
+            }
             is IncomingCallChange.Ring -> {
+                OwnCallElsewhereNotice.cancel(context, roomId)
                 if (foreground) {
                     mutableBanner.value = change.call
                     return
@@ -75,6 +94,8 @@ class IncomingCallRingCoordinator(private val context: Context) {
     fun end() {
         mutableBanner.value = null
         val change = tracker.reset()
-        if (change is IncomingCallChange.Stop && currentRoomId.isNotEmpty()) IncomingCallRinger.stop(context, currentRoomId)
+        if (currentRoomId.isEmpty()) return
+        if (change is IncomingCallChange.Stop) IncomingCallRinger.stop(context, currentRoomId)
+        if (change is IncomingCallChange.OwnCallElsewhereStop) OwnCallElsewhereNotice.cancel(context, currentRoomId)
     }
 }
