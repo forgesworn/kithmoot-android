@@ -226,7 +226,6 @@ fun ChatPane(
             Text("Searches messages loaded on this device", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         }
         Box(Modifier.weight(1f)) {
-            if (visible.isEmpty() && shownNotes.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Inside the first row rather than an item of their own, so a
                 // row's index stays its item index for the scrolling below.
@@ -290,6 +289,10 @@ fun ChatPane(
                     notesAfter[index]?.forEach { NoteLine(it) }
                 }
             }
+            // Drawn after the list, so it sits above it. Under the empty list
+            // filling the box, the text was missing from the accessibility
+            // tree that UI Automator reads.
+            if (visible.isEmpty() && shownNotes.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
             if (!following && query.isBlank() && visible.isNotEmpty()) {
                 SmallFloatingActionButton(
                     onClick = { following = true; scope.launch { listState.scrollToItem(visible.lastIndex) } },
