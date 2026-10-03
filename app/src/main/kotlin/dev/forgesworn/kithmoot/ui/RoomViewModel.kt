@@ -5633,10 +5633,8 @@ class RoomViewModel @JvmOverloads constructor(
     fun showNotice(message: String) = note(message)
 
     fun dismissEpochTrouble() {
-        _room.update { state ->
-            epochTroubleDismissed += state.epochTrouble.size
-            state.copy(epochTrouble = emptyList())
-        }
+        epochTroubleDismissed += _room.value.epochTrouble.size
+        _room.update { it.copy(epochTrouble = emptyList()) }
     }
 
     fun dismissNotice() {
