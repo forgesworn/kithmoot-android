@@ -2,6 +2,9 @@ package dev.forgesworn.kithmoot.service
 
 import dev.forgesworn.kithmoot.notifications.CallRingMode
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.LinkRelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RelaySocket
@@ -12,6 +15,10 @@ import dev.forgesworn.kithmoot.session.CHAT_RETENTION_SECONDS
 import dev.forgesworn.kithmoot.session.ChatInvite
 import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.ChatReaction
+import dev.forgesworn.kithmoot.session.Fixtures
+import dev.forgesworn.kithmoot.session.PastEpoch
+import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.encodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
 import dev.forgesworn.kithmoot.storage.RoomStorage
@@ -98,6 +105,32 @@ class BackgroundDeliveryTest {
         assertEquals(mapOf("#d" to listOf("epoch-2")), fresh.tags)
         assertEquals(now - CHAT_RETENTION_SECONDS, fresh.since)
         assertEquals(now - 60 - CHAT_CURSOR_SKEW_SECONDS, backgroundChatFilter("epoch-2", now - 60, now).since)
+    }
+
+    @Test fun `the chat filter also asks for the epochs the room has left`() {
+        val now = 10_000_000L
+        assertEquals(mapOf("#d" to listOf("epoch-2", "epoch-1", "epoch-0")),
+            backgroundChatFilter("epoch-2", 0, now, listOf("epoch-1", "epoch-0")).tags)
+    }
+
+    @Test fun `a late message on the epoch left is delivered, a removed member's is not, and an unwatched epoch is not`() {
+        val stable = Fixtures.room()
+        val epochs = (0..3).map { RoomEpoch(it, ByteArray(32) { b -> (if (it == 0) 7 else 70 + it + b % 2).toByte() }) }
+        fun keys(epoch: Int) = deriveEpoch(epochs[epoch])
+        val lagging = Fixtures.primary(stable, 3, 4)
+        val removed = Fixtures.primary(stable, 5, 6)
+        fun chat(body: String, from: PrimaryIdentity, epoch: Int) = encodeChatEvent(
+            body = body, participant = from.participant, credential = from.credential,
+            roomId = keys(epoch).id, roomKey = keys(epoch).key, deviceSecretKey = from.deviceSecretKey,
+            sentAt = 0, credentialRoomId = stable.roomId,
+        )
+        fun decode(event: NostrEvent) = decodeBackgroundChat(event, keys(2), listOf(PastEpoch(keys(1), 0)),
+            setOf(removed.participant.lowercase()), 0, null, stable.roomId)
+
+        assertEquals("on the current key", decode(chat("on the current key", lagging, 2))?.body)
+        assertEquals("late on the epoch left", decode(chat("late on the epoch left", lagging, 1))?.body)
+        assertNull(decode(chat("let me back in", removed, 1)))
+        assertNull(decode(chat("too far back", lagging, 0)))
     }
 
     // B-J04

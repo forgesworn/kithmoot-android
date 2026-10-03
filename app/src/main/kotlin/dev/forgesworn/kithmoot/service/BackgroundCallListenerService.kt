@@ -43,6 +43,9 @@ import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.KIND_CALL_BELL
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.epoch.activeEpochFor
+import dev.forgesworn.kithmoot.epoch.pastEpochsFor
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.session.PastEpoch
 import dev.forgesworn.kithmoot.protocol.decodeCallBellEvent
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
@@ -52,7 +55,6 @@ import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
-import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.storage.BackgroundInboxVault
 import dev.forgesworn.kithmoot.storage.PendingChatVault
 import kotlinx.coroutines.CoroutineScope
@@ -227,7 +229,8 @@ class BackgroundCallListenerService : Service() {
         for (candidate in wanted) {
             val id = candidate.watch.stableRoomId
             val delivery = id in delivering
-            val key = listOf(id, candidate.epochId, delivery, id in ringing, candidate.watch.relays.joinToString(",")).joinToString("|")
+            val key = listOf(id, candidate.epochId, candidate.past.joinToString(",") { it.keys.id }, delivery, id in ringing,
+                candidate.watch.relays.joinToString(",")).joinToString("|")
             if (rooms[id]?.key != key) {
                 close(rooms.remove(id))
                 rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
@@ -248,7 +251,11 @@ class BackgroundCallListenerService : Service() {
     }
 
     private class Candidate(val watch: BackgroundRoomWatch, val epochId: String, val epochKey: ByteArray,
-        val exclusion: DeliveryExclusion?, val saved: dev.forgesworn.kithmoot.storage.SavedRoom)
+        val exclusion: DeliveryExclusion?, val saved: dev.forgesworn.kithmoot.storage.SavedRoom,
+        /** Epochs the room has left whose chat is still read, newest first (kithmoot-android #128). */
+        val past: List<PastEpoch> = emptyList(),
+        /** Everybody the room's rekeys removed, lower case: refused on [past]. */
+        val removed: Set<String> = emptySet())
 
     /** The current keys for a saved room, following any rekey recorded in
      *  [KithMootApplication.roomEpochs] via the shared, tested [activeEpochFor]
@@ -274,8 +281,10 @@ class BackgroundCallListenerService : Service() {
                 epochId = epoch.id,
                 needsBunker = usesLink && saved.viaAccount && application.accounts.load()?.method == "bunker",
             ), ActiveRoomRegistry::isOpen)
+            val past = pastEpochsFor(saved.secret, stored,
+                { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.rekeyAt(roomId, it) }, now())
             Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
-                epoch.id, epoch.key, exclusion, saved)
+                epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet())
         } catch (_: Exception) {
             null
         }
@@ -314,7 +323,7 @@ class BackgroundCallListenerService : Service() {
             jobs += scope.launch {
                 // Rebuilt from the inbox at every send, first REQ and every
                 // reconnect alike, so a relay that returns resumes from the cursor.
-                pool.subscribe({ listOf(backgroundChatFilter(candidate.epochId, inbox.state().cursor, now())) })
+                pool.subscribe({ listOf(backgroundChatFilter(candidate.epochId, inbox.state().cursor, now(), candidate.past.map { it.keys.id })) })
                     .collect { event -> onChat(candidate, inbox, event) }
             }
             jobs += scope.launch {
@@ -392,8 +401,8 @@ class BackgroundCallListenerService : Service() {
         val watch = candidate.watch
         // Handed over between reconcile ticks: the open room shows it now.
         if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) return
-        val message = decodeChatEvent(event, candidate.epochId, candidate.epochKey, now(), candidate.saved.policy,
-            credentialRoomId = watch.stableRoomId) ?: return
+        val message = decodeBackgroundChat(event, EpochKeys(0, candidate.epochId, candidate.epochKey), candidate.past,
+            candidate.removed, now(), candidate.saved.policy, credentialRoomId = watch.stableRoomId) ?: return
         try {
             val added = inbox.record(event.id, event.createdAt, message)
             val unread = inbox.state().unread
