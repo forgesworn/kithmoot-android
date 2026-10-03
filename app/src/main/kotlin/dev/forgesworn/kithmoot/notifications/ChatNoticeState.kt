@@ -35,4 +35,14 @@ class ChatNoticeState(private val since: Long, private val self: String) {
     }
     /** Everything unread so far is read, as when the person replies from the notification. */
     fun read() = unread.clear()
+    /** Messages alerted here and not yet read. */
+    val unreadCount: Int get() = unread.size
 }
+
+/**
+ * Whether closing a room reads it through: only if it was being read (on
+ * screen, in the foreground) when it closed, or holds nothing unread. An
+ * alert the person never saw survives the close, whether by a back press from
+ * the call or by swiping the app away (P4-02, decided 3 October 2026).
+ */
+internal fun readsThroughAtClose(reading: Boolean, unread: Int): Boolean = reading || unread == 0

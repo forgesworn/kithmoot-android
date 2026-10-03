@@ -26,6 +26,21 @@ class ChatNoticeStateTest {
         val retract = message("retract", 102).copy(retracts = "first")
         assertTrue(state.update(listOf(root, edit, retract), false).unread.isEmpty())
     }
+    @Test fun aCloseReadsThroughOnlyARoomThatWasBeingReadOrHasNothingUnread() {
+        // Swiped away, or left from the call tab, with an alert never seen: it survives.
+        assertFalse(readsThroughAtClose(reading = false, unread = 1))
+        // Left while reading the chat: everything shown is read.
+        assertTrue(readsThroughAtClose(reading = true, unread = 1))
+        // Nothing alerted unread: reading through loses nothing.
+        assertTrue(readsThroughAtClose(reading = false, unread = 0))
+    }
+    @Test fun countsWhatItAlertedUntilItIsRead() {
+        val state = ChatNoticeState(100, "me")
+        state.update(listOf(message("one"), message("two", 101)), false)
+        assertEquals(2, state.unreadCount)
+        state.update(listOf(message("one"), message("two", 101)), true)
+        assertEquals(0, state.unreadCount)
+    }
     @Test fun messagesWhileReadingAreSeenWithoutAnAlert() {
         val state = ChatNoticeState(100, "me")
         assertTrue(state.update(listOf(message("one")), true).arrived.isEmpty())

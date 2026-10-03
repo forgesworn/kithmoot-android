@@ -4084,15 +4084,20 @@ class RoomViewModel @JvmOverloads constructor(
         profilePool?.stop()
         profilePool = null
         pool = null
-        if (!chatOnly) notifications.end()
+        // A chat-only room beside a call has no notifications of its own, so it reads through as before.
+        val readThrough = chatOnly || notifications.closeReadsThrough()
+        if (!chatOnly) notifications.end(keepNotice = !readThrough)
         callRinger.end()
         // At once, unlike the registry's unmark below: a reply arriving now takes the background path.
         noticeReplier?.let { (id, replier) -> dev.forgesworn.kithmoot.notifications.OpenRoomReplies.unregister(id, replier) }
         noticeReplier = null
         // Read through now before the background service takes the room back,
-        // or its catch-up would count messages already shown here.
+        // or its catch-up would count messages already shown here. A room that
+        // was not being read keeps what it alerted unread: the inbox already
+        // knows what it read and alerted while open, so the service re-posts
+        // only that.
         savedRoom?.let { closed -> CoroutineScope(backgroundInboxWrites).launch {
-            markBackgroundRead(closed)
+            if (readThrough) markBackgroundRead(closed)
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(closed.id)
         } }
         session = null
