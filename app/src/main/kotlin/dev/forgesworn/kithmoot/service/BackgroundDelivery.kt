@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.service
 
 import dev.forgesworn.kithmoot.notifications.CallRingMode
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.HybridRelaySockets
@@ -8,6 +11,9 @@ import dev.forgesworn.kithmoot.relay.LinkRelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.session.CHAT_RETENTION_SECONDS
+import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.PastEpoch
+import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
 
@@ -65,12 +71,39 @@ const val CHAT_CURSOR_SKEW_SECONDS: Long = 300
 /** Resume from the cursor, but never ask for more than the retention window. */
 fun chatSince(cursor: Long, now: Long): Long = maxOf(cursor - CHAT_CURSOR_SKEW_SECONDS, now - CHAT_RETENTION_SECONDS)
 
-fun backgroundChatFilter(epochId: String, cursor: Long, now: Long) = Filter(
+/** Chat on the current epoch and on [pastIds], the epochs left that are still read (`pastEpochsFor`). */
+fun backgroundChatFilter(epochId: String, cursor: Long, now: Long, pastIds: List<String> = emptyList()) = Filter(
     kinds = listOf(KIND_CHAT),
     // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
-    tags = mapOf("#d" to listOf(epochId)),
+    tags = mapOf("#d" to listOf(epochId) + pastIds),
     since = chatSince(cursor, now),
 )
+
+/**
+ * A background chat event, opened under the epoch its `d` tag names: the
+ * current one, or one the room has left that is still read. A message from
+ * somebody a rekey removed is refused on a left epoch, as the open room
+ * refuses it (`RoomSession.onChatEvent`); on the current epoch they hold no
+ * key to have written it.
+ */
+fun decodeBackgroundChat(
+    event: NostrEvent,
+    current: EpochKeys,
+    past: List<PastEpoch>,
+    removed: Set<String>,
+    now: Long,
+    policy: RoomPolicy?,
+    credentialRoomId: String,
+): ChatMessage? {
+    val tag = event.tagValue("d") ?: return null
+    val (keys, left) = when {
+        tag.equals(current.id, ignoreCase = true) -> current to false
+        else -> past.firstOrNull { it.keys.id.equals(tag, ignoreCase = true) }?.let { it.keys to true } ?: return null
+    }
+    val message = decodeChatEvent(event, keys.id, keys.key, now, policy, credentialRoomId = credentialRoomId) ?: return null
+    if (left && message.participant.lowercase() in removed) return null
+    return message
+}
 
 /**
  * The background pool's sockets: the same hybrid factory an open room uses,
