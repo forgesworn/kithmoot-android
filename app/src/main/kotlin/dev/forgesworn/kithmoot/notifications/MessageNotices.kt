@@ -6,12 +6,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.R
+import dev.forgesworn.kithmoot.service.BackgroundCallListenerService
 import dev.forgesworn.kithmoot.session.BackgroundInbox
 import dev.forgesworn.kithmoot.session.ChatMessage
 
@@ -70,6 +72,7 @@ fun restoredNoticeLines(unread: List<BackgroundInbox.Unread>, shown: List<ShownL
  */
 object MessageNotices {
     const val ID = 4610
+    const val LOG_TAG = "KithMootNotice"
     const val REPLY = "dev.forgesworn.kithmoot.REPLY_CHAT_NOTICE"
     const val REPLY_TEXT = "notification_reply"
     /** The single untagged notification earlier versions posted for every room. */
@@ -78,6 +81,8 @@ object MessageNotices {
     /** Posts a room's notification. [replyable] adds Reply: see [canReplyFromNotice]. */
     fun post(context: Context, roomId: String, content: NoticeContent, sound: Boolean, replyable: Boolean = false): Boolean {
         if (content.lines.isEmpty()) { cancel(context, roomId); return false }
+        // What was posted and whether it alerted, so a lab run can count alerts: a digest, counts, no text.
+        Log.i(LOG_TAG, "room=${BackgroundCallListenerService.label(roomId)} posted lines=${content.lines.size} unread=${content.unread} sound=$sound")
         val style = NotificationCompat.MessagingStyle(self())
         content.title?.let { style.setConversationTitle(it).setGroupConversation(true) }
         for (line in content.lines) {
@@ -170,6 +175,7 @@ object MessageNotices {
     } catch (_: SecurityException) { false }
 
     fun cancel(context: Context, roomId: String) {
+        Log.i(LOG_TAG, "room=${BackgroundCallListenerService.label(roomId)} cleared")
         val manager = NotificationManagerCompat.from(context)
         manager.cancel(roomId, ID)
         manager.cancel(LEGACY_ID)
