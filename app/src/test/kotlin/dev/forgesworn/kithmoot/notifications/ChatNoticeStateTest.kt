@@ -32,4 +32,19 @@ class ChatNoticeStateTest {
         assertTrue(state.update(listOf(message("one")), false).unread.isEmpty())
         assertEquals(1, state.update(listOf(message("one"), message("two", 101)), false).unread.size)
     }
+    @Test fun reportsWhatItRead() {
+        val state = ChatNoticeState(100, "me")
+        val first = state.update(listOf(message("one")), false)
+        assertFalse(first.read); assertEquals(listOf("one"), first.arrived.map { it.id })
+        val edit = message("edit", 101).copy(replaces = "one", body = "Corrected")
+        val edited = state.update(listOf(message("one"), edit), false)
+        assertFalse(edited.read); assertTrue(edited.arrived.isEmpty())
+        // Reading clears what was unread: read, once.
+        assertTrue(state.update(listOf(message("one"), edit), true).read)
+        assertFalse(state.update(listOf(message("one"), edit), true).read)
+        // A message first seen while reading is read as it arrives.
+        val arrived = state.update(listOf(message("one"), edit, message("two", 102)), true)
+        assertTrue(arrived.read); assertTrue(arrived.arrived.isEmpty())
+        assertFalse(state.update(listOf(message("one"), edit, message("two", 102)), false).read)
+    }
 }

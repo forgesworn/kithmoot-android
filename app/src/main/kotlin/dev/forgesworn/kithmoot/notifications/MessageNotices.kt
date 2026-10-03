@@ -12,6 +12,7 @@ import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.R
+import dev.forgesworn.kithmoot.session.BackgroundInbox
 import dev.forgesworn.kithmoot.session.ChatMessage
 
 /** One message as a notification shows it. Held in memory only, never stored. */
@@ -43,6 +44,21 @@ fun noticeContent(roomName: String, private: Boolean, unread: List<NoticeLine>, 
         .map { if (previews) it else it.copy(body = "New message") }
     return NoticeContent(if (private) null else roomName.ifBlank { "KithMoot" }.take(120), lines, unread.size)
 }
+
+/** One line of a room's notification as Android holds it: who wrote, when in milliseconds, what it says. */
+data class ShownLine(val senderKey: String?, val sender: String?, val atMs: Long, val text: String)
+
+/**
+ * Lines for unread messages whose text this process no longer holds, as after
+ * a restart: the inbox stores no text. A line still in Android's tray for the
+ * same sender and send time keeps its text and name; any other says only
+ * "New message", named by the start of the sender's key.
+ */
+fun restoredNoticeLines(unread: List<BackgroundInbox.Unread>, shown: List<ShownLine>): List<NoticeLine> =
+    unread.sortedBy { it.sentAt }.takeLast(MAX_NOTICE_LINES).map { entry ->
+        val held = shown.lastOrNull { it.senderKey == entry.participant && it.atMs == entry.sentAt * 1000 }
+        NoticeLine(entry.id, entry.participant, held?.sender ?: entry.participant.take(12), held?.text ?: "New message", entry.sentAt)
+    }
 
 /**
  * Posts and clears message notifications, one per room, for both the open
@@ -93,6 +109,15 @@ object MessageNotices {
         val unread = if (reply == null) shown?.number ?: 0 else 0
         notify(context, roomId, notice(context, roomId, style, unread, style.messages.last().timestamp, sound = false, replyable = true))
     }
+
+    /** The lines of a room's notification still in Android's tray, or null when there is none. */
+    fun shown(context: Context, roomId: String): List<ShownLine>? = runCatching {
+        val notice = context.getSystemService(NotificationManager::class.java).activeNotifications
+            .firstOrNull { it.tag == roomId && it.id == ID }?.notification ?: return@runCatching null
+        NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notice)?.messages.orEmpty().map {
+            ShownLine(it.person?.key, it.person?.name?.toString(), it.timestamp, it.text?.toString().orEmpty())
+        }
+    }.getOrNull()
 
     private fun self() = Person.Builder().setName("You").build()
 
