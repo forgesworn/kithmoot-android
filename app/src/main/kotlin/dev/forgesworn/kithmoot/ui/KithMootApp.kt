@@ -589,6 +589,7 @@ fun KithMootApp(
                             onProfilesEnabled = model::setProfilesEnabled,
                             lane = roomState.lane,
                             torOnly = roomState.anonymous,
+                            relaysUp = roomState.relaysUp,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,

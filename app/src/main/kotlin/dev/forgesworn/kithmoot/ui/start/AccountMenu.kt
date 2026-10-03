@@ -68,11 +68,15 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                     accountNotInUse(inRoom, torOnlyRoom)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
-                DropdownMenuItem(text = { Text("Relays for private conversations") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
+                if (accountActionsOffered(inRoom, torOnlyRoom)) {
+                    DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
+                    DropdownMenuItem(text = { Text("Relays for private conversations") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
+                }
             }
             DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { menu = false; page = "relays" })
-            DropdownMenuItem(text = { Text("Sync chats and projects") }, onClick = { menu = false; actions.retrySync() }, enabled = account != null && !state.roomSyncBusy)
+            if (accountActionsOffered(inRoom, torOnlyRoom)) {
+                DropdownMenuItem(text = { Text("Sync chats and projects") }, onClick = { menu = false; actions.retrySync() }, enabled = account != null && !state.roomSyncBusy)
+            }
             DropdownMenuItem(text = { Text("Notifications & sound") }, onClick = { menu = false; page = "notifications" })
             HorizontalDivider()
             if (account != null) DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; leaving = true }, enabled = !state.profileBusy && !state.roomSyncBusy && !state.projectsBusy)
@@ -221,6 +225,15 @@ internal fun signInFromRoom(torOnlyRoom: Boolean): String =
         "Leave the room to sign in with your usual account. Your saved rooms stay on this phone."
     else "You are in this room with just a name: a separate identity, not your Nostr account. " +
         "Leave the room to sign in with your usual account. Leaving ends any call you are on; your saved rooms stay on this phone."
+
+/**
+ * Whether the menu offers the actions that reach the account's own relays:
+ * Edit profile, Relays for private conversations and Sync. Each opens a
+ * clearnet relay pool, so inside a Tor-only room they are not offered: the
+ * account's traffic would sit beside the room's Tor traffic, from the same
+ * app at the same moment.
+ */
+internal fun accountActionsOffered(inRoom: Boolean, torOnlyRoom: Boolean): Boolean = !(inRoom && torOnlyRoom)
 
 /** Said under a signed-in account inside a room that does not use it; null where the account is in use or may be. */
 internal fun accountNotInUse(inRoom: Boolean, torOnlyRoom: Boolean): String? =
