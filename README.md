@@ -114,8 +114,8 @@ The home screen lists rooms saved on this device, with their names, search
 and a confirmed Forget action. A room's name is shared: any member renames it
 for everybody from the room's details ("Rename for everyone"), as a `name` op
 on the room's encrypted control channel, and members carry the current name
-into each new epoch (see the reference's
-[room name](https://github.com/forgesworn/kithmoot/blob/main/docs/room-name.md)).
+into each new epoch (see the reference's `docs/room-name.md`, from
+[forgesworn/kithmoot#225](https://github.com/forgesworn/kithmoot/pull/225)).
 A two-person room, titled by the other person, and an anonymous room have no
 rename. Reopening preserves the participant and
 device keys. Creators can return alone, and temporary meetings can serve their

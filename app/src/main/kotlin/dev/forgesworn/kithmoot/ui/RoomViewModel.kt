@@ -5409,13 +5409,15 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private suspend fun persistLiveRoom(id: String, change: (SavedRoom) -> SavedRoom) {
+    private suspend fun persistLiveRoom(id: String,
+        failure: String = "The room's changed access could not be saved. Check its current invitation before returning.",
+        change: (SavedRoom) -> SavedRoom) {
         withContext(Dispatchers.IO) {
             try {
                 val saved = savedRooms.update(id, change)
                 if (savedRoom?.id == id) savedRoom = saved
             } catch (_: RoomStorageException) {
-                note("The room's changed access could not be saved. Check its current invitation before returning.")
+                note(failure)
             }
         }
     }
@@ -5445,7 +5447,7 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             if (savedRoom?.id != roomId) return@launch
             if (savedRoom?.sharedName?.let { it.id == shared.id && it.at == shared.at && it.name == shared.name } != true) {
-                persistLiveRoom(roomId) { it.withSharedName(shared) }
+                persistLiveRoom(roomId, "The room's new name could not be saved on this phone. It still shows here.") { it.withSharedName(shared) }
                 runCatching { savedRooms.list() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
             }
             notifications.rename(roomId, shared.name)
