@@ -4,11 +4,17 @@ KithMoot consumes ForgeSworn Link as a reviewed binary hand-off. It does not
 rebuild Link, copy JNI libraries into the repository, or accept an unpinned
 release name.
 
-The current hand-off is Link commit `c454bb3d83010fc4d335963914f0e2e874bef7f5`,
-published as the permanent prerelease `android-ffi-c454bb3`, with archive SHA-256
-`724d867f4714668078b90bb3769a0f2235651a610c5a2ebba552c1130a2332f4`.
+The current hand-off is Link commit `e3f80d48f34e8e72f1028540d9962b7eb4988577`,
+published as the permanent prerelease `android-ffi-e3f80d4`, with archive SHA-256
+`bb3ba23b2dd030b58e23cb2a499453360167e9a3c0e052d61a20b6b118fdfaed`.
 Its manifest pins the two shipped ABIs and the generated UniFFI Kotlin binding
 individually.
+
+This hand-off adds Link's VMLS route table (P3-04) and the witness refusal flag:
+a Link HTTP response's `witnessRefused` is true only for a 403 on a Bothy
+restore-witness route carrying `vmls-witness: refused`, and the app carries it
+as `LinkJsonResponse.witnessRefused`. Cadence requests keep their existing
+rules.
 
 To prepare any local or hosted build, download and verify the source-pinned
 public release asset:
