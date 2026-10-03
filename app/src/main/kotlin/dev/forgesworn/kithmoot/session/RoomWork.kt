@@ -1,7 +1,15 @@
 package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.DisplayName
+import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.ROOM_RELAYS_REPOST_SECONDS
+import dev.forgesworn.kithmoot.protocol.RoomNameBook
+import dev.forgesworn.kithmoot.protocol.RoomNameRecord
+import dev.forgesworn.kithmoot.protocol.carryRoomNameOp
+import dev.forgesworn.kithmoot.protocol.encodeRoomNameOp
+import dev.forgesworn.kithmoot.protocol.renameRoomOp
+import dev.forgesworn.kithmoot.protocol.roomNameFromMessage
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.decodeRoomRelaysOp
@@ -43,6 +51,27 @@ class RoomWork(
     private val onRoomRelays:(RoomRelaysRecord,Long)->Unit={_,_->},
     /** A conference room's end: every control and assignment event carries it as its NIP-40 expiration. */
     private val ends:Long?=null,
+    /** The epoch [initialTrafficRoomId] belongs to: every rename read is
+     *  filed under the epoch whose control log carried it. */
+    initialEpoch:Int=0,
+    /** The rename this device accepted before and kept with the saved room,
+     *  so it counts toward the name, and is posted again, after every copy
+     *  in the log has gone. */
+    initialRoomName:RoomNameRecord?=null,
+    /** When the authority rekeyed the room into an epoch, unix seconds: the
+     *  signed `created_at` of that rekey, if this device holds it. A rename
+     *  read under an epoch the room has left counts only up to the rekey out
+     *  of it, plus the clock-skew grace. See `RoomNameBook`. */
+    private val rekeyedAt:(Int)->Long?={null},
+    /** The room's shared name changed. Called with the newest rename that
+     *  counts, whether read, carried or made here. */
+    private val onRoomName:(RoomNameRecord)->Unit={},
+    /** A rename that is not a carried copy was read for the first time,
+     *  whether or not it won: what the chat shows as "<who> renamed the
+     *  room". Once per rename id. */
+    private val onRename:(RoomNameRecord)->Unit={},
+    /** Milliseconds, for a rename's `at`. */
+    private val nowMs:()->Long={System.currentTimeMillis()},
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -63,9 +92,21 @@ class RoomWork(
     @Volatile private var knownRoomRelays:RoomRelaysRecord?=initialRoomRelays
     @Volatile private var roomRelaysSeenAt:Long=0L
     @Volatile private var repostedRoomRelays=false
-    private fun receive(message:ChatMessage) {
+    // The room's shared name: every rename read, by the epoch it was read
+    // under. Mirrors `followRoomName` in the web client's src/room-name.ts.
+    @Volatile private var trafficEpoch=initialEpoch
+    private val names=RoomNameBook().apply { initialRoomName?.let { seed(it.name,it.id,it.at) } }
+    private val nameMessages=HashSet<String>()
+    private val renameIds=HashSet<String>()
+    private var shownName:RoomNameRecord?=null
+    private var nameCarry:Job?=null
+    @Volatile private var nameCarryScheduled=false
+    /** The room's shared name now, or null while nobody has renamed it. */
+    fun roomName():RoomNameRecord?=synchronized(names){names.current(trafficEpoch,rekeyedAt)}
+    private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
+        if(control.assignmentText("op")=="name") { roomNameFromMessage(message.body,message.participant,message.sentAt)?.let{ingestName(message.id,it,epoch)};return }
         if(control.assignmentText("op")!="catalogue"||control.assignmentText("host")!=message.participant)return
         val entries=control["agents"] as? JsonArray?:return
         val running=control["running"] as? JsonArray?:return
@@ -125,44 +166,124 @@ class RoomWork(
             }
         }
     }
+    /** File [record], carried by chat message [messageId], under [epoch];
+     *  announce a first-seen rename and a changed name. */
+    private fun ingestName(messageId:String,record:RoomNameRecord,epoch:Int) {
+        val fresh=synchronized(names) {
+            if(closed||!nameMessages.add(messageId))return
+            names.add(record,epoch)
+            record.by!=null&&renameIds.add(record.id)
+        }
+        if(fresh)runCatching{onRename(record)}
+        settleName()
+    }
+    /** Work the name out again: after a message, or a rekey, which can
+     *  discount renames read under the epoch the room left. */
+    private fun settleName() {
+        val next=synchronized(names) {
+            val next=names.current(trafficEpoch,rekeyedAt)
+            val shown=shownName
+            if(next==null||(shown!=null&&shown.id==next.id&&shown.at==next.at&&shown.name==next.name))return
+            shownName=next
+            next
+        }
+        runCatching{onRoomName(next)}
+    }
+    /**
+     * Rename the room for everybody in it: a `name` op on this epoch's
+     * control channel, confirmed by a relay. Throws on an empty name, a
+     * closed room or no confirmation.
+     */
+    suspend fun rename(name:String):RoomNameRecord {
+        check(!closed) {"This room has closed"}
+        val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
+        val at=nowMs()
+        val op=renameRoomOp(name,at)
+        val sentAt=Math.floorDiv(at,1000L)
+        val messageId=Entropy.bytes(16).toHex()
+        val event=encodeChatEvent(encodeRoomNameOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,sentAtMs=at)
+        check(transport.publishConfirmed(event)) {"No relay confirmed the rename"}
+        val record=RoomNameRecord(op.name,op.id,op.at,identity.participant,sentAt)
+        // Shown now rather than when a relay echoes it back; the echo is the
+        // same message id and changes nothing.
+        ingestName(messageId,record,epoch)
+        return record
+    }
+    /** A while from now, post the room's name again if this epoch's control
+     *  log lacks a recent copy: random, so members do not all post at once,
+     *  and a second copy is harmless. */
+    private fun scheduleNameCarry(minMs:Long,spreadMs:Long) {
+        synchronized(names) {
+            nameCarry?.cancel()
+            if(closed)return
+            nameCarry=scope.launch {
+                delay(minMs+(0 until spreadMs).random())
+                carryNameIfDue()
+            }
+        }
+    }
+    /** Post the current name again, unchanged and marked carried, if this
+     *  epoch's control log holds no copy of it newer than
+     *  `ROOM_NAME_REPOST_SECONDS`. Returns whether it posted. */
+    internal suspend fun carryNameIfDue():Boolean {
+        if(closed)return false
+        val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
+        val sentAt=now()
+        val due=synchronized(names){names.carryDue(epoch,sentAt,rekeyedAt)}?:return false
+        val messageId=Entropy.bytes(16).toHex()
+        val carried=carryRoomNameOp(due)
+        val event=encodeChatEvent(encodeRoomNameOp(carried),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends)
+        val confirmed=runCatching{transport.publishConfirmed(event)}.getOrElse{if(it is CancellationException)throw it;false}
+        if(confirmed)ingestName(messageId,RoomNameRecord(due.name,due.id,due.at,null,sentAt),epoch)
+        return confirmed
+    }
     suspend fun open() { journal.open();refreshActions() }
     suspend fun refreshActions() = discoveryMutex.withLock {
         check(!closed) {"This room has closed"}
-        val id=trafficRoomId;val key=trafficRoomKey
+        val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
         if(collector?.isActive!=true) {
         val address=deriveChatChannel(id,key,"control")
         val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
         collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
-            try { transport.subscribe(filters).collect { event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive) } }
+            try { transport.subscribe(filters).collect { event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let{receive(it,epoch)} } }
             catch(cancelled:CancellationException){throw cancelled}
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
         // Stored discovery may be absent; the explicit request also reaches a
         // host that joined after this query. History itself is never a job.
-        try {transport.queryAvailable(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
+        try {transport.queryAvailable(filters).sortedWith(compareBy({it.createdAt},{it.id})).forEach {decodeChatEvent(it,id,key,now(),policy,"control",credentialRoomId=roomId)?.let{message->receive(message,epoch)}}}
         catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         maybeRepostRoomRelays()
+        if(!nameCarryScheduled) { nameCarryScheduled=true;scheduleNameCarry(30_000L,30_000L) }
         }
         check(!closed) {"This room has closed"}
         val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
         check(transport.publishConfirmed(request)) {"No relay confirmed the agent discovery request"}
         mutableError.value=null
     }
-    suspend fun rekey(id:String,key:ByteArray) {
+    /** Move onto [epoch]'s keys. The room's name is worked out again, since
+     *  a rename read under the epoch left may no longer count, and carried
+     *  into the new epoch a few seconds later by whichever member gets there
+     *  first. */
+    suspend fun rekey(id:String,key:ByteArray,epoch:Int=trafficEpoch+1) {
         require(id.matches(Regex("[0-9a-f]{64}"))&&key.size==32)
         check(!closed) {"This room has closed"}
         collector?.cancelAndJoin();collector=null
-        trafficRoomId=id;trafficRoomKey=key.copyOf()
+        trafficRoomId=id;trafficRoomKey=key.copyOf();trafficEpoch=epoch
+        settleName()
+        scheduleNameCarry(3_000L,12_000L)
         synchronized(catalogues){catalogues.clear();mutableActions.value=emptyList()}
         journal.rekey(id,key)
         val address=deriveChatChannel(id,key,"control")
         val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
         collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
-            try {transport.subscribe(filters).collect {event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let(::receive)}}
+            try {transport.subscribe(filters).collect {event -> if(!closed)decodeChatEvent(event,id,key,now(),policy,"control",credentialRoomId=roomId)?.let{receive(it,epoch)}}}
             catch(cancelled:CancellationException){throw cancelled}
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};mutableActions.value=emptyList()}
 }
