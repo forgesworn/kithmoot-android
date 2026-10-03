@@ -76,10 +76,11 @@ fun TestScope.session(
     ends: Long? = null,
     memberEpochDesk: dev.forgesworn.kithmoot.epoch.MemberEpochDesk? = null,
     onEpochHistory: suspend (List<dev.forgesworn.kithmoot.protocol.RoomEpoch>, List<NostrEvent>) -> Unit = { _, _ -> },
+    transport: dev.forgesworn.kithmoot.relay.RoomTransport = relay.transport(),
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
-    transport = relay.transport(),
+    transport = transport,
     scope = backgroundScope,
     timing = timing,
     now = { currentTime / 1000 },

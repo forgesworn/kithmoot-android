@@ -90,6 +90,13 @@ interface RoomTransport {
     /** Reopen publication only after every room subscriber has moved. */
     fun completeRekey() = Unit
 
+    /**
+     * The room keys of epochs this room has left and still reads, newest
+     * first, replacing whatever set was kept before. They only open what
+     * arrives: nothing is ever sent under them.
+     */
+    fun keepPast(roomKeys: List<ByteArray>) = Unit
+
     /** Stable-room recovery control remains available while epoch traffic is blocked. */
     fun publishRecovery(event: NostrEvent) = publish(event)
 }

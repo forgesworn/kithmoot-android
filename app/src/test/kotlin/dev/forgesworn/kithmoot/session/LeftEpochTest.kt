@@ -13,6 +13,7 @@ import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.encodeMemberEpochGrant
 import dev.forgesworn.kithmoot.protocol.encodeRekeyEvent
 import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,10 +60,37 @@ class LeftEpochTest {
         credentialRoomId = stable.roomId,
     )
 
-    private fun TestScope.following(relay: FakeRelay, initial: Int = 0, expected: Int? = null) = session(
+    private fun TestScope.following(relay: FakeRelay, initial: Int = 0, expected: Int? = null, transport: RoomTransport = relay.transport()) = session(
         stable, me, relay, authority = authority, initialEpoch = keys(initial), expectedEpoch = expected,
-        epochGate = { _, _ -> EpochGateResult.COMMITTED },
+        epochGate = { _, _ -> EpochGateResult.COMMITTED }, transport = transport,
     )
+
+    @Test fun `in a quiet room a drop sealed under the epoch just left is still read, unless its sender was removed`() = runTest {
+        val relay = FakeRelay()
+        val lagging = Fixtures.primary(stable, 3, 4)
+        val removed = Fixtures.primary(stable, 5, 6)
+        val members = listOf(me.participant, lagging.participant, removed.participant)
+        fun quietOn(who: PrimaryIdentity, epoch: Int) = QuietTransport(
+            relay.transport(), keys(epoch).key, who.participant, members, 0, backgroundScope,
+            intervalSeconds = 60, now = { currentTime / 1000 }, ticking = false, slotOffset = { 0 },
+        )
+        val live = following(relay, transport = quietOn(me, 0))
+        live.join()
+        runCurrent()
+        relay.publish(rekey(1, removed = listOf(removed.participant)))
+        runCurrent()
+        assertEquals(1, live.epochKeys().epoch)
+
+        for ((who, body) in listOf(lagging to "sent before my phone followed", removed to "let me back in")) {
+            val theirs = quietOn(who, 0)
+            theirs.publish(chat(body, who, 0))
+            theirs.tick()
+            theirs.stop()
+        }
+        runCurrent()
+
+        assertEquals(listOf("sent before my phone followed"), live.chat.value.map { it.body })
+    }
 
     @Test fun `a message that lands on the epoch just left is still read, unless its sender was removed`() = runTest {
         val relay = FakeRelay()

@@ -1519,6 +1519,7 @@ class RoomSession(
             departed.clear()
             EpochGap(from.epoch, next.epoch, now()).takeIf { next.epoch > from.epoch + 1 + between.size }
         }
+        handPastToTransport()
         if (gap != null) _epochGaps.value = _epochGaps.value + gap
         _epochState.value = RoomEpochState.Active(next.epoch, next.id)
         _movedOn.value = null
@@ -1531,6 +1532,11 @@ class RoomSession(
             announceIfPublishing(reply = true)
             onEpochReady(next)
         }
+    }
+
+    /** Tell the transport which left epochs are read, so a quiet room can open drops sealed under them. */
+    private fun handPastToTransport() {
+        transport.keepPast(synchronized(lock) { pastEpochs.descendingMap().values.map { it.keys.key } })
     }
 
     /** Keep [left] as epochs left at [leftAt], then drop the oldest past the age and count limits. */
