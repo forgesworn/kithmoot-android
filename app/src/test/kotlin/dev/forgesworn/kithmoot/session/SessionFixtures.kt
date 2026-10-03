@@ -77,6 +77,8 @@ fun TestScope.session(
     memberEpochDesk: dev.forgesworn.kithmoot.epoch.MemberEpochDesk? = null,
     onEpochHistory: suspend (List<dev.forgesworn.kithmoot.protocol.RoomEpoch>, List<NostrEvent>) -> Unit = { _, _ -> },
     transport: dev.forgesworn.kithmoot.relay.RoomTransport = relay.transport(),
+    initialPastEpochs: List<PastEpoch> = emptyList(),
+    initialRemoved: Collection<String> = emptyList(),
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -102,4 +104,6 @@ fun TestScope.session(
     ends = ends,
     memberEpochDesk = memberEpochDesk,
     onEpochHistory = onEpochHistory,
+    initialPastEpochs = initialPastEpochs,
+    initialRemoved = initialRemoved,
 )

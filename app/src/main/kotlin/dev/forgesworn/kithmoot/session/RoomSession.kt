@@ -143,7 +143,7 @@ data class EpochGap(val from: Int, val to: Int, val at: Long)
 data class EpochConflict(val epoch: Int, val kept: String, val other: String)
 
 /** An epoch this session has left, and when it was left (unix seconds). */
-private class PastEpoch(val keys: EpochKeys, val leftAt: Long)
+class PastEpoch(val keys: EpochKeys, val leftAt: Long)
 
 sealed interface RoomEpochState {
     data class Active(val epoch: Int, val trafficRoom: String) : RoomEpochState
@@ -244,6 +244,16 @@ class RoomSession(
      * events are unchanged. See `withRoomExpiration`.
      */
     private val ends: Long? = null,
+    /**
+     * Epochs this device left before this session opened, rebuilt from the
+     * epoch history it kept (`pastEpochsFor`), so a room reopened after a
+     * rekey still reads a message that lands late on the epoch just left, as
+     * the web client rebuilds its left epochs on opening. Held to the same
+     * age and count limits as an epoch left while open.
+     */
+    initialPastEpochs: List<PastEpoch> = emptyList(),
+    /** Everybody the room's rekeys have removed, as the epoch journal holds them: refused on [initialPastEpochs]. */
+    initialRemoved: Collection<String> = emptyList(),
 ) {
 
     private val lock = Any()
@@ -272,6 +282,15 @@ class RoomSession(
     private val pastEpochs = TreeMap<Int, PastEpoch>()
     /** Everybody a rekey this session followed removed, lower case: refused on the epochs left. Under [lock]. */
     private val removedParticipants = mutableSetOf<String>()
+
+    init {
+        synchronized(lock) {
+            for (past in initialPastEpochs.filter { it.keys.epoch < initialEpoch.epoch }) {
+                keepPastLocked(listOf(past.keys), past.leftAt)
+            }
+            initialRemoved.forEach { removedParticipants += it.lowercase() }
+        }
+    }
     private val roster = linkedMapOf<String, RosterEntry>()
 
     /**
@@ -442,6 +461,9 @@ class RoomSession(
             if (joined) return
             joined = true
         }
+        // Left epochs seeded at opening: a quiet room's transport opens drops
+        // under them only once it is told (kithmoot-android #127, #128).
+        if (synchronized(lock) { pastEpochs.isNotEmpty() }) handPastToTransport()
         if (authority != null) {
             jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)
