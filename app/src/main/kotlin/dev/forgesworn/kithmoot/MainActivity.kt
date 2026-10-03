@@ -310,6 +310,8 @@ class MainActivity : ComponentActivity() {
         // Before the stop: a ringing Telecom call becomes the answered one rather than a missed one.
         if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.telecom.CallTelecom.answeredInApp(roomId)
         if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.notifications.IncomingCallRinger.stop(this, roomId)
+        // The same Answer joins from the notice for this person's own call on another device.
+        if (roomId.isNotEmpty()) dev.forgesworn.kithmoot.notifications.OwnCallElsewhereNotice.cancel(this, roomId)
         showOverLock()
     }
 
