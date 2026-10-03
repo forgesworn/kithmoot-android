@@ -233,6 +233,7 @@ import dev.forgesworn.kithmoot.ui.room.microphoneAction
 import dev.forgesworn.kithmoot.ui.room.JoinDecision
 import dev.forgesworn.kithmoot.ui.room.SingleBuild
 import dev.forgesworn.kithmoot.ui.room.joinDecision
+import dev.forgesworn.kithmoot.ui.room.mediaMissingNote
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
@@ -3648,13 +3649,14 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(mediaStarting = true) }
         opening = scope.launch {
             val begun = android.os.SystemClock.elapsedRealtime()
+            Log.i(JOIN_LOG, "media build begins")
             var remembered = false
             var rememberedMicOn = false
             val installed = mediaBuild.build(
                 held = { engine },
                 make = {
                     val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }}")
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
                     withContext(Dispatchers.Default) {
                         runCatching { WebRtcEngine(getApplication(), live, this@launch, ice) }
                     }.getOrElse { failure ->
@@ -4314,8 +4316,8 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun toggleMicrophone() = act {
         if (chatOnly) return@act
-        if (!_room.value.mediaRunning) return@act
-        val media = engine?.localMedia ?: return@act note("No microphone on this device.")
+        if (!_room.value.mediaRunning) return@act noteIfJoinPending()
+        val media = engine?.localMedia ?: return@act note(mediaMissing())
         val live = session ?: return@act
         when (microphoneAction(_room.value.micOn, _room.value.micMuted)) {
             MicrophoneAction.Start -> {
@@ -4351,10 +4353,21 @@ class RoomViewModel @JvmOverloads constructor(
         if (!media.setMicrophoneMuted(muted)) note("There is no microphone running to mute.")
     }
 
+    /** Why a mic, camera or share press found no engine, in the room's own terms. */
+    private fun mediaMissing(): String = _room.value.let {
+        mediaMissingNote(it.mediaStarting, it.callJoinPending, it.mediaFault)
+    }
+
+    /** A press between answering and the engine arriving is not ignored in
+     *  silence: the join is remembered, and the person is told it is coming. */
+    private fun noteIfJoinPending() {
+        if (_room.value.callJoinPending) note(mediaMissing())
+    }
+
     fun toggleCamera() = act {
         if (chatOnly) return@act
-        if (!_room.value.mediaRunning) return@act
-        val media = engine?.localMedia ?: return@act note("No camera on this device.")
+        if (!_room.value.mediaRunning) return@act noteIfJoinPending()
+        val media = engine?.localMedia ?: return@act note(mediaMissing())
         if (_room.value.cameraOn) {
             media.stopCamera()
         } else if (media.startCamera() == null) {
@@ -4421,7 +4434,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun startScreenShare(permission: Intent, shareAudio: Boolean = true) {
         if (!_room.value.mediaRunning) return
-        val media = engine?.localMedia ?: return note("Screen sharing needs the media stack.")
+        val media = engine?.localMedia ?: return note(mediaMissing())
         val scope = sessionScope ?: return
         scope.launch {
             ScreenShareService.start(getApplication())
