@@ -92,7 +92,13 @@ class ChatNotifications(private val context: Context) {
     }
     private fun soundUri() = soundUri(context)
     fun cancel() { lastNotice = ""; if (roomId.isNotEmpty()) MessageNotices.cancel(context, roomId) }
-    @Synchronized fun end() { cancel(); tracker = null; keepReply = false; replyable = { false }; inbox = { _, _ -> }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
+    /** Whether closing now reads the room through; see [readsThroughAtClose]. */
+    @Synchronized fun closeReadsThrough(): Boolean = readsThroughAtClose(foreground && reading, tracker?.unreadCount ?: 0)
+    /**
+     * [keepNotice] leaves this room's notification up for the background
+     * service to take over, with its lines' text, when the close did not read it.
+     */
+    @Synchronized fun end(keepNotice: Boolean = false) { if (keepNotice) lastNotice = "" else cancel(); tracker = null; keepReply = false; replyable = { false }; inbox = { _, _ -> }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
     companion object {
         // A new id because a channel's importance cannot be raised once
         // created, and messages now arrive as heads-up notices.
