@@ -62,4 +62,28 @@ class CallControlTest {
             joinDecision(onCall = false, changing = true, mediaReady = false, mediaStarting = true, mediaFault = null),
         )
     }
+
+    @Test
+    fun `a press before the engine arrives says the call is connecting, not that the device lacks hardware`() {
+        for ((starting, pending) in listOf(true to false, false to true, true to true)) {
+            val message = mediaMissingNote(mediaStarting = starting, joinPending = pending, mediaFault = null)
+            assertTrue("connecting" in message, message)
+            assertTrue("on this device" !in message, message)
+        }
+    }
+
+    @Test
+    fun `a press after media failed for good gives the fault`() {
+        assertEquals(
+            "Audio and video are unavailable on this device: no camera",
+            mediaMissingNote(mediaStarting = true, joinPending = true, mediaFault = "Audio and video are unavailable on this device: no camera"),
+        )
+    }
+
+    @Test
+    fun `a press with no engine and nothing coming still says something readable`() {
+        val message = mediaMissingNote(mediaStarting = false, joinPending = false, mediaFault = null)
+        assertTrue(message.isNotBlank())
+        assertTrue("on this device" !in message, message)
+    }
 }
