@@ -59,6 +59,8 @@ fun ChatPane(
     lane: Lane? = null,
     /** A Tor-only (anonymous) room: said beside the lane, which stays public. */
     torOnly: Boolean = false,
+    /** Relays the room has reached; a Tor-only room with none can show no history. */
+    relaysUp: Int = 1,
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
@@ -224,7 +226,7 @@ fun ChatPane(
             Text("Searches messages loaded on this device", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         }
         Box(Modifier.weight(1f)) {
-            if (visible.isEmpty() && shownNotes.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
+            if (visible.isEmpty() && shownNotes.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Inside the first row rather than an item of their own, so a
                 // row's index stays its item index for the scrolling below.
@@ -395,3 +397,14 @@ internal fun messageTime(seconds: Long): String = SimpleDateFormat("d MMM yyyy Â
 
 private fun messageDate(seconds: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(seconds * 1000))
 private fun messageClock(seconds: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
+
+/**
+ * What an empty chat says. A Tor-only room keeps no messages on the phone
+ * (P6-02, decided 3 October), so with no relay reached an empty room is not
+ * yet known to be empty: say where its history comes from.
+ */
+internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String = when {
+    query.isNotBlank() -> "No matching messages."
+    torOnly && relaysUp == 0 -> "This Tor-only room keeps no messages on this phone. Earlier messages come from its relays and show once one answers."
+    else -> "Nothing said yet."
+}

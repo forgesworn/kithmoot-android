@@ -14,6 +14,14 @@ class AccountMenuTextTest {
         assertNull(accountNotInUse(inRoom = false, torOnlyRoom = true))
     }
 
+    @Test fun accountActionsThatReachTheAccountsRelaysAreNotOfferedInsideATorOnlyRoom() {
+        assertFalse(accountActionsOffered(inRoom = true, torOnlyRoom = true))
+        assertTrue(accountActionsOffered(inRoom = true, torOnlyRoom = false))
+        assertTrue(accountActionsOffered(inRoom = false, torOnlyRoom = false))
+        // Outside a room nothing is Tor-only, whatever the last room was.
+        assertTrue(accountActionsOffered(inRoom = false, torOnlyRoom = true))
+    }
+
     @Test fun signingInFromATorOnlyRoomSaysTheRoomNeverUsesAnAccount() {
         val torOnly = signInFromRoom(torOnlyRoom = true)
         assertTrue(torOnly.startsWith("This Tor-only room never uses an account"))
