@@ -33,8 +33,8 @@ class QuietTransportTest {
     private val policy = RoomPolicy(KindredTier.OPEN, null, listOf(ada.participant, rowan.participant), quiet = true)
     private var clock = 498216L * 3600 + 10
 
-    private fun TestScope.quiet(relay: FakeRelay, who: PrimaryIdentity, slot: Int = 0, restore: QuietTransport.QuietState? = null, onState: (QuietTransport.QuietState) -> Unit = {}) =
-        QuietTransport(relay.transport(), room.roomKey, who.participant, policy.members!!, slot, backgroundScope, intervalSeconds = 60, now = { clock }, restore = restore, onState = onState, ticking = false, slotOffset = { 0 })
+    private fun TestScope.quiet(relay: FakeRelay, who: PrimaryIdentity, slot: Int = 0, restore: QuietTransport.QuietState? = null, onState: (QuietTransport.QuietState) -> Unit = {}, key: ByteArray = room.roomKey) =
+        QuietTransport(relay.transport(), key, who.participant, policy.members!!, slot, backgroundScope, intervalSeconds = 60, now = { clock }, restore = restore, onState = onState, ticking = false, slotOffset = { 0 })
 
     private fun chat(from: PrimaryIdentity, text: String) = encodeChatEvent(
         body = text, participant = from.participant, credential = from.credential, roomId = room.roomId,
@@ -268,5 +268,100 @@ class QuietTransportTest {
         assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
         assertEquals(0, a.pending)
         a.stop()
+    }
+
+    private fun epochKey(n: Int) = if (n == 0) room.roomKey else ByteArray(32) { (100 + n).toByte() }
+
+    private suspend fun QuietTransport.follow(key: ByteArray) { beginRekey(); rekey(key); completeRekey() }
+
+    private fun TestScope.chatSeenBy(transport: QuietTransport): MutableList<NostrEvent> {
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { transport.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        return seen
+    }
+
+    /** One drop under [key] from [who], posted at its slot. */
+    private suspend fun TestScope.dropUnder(relay: FakeRelay, who: PrimaryIdentity, key: ByteArray, text: String): NostrEvent {
+        val sender = quiet(relay, who, key = key)
+        val message = chat(who, text)
+        sender.publish(message)
+        sender.tick(); runCurrent()
+        sender.stop()
+        return message
+    }
+
+    @Test
+    fun `a drop sealed under the epoch just left still opens, and nothing is sent under that key`() = runTest {
+        val relay = FakeRelay()
+        val lagging = quiet(relay, ada)
+        val moved = quiet(relay, rowan)
+        val seenByLagging = chatSeenBy(lagging)
+        val seenByMoved = chatSeenBy(moved)
+        runCurrent()
+        moved.follow(epochKey(1))
+
+        val late = chat(ada, "sent before my phone followed")
+        lagging.publish(late)
+        lagging.tick(); runCurrent()
+        assertEquals(listOf(late.id), seenByMoved.map { it.id })
+
+        // What the moved device posts goes under the new key only: the device
+        // still on the old key cannot open it.
+        val fresh = chat(rowan, "on the new key")
+        moved.publish(fresh)
+        moved.tick(); runCurrent()
+        assertEquals(listOf(late.id, fresh.id), seenByMoved.map { it.id })
+        assertFalse(fresh.id in seenByLagging.map { it.id })
+        lagging.stop(); moved.stop()
+    }
+
+    @Test
+    fun `only the last few epochs left are opened`() = runTest {
+        val relay = FakeRelay()
+        val reader = quiet(relay, rowan)
+        val seen = chatSeenBy(reader)
+        runCurrent()
+        for (n in 1..MAX_PAST_EPOCHS + 1) reader.follow(epochKey(n))
+
+        dropUnder(relay, ada, epochKey(0), "five epochs back")
+        clock += 60
+        val kept = dropUnder(relay, ada, epochKey(1), "four epochs back")
+        assertEquals(listOf(kept.id), seen.map { it.id })
+        reader.stop()
+    }
+
+    @Test
+    fun `the session decides which left epochs are read`() = runTest {
+        val relay = FakeRelay()
+        val reader = quiet(relay, rowan)
+        val seen = chatSeenBy(reader)
+        runCurrent()
+        reader.follow(epochKey(1))
+        reader.keepPast(emptyList())
+
+        dropUnder(relay, ada, epochKey(0), "on an epoch the session let go")
+        assertTrue(seen.isEmpty())
+        reader.stop()
+    }
+
+    @Test
+    fun `an epoch handed over later is read from the stored stream`() = runTest {
+        val relay = FakeRelay().apply { answersQueries = true }
+        // Said at epoch 1, which this device was carried over and never held.
+        val said = dropUnder(relay, ada, epochKey(1), "said while you were away")
+        val reader = quiet(relay, rowan, key = epochKey(2))
+        val seen = chatSeenBy(reader)
+        runCurrent()
+        assertTrue(seen.isEmpty())
+
+        reader.keepPast(listOf(epochKey(1)))
+        runCurrent()
+        assertEquals(listOf(said.id), seen.map { it.id })
+
+        // Handing over the same epoch again reads nothing twice.
+        reader.keepPast(listOf(epochKey(1)))
+        runCurrent()
+        assertEquals(1, seen.size)
+        reader.stop()
     }
 }

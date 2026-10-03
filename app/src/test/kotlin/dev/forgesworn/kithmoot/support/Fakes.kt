@@ -48,6 +48,9 @@ class FakeRelay {
      */
     var replays: Boolean = false
 
+    /** Whether [RoomTransport.queryAvailable] answers from what is held. Off, it is unsupported, as before. */
+    var answersQueries: Boolean = false
+
     fun transport(): RoomTransport = object : RoomTransport {
         override fun publish(event: NostrEvent) {
             check(!publicationBlocked) { "Room publication is blocked during a secure update" }
@@ -75,6 +78,14 @@ class FakeRelay {
                     if (replays) published.toList().filter { e -> filters.any { matches(it, e) } }.forEach(subscription::offer)
                 }
                 .onCompletion { subscriptions -= subscription }
+        }
+
+        /** What a storing relay answers: everything held that matches, when [answersQueries] is on. */
+        override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> {
+            if (!answersQueries) throw UnsupportedOperationException("this fake relay stores nothing to query")
+            return published.toList().filter { e ->
+                filters.any { f -> matches(f, e) && (f.since == null || e.createdAt >= f.since) && (f.until == null || e.createdAt <= f.until) }
+            }
         }
 
         override suspend fun beginRekey() {

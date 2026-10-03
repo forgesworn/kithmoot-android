@@ -235,6 +235,7 @@ import dev.forgesworn.kithmoot.ui.room.microphoneAction
 import dev.forgesworn.kithmoot.ui.room.JoinDecision
 import dev.forgesworn.kithmoot.ui.room.SingleBuild
 import dev.forgesworn.kithmoot.ui.room.joinDecision
+import dev.forgesworn.kithmoot.epoch.pastEpochsFor
 import dev.forgesworn.kithmoot.ui.room.mediaMissingNote
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
@@ -3175,6 +3176,11 @@ class RoomViewModel @JvmOverloads constructor(
         Log.i(JOIN_LOG, "epoch at open durable=${durableEpoch?.currentEpoch ?: "none"} hint=${record.epochHint ?: "none"} authority=${record.authority != null}")
         val openedEpoch = durableEpoch?.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) }
             ?: EpochKeys(0, derived.roomId, derived.roomKey)
+        // The epochs this room left before this opening, so a message that
+        // lands late on one is still read (kithmoot-android #128).
+        val leftEpochs = pastEpochsFor(record.secret, durableEpoch,
+            { roomEpochs.secretAt(record.id, it) }, { roomEpochs.rekeyAt(record.id, it) }, epochSeconds())
+        if (leftEpochs.isNotEmpty()) Log.i(JOIN_LOG, "left epochs at open ${leftEpochs.map { it.keys.epoch }}")
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
         }
@@ -3326,6 +3332,8 @@ class RoomViewModel @JvmOverloads constructor(
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
             initialEpoch = openedEpoch,
+            initialPastEpochs = leftEpochs,
+            initialRemoved = durableEpoch?.removed.orEmpty(),
             // Told the room is further on than this device, ask its authority
             // before saying anything, as the web client does; told nothing,
             // ask once without holding the room up - except in a quiet room,
