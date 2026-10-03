@@ -116,6 +116,7 @@ fun RoomScreen(
     onStopCadence: () -> Unit = {},
     onRenewCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
+    onDismissEpochTrouble: () -> Unit = {},
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
@@ -404,6 +405,10 @@ fun RoomScreen(
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                 RoomUpdatePanel(if (state.conferenceEnded) "ended" else state.roomUpdate, state.notice, onRetryRoomUpdate)
             }
+        } else if (state.epochTrouble.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                EpochTroublePanel(state.epochTrouble, onDismissEpochTrouble)
+            }
         }
        }
       }
@@ -657,6 +662,28 @@ private fun FaultPanel(message: String) {
 }
 
 /** A visible, retryable or terminal state while ordinary room traffic is blocked. */
+/** A gap or conflict in the room's epochs: it does not stop the room, so it says so once and can be put away. */
+@Composable
+private fun EpochTroublePanel(lines: List<String>, onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        for (line in lines.distinct()) {
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+        }
+        TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Got it") }
+    }
+}
+
 @Composable
 private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
     val title = when (state) {

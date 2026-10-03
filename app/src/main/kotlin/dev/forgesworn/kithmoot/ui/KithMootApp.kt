@@ -555,6 +555,7 @@ fun KithMootApp(
                     onStopCadence = model::stopCadence,
                     onRenewCadence = model::renewCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
+                    onDismissEpochTrouble = model::dismissEpochTrouble,
                     onRenameRoom = model::renameRoomForEveryone,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },

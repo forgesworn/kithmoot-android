@@ -124,6 +124,27 @@ data class RemoteAnnotation(val participant: String, val device: String, val ann
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
+/** How many epochs a session has left it still reads chat on: the web client's `MAX_PAST_EPOCHS`. */
+const val MAX_PAST_EPOCHS = 4
+
+/**
+ * This session moved from epoch [from] straight to [to] without the keys of
+ * the epochs between, so whatever was said in them cannot be read here. [at]
+ * is unix seconds. The web client's `EpochGap`.
+ */
+data class EpochGap(val from: Int, val to: Int, val at: Long)
+
+/**
+ * Two rekeys signed by the room's authority for one epoch: [kept] is the
+ * event this device follows, [other] the one it does not. Whoever followed
+ * [other] is in a different room, however alike the two look. The web
+ * client's `EpochConflict`.
+ */
+data class EpochConflict(val epoch: Int, val kept: String, val other: String)
+
+/** An epoch this session has left, and when it was left (unix seconds). */
+private class PastEpoch(val keys: EpochKeys, val leftAt: Long)
+
 sealed interface RoomEpochState {
     data class Active(val epoch: Int, val trafficRoom: String) : RoomEpochState
     data class Updating(val epoch: Int) : RoomEpochState
@@ -238,6 +259,19 @@ class RoomSession(
     private val rekeyFloor = java.util.concurrent.atomic.AtomicInteger(0)
     /** Completes once the relays have had [REKEY_REPLAY_WAIT_MS] to replay the room's rekeys. */
     private val rekeysReplayed = CompletableDeferred<Unit>()
+    /** The authority's rekey this session followed into each epoch, by event id. Under [epochMutex]. */
+    private val followed = HashMap<Int, String>()
+    /**
+     * Epochs this session has left and still reads chat on. A member whose
+     * device has not followed the rekey yet, or a relay slow to deliver, still
+     * lands a message on the epoch left; and a member's grant that carried
+     * this device over epochs hands their keys too, so what was said in them
+     * can be read. At most [MAX_PAST_EPOCHS], none left longer ago than chat
+     * is kept. Under [lock].
+     */
+    private val pastEpochs = TreeMap<Int, PastEpoch>()
+    /** Everybody a rekey this session followed removed, lower case: refused on the epochs left. Under [lock]. */
+    private val removedParticipants = mutableSetOf<String>()
     private val roster = linkedMapOf<String, RosterEntry>()
 
     /**
@@ -323,6 +357,16 @@ class RoomSession(
 
     private val _epochState = MutableStateFlow<RoomEpochState>(RoomEpochState.Active(initialEpoch.epoch, initialEpoch.id))
     val epochState: StateFlow<RoomEpochState> = _epochState.asStateFlow()
+
+    private val _epochGaps = MutableStateFlow<List<EpochGap>>(emptyList())
+
+    /** Every jump this session made over epochs it holds no key for. */
+    val epochGaps: StateFlow<List<EpochGap>> = _epochGaps.asStateFlow()
+
+    private val _epochConflicts = MutableStateFlow<List<EpochConflict>>(emptyList())
+
+    /** Every epoch the authority's rekeys disagree about, as this session saw them. */
+    val epochConflicts: StateFlow<List<EpochConflict>> = _epochConflicts.asStateFlow()
 
     fun epochKeys(): EpochKeys = synchronized(lock) { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
@@ -497,6 +541,7 @@ class RoomSession(
             jobs.clear()
             traffic = trafficJobs.toList()
             trafficJobs.clear()
+            pastEpochs.clear()
         }
         offCall?.let { ringBell(CallBellState.END, it) }
         if (farewell) publishAnnouncement(reply = true, left = true)
@@ -911,8 +956,15 @@ class RoomSession(
     }
 
     internal fun onChatEvent(event: NostrEvent) {
-        val epoch = epochKeys()
+        val tag = event.tagValue("d")
+        val (epoch, left) = synchronized(lock) {
+            if (tag == activeEpoch.id) activeEpoch to false
+            else pastEpochs.values.firstOrNull { it.keys.id == tag }?.let { it.keys to true }
+        } ?: return
         val message = decodeChatEvent(event, epoch.id, epoch.key, now(), policy, credentialRoomId = room.roomId) ?: return
+        // Somebody removed from the room still holds the keys of the epochs
+        // before their removal: on those, what they write now is refused.
+        if (left && synchronized(lock) { message.participant.lowercase() in removedParticipants }) return
         if (ingestChat(message)) retainOwnOuterEvent(event, message)
     }
 
@@ -1081,6 +1133,13 @@ class RoomSession(
     }
 
     private suspend fun onAuthorityRekey(event: NostrEvent, epoch: Int) {
+        // The first rekey held for an epoch is the one followed; another the
+        // authority signed for the same epoch splits the room, and is said.
+        val known = followed[epoch] ?: pendingRekeys[epoch]?.id
+        if (known != null && known != event.id) {
+            noteConflict(EpochConflict(epoch, known, event.id))
+            return
+        }
         val current = epochKeys()
         if (epoch <= current.epoch) return
         pendingRekeys[epoch] = event
@@ -1143,6 +1202,7 @@ class RoomSession(
                 }
                 else -> try {
                     applyEpoch(notice)
+                    followed[notice.epoch] = nextEvent.id
                     pendingRekeys.remove(notice.epoch)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -1381,7 +1441,9 @@ class RoomSession(
         }
         if (outcome == EpochGateResult.PENDING) return
         try {
-            applyEpoch(notice)
+            // Every epoch the grant carried this device over is read as one left.
+            applyEpoch(notice, crossed = grant.chain.dropLast(1))
+            grant.chain.zip(grant.rekeys).forEach { (value, rekey) -> followed.putIfAbsent(value.epoch, rekey.id) }
             pendingRekeys.keys.removeAll { it <= notice.epoch }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1438,20 +1500,26 @@ class RoomSession(
         }
     }
 
-    private suspend fun applyEpoch(notice: RekeyNotice) {
+    private suspend fun applyEpoch(notice: RekeyNotice, crossed: List<RoomEpoch> = emptyList()) {
         val secret = requireNotNull(notice.secret)
         val next = deriveEpoch(RoomEpoch(notice.epoch, secret))
         stopTraffic()
         transport.rekey(next.key)
         onEpochApplied(notice, next)
-        synchronized(lock) {
+        val gap = synchronized(lock) {
+            val from = activeEpoch
+            val between = crossed.filter { it.epoch > from.epoch && it.epoch < next.epoch }.distinctBy { it.epoch }
+            keepPastLocked(listOf(from) + between.map(::deriveEpoch), notice.at)
+            notice.removed.forEach { removedParticipants += it.lowercase() }
             activeEpoch = next
             notice.removed.forEach { removed ->
                 roster.entries.removeAll { it.value.participant.equals(removed, ignoreCase = true) }
             }
             respondedTo.clear()
             departed.clear()
+            EpochGap(from.epoch, next.epoch, now()).takeIf { next.epoch > from.epoch + 1 + between.size }
         }
+        if (gap != null) _epochGaps.value = _epochGaps.value + gap
         _epochState.value = RoomEpochState.Active(next.epoch, next.id)
         _movedOn.value = null
         recompute()
@@ -1463,6 +1531,19 @@ class RoomSession(
             announceIfPublishing(reply = true)
             onEpochReady(next)
         }
+    }
+
+    /** Keep [left] as epochs left at [leftAt], then drop the oldest past the age and count limits. */
+    private fun keepPastLocked(left: List<EpochKeys>, leftAt: Long) {
+        for (keys in left) pastEpochs[keys.epoch] = PastEpoch(keys, leftAt)
+        val oldest = now() - CHAT_RETENTION_SECONDS
+        pastEpochs.values.removeAll { it.leftAt < oldest }
+        while (pastEpochs.size > MAX_PAST_EPOCHS) pastEpochs.pollFirstEntry()
+    }
+
+    private fun noteConflict(conflict: EpochConflict) {
+        val seen = _epochConflicts.value
+        if (seen.none { it.epoch == conflict.epoch && it.other == conflict.other }) _epochConflicts.value = seen + conflict
     }
 
     private fun stopTraffic() {
@@ -1509,9 +1590,10 @@ class RoomSession(
         tags = mapOf("#d" to listOf(epochKeys().id)),
     )
 
+    /** Chat on the current epoch and on every epoch left that is still read, in one filter. */
     private fun chatFilter() = Filter(
         kinds = listOf(KIND_CHAT),
-        tags = mapOf("#d" to listOf(epochKeys().id)),
+        tags = mapOf("#d" to synchronized(lock) { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }),
         since = now() - CHAT_RETENTION_SECONDS,
     )
 
