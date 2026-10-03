@@ -98,6 +98,7 @@ import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
+import dev.forgesworn.kithmoot.session.epochTroubleLines
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CompletableFuture
 import androidx.lifecycle.AndroidViewModel
@@ -529,6 +530,8 @@ data class RoomState(
     /** The observed successor epoch while recovery is pending or terminal. */
     val movedOn: Int? = null,
     val roomUpdate: String? = null,
+    /** What went wrong with the room's epochs this visit (`epochTroubleLines`), kept until dismissed. */
+    val epochTrouble: List<String> = emptyList(),
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -3879,7 +3882,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** How many of this visit's epoch trouble lines have been dismissed. */
+    private var epochTroubleDismissed = 0
+
     private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
+        epochTroubleDismissed = 0
+        scope.launch {
+            kotlinx.coroutines.flow.combine(live.epochGaps, live.epochConflicts, ::epochTroubleLines).collect { lines ->
+                if (session !== live) return@collect
+                _room.update { it.copy(epochTrouble = lines.drop(epochTroubleDismissed)) }
+            }
+        }
         scope.launch {
             live.epochState.collect { state ->
                 if (session !== live) return@collect
@@ -5618,6 +5631,11 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Says something short to the person in the room. Shown once, then cleared. */
     fun showNotice(message: String) = note(message)
+
+    fun dismissEpochTrouble() {
+        epochTroubleDismissed += _room.value.epochTrouble.size
+        _room.update { it.copy(epochTrouble = emptyList()) }
+    }
 
     fun dismissNotice() {
         _room.update { it.copy(notice = null) }
