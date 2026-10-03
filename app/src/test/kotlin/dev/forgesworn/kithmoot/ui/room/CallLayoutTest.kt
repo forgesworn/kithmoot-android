@@ -91,9 +91,50 @@ class CallLayoutTest {
     }
 
     @Test
-    fun `your own share is not put on your own stage`() {
+    fun `your own share from this device is not put on your own stage`() {
         val sharingMe = person("me", true, Roles.CAMERA, Roles.SCREEN)
-        assertEquals(CallLayoutMode.ONE_TO_ONE, arrangeCall(listOf(sharingMe) + others(1)).mode)
+        val arrangement = arrangeCall(listOf(sharingMe) + others(1), selfDevice = "me-device")
+        assertEquals(CallLayoutMode.ONE_TO_ONE, arrangement.mode)
+        assertNull(stageableShare(listOf(sharingMe) + others(1), "me-device"))
+    }
+
+    @Test
+    fun `a share from your other device is staged`() {
+        val tiles = listOf(person("me", true, Roles.CAMERA, Roles.SCREEN)) + others(1)
+        val arrangement = arrangeCall(tiles, selfDevice = "my-phone")
+        assertEquals(CallLayoutMode.SHARE, arrangement.mode)
+        assertEquals("me", arrangement.stage?.participant)
+        assertEquals("me-device", arrangement.stage?.screen?.device)
+        assertTrue(arrangement.stage!!.isScreen)
+        assertEquals("me-device", stageableShare(tiles, "my-phone")?.screen?.device)
+    }
+
+    @Test
+    fun `a share from your other device is staged when you are alone`() {
+        val arrangement = arrangeCall(listOf(person("me", true, Roles.CAMERA, Roles.SCREEN)), selfDevice = "my-phone")
+        assertEquals(CallLayoutMode.SHARE, arrangement.mode)
+    }
+
+    @Test
+    fun `with two shares, this device's own is skipped and the other is staged`() {
+        val mine = ParticipantTile("me", true, 2, listOf(
+            TileTrack("here", "screen-here", Roles.SCREEN), TileTrack("there", "screen-there", Roles.SCREEN)),
+            null, false)
+        assertEquals("there", stageableShare(listOf(mine), "here")?.screen?.device)
+    }
+
+    @Test
+    fun `another person's share is staged whatever this device is`() {
+        val tiles = listOf(me, person("p1", false, Roles.SCREEN))
+        val arrangement = arrangeCall(tiles, selfDevice = "me-device")
+        assertEquals(CallLayoutMode.SHARE, arrangement.mode)
+        assertEquals("p1", arrangement.stage?.participant)
+    }
+
+    @Test
+    fun `another person's share wins over one from your other device`() {
+        val tiles = listOf(person("me", true, Roles.SCREEN), person("p1", false, Roles.SCREEN))
+        assertEquals("p1", stageableShare(tiles, "my-phone")?.participant)
     }
 
     @Test
