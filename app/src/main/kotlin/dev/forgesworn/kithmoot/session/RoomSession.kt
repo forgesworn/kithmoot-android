@@ -461,6 +461,9 @@ class RoomSession(
             if (joined) return
             joined = true
         }
+        // Left epochs seeded at opening: a quiet room's transport opens drops
+        // under them only once it is told (kithmoot-android #127, #128).
+        if (synchronized(lock) { pastEpochs.isNotEmpty() }) handPastToTransport()
         if (authority != null) {
             jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)

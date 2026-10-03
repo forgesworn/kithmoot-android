@@ -140,6 +140,37 @@ class LeftEpochTest {
         )
     }
 
+    @Test fun `a room reopened with left epochs hands their keys to its transport at join`() = runTest {
+        val relay = FakeRelay()
+        val handed = mutableListOf<List<ByteArray>>()
+        val recording = object : dev.forgesworn.kithmoot.relay.RoomTransport by relay.transport() {
+            override fun keepPast(roomKeys: List<ByteArray>) { handed += roomKeys }
+        }
+        val live = session(
+            stable, me, relay, authority = authority, initialEpoch = keys(2), transport = recording,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+            initialPastEpochs = listOf(PastEpoch(keys(0), 0), PastEpoch(keys(1), 0)),
+        )
+        live.join()
+        runCurrent()
+
+        assertEquals(1, handed.size)
+        assertEquals(listOf(keys(1).key.toList(), keys(0).key.toList()), handed.single().map { it.toList() })
+    }
+
+    @Test fun `a room opened with no left epochs tells its transport nothing at join`() = runTest {
+        val relay = FakeRelay()
+        val handed = mutableListOf<List<ByteArray>>()
+        val recording = object : dev.forgesworn.kithmoot.relay.RoomTransport by relay.transport() {
+            override fun keepPast(roomKeys: List<ByteArray>) { handed += roomKeys }
+        }
+        val live = session(stable, me, relay, authority = authority, initialEpoch = keys(1), transport = recording,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED })
+        live.join()
+        runCurrent()
+        assertEquals(emptyList(), handed)
+    }
+
     @Test fun `a seeded epoch at or above the one the room opens on is ignored`() = runTest {
         val relay = FakeRelay()
         val other = Fixtures.primary(stable, 3, 4)
