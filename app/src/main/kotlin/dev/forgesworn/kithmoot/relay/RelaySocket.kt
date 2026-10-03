@@ -64,3 +64,23 @@ data class RelayPolicy(
         return ceiling.coerceAtLeast(1)
     }
 }
+
+/**
+ * Waits for a Tor-only room, whose relays are onion services reached through
+ * Orbot. The first stream to an onion fetches its descriptor and builds a
+ * rendezvous circuit, and a freshly published onion can take most of two
+ * minutes to answer. The lab saw first-room creation refused three times in a
+ * row, on real Orbot and on host Tor alike, under the 15 s publish and 30 s open
+ * limits (vennel P6-03). Each "Try again" started a new pool and so a new wait.
+ */
+object TorCarrierTimings {
+    /** Tor's own limit on a stream waiting for its circuit (`SocksTimeout`,
+     *  default two minutes). Tor fails a CONNECT it cannot build by then, so a
+     *  shorter wait only cuts off one Tor would have finished. */
+    const val CIRCUIT_MS = 120_000L
+
+    /** A first durable publish or stored read: the circuit, then the relay's answer. */
+    const val FIRST_ANSWER_MS = CIRCUIT_MS + 30_000L
+
+    val policy = RelayPolicy(openTimeoutMs = CIRCUIT_MS, outboxTtlMs = CIRCUIT_MS)
+}

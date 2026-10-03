@@ -174,6 +174,8 @@ import dev.forgesworn.kithmoot.relay.RelayAuthenticator
 import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
 import dev.forgesworn.kithmoot.relay.OrbotTorRelaySockets
+import dev.forgesworn.kithmoot.relay.RelayPolicy
+import dev.forgesworn.kithmoot.relay.TorCarrierTimings
 import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
@@ -2859,7 +2861,9 @@ class RoomViewModel @JvmOverloads constructor(
         if (payload.invitation.persistent) {
             val fetch: suspend (RelayPool) -> RoomAdmission = { transport ->
                 try {
-                    requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
+                    requestPersistentAdmission(payload.invitation) {
+                        transport.queryStored(it, if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                     throw MissingGroupInvitationException(INVITATION_NOT_FOUND)
@@ -2885,6 +2889,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         val requesterKey = Entropy.bytes(32)
@@ -2892,7 +2897,7 @@ class RoomViewModel @JvmOverloads constructor(
         val invitationId = deriveInvitationId(payload.invitation)
         transport.start()
         return try {
-            withTimeoutOrNull(INVITATION_TIMEOUT_MS) {
+            withTimeoutOrNull(if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS) {
                 coroutineScope {
                     // Start collecting before the first publish. Invitation
                     // events are ephemeral, so subscribing one line later is
@@ -2948,6 +2953,7 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         transport.start()
@@ -2957,7 +2963,8 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }))) {
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }),
+                        if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
             }
@@ -3214,6 +3221,7 @@ class RoomViewModel @JvmOverloads constructor(
             } else null
         }
         val transport = RelayPool(activeRelays, socketFactory, scope,
+            policy = if (anonymousProfile) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
             writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,

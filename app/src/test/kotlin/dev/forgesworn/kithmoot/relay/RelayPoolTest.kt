@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.support.FakeSocketFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -32,6 +33,7 @@ private class TestAuthenticator(private val signer: LocalSigner, private val clo
 class RelayPoolTest {
 
     private val relays = listOf("wss://one.example", "wss://two.example", "wss://three.example")
+    private val onion = "wss://${"a".repeat(56)}.onion"
 
     private fun event(id: String, kind: Int = 20461) = NostrEvent(
         kind = kind,
@@ -583,6 +585,44 @@ class RelayPoolTest {
         assertEquals(1, second.publishedFrames().size)
         // The relay already open, and its live subscription, are untouched.
         assertEquals(listOf(subscriptionId), first.requestedSubscriptions())
+    }
+
+    @Test
+    fun `a Tor-only room's first publish waits out a slow onion circuit`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(onion), sockets, backgroundScope, policy = TorCarrierTimings.policy,
+            now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        val invitation = event("e1".repeat(32))
+        val result = async { pool.publishConfirmed(invitation, TorCarrierTimings.FIRST_ANSWER_MS) }
+        runCurrent()
+
+        // A fresh onion answered its first CONNECT after 160 s in the lab;
+        // Tor itself gives up at two minutes, so the circuit lands inside that.
+        advanceTimeBy(TorCarrierTimings.CIRCUIT_MS - 1_000)
+        runCurrent()
+        val socket = sockets.opened.single()
+        assertTrue(!socket.closedByPool, "the pool must not abandon a circuit Tor is still building")
+        socket.open()
+        runCurrent()
+        assertEquals(1, socket.publishedFrames().size)
+        socket.deliverOk(invitation.id, true)
+        runCurrent()
+        assertTrue(result.await())
+    }
+
+    @Test
+    fun `the ordinary limits give up on that circuit`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(onion), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+
+        assertFailsWith<TimeoutCancellationException> { pool.publishConfirmed(event("e2".repeat(32)), 15_000) }
+        advanceTimeBy(RelayPolicy().openTimeoutMs)
+        runCurrent()
+        assertTrue(sockets.opened.first().closedByPool, "a 30 s open limit abandons the first circuit")
     }
 
     @Test
