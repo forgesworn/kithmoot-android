@@ -183,7 +183,8 @@ internal fun CallTile(
         }
         if (showLabel) NameLabel(
             name = when {
-                tile.isSelf && item.isScreen -> "Your screen"
+                tile.isSelf && item.isScreen ->
+                    if (item.screen?.device == context.selfDevice) "Your screen" else "Your screen (other device)"
                 tile.isSelf -> "You"
                 item.isScreen -> "$name’s screen"
                 else -> name

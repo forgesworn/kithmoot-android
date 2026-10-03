@@ -45,11 +45,27 @@ data class CallArrangement(
 const val SPEAKER_LAYOUT_FROM: Int = 4
 
 /**
+ * The share that belongs on the stage, if any: every share except the one
+ * this device is itself sending (you would be looking at your screen, inside
+ * your screen). The rule is per device, as on the web client, so a share from
+ * the same person's other device is staged like anyone else's. Other people's
+ * shares come first.
+ */
+fun stageableShare(tiles: List<ParticipantTile>, selfDevice: String): CallItem? =
+    tiles.sortedBy { it.isSelf }.firstNotNullOfOrNull { tile ->
+        tile.videos
+            .firstOrNull { it.role == Roles.SCREEN && !(tile.isSelf && it.device == selfDevice) }
+            ?.let { CallItem(tile.participant, it) }
+    }
+
+/**
  * Arranges the call.
  *
  * @param activeSpeaker whoever [ActiveSpeaker] has settled on, if anyone.
  * @param preferGrid the person asked for equal tiles in a large call.
  * @param swapped in a one-to-one call, your picture is large and theirs small.
+ * @param selfDevice this device's own key, so that only the share it is itself
+ *   sending is kept off its stage; see [stageableShare].
  * @param hideSelf your own picture is tucked away. You are never removed
  *   from a stage you asked for, only from the floating tile.
  */
@@ -59,17 +75,14 @@ fun arrangeCall(
     preferGrid: Boolean = false,
     swapped: Boolean = false,
     hideSelf: Boolean = false,
+    selfDevice: String = "",
 ): CallArrangement {
     val self = tiles.firstOrNull { it.isSelf }
     val others = tiles.filter { !it.isSelf }
     val selfItem = self?.let { CallItem(it.participant) }
     val floatingSelf = selfItem.takeIf { !hideSelf }
 
-    // Somebody else's share. Your own is not put on your own stage: you
-    // would be looking at your screen, inside your screen.
-    val share = others.firstNotNullOfOrNull { tile ->
-        tile.videos.firstOrNull { it.role == Roles.SCREEN }?.let { CallItem(tile.participant, it) }
-    }
+    val share = stageableShare(tiles, selfDevice)
     if (share != null) {
         val people = others.map { CallItem(it.participant) } + listOfNotNull(floatingSelf)
         return CallArrangement(CallLayoutMode.SHARE, stage = share, strip = people)
