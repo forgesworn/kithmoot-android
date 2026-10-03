@@ -45,6 +45,11 @@ jobs:
           scripts/fetch-link-bridge.sh build/link-ffi-android.zip
           python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
+      - name: Prepare the reviewed VMLS engine bundle
+        run: |
+          scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+          python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+
       - name: Check release helper syntax
         run: |
           bash -n scripts/*.sh
@@ -53,13 +58,21 @@ jobs:
       - name: Test, lint and build
         run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
-      - name: Verify Link is packaged in both APKs
+      - name: Verify Link is in both APKs and the VMLS engine in debug only
         run: |
           for variant in debug release; do
             apk="$(find "app/build/outputs/apk/$variant" -maxdepth 1 -name 'app-*.apk' -print -quit)"
             test -n "$apk"
             for abi in arm64-v8a x86_64; do
               unzip -Z1 "$apk" | grep -Fx "lib/$abi/liblink_ffi.so"
+              # The VMLS engine is debug-only until its independent review
+              # (vennel decision D1): present in debug, absent from release.
+              if [ "$variant" = debug ]; then
+                unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvmls_ffi.so"
+              elif unzip -Z1 "$apk" | grep -q "libvmls_ffi.so"; then
+                echo "error: a release APK carries the VMLS engine" >&2
+                exit 1
+              fi
             done
           done
 
@@ -111,6 +124,11 @@ jobs:
         run: |
           scripts/fetch-link-bridge.sh build/link-ffi-android.zip
           python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+
+      - name: Prepare the reviewed VMLS engine bundle
+        run: |
+          scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+          python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
 
       - name: Build the debug app and instrumentation APK
         run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace

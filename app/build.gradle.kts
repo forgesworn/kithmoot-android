@@ -25,6 +25,25 @@ val verifyLinkBridgePrepared by tasks.registering {
     }
 }
 
+val vmlsFfiDirectory = layout.buildDirectory.dir("vmls-ffi")
+val requiredVmlsFfiFiles = listOf(
+    "jniLibs/arm64-v8a/libvmls_ffi.so",
+    "jniLibs/x86_64/libvmls_ffi.so",
+    "kotlin/dev/forgesworn/vmls/ffi/vmls_ffi.kt",
+    "manifest.json",
+)
+val verifyVmlsFfiPrepared by tasks.registering {
+    inputs.files(requiredVmlsFfiFiles.map { relative -> vmlsFfiDirectory.map { it.file(relative) } })
+    doLast {
+        val root = vmlsFfiDirectory.get().asFile
+        val missing = requiredVmlsFfiFiles.filter { !root.resolve(it).isFile || root.resolve(it).length() == 0L }
+        require(missing.isEmpty()) {
+            "The VMLS engine bundle is not prepared; missing: ${missing.joinToString()}. " +
+                "Run scripts/fetch-vmls-ffi.sh and scripts/prepare-vmls-ffi.py first."
+        }
+    }
+}
+
 android {
     namespace = "dev.forgesworn.kithmoot"
     compileSdk = 35
@@ -87,6 +106,13 @@ android {
     // generated bindings or JNI libraries into source control.
     sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("link-bridge/kotlin"))
     sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("link-bridge/jniLibs"))
+    // The reviewed VMLS engine bundle (vennel's vmls-ffi, P3-03b), unpacked
+    // the same way into build/vmls-ffi after its archive and manifest are
+    // verified. Debug builds only: the engine is non-shipping until its
+    // independent review (vennel decision D1), and CI checks that no release
+    // APK carries it.
+    sourceSets.getByName("debug").java.srcDir(layout.buildDirectory.dir("vmls-ffi/kotlin"))
+    sourceSets.getByName("debug").jniLibs.srcDir(layout.buildDirectory.dir("vmls-ffi/jniLibs"))
 
     packaging {
         resources {
@@ -108,6 +134,12 @@ android {
 
 tasks.named("preBuild") {
     dependsOn(verifyLinkBridgePrepared)
+}
+
+// Debug builds only (vennel decision D1): a release build never needs or
+// carries the VMLS engine.
+tasks.matching { it.name == "preDebugBuild" }.configureEach {
+    dependsOn(verifyVmlsFfiPrepared)
 }
 
 // Guards the fix in docs/effects-no-telemetry.md: MediaPipe's tasks-core
@@ -258,7 +290,8 @@ dependencies {
         exclude(group = "com.google.android.datatransport")
     }
 
-    // UniFFI's generated Link Kotlin bindings load liblink_ffi through JNA.
+    // UniFFI's generated Link and VMLS Kotlin bindings load their libraries
+    // through JNA.
     implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // libsecp256k1: the JNI natives for the device, and the desktop natives so
