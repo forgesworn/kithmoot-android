@@ -10368,6 +10368,1139 @@
         }
       }
     ],
+    "roomName": [
+      {
+        "name": "rename",
+        "kind": "positive",
+        "note": "Alice renames the room \"Book club\". The op is the JSON text of an ordinary chat message on the `control` channel (`d` = deriveChannel(roomId, roomKey, \"control\").id, NIP-44 under that channel key, signed by her device, her credential inside), so a relay learns what it learns of any control message and the name is padded like any chat text. `id` is 16 random bytes in lower-case hex and `at` is unix milliseconds, together the rename's order key. The record names Alice as `by` because the op is not `carried` and her credential binds the signing device to her.",
+        "input": {
+          "message": {
+            "id": "rename-msg-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AkehMmMjAtVyOt+bOmJp2LlpB8SIutNkV3ucw6arswj8qyrE80DbiYah/QYBJi8qhDc1UCX17uPGSHhrj8PX35gAkoiUxncdsGKmHguUqDo2HRB9yCUE9UacbBA22w2LSfGuNIJ09Fo8AbSCiktSOAxfO3rtb51c9NZBEgJJn+0+hJxxcL8yR2xaMZoZJACwAKqZU/rlAf9OArD5Zq5WfP+gMfS3bKwIm/dXTPNnwkBw7zo74ZEXOmptiyRp87bf2bUgeHFJmu+BOY6Phq1jdxCvIHIe6wQ8uN4mJGm3VBPpr1UBARv8GXZBKkBmom93jMY9OmCR9gYqMNxPgRIHOgyBhfY7qSCG7+CJMxRvqC2OpP/xiYFNeGruauLuD+WfCC089WXV3+gIT8jHLKuQoRgNywc4qh4XAHfXY3VZEGOmYH7lWmRUMbBWKz0bv0kA7URbq2MrAJ15wp6sSQu7+5xLmGhzu4KxassCOOTz1f9l1JxaIFcH3tLhd/iwhmtdXTPzq7YKmmtAWKHs0C2Sa1F063mWHrRuI2dcnawu+GjV9yz25cuBxYeRqae1mFFAOeTDqdwvISujPhBiVCUBTL2Kac+kNYgNsmEbA4UqGN8QNcs5w8XUemp8uTqDoPKZVJietuhg4xdApP80BqfmQ/pKI+BXh41tuwtW1vVw5zFFKzHM6Tb7il8NeSzyWVToVXMboGPN+s5M0BnjlIL2xLM+7gZmBjInJlV9Rj+yGJUT7MjYtDe166/A77e5F/6dLHEokN/8l5bbeCM9QJLhcOxnKaeDbIgXYEG02iir4c2rU4cCUh11TJZMUsYtGU+iO/+P3AAa8hqPOdfxnARMhXzoqziZSyhmSuvJTBRk6oq6XH/PqjrzEncDsyYmOQHmUgWc+dAIvE2jsAEsrJjXIurtMLi/X6fISm2kfBG5aryFqG1yoCuCuFsjvX3VgGg35YTM0Lb5jdPMEkd+71hXEJTch4ewu7Z1qw/KyChvQR1zf7D9EZCTodt7deB5kD6sCH0xNx8KlKcjodqpuYGpGs+rO9SHLHoF35z3xHc7k5b7k/Eq/BVitpy2QYbyGk7Nw9kXNKmLu9iReWJ8fomCVe1otacyua29DgTHZ9ObnMlOAM6/X++mNhUvmhXFW3eSHXpQta1Xyp8gQRRXJa2flZuzyFKtgr05aMcGvgzXq0aF9ljdQOwAdEz/jsrg4IZQ4m3Xl1Pdl4XNwtl2ATOCSsJQiD9TtVEgvp9AhfHaphCG5JEQZSLyCFVrE/eKmDzdWqRs",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "c19fde892212fcbdaa67201684b719d39f824eba4ebac56c3aa0cccb76484cb3",
+            "sig": "0d12b31b40c5f3686c0f137c9535a9d4cbd0915595be84bb5ef88aca7b052568c7f307e46d17310846504f158e1a6cf3f75eee695482dca85151fefd5ddb7042"
+          },
+          "nonceHex": "47a132632302d5723adf9b3a6269d8b96907c488bad364577b9cc3a6abb308fc",
+          "auxRandHex": "ee04c7f61668ba46cf705b9ca201c2705fed4a185a7835ce4db177927879766b",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-1",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "op": {
+            "op": "name",
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250
+          },
+          "record": {
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "sentAt": 1800000100
+          }
+        }
+      },
+      {
+        "name": "rename-in-epoch-1",
+        "kind": "positive",
+        "note": "The same rename after the room has been rekeyed to epoch 1: the control channel derives from the epoch's id and key (deriveChannel(epochId, epochKey, \"control\")), so only members holding epoch 1 can find or read it. The credential is still checked against the room id, which does not move.",
+        "input": {
+          "message": {
+            "id": "rename-msg-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "c20d0fd13915e58fa6293ba6056896120eb56ea03309811347db1174caed619b"
+              ]
+            ],
+            "content": "AhuqV25uWmB8UGHtzX49PN2IH3avTMe0IsDiFmcfg98Hx2vcSKxohwqSkoTCZITQtid1HrVlOAUe/3HaKTspOoEI9vaQQdhB3uKZlK6ehEOUvwrunHIHbrVRS9Rf1NQEWo0RB4cLRaW0VxSy/XQUBmaGxgc2kdgdZS9q9i7KHONZu/zmyzz3Jk4gr4s0G6U8udBQmAxDaiem2F8ZfIGg3fDG+NQZk9polDu1McN6sNSaVPG8b/qfNwb8ATV7kjEprq6uiYSmeu8jEqp/+sDbtH6H+vXAzwAMDdGJiSJZuw1G30HY6Ql8kNAWcFTyBN9oysGGjOd1gcXwhSnuOgX29Xrh9FUBKcS4EpC2DVRxbNPIl3SuRgkeV8Q48Z0GLFggFcniQ2Me7ilPqxLhGpAublPQ8yWooSHjGd3SY4phQv0iMqad5p3ruRR7tZWdyxcNHlu75xXTA1ZIuxY1oXPALOiz/DHr46AkyCWW9wAV9U70nwmiIwullrCSWT5+k8joHZj8NnvuKz0QVHxXXJod2kBObWe+X4wYTYMjRYwZqA+msPA7TM33xiKo5VyFtJiVFLCV1cum3XgcIQWtddCY6GTAkJ7AAT6jyEu/N2R4ix7+AX6OmGW3MbqvTi82Ggcz0i3o6eQ1flcq1fukp3QaCuUE9KSIeFFvW6i1vH2wxIwB5BET/4fiMYQtmBr2lfRme4oFMtj5vXI0RgUIMXhNtowopZ8kxrYXbwK+pZ7wy8cAfmVNu2WA7vPxsDJI4cyeXItwbYodPL7Z53D5W1WJghqYcNtS12FAqgpoQwn1Q9HYxeEMhyV6ymVcT2OuGNetk1jTf0tq9D2zYceND2PmR9cj/BNaZ6FNgtfdXskAmlKp8dLgwKJDvxYcUPYLtr1H0ruclMaiN79Q+pmJz6FUabGdqKOQ7oAfFdvtMtCxi9PFMPxNTGGKw4R4bSyQWgZCbYwvxLCQXAwz7XnQXdyYCfRZ8L2/X86jLJBQxdvkAUCQ+INMFbs5sK9l7ac4YK9rNBxH2FWzo5ivTWdlsq9ULZn0uR5+AISPL1nbUdbOC2CgrI2SsVxcmB2lruJJ4jv+WlSHzDTtAXZ2DXWZM2xKdqFHL47cvdWjRxw/cgqYA7DhWChA/HSIOtTBIbOELg4z6+LhkQqnjvmVtuxzYehk0vSyMy+/qrwmlfTXxJkeAvtKV9dfBGmQM7tU3UHgY+AVbbnXDBMVDmp7m27ASG5EBHg587dfJ/w5D/4EsmDmP23Af3RI2P/ey8LutDplNm9I29yx",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "48451e02fc9ad8fe9f6463ddc9f997e8695dffca412573c1a2dc0cd697a9c77a",
+            "sig": "45fe9e152e5ca055c155a18ffb16dac50e8d4eada58444dc200d1e720b5d370253e0cc29ea83dcf1b6bd00afe7249e1fcaa676fc189a78fc521b1e1196712f1a"
+          },
+          "nonceHex": "1baa576e6e5a607c5061edcd7e3d3cdd881f76af4cc7b422c0e216671f83df07",
+          "auxRandHex": "6d66697b82e2e44e0481b09e29ecb08f21426af7af422a6689a1953157fdcec8",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "epoch": {
+              "epoch": 1,
+              "id": "73ff3428fa59018aeea0bbdbb768a208f305736c1f3702a99406c7e6a39836ea",
+              "keyHex": "1376c99d11c91603ba3904328d3fd6c857b098c62a187e4a1322c84e832d63b7"
+            },
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "c20d0fd13915e58fa6293ba6056896120eb56ea03309811347db1174caed619b",
+          "message": {
+            "id": "rename-msg-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "op": {
+            "op": "name",
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250
+          },
+          "record": {
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250,
+            "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "sentAt": 1800000100
+          }
+        }
+      },
+      {
+        "name": "rename-wrong-epoch",
+        "kind": "negative",
+        "note": "The epoch-1 rename read with epoch 0's control channel: another `d`, another key, so it does not decode. A member removed at the rekey to epoch 1 holds only epoch 0 and cannot read any name set after their removal.",
+        "input": {
+          "message": {
+            "id": "rename-msg-2",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "c20d0fd13915e58fa6293ba6056896120eb56ea03309811347db1174caed619b"
+              ]
+            ],
+            "content": "AhuqV25uWmB8UGHtzX49PN2IH3avTMe0IsDiFmcfg98Hx2vcSKxohwqSkoTCZITQtid1HrVlOAUe/3HaKTspOoEI9vaQQdhB3uKZlK6ehEOUvwrunHIHbrVRS9Rf1NQEWo0RB4cLRaW0VxSy/XQUBmaGxgc2kdgdZS9q9i7KHONZu/zmyzz3Jk4gr4s0G6U8udBQmAxDaiem2F8ZfIGg3fDG+NQZk9polDu1McN6sNSaVPG8b/qfNwb8ATV7kjEprq6uiYSmeu8jEqp/+sDbtH6H+vXAzwAMDdGJiSJZuw1G30HY6Ql8kNAWcFTyBN9oysGGjOd1gcXwhSnuOgX29Xrh9FUBKcS4EpC2DVRxbNPIl3SuRgkeV8Q48Z0GLFggFcniQ2Me7ilPqxLhGpAublPQ8yWooSHjGd3SY4phQv0iMqad5p3ruRR7tZWdyxcNHlu75xXTA1ZIuxY1oXPALOiz/DHr46AkyCWW9wAV9U70nwmiIwullrCSWT5+k8joHZj8NnvuKz0QVHxXXJod2kBObWe+X4wYTYMjRYwZqA+msPA7TM33xiKo5VyFtJiVFLCV1cum3XgcIQWtddCY6GTAkJ7AAT6jyEu/N2R4ix7+AX6OmGW3MbqvTi82Ggcz0i3o6eQ1flcq1fukp3QaCuUE9KSIeFFvW6i1vH2wxIwB5BET/4fiMYQtmBr2lfRme4oFMtj5vXI0RgUIMXhNtowopZ8kxrYXbwK+pZ7wy8cAfmVNu2WA7vPxsDJI4cyeXItwbYodPL7Z53D5W1WJghqYcNtS12FAqgpoQwn1Q9HYxeEMhyV6ymVcT2OuGNetk1jTf0tq9D2zYceND2PmR9cj/BNaZ6FNgtfdXskAmlKp8dLgwKJDvxYcUPYLtr1H0ruclMaiN79Q+pmJz6FUabGdqKOQ7oAfFdvtMtCxi9PFMPxNTGGKw4R4bSyQWgZCbYwvxLCQXAwz7XnQXdyYCfRZ8L2/X86jLJBQxdvkAUCQ+INMFbs5sK9l7ac4YK9rNBxH2FWzo5ivTWdlsq9ULZn0uR5+AISPL1nbUdbOC2CgrI2SsVxcmB2lruJJ4jv+WlSHzDTtAXZ2DXWZM2xKdqFHL47cvdWjRxw/cgqYA7DhWChA/HSIOtTBIbOELg4z6+LhkQqnjvmVtuxzYehk0vSyMy+/qrwmlfTXxJkeAvtKV9dfBGmQM7tU3UHgY+AVbbnXDBMVDmp7m27ASG5EBHg587dfJ/w5D/4EsmDmP23Af3RI2P/ey8LutDplNm9I29yx",
+            "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "id": "48451e02fc9ad8fe9f6463ddc9f997e8695dffca412573c1a2dc0cd697a9c77a",
+            "sig": "45fe9e152e5ca055c155a18ffb16dac50e8d4eada58444dc200d1e720b5d370253e0cc29ea83dcf1b6bd00afe7249e1fcaa676fc189a78fc521b1e1196712f1a"
+          },
+          "nonceHex": "1baa576e6e5a607c5061edcd7e3d3cdd881f76af4cc7b422c0e216671f83df07",
+          "auxRandHex": "6d66697b82e2e44e0481b09e29ecb08f21426af7af422a6689a1953157fdcec8",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": null,
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "carried-copy",
+        "kind": "positive",
+        "note": "Bob posts Alice's rename again (into a new epoch, or before its last copy leaves the 30-day window). `carried: true`, and `id`, `at` and `name` copied unchanged, so the copy orders exactly where the original does and never outranks a later rename. The record has no `by`: Bob only repeated it and cannot say whose it was, so a reader shows no \"renamed the room\" line for it.",
+        "input": {
+          "message": {
+            "id": "rename-msg-3",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250,\"carried\":true}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AtO6lgSNXp1oOnunMkhLsXUDLfepeb9eKnZESLtrjFGfP7GScYmLeLoUympyXAmAvwQ54O3sCY+btLBFfaXerpxCtCUUCrxGyXCNTViA3gxAEOo4KEw9SEUzFxc/cDV0ZIbcfgbJK6KAiSOf6cN/IXJeL7HqhEcqQg++vchjAwTNuq6wFstX9GDZzjCIa3mQVV+5gXiw6aSaG6HJb6kPWz1h8AI1/6CLkHAc5LSrpK0CptxmiBBYbMB5ZwnrDZIZ3jIjeTyUlO2nAg2Tlyu3Lciah6jitY9cOgIK3QzMxsguKAMJU8rOqi0/pjH0LaWT/6keOBLvayoWOl4EnNhNCapLQNQk1M4L/xkNIajtJmvEfTD5eNXVSO39X7382hnTc3kZTjLZsndtuQxuXBTnn2RccAXAVl4VAC/yODJTzL7tle2wbqW+JdurZRuwjIu0cikwc9ouZfcJuspBLAorz6NQASw0geN/jW72CDVEeIq6x7RrN/M+wizGC9tYSYwSUoRt39mny84auAdRVvC885mHvRB2hd5772idAiJLvbkru6rdA4ZVvkh07woMHqyEGQWRVEmo2r0f01wkZjq2eXV2mrfxhJPD696eSoQIOyS/bxCulz0AaWtDN7VlVBuqO7HOrRHkpAH2jvH3Phv5Xr1HJ6uI+i+h/wBb7a5M6fUJOk/7mcjk7dOQy/0ITe+1uIWBoLF2XjcDEsUe3p0ODjxn5URTPxyZYfATX++I8dxNkRfdhNREj/mpD6+gz0O817m8aTnGJW0jwPLNVHj47+eEFdcSdi3CeBfSZgDY0Hououxe6yta3vaCclntRtwpwP+nSWrjAGZ081xJaWr8/203Z7wJH6ceZcuz8P5ABgNXXMswAI+AjSI3I78faRFX8jy4m9AaBqyF07/2HSN9FLi6oxv7Xd9W5+zZViRtc64TsKKWRIzOCC/fWtHS0ISRkC31ndHyCAf4J+GXHxIRyXu+eiu1lTqCbSu1qoCyCA6CxDGm4Tj+0GAcrMW1NHcedDkqmnbDYYCza02lBrdreB2o65J18LFlkk6mu5tJJmnXXlwok22awIo0OCG2Kxgwf4YKVpHDmlLHd3XrT0AyJo7B7fV5Ci02W9KuV4XrGqKKR3vzAVqO08kVRezWZLZxNJnh7L+77uqCPm3DghWU4ADK8nRffBjM7q0cBXommTba2qgWDDxbJTt9tx9fnuzyqlFcVv1iRJDDxZw11ihYi6RPjNSqbqzccqMP+Up5BtvEM107HksYcyqOE5V71BNdHXUI",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "731bb1f3678793a1bed392c4490118dd570f2e6f3c1517e2811e23acfadf1bbc",
+            "sig": "42f1c8c894c5ffc70f8c42a8317a2c539545e907ccdba22ec169e6b988e6f732f941e71095e2652638b6a8b2a0810c099dc6287aa95c03c29bb55f4ec7fa48cd"
+          },
+          "nonceHex": "d3ba96048d5e9d683a7ba732484bb175032df7a979bf5e2a764448bb6b8c519f",
+          "auxRandHex": "b8ab803717a7bd537c9d495284e7616a0f0cdcf21a4d600fb378a45f741e6b5f",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-3",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book club\",\"id\":\"0123456789abcdef0123456789abcdef\",\"at\":1800000100250,\"carried\":true}",
+            "sentAt": 1800000100
+          },
+          "op": {
+            "op": "name",
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250,
+            "carried": true
+          },
+          "record": {
+            "name": "Book club",
+            "id": "0123456789abcdef0123456789abcdef",
+            "at": 1800000100250,
+            "sentAt": 1800000100
+          }
+        }
+      },
+      {
+        "name": "hostile-name-sanitised",
+        "kind": "positive",
+        "note": "A name carrying a right-to-left override, a newline and a zero-width space, as a hostile client might write it. The reader sanitises it exactly as a display name or a link's `n` (sanitiseDisplayName: whitespace runs to one space, Unicode \"other\" characters removed, trimmed) and keeps \"Book club night\".",
+        "input": {
+          "message": {
+            "id": "rename-msg-4",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book‮ club\\n​night\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "ArqSk/16lSuGeTefKy5g9Bgt76iIP86CCET2b103c1c8CEY4xry9RcwvjrdBdRByO7zSbGOEVvsNyclqPJPgdFKgECDroqnijhp1LPncPrpVGjczpHM5GCHYh2YIrrP+Uyxa8I6PIKifIqmxPSh9c3vZ+uTQ41W1+bumWbMobAnEEidCiaU2ahMP95Qm8QDhl62SmoHQ91NHy7W0EQnmLM23QHLb6bwhjRq3/9QyKNF9ct28XxaThBbIRiulD5dD5kT1ZwSm0ag5KctsQhjFt9XAC1/yLElxB23tpbUbeF35nqRB+wQ4tKHrh+7zPnQ3rrzXwZjAD4hzYp5pWnmgcGLT7YpK/UOrXFJ4cYveG7fOIju8io9xSinkZ1bkL0jopKcmXJ8ppTMXFVmF97jNULyPgTPLzlIkDtJhP8x/RJc/SuiMAlrCRedNP5wiIHFuP7S9/Kf3ciSXmtd/IBgTNNQtp6cR04w2fg355n778AaC4VAl75EH5lM8627KFXs6pUbn2cbaJir+GX0mHo3eXhvr8YgkH1ccrILcY1fSVbwQc8Y1C5V62LSGsHa66nrwhTF9MhYcfrHMw7Hf2yB/WbmZZgqN9C3EsQMiIq1urfa5uV1F8AWxy3XGD/LbEO7eH0iolxCpVcl1zXgkjVCrkAny1uC2aHUlrMltxec3VYn9eNQGkP/ADwEw9HC4b2wTJ/ryippuxN3gMG0VAhCpWGtYFqn0dHwSNPH0IW96BcedCnlen3kYzFfPs2dqHkfJe4RRkuhhzYweMvTxXdVyhF6uwA2COp5xYn6VttQfsCmu6qtLipovn2UDJuHCVRzuh1IFv0klb3QHiQlmQdpSc85inl/zOp2iThXxMN3Bkqo5KDjVEtEWDiRzqRs3cGeWDLD7de9MmybtNtdmNayYJ2t18Wn8V0Q4yk07HbLnsYrC9FPpKaogMNJSPc5yEZqO2YE5kb9KfHG7VkG+F4C5XOH0NlKu443xbkL7x6fpfvocP8lIy2PC1mibGbuweiTTgqkP0/0Zq0e8u0E8mBD+vi8aHE/bNgvNY+dkgCI0c/t89noyV1xJblSOUd1L/VPw+7zGB7cSXPBRX86J9DN/xGxZrEURPjbYiUqyQrTNUHOffwbYdEDTmoRy5FIjOPB+2mO2tEmuukG1M6KDoZVAVxgwBhuFJraki4/nFq7Dt2Re7BTQlAO7jtWAo4CR2NIkde7rNr65Z8NMbZmYjVhA72/5f4pDXXnxTqXimDTODCMfU5f00IqMK8orgwRfNSr32MqL",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "b1a9bab42f8284a4b59331285e868b02d3df40f7d4e1c5f9997bfbb2e855a12f",
+            "sig": "543a8f14351f52fa64b8e3c7fd8be1346df7bf1d574b5e2cb9f9ad10eb5428e99076f65628c0d3df993e0fcb1bc26bf6b5918e3bdc77846877b4721ade11766f"
+          },
+          "nonceHex": "ba9293fd7a952b8679379f2b2e60f4182defa8883fce820844f66f5d3773573c",
+          "auxRandHex": "24b5b0d397d1af7a8e97af3d1ba35f044122c7dab739be10f0d00e0731635c06",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-4",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Book‮ club\\n​night\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "op": {
+            "op": "name",
+            "name": "Book club night",
+            "id": "fedcba9876543210fedcba9876543210",
+            "at": 1800000100000
+          },
+          "record": {
+            "name": "Book club night",
+            "id": "fedcba9876543210fedcba9876543210",
+            "at": 1800000100000,
+            "by": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "sentAt": 1800000100
+          }
+        }
+      },
+      {
+        "name": "empty-name-refused",
+        "kind": "negative",
+        "note": "A name that sanitises to nothing (spaces and a zero-width space). The message decodes - it is a chat message on the control channel - but it is not a rename: `op` and `record` are null.",
+        "input": {
+          "message": {
+            "id": "rename-msg-5",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\" ​ \",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AqpFUL1mEvm6Fc8PU9JQGpZ+IAmMvynw+4gHARU24omCcgtQRNDEknIFbUW2EAhfcS/zudi7UYUXNAoSdIxfTQzKevCNxfo4BcIrCHn2xOHbxmSOduJnX8zycZh+MTB/yLKskD1EM5AlLOQq8zKkczVPOXkyTQmjuq4KnTRL+fwe/6+bJ0h6dDuuXuT++xoECQLKjNHcpZvhmn1JRSdlYoqs/mpkFBpQ2AzZVQfjk+iFor2n89ea5OU7ACmxQrjB69jR8Mvf6Kdzy0kR0OzAOy503NmcKJkQtwR4u79S8xivDXagFDGg2v8Bm3Gr25i8qmyjPum9MVuSuHWsOEvL+yhFmqlnQy9fyVyB57PwkCeB7whtz9mvEp8JSKsmB+adElumpY5zOR/PlEVuN+RbInuLbeu5ux5N46H9dRvqHiU5wT8hXpZOAYI33eZ1OMyXhinYqKxurEN5yx6OyYbWgUIeK5l5kUMgUzJZxa04WHGIzx9zfGkYHe2VE0fFSgUVoqV30ML59Wlz64dXglKm5N5WdaKH2cuXS86bpLTXmx5ZWHlwNik/7B8cFvBEHJgH7GH9rEp/6p8KSsIqy2B5zg1sj6QX0HR6XHPMW0vbeZwl/16jk7HL9iUg8TmEQ9GPy4m8zREGKunUZqPZ7Q7ncO2UY110OsZzNyrIU10tLHpRrWOvS8h6hh/50mxWi3+d+iXBv45Hyd5qjOHCRWy+kaPSEW0OjraZ8fdQyIc0PLSQRvvkf5LkvoINP02DHMLRIOm+Gl+Jm8imkUbYO6hncjKdmdgSsbo09StnB4hbvEgOCcRJ5fzAA8t53wLViqCrpgDOn6J+LhNItSLcfeWru4E3a4E5SFDFawsPs5VQfc4kbJAGm70bHvJmFUJEVRyPnnACfb6WAq+3rxorAdIP/aFrr5A5vRaZ4wr5HK3n1XcDTmpDc+gs68HBWwKWFZG5RDSkJ5yEXZhFC1eTRiXXw9qD1IubZscuEfrHFA97hfhTqrlJj0b4wLKGMcs61D/uK5WCuvJ3Gzod+tQ/yhoFzYK9K7JICBrdp0/bI5Q+YgIPrnxSvojoVETkI7aWmGVPVO8E0ePFZfzsdt8bEXKWO71ag/dAExJxtVbeukbVsDGfhKs8luQ7+BieL9t77KTSiKZfghCQGvtRpGwnRDyykCyL3/PQZl9BU/Zs51XkZdrTUI/vUx8GIUUdlU2OReCZPR2A6hSXMzbQzEG2XGXVcq7j2+lvmvBfGl71wEr3Krdm2hkKeAg93ywfhk41JECJOXhp",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "ddaaf11fd4856edfc54df02507fc07c4d139bc7506b2663eac58a63ed7a695de",
+            "sig": "d343c927d6c3fe81ecfab362f3881ce1383f9f38648a798e3650e9d38a51bf9c37309e136911d3786460fa466b0437f25e90bc20f2f3a76527154d35f3a81a33"
+          },
+          "nonceHex": "aa4550bd6612f9ba15cf0f53d2501a967e20098cbf29f0fb8807011536e28982",
+          "auxRandHex": "1c1697ed5e373c4f5433441a12f6242fe56acf7dc621c748539dc20598ec13a5",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-5",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\" ​ \",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "over-length-name-refused",
+        "kind": "negative",
+        "note": "A name of 33 characters, one over MAX_DISPLAY_NAME_LENGTH (32, counted in code points before sanitising). Refused rather than cut: an honest client cuts while the person can see it, and a reader that trimmed would let two clients show different names.",
+        "input": {
+          "message": {
+            "id": "rename-msg-6",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AjF9oj1CYkkmXUitucNoODRATQGhpcosrWC5mkUMcKUz0/GBZjuGTSIleVQDmwe2Cf9yliBcXmlxw9h/yjwiMhH1qEx+z+Ci6M/YoQdpq2+b60dll1IfQgEe7v+1uLekgR2IX87hrP8En1bNgIP5TVt0NhVbHKt39geSTncoNdMyNjbLjBTSRolhp4gA/v0Y/XsO7vsveZ2cUoIDeFYiPkgkb6vYRdxVommryuzRw8ps0UXVLlaLPdFAGNPsdNamT0QDr9gO1bA7VKVxiAtwAf4wlSn76PAJvLo4HrNVAHqgVK9Y6KyiSqOguj99GkUT8dAchQW02OhJ5ysmg5gFJGDxef3YKNbQT3dVn9hTUgAFc8C9GrwhadjApYJ35Xahr7U34WxpEEsqgOOmU++XVJQ2+cnBgrGwf6lAEOz3eqTh4zXOSkySe1qfr3B0e1iw8bE5mYUU+UeNPGgLN63Dx7exgseFW4PLoPpMy4J2F8G3BZQqNy841oARpJmGnQn19Sw5f2qrJ7YEja8CuvrIf0jyGv5RQcru5fYIbzbROuQ0oitMzX6hAUZrwqMgSJAhO9tOus1RoJLMbpByp0d+ffGV0Tt7bbzcbcYePgdtRZqKWUs6lO2DSDCM9WHSBjpv0kW9nify0zy8ZFQANwOiMiw+lTzrIYoMEA/bQtSscYu9umaXmprJYBcw9m9ekyDaLMRP0pR4jYLPV1n/IgNvbi8jV0JIQtccIUZl1+haoYEJ4sbwerb5R/mvhkrjYl40kjR7uybQW8/IGaZLS+VfCX9Ir1od5odGz046AnXnDJ3vXIptxspHzXNDZIogvIdIR/hNwfUcv+fJpO/myEpHtYYmX3wFCjEEF+K1u7Uog0COqKtdbhb8CatQjvObUFUe5hUOUHBNIWV7+EL6WmorM87UFnr/ZYBEtBb2LYxZVtVdAa8HRuejc7jJ1PbwdgpjM880e/y1fkye375sjYyjrvdIBTOqaAXW4n4Kouk+3SO7AhUi0ztBb+NpRn3UhDfriztmcErqqLa1RAiHzbvS+Z+iYtUVxZ42hjz+tC5O5wa6yk0mNPM5SupCrkLoZNNHgEb24Jn8Vl4ZoDEBYU4+jEezY+Bt5zgp2GwI0pyYzxDpfPK4taWwn/Quf1WiXvVCR7Cae+TtDpRMVTpLWBuO24Q/TIE0nPlptE89rajq0S/M01TW4z+fiGJKlsqlp7PxiWQF16ypFg3nhapPS9WzEMgCQZbB2UOE/E97HVDcYG2GxeLPIBOMkcYS52loRExpn5LB",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "a7c9b0f47a650dfc91521fe71f6164583c6d35b5bf7ed611dd2d8795b78d3b21",
+            "sig": "41ea0dea4b1026e0ec61ab7a440e40212e1a58ffab25883100e17818aeb25946fee267806826d6d5c2227a2f69671515e079fd56c40966c1e2353604cae29a11"
+          },
+          "nonceHex": "317da23d426249265d48adb9c3683834404d01a1a5ca2cad60b99a450c70a533",
+          "auxRandHex": "9f10b1aca825253c72dbb8ad46dd8d8761748d3cea35dec85409c1ce62e5f979",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-6",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "stamped-after-its-message-refused",
+        "kind": "negative",
+        "note": "A rename whose `at` falls in a second after its message's `sentAt`. Refused by roomNameFromMessage (floor(at / 1000) must not exceed sentAt), so a member cannot date a rename into the future to pin it above every later one. `op` decodes; `record` is null.",
+        "input": {
+          "message": {
+            "id": "rename-msg-7",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Pinned\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000160000}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "Alit85W6h8IeSKtTHz2avFZDwGzBJ9OtaucgKzUs8cuFgfcbCHivr+gXpT5ypwyeaZE3agTuVBVnsygR8XovmXSkc5fpOWp/MCHEUVffXjGFo/k9s5txkQKIMG+X4gUwIqjHoozxbLi4wJ5e8UshVp8YNULFFg2QSNTyr1t3IKoRUueXrLTscfBvaA7KuEvPSLYSjwzUAIH9ouoikhmP1WQV8fFT2cXz9X0WLYpdzfxzgOGSBc/P/UTsn5tsTe2qVwEBv34wNZQ63168Zq17EzcBrCB8YOPGCY5wowq2YbKhEBq9bVixRdlmtHd+EOFDBpN4rqvq397rD7lEqj09W7cuKNBqyTGTjzTLu2n9yfHpHPxD+eRLrjCg//EI9mCNTbN/IzZw6giQ2dm+vw9PITnZVWFt4eOIN5q+hwTkuyDhsfoxPxoD4uW6oHs22jGYGFPCeQCCWDMhJgRg01JMtEYmXPHMq/pyKE0Bg2btrslQVYGygAfAebLZyhqCfBAsrGz1pnpbnONeHSKtlL5xPVvylIvqSgEhDruekWwx+8mwizpdHpNlozYkR4591Gt/Rg6Kg+DT2QQTmNSR0PFshH7tSmnhrQyA7BQDSRebfPzHpFEzhjV55PLUhMbGEKp74waAQigrHMoSgaGm0oUS5x8DretqMRxrUXeAoTZwGNr9ISk5FFCsTSQdidvugdEF30YnAkmNNpDp9pzEE2pW4mXl+M+rId7pL+Xc+TvN8BWpVUQ8HUE248kq+1vM4AP6iRhrxjZEYzlJf99Y1du+BAqE+1Lj6RMF9bRTpJjcN4JFBnm02FTMNxTUPuyhtkEMQrugFcmpCpEABZNe/uVnbm2pMTVmmubuEuHZjunLvRbkw36ojRPyna6CzrcR5zEUDcaXcsq5DSILUcfMxHfegDc4jyLBveJnvHW+zUfjad+eF0zAvSoitgDiS2s12trQs2Go/TsbK9NrK3uXn7v1F4Bz+QGsLVZ52uV5/aPpV+imwSDMIhQPjCPzKwrKjVrCSFsATSVk3lP2xvvBuY4HSUehyztlzFHfqIjbOaJtoePuCQWSII7tUj2ziBKxY7JyEOlwTtmqFXvFP/mQ0zNbJ8YGBj8gx2P8doYvygU7kHCAZFIlTmhJ7aPHRTckBGNz4yOpuopL41FBeD8bxRSMCJ1UCmB4KHADK9N3uDpdusPImjJksGHXLYLqK+blmyRbDycZRaO3/hNEJ1qXSZnB2KTfs5uqIAygL4RVsshB32H+qJx2TROVUmoviP+EUiCBd1+8",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "8990a5e4c1d9d8fe5ccf4b645cdfcf1c9fcf412404275ab7af9576a3d5384862",
+            "sig": "cb91f56ba7095bf0acaca97826ca0106926f3e780034e0a82adc9039a0d0179d49dd749e87d2043448ba7a42ebd4bd85bc42e711b85dfaf16773975cd3eabc34"
+          },
+          "nonceHex": "58adf395ba87c21e48ab531f3d9abc5643c06cc127d3ad6ae7202b352cf1cb85",
+          "auxRandHex": "8a7e1cba412acf14e54c127cf40693382c5cc4819451e8f15b6ba5608f4c50ce",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-7",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Pinned\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000160000}",
+            "sentAt": 1800000100
+          },
+          "op": {
+            "op": "name",
+            "name": "Pinned",
+            "id": "fedcba9876543210fedcba9876543210",
+            "at": 1800000160000
+          },
+          "record": null
+        }
+      },
+      {
+        "name": "bad-id-refused",
+        "kind": "negative",
+        "note": "An `id` in upper case. The id is exactly 32 lower-case hex characters, so two implementations compare ids as the same strings.",
+        "input": {
+          "message": {
+            "id": "rename-msg-8",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Room\",\"id\":\"FEDCBA9876543210FEDCBA9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AvyJDVm/9AuDtKuYUXCRBvcWIf9xsgblRB6URDR5Xf4s6l4FvqzV8W/3n+t7FrjpRkoMmy5XewCPVlGndWFyPf0qvobUWcs41AAAbefwiV35KCubbq9VvvTC9ffIP12PqH+3FwJv2q1XvmLlCp3FyGSywJk9cXuriv0buhTm4AZfnALGZvbR0N2Cs6XaDk67LyUOTb1h1KwVowKgG+MyBCE4BRqZBfi02f/BEZ86Xo3/q3+xft4lXGRpSfLRsH1eR+0TCtrL648vcePFP5pb6DRhhcJKuURfKZ+gA4vYs3j2F8tFQ4waAoPuRU2WOwo6nvd+OQuYOEFSZqgobeMtaJ+Btwod4F7qKDgt+r3zYR8Nn0NveGECkT+rQgGRGqwRdBELVGjf8JuvDd4Jscj3YEZgoVin2ef9AJIzLNh5R1ir9t066Ukbi3vwKt0Za3tvgeTt1y/wbI+C8XmES74B4RaZK50nJW4fAWeneMjtjq1p08Rbul0x4yNp+JBudalEAhfT6Ua58jsI63QhDhke6fOGrfLVJgvCil+P7J9f5n1S4EO2NEI+9py+ALcLx6dB/9/cnnWCzFGYsvpxDFb33u6pY27pQWTm8VNQgMl+z9BHRrXklmhhmpHBq/LVBrmd64NzCdwfeMK/XrHnBi+aOuU4jEDmFFZftO+VUObjoBumjb4txKg5mf2AMeL+xUoudlwft31uP7Q5fpKwubf39KjA5c6Hh2aDZJmKRDmF7d3mY5S+74T6HnexdkEufBWNpfvVdefQQy/B0DmAkx1pBqzfPuKi3fLkb32k+xPL+bUTPrgTO4T4DvVpwBRSd5oK2IwRWBSiP7vgkHElLZB/r8pCGZOIrk25i4GDNcgai8FmNTcqFWTRg3VxpYSZRo+TqIIsL/4clW/sEMzYL4p/Bb6h7pkclhCZ1eHCzXlOBylzJR0wCgpt+lM9n3Qywq1VlmG962kwK05Lg3idHaHHTA7Zv+dcMu49i2K43yEij6JOCD3Nk5jfgRkeisc8BKhnBnywVT6VuXui4a+Ey6UYMpEowLwu/i4xkh/O3aoQX6iZkurPIHs5sVyuEtlMS4wN3GUKodhduXQsJTu55Hq269H0X3sMjV4XhChUDxMsTSCm6IwumxWsaAigiJJDiGFSYPNRBCSX5+RBD5qOwihHpcuVS7+lIonuPj1HENUWP96iFkYzIz3mil6slDQ0wf5aRjTzelKkPLitEmR96BaihaAhwU+OukWiXkJfAXHOxBUZ1H5FiX0rbkc4mD1juwWXce1U",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "7870b547e11fe261b93fb59795453231a4ac4ccaffa5cd9ea4e5933e4046e634",
+            "sig": "6427c9b867bef511aae67ff8ae5cc323664991ba43736ef069faaaa6f2800c11c3ff31ddc914265b70da947134b61c28114e0a2e6406cf8bbf927919b8c8babd"
+          },
+          "nonceHex": "fc890d59bff40b83b4ab9851709106f71621ff71b206e5441e944434795dfe2c",
+          "auxRandHex": "de3edfaf837e852558a361db3f8fd8b127cfca7466b540205cc00c891509a1ed",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-8",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Room\",\"id\":\"FEDCBA9876543210FEDCBA9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100
+          },
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "carried-false-refused",
+        "kind": "negative",
+        "note": "`carried` is either absent or the JSON value true; anything else is refused.",
+        "input": {
+          "message": {
+            "id": "rename-msg-9",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Room\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000,\"carried\":false}",
+            "sentAt": 1800000100
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AmX2hkEeXZJz4rw6Ue0G65kyBIP36u0ptJT6wPTYFwzrxo+/xisx4D5Tb0DxruVe9T3hsGfyOZ4g/y97oKiXQzvYqTU1DYYPXuo/z7/cESBouDK0bFZxwdIN3DyK13ehYDo9F0hdfGc3TZ3Kd7yogDnuoLlcUpp0/6dKWcLhV3UC8nxL9FB7CmjiA3Nx0vs3eIrZohQxfD/znkqXUGW2vEyYk/u+CIQWTmj4SE/p/MfRJtqVAbFZa509Yolm+lLHxN0B7uvAeuCpgwIz8fKzzi9lbcqcgLAX23cZ//hGGEQszL5jldldW1fgauymNhyWEAL8mirSFidKblb6GpFU5xOzsMW75elS3sI84merzQR8Y2h6Uq/LgN1tKn3FMZ3bC6wBGbw7QpKseFzGkEGGFBH5IYsf/rzQd752ExqFEeVA6N8Amdjjl4yHu4kblSxpdVa6hMgmuCfIcdRHK6MWrvkKw1LbIuujBckMqEFaFxATgjbMv9h7Vfip/DwrTCT5bxPafovvBW8BVARSxzX/ZLOU+l/qqzl4Zfv+7NnLsv+MY7wMxohAatqS4/Ug5ozJ/mtaebktDXI2TigmSnDqLz6Dl3+Edn6YMB46t3KTNGGLhgaw55fTxBwyfLtXR65AseYAqIZI/bcnMwt2S3VIhTZOJBl/8YQVRJm50T2K0WAywrowW/2SaHLou5v7hMnOxA+4wOGXEkH151KtRkOAWTdfVWWOzhiydSc6jvXrUmIQ8svImdEqXUSCLUcSVrD6j+66I0494+Sd84zKnxrzDVJsNiQ02DfV93d9bSdzz+ONU2XVkgizuDUXHphUwk+Za1SfIl8TyuuhWnSUqqSflBaEAtunH8WgBJqkrWmDPomQBHL6D7Yu99bxHT3Mw29s6bthMalTZ+MvyQHF5NMP0Q0ZC2CVP+3KEvF5IRxgiMbMtw7tG5mt6Ia1hemndyAJ9ZeiFD4UBxer5vzNRe8tUUktel225+elnHrt7kcYqI8ETLekbqTVmmzZed4dwYrD/N0bo0xxzCFwxa+d9YJnsip2I5bmPJc+Ve6Hen16OXGaHAaps06ZxcBqwAzMpvEDpZEwDqeaqFCqfrMfZ82pMf08enH1jRQQ4N/lephO3gv67ciH4YfcOo8usjVsx7MhWHzZS9dj7fgSPTasHYFR2WavyexmSmoKtlzJhOxeUI/PqOEnDtIqj/0diuWTC9J4tl1nh5HQIp9dF5t8K8XiaDgCmTDCg8VZtrPujQ5wj0SKrA4HZdid6q8HWvhXwUFh2+ze",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "141f19a985b602847a5b9a858ebdb0123596264b7d8294c1e91de1f1798b65b9",
+            "sig": "23366118933f0020b69aac3b50c93b8652d47398e58d771553d594edf78f0c896ea61df10e5d4fa45be0b33796fc12e33d992228c53c30512ca8b34794ffea17"
+          },
+          "nonceHex": "65f686411e5d9273e2bc3a51ed06eb99320483f7eaed29b494fac0f4d8170ceb",
+          "auxRandHex": "fe0f5f7cadb8f8b9a4c32ce20684c4b976549360635640d81155211168adfbc8",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": {
+            "id": "rename-msg-9",
+            "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+            "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+              "sig": "3c865eb1ebc2c33797caf1b8a2640fd22ce69fe5434537da50bee0457048a9b2316ba573a6f032c1e57f7b977ce8019edf981e9f6381ac0ce504553f6fbdf26e"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Room\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000,\"carried\":false}",
+            "sentAt": 1800000100
+          },
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "forged-participant-refused",
+        "kind": "negative",
+        "note": "Bob's device signs a rename that claims to come from Alice's device, with Alice's credential. The device that signed is not the device the message and credential name, so decodeChatEvent refuses the whole message: nobody renames the room in somebody else's name.",
+        "input": {
+          "message": {
+            "id": "rename-msg-10",
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "credential": {
+              "kind": 20460,
+              "created_at": 1799990000,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "device",
+                  "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                ],
+                [
+                  "expiration",
+                  "1800003600"
+                ]
+              ],
+              "content": "",
+              "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+              "sig": "3b09bb31e1b7c7c4935c9f3596a8a7793d64135a50ffd20b6aac3cb658ee3521f30a540a0d4bc0e7f5c38203d2adff1b4f7aa5f551aa49eadb18687f942c5660"
+            },
+            "text": "{\"op\":\"name\",\"name\":\"Forged\",\"id\":\"fedcba9876543210fedcba9876543210\",\"at\":1800000100000}",
+            "sentAt": 1800000100,
+            "sentAtMs": 1800000100250
+          },
+          "event": {
+            "kind": 1460,
+            "created_at": 1800000100,
+            "tags": [
+              [
+                "d",
+                "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4"
+              ]
+            ],
+            "content": "AuLhh9YM9ZdrF3Urj2GECmfD6krECN7PMhq8+pChyADaD6SPTOIFAvB1H7avOtEEcdCdB33EPLyIddvMRh0279mmPej7notLyqPfC7U5lezGkEkUqyRnGVVrxGVgkGQLeSxgFAxUIXyfK6WbHRUXs1fKJOJ0SCdNIxvVJ6ty8oDb2ix5iwTnx/G+INxZ4r8Xq6RsH/bJ7pu1JYaN6JZD2xRhIRcMFF2U8O0Rj0uMDkgxTrHBWwnLbHyYymlUw3FEAa2YdRtYt8U1PcmuUT8ykbh0YKpltRbJBHsjzfoYgT087WpFjrtZSAlL+ir7MHDw0G07S1W3YaxJvWa/7MBCFbAnKOx9scNvwhKluy4gdWcHAj9TWanjdOjli0d8ixGmOp3KbLo8sbj1T+3m/uIDwAzJeosLnE8AfUW1lVYoVXBwGkCYMyZ7qTh2x6fwOkFODInzmplkiypD7KMBgKUEFtzEMi1IxejEcocEslRV4nGVvz5aOPoHMcOMSVOuRiFxauNkQDPaHA6f2CLoji9HkBWCP3xn7mOHgwjLAFHw5EHrkLjDHif1GeAKzlKV2CMp8vKjcLpTmntf6Sg9Q7RaSCCnxR3FNjej2pkbx4f/x9FvquL8PGKxM8llTc2zsV+EyFb4sM3XV5O7+y2caD8YOrZ6MJrvSIjOD6wPHUlA4iOGmqngcJnGJkOCChtuV6VO5BLW1VwfAvljyP9IJypEVQm0g/0CoUv+iibCG6HhNg1uAR+yqHAA7HRBy7Z4dcYG/G6zz2Y1w6wRGj+glrZqw0E5hgsFqdazhiK7WbOtWtW5xMW6XOsHyWbPMReq+JaGAwqH7oLuYeih+D9avu918ONlT8B62IBaRl7WaOXj0OTqJpuKextPf4YtH45LqaL3khJj3ptoVg1Sfy5hLw2UFcAKlu1igIyXqMFfOMin2Yd0iUMx3svR5pVphLM+l71sA3eaaHHiWCrGSUAWjhRdt6Y1gPxVQlxBk7X4ZWhV5pbAshs0Jc9/4pNRM2XxNf6QprlQ2Wnqf7sITQJ1AxOvlFhJd7dywghx2/ujjVesRbzvDZH2oYWj98jnZ84lXIxhQQtIBzxRUkoP27+IFuk3jM7gGhR/U4XX0mPC49wayHoYIseUdR2sWYoju9JYyyk6hDieEKRydnpmnr0Y8P7pM/kcKn0C5cZSUOoR9k5l14hCOdc/9qicimi1X2N/HXHcgxbPokMP98ANOLRno/AqAxSCtrYNX5UQrz733CoYuhWHwr9dKd+vFNVMdESgPiTqeofC",
+            "pubkey": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+            "id": "8d0dbb3738ae489087d64630156da29b554da75768adfca964d5621df56069b2",
+            "sig": "54659b40ace7f5b7101d16ec82e483f8b5a9dada7545d3e1538677b64e0c9c48f804a85746062d17307c6ea1229ada0973eb6db764ba9eef8863bfe487c9aff6"
+          },
+          "nonceHex": "e2e187d60cf5976b17752b8f61840a67c3ea4ac408decf321abcfa90a1c800da",
+          "auxRandHex": "efc350afa18a6563f151d17f76fabdc0d28751e9261a7736ec7a60fde7e4fcdf",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "channel": "control",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "channelId": "aa12033904c82a6f431f6994604e5812c8adaeb33533e30562f8e205c3eaadf4",
+          "message": null,
+          "op": null,
+          "record": null
+        }
+      },
+      {
+        "name": "newest-wins",
+        "kind": "positive",
+        "note": "Order is the message order: `at` (milliseconds), then `id`, then the name, each compared as plain values (ids and names by UTF-16 code unit, as JavaScript `<` does). The last is the room's name. Here the later `at` wins although its id is smaller.",
+        "input": {
+          "records": [
+            {
+              "name": "Later",
+              "id": "0123456789abcdef0123456789abcdef",
+              "at": 1800000100251
+            },
+            {
+              "name": "Earlier",
+              "id": "fedcba9876543210fedcba9876543210",
+              "at": 1800000100250
+            }
+          ]
+        },
+        "output": {
+          "order": [
+            "Earlier",
+            "Later"
+          ],
+          "winner": "Later"
+        }
+      },
+      {
+        "name": "tie-breaks-on-id",
+        "kind": "positive",
+        "note": "Two renames in the same millisecond: the greater id wins, whatever arrived last.",
+        "input": {
+          "records": [
+            {
+              "name": "Greater id",
+              "id": "fedcba9876543210fedcba9876543210",
+              "at": 1800000100250
+            },
+            {
+              "name": "Smaller id",
+              "id": "0123456789abcdef0123456789abcdef",
+              "at": 1800000100250
+            }
+          ]
+        },
+        "output": {
+          "order": [
+            "Smaller id",
+            "Greater id"
+          ],
+          "winner": "Greater id"
+        }
+      },
+      {
+        "name": "tie-breaks-on-name",
+        "kind": "positive",
+        "note": "The same `at` and `id` with different names (only a misbehaving client sends that): the greater name wins, so every device still settles on one.",
+        "input": {
+          "records": [
+            {
+              "name": "Beta",
+              "id": "0123456789abcdef0123456789abcdef",
+              "at": 1800000100250
+            },
+            {
+              "name": "Alpha",
+              "id": "0123456789abcdef0123456789abcdef",
+              "at": 1800000100250
+            }
+          ]
+        },
+        "output": {
+          "order": [
+            "Alpha",
+            "Beta"
+          ],
+          "winner": "Beta"
+        }
+      },
+      {
+        "name": "left-epoch-cut",
+        "kind": "positive",
+        "note": "Renames read under epoch 0 by a device now in epoch 1, whose rekey into epoch 1 was signed at `rekeyedAt[1]` (the rekey event's created_at, unix seconds). A rename read under an epoch the room has left counts only if `at` <= (rekeyedAt[that epoch + 1] + 300) * 1000; after that the only writers under the old key are the members it removed. In epoch 0 the later rename wins; once in epoch 1 it is discounted.",
+        "input": {
+          "entries": [
+            {
+              "record": {
+                "name": "Before the rekey",
+                "id": "0123456789abcdef0123456789abcdef",
+                "at": 1800000100250,
+                "sentAt": 1800000100,
+                "by": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+              },
+              "epoch": 0
+            },
+            {
+              "record": {
+                "name": "After removal",
+                "id": "fedcba9876543210fedcba9876543210",
+                "at": 1800000501000,
+                "sentAt": 1800000501,
+                "by": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              },
+              "epoch": 0
+            }
+          ],
+          "rekeyedAt": {
+            "1": 1800000200
+          },
+          "graceSeconds": 300
+        },
+        "output": {
+          "inEpoch0": "After removal",
+          "inEpoch1": "Before the rekey"
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",
