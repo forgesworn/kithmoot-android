@@ -45,6 +45,9 @@ class ChatNotifications(private val context: Context) {
         mutableSettings.value = value
         if (!value.enabled) cancel() else { channel(); refresh() }
     }
+    /** The open room's members renamed it: later notices say the new name. */
+    @Synchronized fun rename(id: String, name: String) { if (roomId == id) roomName = name }
+
     @Synchronized fun begin(id: String, name: String, self: String, since: Long, private: Boolean = false) {
         end(); roomId = id; roomName = name; this.private = private; tracker = ChatNoticeState(since, self)
     }

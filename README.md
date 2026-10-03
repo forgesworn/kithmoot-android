@@ -110,8 +110,14 @@ creator's recovery responder refuses a request without one, so a stranger who
 reads a room id and its authority off a public rekey is never answered. See the published
 [persistent group contract](https://github.com/forgesworn/kithmoot/blob/171de0a0e697add5d7ca0793b6f3980f4242b50c/docs/persistent-groups.md).
 
-The home screen lists rooms saved on this device, with local names, search,
-rename and a confirmed Forget action. Reopening preserves the participant and
+The home screen lists rooms saved on this device, with their names, search
+and a confirmed Forget action. A room's name is shared: any member renames it
+for everybody from the room's details ("Rename for everyone"), as a `name` op
+on the room's encrypted control channel, and members carry the current name
+into each new epoch (see the reference's
+[room name](https://github.com/forgesworn/kithmoot/blob/main/docs/room-name.md)).
+A two-person room, titled by the other person, and an anonymous room have no
+rename. Reopening preserves the participant and
 device keys. Creators can return alone, and temporary meetings can serve their
 saved invitation again; recovery does not depend on another member being online.
 Audio, camera and screen sharing remain off until requested.
@@ -211,12 +217,12 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **190 vectors across 26
+published vectors, never an edited one. There are **246 vectors across 31
 groups**. The suite runs each vector in the groups this implementation covers
 as its own named test case, so a failure names the vector, and adds three
 guards that fail the build if a vector goes missing or a group loses its
-negative cases. The six message-layer groups are run from the `:app` module,
-where the chat codec lives, by `MessageLayerVectorsTest`
+negative cases. The message-layer groups, and the `roomName` events, are run
+from the `:app` module, where the chat codec lives, by `MessageLayerVectorsTest`
 (`./gradlew :app:testDebugUnitTest`), reading the same file.
 
 The groups this client does not implement - `channelDerivation`,

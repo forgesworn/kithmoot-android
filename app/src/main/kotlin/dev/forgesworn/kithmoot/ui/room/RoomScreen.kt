@@ -53,6 +53,7 @@ import dev.forgesworn.kithmoot.media.effects.SeaScene
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
@@ -115,6 +116,8 @@ fun RoomScreen(
     onStopCadence: () -> Unit = {},
     onRenewCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
+    /** Rename the room for everybody in it. */
+    onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
@@ -270,6 +273,17 @@ fun RoomScreen(
             Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
+                // Any member may rename the room, and the name changes for
+                // everybody in it: there is no private nickname beside it. Not
+                // in a two-person room, whose title is the other person, nor in
+                // an anonymous one, which follows no shared room state.
+                if (!state.privateConversation && !state.anonymous && state.movedOn == null && !state.conferenceEnded) {
+                    var newName by rememberSaveable(state.name) { mutableStateOf(state.name) }
+                    Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
+                    val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
+                    TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
+                }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
                 state.endsAt?.let {

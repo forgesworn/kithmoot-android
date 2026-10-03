@@ -57,7 +57,7 @@ class HomeScreenUiTest {
                             onRoomNameChanged = {}, onJoinUrlChanged = {}, onRelaysChanged = {},
                             onAnonymousModeChanged = onAnonymousModeChanged, onPersistentGroupChanged = {},
                             onStartRoom = {}, onJoin = onJoin, onReopen = onReopen, onForget = onForget,
-                            onRename = { _, _ -> }, onProject = { _, _ -> }, onRetryStorage = {}, onResetStorage = {},
+                            onProject = { _, _ -> }, onRetryStorage = {}, onResetStorage = {},
                             callRoomId = callRoomId, onOpenProjects = onOpenProjects, accountRooms = accountRooms,
                         )
                     }
@@ -153,7 +153,8 @@ class HomeScreenUiTest {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group", canShareInvite = true))))
         compose.onNodeWithContentDescription("More options for Garden group").performClick()
         compose.onNodeWithText("Share invite link").assertIsDisplayed()
-        compose.onNodeWithText("Rename").assertIsDisplayed()
+        // Renaming is shared and happens inside the room ("Rename for everyone").
+        compose.onNodeWithText("Rename").assertDoesNotExist()
         compose.onNodeWithText("Add to a project").assertIsDisplayed()
         compose.onNodeWithText("Remove from this phone").assertIsDisplayed()
     }

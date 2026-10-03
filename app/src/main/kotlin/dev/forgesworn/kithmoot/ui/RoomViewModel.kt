@@ -21,6 +21,8 @@ import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelayUrl
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
+import dev.forgesworn.kithmoot.protocol.RoomNameRecord
+import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
@@ -372,6 +374,21 @@ data class ContactRow(
     val expires: Long,
 )
 
+/** "<who> renamed the room to “<name>”", at the time the rename was sent. */
+data class RoomNote(val id: String, val participant: String, val name: String, val sentAt: Long)
+
+/** The chat's line for a rename read for the first time: once per rename,
+ *  never for a carried copy, and only in the room it was read in. */
+internal fun RoomState.withRenameRead(roomId: String, rename: RoomNameRecord): RoomState {
+    val by = rename.by ?: return this
+    if (this.roomId != roomId || roomNotes.any { it.id == rename.id }) return this
+    return copy(roomNotes = (roomNotes + RoomNote(rename.id, by, rename.name, rename.sentAt)).takeLast(50))
+}
+
+/** The open room's title follows its shared name. */
+internal fun RoomState.withSharedName(roomId: String, shared: RoomNameRecord): RoomState =
+    if (this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
+
 data class RoomState(
     val notificationChatRequest: Int = 0,
     /** Bumped to bring the room to its call view: an answered call opens there. */
@@ -401,6 +418,9 @@ data class RoomState(
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
+    /** Lines the chat shows that nobody typed: who renamed the room, once
+     *  per rename read this visit. */
+    val roomNotes: List<RoomNote> = emptyList(),
     /** A two-member room whose invitation must travel sealed through another room. */
     val privateConversation: Boolean = false,
     /** Current people who can be chosen for a new signer-sealed private conversation. */
@@ -1923,7 +1943,6 @@ class RoomViewModel @JvmOverloads constructor(
         }
         savedRooms.forget(id)
     }
-    fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
 
     /** The link for the room row's "Share invite link": read fresh from
@@ -3278,6 +3297,10 @@ class RoomViewModel @JvmOverloads constructor(
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), record.id,
                 who.participant, who.devicePubkey).outbox
         } else null
+        // When the authority rekeyed into each epoch, from the signed rekeys
+        // this visit hears: a rename read under an epoch the room has left
+        // counts only up to the rekey out of it (protocol/RoomName.kt).
+        val rekeyTimes = java.util.concurrent.ConcurrentHashMap<Int, Long>()
         val live = RoomSession(
             derived,
             who,
@@ -3302,8 +3325,10 @@ class RoomViewModel @JvmOverloads constructor(
                     cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
                 }
             },
-            onEpochApplied = { _, next ->
-                roomWork?.rekey(next.id, next.key)
+            onEpochApplied = { notice, next ->
+                // A catch-up grant's time is the grant's, not the rekey's.
+                if (!notice.catchUp) rekeyTimes.putIfAbsent(notice.epoch, notice.at)
+                roomWork?.rekey(next.id, next.key, next.epoch)
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
@@ -3314,6 +3339,7 @@ class RoomViewModel @JvmOverloads constructor(
             },
             memberEpochDesk = memberDesk,
             onEpochHistory = if (anonymousProfile || record.authority == null) { _, _ -> } else { secrets, rekeys ->
+                record.authority?.let { authority -> for (rekey in rekeys) peekRekeyEpoch(rekey, record.id, authority)?.let { rekeyTimes[it] = rekey.createdAt } }
                 withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys) }
             },
             onVerifiedOwnEvent = if (!anonymousProfile && accountSession?.account?.pubkey == who.participant) {
@@ -3469,7 +3495,12 @@ class RoomViewModel @JvmOverloads constructor(
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
                     authority=record.authority,initialRoomRelays=record.roomRelayRecord,
                     onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) },
-                    ends=record.ends)
+                    ends=record.ends,
+                    initialEpoch=liveEpoch.epoch,
+                    initialRoomName=record.sharedName,
+                    rekeyedAt={ epoch -> rekeyTimes[epoch] ?: runCatching { roomEpochs.rekeyAt(record.id, epoch)?.createdAt }.getOrNull() },
+                    onRoomName={ shared -> onRoomNameReceived(record.id, shared) },
+                    onRename={ rename -> onRenameRead(derived.roomId, rename) })
                 roomWork=work
                 scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
                 scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
@@ -3519,7 +3550,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        callRinger.update(record.id, record.name, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
+                        callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -5401,6 +5432,57 @@ class RoomViewModel @JvmOverloads constructor(
      * sheltered behind a Bothy, adds only the relays its guard accepts
      * ([roomRelayGuard]) and says how many it left out.
      */
+    /**
+     * The room's shared name changed: the newest rename that counts, read
+     * on the control channel, carried, or made here. It replaces this
+     * device's name for the room everywhere - the saved room and the rooms
+     * list, the title, chat notifications and the call ringer - and is kept
+     * with its order key, so an older link does not put the old name back.
+     * Mirrors `adoptSharedRoomName` in the web client's `app/src/main.ts`.
+     */
+    private fun onRoomNameReceived(roomId: String, shared: RoomNameRecord) {
+        if (savedRoom?.id != roomId) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (savedRoom?.id != roomId) return@launch
+            if (savedRoom?.sharedName?.let { it.id == shared.id && it.at == shared.at && it.name == shared.name } != true) {
+                persistLiveRoom(roomId) { it.withSharedName(shared) }
+                runCatching { savedRooms.list() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
+            }
+            notifications.rename(roomId, shared.name)
+            withContext(Dispatchers.Main) {
+                _room.update { it.withSharedName(roomId, shared) }
+            }
+        }
+    }
+
+    /** A rename, not a carried copy, read for the first time this visit:
+     *  the chat says who renamed the room, once per rename. */
+    private fun onRenameRead(roomId: String, rename: RoomNameRecord) {
+        _room.update { it.withRenameRead(roomId, rename) }
+    }
+
+    /** Rename the room for everybody in it: hidden in a two-person room,
+     *  whose title is the other person, and in an anonymous room, which
+     *  follows no shared work or names. */
+    fun renameRoomForEveryone(name: String) {
+        val work = roomWork ?: run {
+            _room.update { it.copy(notice = "Wait for the room to finish connecting, then rename it.") }
+            return
+        }
+        val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(name)
+        if (clean == null) { _room.update { it.copy(notice = "A room name cannot be empty.") }; return }
+        if (clean == _room.value.name) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val record = work.rename(clean)
+                _room.update { if (roomWork === work) it.copy(notice = "Renamed the room to “${record.name}” for everyone.") else it }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                _room.update { if (roomWork === work) it.copy(notice = error.message ?: "The room could not be renamed. Try again.") else it }
+            }
+        }
+    }
+
     private fun onRoomRelaysReceived(roomId: String, record: RoomRelaysRecord, sentAt: Long) {
         if (savedRoom?.id != roomId) return
         viewModelScope.launch(Dispatchers.IO) {

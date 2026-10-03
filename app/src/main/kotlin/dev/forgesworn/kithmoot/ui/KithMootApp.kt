@@ -449,7 +449,6 @@ fun KithMootApp(
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,
-                        onRename = model::renameRoom,
                         onProject = model::setRoomProject,
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
@@ -556,6 +555,7 @@ fun KithMootApp(
                     onStopCadence = model::stopCadence,
                     onRenewCadence = model::renewCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
+                    onRenameRoom = model::renameRoomForEveryone,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
@@ -576,6 +576,7 @@ fun KithMootApp(
                     chat = {
                         ChatPane(
                             messages = roomState.chat,
+                            notes = roomState.roomNotes,
                             onReadingChanged = model::notificationReading,
                             latestRequest = roomState.notificationChatRequest,
                             selfParticipant = roomState.selfParticipant,
