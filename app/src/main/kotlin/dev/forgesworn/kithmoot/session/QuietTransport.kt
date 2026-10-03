@@ -109,7 +109,17 @@ class QuietTransport(
     private val range = counterRange(slot)
     val canSend: Boolean = range != null && members.any { it.equals(member, ignoreCase = true) }
 
-    private val keys = QuietKeys(lookbackEpochs = ((lookbackSeconds + DeadDrop.EPOCH_SECONDS - 1) / DeadDrop.EPOCH_SECONDS).toInt())
+    private val lookbackEpochs = ((lookbackSeconds + DeadDrop.EPOCH_SECONDS - 1) / DeadDrop.EPOCH_SECONDS).toInt()
+    private val keys = QuietKeys(lookbackEpochs = lookbackEpochs)
+    private var roomKey = roomKey.copyOf()
+    /**
+     * Epochs this room has left, by key fingerprint, newest first: lookup
+     * only, so a drop a member sealed before following a rekey, or one a
+     * relay delivers late, still opens. Never sent under, and their counters
+     * are never marked. At most [MAX_PAST_EPOCHS]. Under its own monitor.
+     */
+    private val past = LinkedHashMap<String, Pair<ByteArray, QuietKeys>>()
+    private var pastBackfill: Job? = null
     private val lock = Mutex()
     private val queue = ArrayDeque<NostrEvent>()
     private val boxPending = mutableSetOf<String>()
@@ -182,6 +192,7 @@ class QuietTransport(
     fun stop() {
         timer?.cancel(); timer = null
         broadcast?.cancel(); broadcast = null
+        pastBackfill?.cancel(); pastBackfill = null
     }
 
     override fun describe(): List<String> = inner.describe()
@@ -204,13 +215,52 @@ class QuietTransport(
                 queue.clear()
                 boxPending.clear()
                 current = null
+                val left = this.roomKey
                 keys.set(DeadDrop.roomIkm(roomKey), members)
                 keyFingerprint = nextFingerprint
+                this.roomKey = roomKey.copyOf()
+                // The epoch just left stays readable until the session says otherwise.
+                synchronized(past) { keepPastLocked(listOf(left) + past.values.map { it.first }) }
                 old
             }
         }
         inner.rekey(roomKey)
         if (rejected.isNotEmpty()) onRekeyed(rejected)
+    }
+
+    override fun keepPast(roomKeys: List<ByteArray>) {
+        val added = synchronized(past) { keepPastLocked(roomKeys) }
+        // Drops under a key this device never held were dropped unread when
+        // they first arrived; read the stored stream again for them.
+        if (added && broadcast != null) {
+            val since = maxOf(0L, now() - HISTORY_SECONDS - RoomDrops.CREATED_AT_JITTER)
+            pastBackfill?.cancel()
+            pastBackfill = scope.launch { backfill(since) }
+        }
+    }
+
+    /** Replace the kept epochs with [roomKeys], newest first; true when one is new. */
+    private fun keepPastLocked(roomKeys: List<ByteArray>): Boolean {
+        val next = LinkedHashMap<String, Pair<ByteArray, QuietKeys>>()
+        var added = false
+        for (key in roomKeys) {
+            require(key.size == 32) { "room key must be 32 bytes" }
+            val fingerprint = fingerprintFor(key)
+            if (fingerprint == keyFingerprint || fingerprint in next) continue
+            if (next.size == MAX_PAST_EPOCHS) break
+            next[fingerprint] = past[fingerprint] ?: Pair(key.copyOf(), QuietKeys(lookbackEpochs = lookbackEpochs).also {
+                it.set(DeadDrop.roomIkm(key), members)
+                it.refresh(now())
+                added = true
+            })
+        }
+        past.clear()
+        past.putAll(next)
+        return added
+    }
+
+    private fun lookupPast(tag: String, t: Long): QuietKeys.Hit? = synchronized(past) {
+        past.values.firstNotNullOfOrNull { (_, kept) -> kept.refresh(t); kept.lookup(tag) }
     }
 
     override fun completeRekey() {
@@ -337,7 +387,8 @@ class QuietTransport(
         val t = now()
         keys.refresh(t)
         val tag = RoomDrops.tagOf(wrap) ?: return
-        val hit = keys.lookup(tag) ?: return
+        val current = keys.lookup(tag)
+        val hit = current ?: lookupPast(tag, t) ?: return
         val inner = RoomDrops.openRoomDrop(wrap, hit.key.privateKey) ?: return
         synchronized(delivered) {
             keep("w:" + wrap.id)
@@ -346,7 +397,7 @@ class QuietTransport(
         }
         // A drop on this member's own key was posted by a device holding this
         // room key: its counter is spent here too.
-        if (hit.member == member) keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
+        if (current != null && hit.member == member) keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
         opened.tryEmit(inner)
     }
 
@@ -377,7 +428,7 @@ class QuietTransport(
         while (pages < 1000) {
             pages += 1
             val page = try {
-                (inner as RelayPool).queryAvailable(listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since, until = until, limit = 500)))
+                inner.queryAvailable(listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since, until = until, limit = 500)))
             } catch (_: Exception) { return }
             val fresh = page.filter { it.id !in boundary }
             if (fresh.isEmpty()) return

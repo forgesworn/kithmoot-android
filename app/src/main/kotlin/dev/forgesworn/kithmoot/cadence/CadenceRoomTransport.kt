@@ -51,6 +51,7 @@ class CadenceRoomTransport(
     override suspend fun beginRekey() = inner.beginRekey()
     override suspend fun rekey(roomKey: ByteArray) = inner.rekey(roomKey)
     override fun completeRekey() = inner.completeRekey()
+    override fun keepPast(roomKeys: List<ByteArray>) = inner.keepPast(roomKeys)
     override fun publishRecovery(event: NostrEvent) = inner.publishRecovery(event)
 
     private fun delegated(event: NostrEvent): StoredCadenceLease? {
