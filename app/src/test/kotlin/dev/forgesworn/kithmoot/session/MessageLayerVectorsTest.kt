@@ -2,7 +2,13 @@ package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.decodeRoomNameOp
+import dev.forgesworn.kithmoot.protocol.encodeRoomNameOp
+import dev.forgesworn.kithmoot.protocol.roomNameFromMessage
 import dev.forgesworn.kithmoot.protocol.decodeJoinUrl
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import kotlinx.serialization.json.Json
@@ -178,5 +184,69 @@ class MessageLayerVectorsTest {
         assertEquals(positions(want.child("merged")), merged.merged)
         assertEquals(want.getValue("localAhead").jsonPrimitive.content.toBoolean(), merged.localAhead)
         assertEquals(want.getValue("remoteAhead").jsonPrimitive.content.toBoolean(), merged.remoteAhead)
+    }
+
+    /** The reference's fixture keys (`vectors/lib/determinism.mjs`): HKDF over
+     *  a label, reduced into the curve order as noble's `randomSecretKey` does. */
+    private fun fixtureSecretKey(label: String): ByteArray {
+        val ns = "kithmoot/v1/vectors"
+        val ikm = Digests.sha256("$ns/sk-ikm/$label".toByteArray())
+        val seed = java.math.BigInteger(1, Digests.hkdfSha256(ikm, null, "$ns/sk/$label".toByteArray(), 48))
+        val n = java.math.BigInteger("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
+        val key = seed.mod(n - java.math.BigInteger.ONE) + java.math.BigInteger.ONE
+        return key.toByteArray().let { bytes -> ByteArray(32 - minOf(32, bytes.size)) + bytes.takeLast(32).toByteArray() }
+    }
+
+    @Test
+    fun `room renames decode, read and rebuild as the reference does`() {
+        val devices = listOf("device-a", "device-b").map(::fixtureSecretKey).associateBy { Schnorr.publicKeyHex(it) }
+        val vectors = group("roomName").filter { "event" in it.child("input") }
+        assertEquals(11, vectors.size)
+        fun root(decode: JsonObject): Pair<String, ByteArray> = (decode["epoch"] as? JsonObject)
+            ?.let { it.text("id") to it.text("keyHex").hexToBytes() } ?: (decode.text("roomId") to decode.text("roomKeyHex").hexToBytes())
+        for (vector in vectors) {
+            val name = vector.text("name")
+            val input = vector.child("input")
+            val output = vector.child("output")
+            val event = NostrEvent.fromJson(input.child("event"))
+            val decode = input.child("decode")
+            val (rootId, rootKey) = root(decode)
+            assertEquals(output.text("channelId"), deriveChatChannel(rootId, rootKey, "control").id, "$name channel")
+
+            // Rebuilt under the key of the channel it was published to, which
+            // for `rename-wrong-epoch` is not the one it is read with.
+            val writer = if (name == "rename-wrong-epoch") group("roomName").single { it.text("name") == "rename-in-epoch-1" }.child("input").child("decode") else decode
+            val (writerId, writerKey) = root(writer)
+            val channel = deriveChatChannel(writerId, writerKey, "control")
+            val sk = assertNotNull(devices[event.pubkey], "$name is signed by a fixture device")
+            val rebuilt = Events.sign(sk, KIND_CHAT, input.child("message").getValue("sentAt").jsonPrimitive.long,
+                listOf(listOf("d", channel.id)), Nip44.encrypt(input.child("message").toString(), channel.key, input.text("nonceHex").hexToBytes()),
+                input.text("auxRandHex").hexToBytes())
+            assertEquals(event, rebuilt, "$name rebuilds byte for byte")
+
+            val message = decodeChatEvent(event, rootId, rootKey, decode.getValue("now").jsonPrimitive.long, channel = "control", credentialRoomId = decode.text("roomId"))
+            if (output["message"] is JsonNull) {
+                assertNull(message, "$name must not decode")
+                assertTrue(output["record"] is JsonNull)
+                continue
+            }
+            val m = assertNotNull(message, "$name must decode")
+            val want = output.child("message")
+            assertEquals(want.text("id"), m.id)
+            assertEquals(want.text("participant"), m.participant)
+            assertEquals(want.text("device"), m.device)
+            assertEquals(want.text("text"), m.body)
+            assertEquals(want.getValue("sentAt").jsonPrimitive.long, m.sentAt)
+            assertEquals(want["sentAtMs"]?.jsonPrimitive?.long, m.sentAtMs, "$name sentAtMs")
+            val op = decodeRoomNameOp(m.body)
+            assertEquals(output["op"].toString(), op?.let { Json.parseToJsonElement(encodeRoomNameOp(it)).toString() } ?: "null", "$name op")
+            val record = roomNameFromMessage(m.body, m.participant, m.sentAt)
+            val recordJson = record?.let { r -> buildJsonObject {
+                put("name", r.name); put("id", r.id); put("at", r.at); r.by?.let { put("by", it) }; put("sentAt", r.sentAt)
+            } } ?: JsonNull
+            assertEquals(output["record"], recordJson as JsonElement, "$name record")
+            if (vector.text("kind") == "negative") assertNull(record, name) else assertNotNull(record, name)
+        }
+        for (vector in vectors) assertTrue("Book club" !in vector.child("input").child("event").toString(), "the name never crosses the wire in the clear")
     }
 }

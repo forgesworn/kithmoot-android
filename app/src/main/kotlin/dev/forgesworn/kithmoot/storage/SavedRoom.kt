@@ -218,6 +218,25 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val quietState: JsonObject? get() = json["quiet"] as? JsonObject
     fun withQuietState(state: JsonObject?): SavedRoom = changed { if (state == null) remove("quiet") else put("quiet", state) }
     fun renamed(name: String): SavedRoom = changed { put("name", cleanName(name, id)) }
+    /** The rename this device last took as the room's shared name, with its
+     *  order key, kept so a link written before the rename does not put the
+     *  old name back and so this device can post it again after every copy
+     *  has left the relays. Null while nobody has renamed the room. See
+     *  `protocol/RoomName.kt`. */
+    val sharedName: RoomNameRecord? get() = (json["sharedName"] as? JsonObject)?.let {
+        val at = it.getValue("at").jsonPrimitive.long
+        RoomNameRecord(it.text("name"), it.text("id"), at, sentAt = Math.floorDiv(at, 1000L))
+    }
+    /** The room's shared name is now [record]'s: kept with its order key, and
+     *  this device's name for the room follows it. */
+    fun withSharedName(record: RoomNameRecord): SavedRoom = changed {
+        put("name", cleanName(record.name, id))
+        put("sharedName", buildJsonObject {
+            put("name", record.name)
+            put("id", record.id)
+            put("at", record.at)
+        })
+    }.also { it.validate() }
     fun inProject(project: String?): SavedRoom = changed {
         val clean = project?.trim()?.take(48).orEmpty()
         if (clean.isEmpty()) remove("project") else put("project", clean)
@@ -312,6 +331,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 if (previous.roomRelaysSigned) put("fixedRelaysSigned", true) else remove("fixedRelaysSigned")
             }
             if (roomRelayRecord == null) previous.json["roomRelays"]?.let { this["roomRelays"] = it }
+            // A name the room's members chose outranks whatever the link said.
+            if (sharedName == null) previous.sharedName?.let { shared ->
+                previous.json["sharedName"]?.let { this["sharedName"] = it }
+                put("name", cleanName(shared.name, id))
+            }
             put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
             if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
                 put("retired", true)
@@ -379,6 +403,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
         roomRelayRecord?.let { require(it.relays.isNotEmpty() && it.relays.size <= MAX_ROOM_RELAYS && it.version >= 0 && it.sig.matches(Regex("[0-9a-f]{128}"))) }
         json["fixedRelays"]?.let { require(invitationRelaysOf(it) != null) { "The room's relays are not a valid list." } }
+        json["sharedName"]?.let {
+            val shared = requireNotNull(sharedName)
+            require(DisplayName.sanitise(shared.name) == shared.name && shared.id.matches(Regex("[0-9a-f]{32}")) && shared.at > 0) { "The room's shared name is not valid." }
+        }
         json["fixedRelaysSigned"]?.let { require(it is JsonPrimitive && it.booleanOrNull == true && roomRelays.isNotEmpty()) }
     }
 
