@@ -112,7 +112,7 @@ internal fun CallView(
     // again or they leave, whoever is talking.
     var pinned by remember { mutableStateOf<String?>(null) }
     val pin = pinned?.takeIf { it in present }
-    val arrangement = arrangeCall(state.tiles, pin ?: speaker, preferGrid, swapped, hideSelf)
+    val arrangement = arrangeCall(state.tiles, pin ?: speaker, preferGrid, swapped, hideSelf, state.selfDevice)
     val byId = state.tiles.associateBy { it.participant }
     // With the bars showing, the header and the controls already keep the
     // call clear of the system bars; with them gone, the call runs under the
@@ -235,7 +235,7 @@ private fun EqualGrid(
 }
 
 /**
- * What picture-in-picture shows: somebody else's shared screen, else whoever
+ * What picture-in-picture shows: a shared screen (not the one this device is sending), else whoever
  * is talking, else the one other person. Never yourself unless you are alone,
  * which is the one thing you do not need a window to see.
  */
@@ -243,9 +243,7 @@ private fun EqualGrid(
 internal fun PipCall(state: RoomState, videos: Map<String, VideoTrack>, eglBase: EglBase?, modifier: Modifier = Modifier) {
     val present = state.tiles.filter { !it.isSelf }.map { it.participant }
     val speaker = rememberActiveSpeaker(state.speaking, present)
-    val share = state.tiles.filter { !it.isSelf }.firstNotNullOfOrNull { tile ->
-        tile.videos.firstOrNull { it.role == dev.forgesworn.kithmoot.session.Roles.SCREEN }?.let { CallItem(tile.participant, it) }
-    }
+    val share = stageableShare(state.tiles, state.selfDevice)
     val item = share ?: (speaker ?: present.firstOrNull() ?: state.self?.participant)?.let { CallItem(it) }
     val tile = item?.let { chosen -> state.tiles.firstOrNull { it.participant == chosen.participant } }
     Box(modifier.fillMaxSize().background(Color.Black)) {
