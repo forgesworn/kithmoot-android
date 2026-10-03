@@ -157,8 +157,11 @@ data class LinkJsonResponse(
     val status: Int,
     val body: ByteArray,
     val path: LinkPathState,
+    /** True only for Bothy's deliberate refusal on a restore-witness route: a
+     *  403 carrying `vmls-witness: refused`. Any other 403 means unavailable. */
+    val witnessRefused: Boolean = false,
 ) {
-    override fun toString() = "LinkJsonResponse(status=$status, body=${body.size} bytes, path=$path)"
+    override fun toString() = "LinkJsonResponse(status=$status, body=${body.size} bytes, path=$path, witnessRefused=$witnessRefused)"
 }
 
 fun interface LinkJsonTransport {
@@ -225,28 +228,7 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
             request.authorization,
             request.body.copyOf(),
         )
-        val response = requireNotNull(invoke("requestJson", nativeRequest))
-        val path = requireNotNull(recordValue(response, "getPath"))
-        val status = when (val raw = recordValue(response, "getStatus")) {
-            is UShort -> raw.toInt()
-            is Short -> raw.toUShort().toInt()
-            is Int -> raw
-            else -> throw IllegalStateException("The Link bridge returned an invalid HTTP status")
-        }
-        check(status in 100..599) { "The Link bridge returned an invalid HTTP status" }
-        return LinkJsonResponse(
-            status,
-            (recordValue(response, "getBody") as? ByteArray)?.copyOf()
-                ?: throw IllegalStateException("The Link bridge returned an invalid response body"),
-            LinkPathState(
-                recordValue(path, "getStatus") as? String
-                    ?: throw IllegalStateException("The Link bridge returned an invalid path status"),
-                recordValue(path, "getRelay") as? String,
-                recordValue(path, "getDirect") as? String,
-                recordValue(path, "getCause") as? String
-                    ?: throw IllegalStateException("The Link bridge returned an invalid path cause"),
-            ),
-        )
+        return linkJsonResponse(requireNotNull(invoke("requestJson", nativeRequest)))
     }
 
     override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
@@ -284,6 +266,33 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
     private fun invoke(name: String, vararg args: Any?) = engine.javaClass.methods.single {
         it.name == name && it.parameterCount == args.size
     }.let { invokeReflected(it, engine, *args) }
+}
+
+/** Maps the bridge's `LinkHttpResponse` record. */
+internal fun linkJsonResponse(response: Any): LinkJsonResponse {
+    val path = requireNotNull(recordValue(response, "getPath"))
+    val status = when (val raw = recordValue(response, "getStatus")) {
+        is UShort -> raw.toInt()
+        is Short -> raw.toUShort().toInt()
+        is Int -> raw
+        else -> throw IllegalStateException("The Link bridge returned an invalid HTTP status")
+    }
+    check(status in 100..599) { "The Link bridge returned an invalid HTTP status" }
+    return LinkJsonResponse(
+        status,
+        (recordValue(response, "getBody") as? ByteArray)?.copyOf()
+            ?: throw IllegalStateException("The Link bridge returned an invalid response body"),
+        LinkPathState(
+            recordValue(path, "getStatus") as? String
+                ?: throw IllegalStateException("The Link bridge returned an invalid path status"),
+            recordValue(path, "getRelay") as? String,
+            recordValue(path, "getDirect") as? String,
+            recordValue(path, "getCause") as? String
+                ?: throw IllegalStateException("The Link bridge returned an invalid path cause"),
+        ),
+        recordValue(response, "getWitnessRefused") as? Boolean
+            ?: throw IllegalStateException("The Link bridge returned an invalid witness refusal flag"),
+    )
 }
 
 private fun recordValue(record: Any, name: String): Any? = record.javaClass.methods.single {
