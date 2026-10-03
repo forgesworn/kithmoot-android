@@ -1,7 +1,12 @@
 package dev.forgesworn.kithmoot.protocol
 
+import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -189,7 +194,61 @@ class InvitationTest {
         )
     }
 
+    @Test
+    fun `a grant says which epoch its responder is at`() {
+        val request = encodeInvitationRequest(invitation, requesterKey, now)
+        val requester = Schnorr.publicKeyHex(requesterKey)
+        val at3 = encodeInvitationGrant(host, requester, request.id, ByteArray(32) { 80 }, now, epoch = 3)
+        assertEquals(3, decodeRoomAdmissionGrant(at3, invitation, requesterKey, request.id, now)!!.epoch)
+        val at0 = encodeInvitationGrant(host, requester, request.id, ByteArray(32) { 80 }, now, epoch = 0)
+        assertEquals(0, decodeRoomAdmissionGrant(at0, invitation, requesterKey, request.id, now)!!.epoch)
+        // A responder that predates epochs says nothing, and nothing is assumed.
+        val silent = encodeInvitationGrant(host, requester, request.id, ByteArray(32) { 80 }, now)
+        assertNull(decodeRoomAdmissionGrant(silent, invitation, requesterKey, request.id, now)!!.epoch)
+        assertFalse("\"epoch\"" in grantBody(silent).toString())
+    }
+
+    @Test
+    fun `a malformed epoch hint is dropped without refusing the admission`() {
+        val request = encodeInvitationRequest(invitation, requesterKey, now)
+        val requester = Schnorr.publicKeyHex(requesterKey)
+        val grant = encodeInvitationGrant(host, requester, request.id, ByteArray(32) { 81 }, now)
+        for (bad in listOf(JsonPrimitive(-1), JsonPrimitive("2"), JsonPrimitive(1L shl 40), JsonPrimitive(1.5))) {
+            val body = JsonObject(grantBody(grant) + ("epoch" to bad))
+            val conversationKey = Nip44.conversationKey(inviterKey, requester.hexToBytes())
+            val forged = Events.sign(
+                secretKey = inviterKey, kind = KIND_INVITATION_GRANT, createdAt = now, tags = grant.tags,
+                content = Nip44.encrypt(body.toString(), conversationKey, ByteArray(32) { 5 }),
+                auxRand = ByteArray(32) { 6 },
+            )
+            val admitted = decodeRoomAdmissionGrant(forged, invitation, requesterKey, request.id, now)
+            assertNotNull("epoch $bad", admitted)
+            assertArrayEquals(ByteArray(32) { 81 }, admitted!!.secret)
+            assertNull("epoch $bad", admitted.epoch)
+        }
+    }
+
+    @Test
+    fun `decodes the epoch a TypeScript responder says the room is at`() {
+        val grant = NostrEvent.fromJson(Json.parseToJsonElement(TYPE_SCRIPT_GRANT_AT_EPOCH_2))
+        val admitted = decodeRoomAdmissionGrant(grant, invitation, requesterKey, TYPE_SCRIPT_REQUEST_ID, now)
+        assertNotNull(admitted)
+        assertArrayEquals(ByteArray(32) { 77 }, admitted!!.secret)
+        assertEquals(2, admitted.epoch)
+    }
+
+    private fun grantBody(grant: NostrEvent): JsonObject {
+        val key = Nip44.conversationKey(requesterKey, grant.pubkey.hexToBytes())
+        return Json.parseToJsonElement(Nip44.decrypt(grant.content, key)).jsonObject
+    }
+
     companion object {
+        /** The id of [TYPE_SCRIPT_REQUEST]. */
+        private const val TYPE_SCRIPT_REQUEST_ID = "63aedc7bb1456ef73ca1f9afccb7c00195ecfd05aa7fab21ef7792b3bb3c45da"
+
+        /** fold-kit 0.4.0 `encodeInvitationGrant` with `epoch: 2`, from this test's fixed keys. */
+        private const val TYPE_SCRIPT_GRANT_AT_EPOCH_2 =
+            """{"kind":20467,"created_at":1800000000,"tags":[["d","e4ab3deb8236620cc308b7abc3fef757621408fc89cc743d3b635c3509ee7c99"],["p","8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7"]],"content":"AlCMzsQ9tRn9Dn9Nj9XpxiPUwZOs8Wlcg01iMjujVBIbHpl+HioS0DqP3Ey4QUoU4YiD1cj2QX9cS8MXOQgF16bREjZLQrLeKyLfp8wH3aBY9h5hWxSRLxAX5rpHDHjd7TSm6sHyGCn4Hd2C2LxsdJod2PMqkY1K+tR1GjKp0ghaAhjtXs42+O7rB/d8N0CLw02lFRSvKz1HloGc+3ZkfGTVfJSFluE1Jv0GflOn6qJvUaj92GZxP+MV3zatVcVt+Ua9RrT3LsrnWwQDgqsiydhCF78i3URAVMnP6PkdxfHfyEyhxExCv9sTS/9KQNWdpZb8IJaZ8GfhYjEUoXn1V04FwCQU1bvQtSdnTzpeB3d0LmDofItdZiWbN9uBqCJUkvtVB5qARs/LNhMIjYA8k0EpiyPi0n9QosMWBvdUcgfdFueRG43C8VHtfTKBM262jEAutG/1w5N/uZ0h8lq+6Y9jIhvLNUXXFu10StG0EKXvRrgQ8IwCCFwu9u+6/KimwCnJMpjw4rmbk+Is6mm7rkNfTqbWlzZAtvCC9nhY8REl6MT03DQH8euFF6Bsg4wc7vnKnMx8rh7j8+kyY9uj3/+jvIyVjcWk8ts/6fDZm9wCgOqQr6BRHnFiandilk4uJvG+pFiWzvYayz2Wpd5BH4P2QBXqnPTpjVl5zj/OoDOFUZwFdki8c0w6OhdezwUZ/cOC1YsaDL5OcRpJYAInMrhlSV4fRVmkwCqLP3OdcDBUSsK53FYFNlVSsNKfm6Xx163npYmQ4d0QkuYnU7sk0OhHVDp3g9LQwabbc6yLbsQNfztSLcPDYdyj0i9894i0yE2wCmmTwWWLDg440k9Y5cCnWQpd64v8R7rEzmIbekllxneqDI6nhYYAOCmYEIc5eVaLrAXOn9ykuxOBCO87YXrMmBwh0UDpFelhjJ+v5Sh2Jj4=","pubkey":"552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84","id":"656da7cb15e26cbab8e418b729fc04695d9f98c1d4c20c9d1ecffc8365f1543f","sig":"a0cd60834fbcd43ce8ed288baeb30e73b65750b69ceb536e5a6cfbbd8d1e66668ce8fa63381c74fbba337597da44ad570237abc73595d25afa0892999619d17e"}"""
         /** Static events generated by src/invitation.ts from this test's fixed keys. */
         private const val TYPE_SCRIPT_REQUEST =
             """{"kind":20466,"created_at":1800000000,"tags":[["d","e4ab3deb8236620cc308b7abc3fef757621408fc89cc743d3b635c3509ee7c99"],["p","552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84"]],"content":"Ar+R8BKJplpnBn1sL551Et63xzYQX2Nmv91MwuiiWIkASK4+67GkJJ8gTlczaXwLUR4U0DxRpiX6snWkesaS6JSbadhXlWQ6cynXgg6C+zFwHkjue9nKTX+2ejizY4Rgko5eUoZ9VjtHvTH3OusQYMmOq5OTXTRDvaMJMWVorItZgLkpmKDPd58ansDfi7mQL1qCNXWgx2sRtq5ynJ7PLrJ0+A==","pubkey":"8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7","id":"63aedc7bb1456ef73ca1f9afccb7c00195ecfd05aa7fab21ef7792b3bb3c45da","sig":"3215c7fb8f7ffbd64d57bbef6f0739be2781f3be3db17710fcc0d93a8eb11fb59da6ca7711d600bb889b15bcafc2b4725b54fb59c24fcae27176a233c54503f6"}"""

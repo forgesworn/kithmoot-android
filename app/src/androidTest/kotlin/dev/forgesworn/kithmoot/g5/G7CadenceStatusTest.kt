@@ -199,6 +199,8 @@ class G7CadenceStatusTest {
         put("g7-cadence-restart", buildJsonObject {
             put("routeRestored", true); put("messageDeliveredAfterRestart", true); put("countersStillExcluded", true)
             put("authenticatedStatusAfterRestart", true); put("rekeyedAfterDelivery", true)
+            // The lease state the box reported to the phone; the lab asserts it.
+            put("leaseStateAfterRestart", retained.receipt?.state)
             put("pendingFailureRetained", true)
             put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })

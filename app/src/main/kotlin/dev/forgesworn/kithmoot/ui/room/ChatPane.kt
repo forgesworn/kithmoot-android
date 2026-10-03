@@ -57,6 +57,8 @@ fun ChatPane(
     onProfilesEnabled: (Boolean) -> Unit = {},
     /** The lane the next message will take; null when the room cannot say. */
     lane: Lane? = null,
+    /** A Tor-only (anonymous) room: said beside the lane, which stays public. */
+    torOnly: Boolean = false,
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
@@ -73,6 +75,8 @@ fun ChatPane(
     onReadingChanged: (Boolean) -> Unit = {},
     /** Bumped when a notification for this room is tapped: back to the latest message. */
     latestRequest: Int = 0,
+    /** Lines nobody typed, such as who renamed the room, shown in time order. */
+    notes: List<dev.forgesworn.kithmoot.ui.RoomNote> = emptyList(),
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
@@ -114,6 +118,29 @@ fun ChatPane(
             else -> listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
                 .any { it.contains(query.trim(), ignoreCase = true) }
         }
+    }
+    // A note follows the last conversation (a message and its replies) that
+    // began no later than it; notes from before the first message lead.
+    // Hidden while searching, which looks for what people said.
+    val shownNotes = if (query.isBlank()) notes.sortedWith(compareBy({ it.sentAt }, { it.id })) else emptyList()
+    val tops = visible.indices.filter { !visible[it].second }
+    val notesAfter = mutableMapOf<Int, MutableList<dev.forgesworn.kithmoot.ui.RoomNote>>()
+    val leadingNotes = mutableListOf<dev.forgesworn.kithmoot.ui.RoomNote>()
+    for (note in shownNotes) {
+        val top = tops.lastOrNull { visible[it].first.shown.sentAt <= note.sentAt }
+        if (top == null) { leadingNotes += note; continue }
+        val end = (tops.firstOrNull { it > top } ?: visible.size) - 1
+        notesAfter.getOrPut(end) { mutableListOf() } += note
+    }
+    fun noteText(note: dev.forgesworn.kithmoot.ui.RoomNote): String {
+        val who = if (note.participant == selfParticipant) "You" else
+            messages.lastOrNull { it.participant == note.participant && it.name != null }?.name
+                ?: profiles[note.participant]?.name ?: shortNpub(note.participant)
+        return "$who renamed the room to “${note.name}”"
+    }
+    @Composable fun NoteLine(note: dev.forgesworn.kithmoot.ui.RoomNote) {
+        Text(noteText(note), Modifier.fillMaxWidth().padding(vertical = 4.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     // Opening a conversation shows its latest message, and keeps showing it
     // while history loads in around it and new messages arrive, until the
@@ -182,9 +209,9 @@ fun ChatPane(
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
-            Text("Encrypted" + when (lane) { Lane.PUBLIC -> " · public relays"; Lane.SHELTERED -> " · circle relays"; Lane.DIRECT -> " · direct"; null -> " · checking connection" } + if (quiet) " · quiet" else "",
+            Text(privacyLine(lane, torOnly, quiet),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (lane?.meaning ?: "Transport unknown.") })
+                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly) ?: "Transport unknown.") })
         }
         if (quiet && !quietCanSend) Text(QuietTransport.CANNOT_SEND, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (searching) {
@@ -197,9 +224,13 @@ fun ChatPane(
             Text("Searches messages loaded on this device", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         }
         Box(Modifier.weight(1f)) {
-            if (visible.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
+            if (visible.isEmpty() && shownNotes.isEmpty()) Text(if (query.isBlank()) "Nothing said yet." else "No matching messages.", Modifier.align(Alignment.Center).padding(20.dp))
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Inside the first row rather than an item of their own, so a
+                // row's index stays its item index for the scrolling below.
+                if (visible.isEmpty() && leadingNotes.isNotEmpty()) item(key = "room-notes-leading") { Column { leadingNotes.forEach { NoteLine(it) } } }
                 itemsIndexed(visible, key = { _, row -> row.first.original.id }) { index, (r, nested) ->
+                    if (index == 0) leadingNotes.forEach { NoteLine(it) }
                     val message = r.shown
                     val mine = message.participant == selfParticipant
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
@@ -254,6 +285,7 @@ fun ChatPane(
                             }
                         }
                     }
+                    notesAfter[index]?.forEach { NoteLine(it) }
                 }
             }
             if (!following && query.isBlank() && visible.isNotEmpty()) {
@@ -299,7 +331,7 @@ fun ChatPane(
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Messages are encrypted to the room.")
-            Text(lane?.meaning ?: "The transport for the next message is not yet known.")
+            Text(privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
             if (quiet) Text(QuietTransport.MEANING)
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Show public profiles") }

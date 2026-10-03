@@ -110,7 +110,7 @@ Pixel, and uninstalling it is not an upgrade path.
 
 ### Composer and conversation actions follow-up
 
-Conversation rows expose an explicit Open button. Their overflow menu contains rename, project, Bothy and removal actions as applicable. Removing the synced bookmark and removing local access use separate confirmation text.
+Conversation rows expose an explicit Open button. Their overflow menu contains project, Bothy and removal actions as applicable; renaming is shared and happens inside the room. Removing the synced bookmark and removing local access use separate confirmation text.
 
 RoomState copy updates use StateFlow.update: incoming chat/presence, notices and media updates must not overwrite a concurrent send completion with a stale chatSending value. Typing and emoji selection remain available while a send awaits a relay receipt; Send remains disabled until the current attempt completes. The confirmation wait is described in words beside the composer.
 

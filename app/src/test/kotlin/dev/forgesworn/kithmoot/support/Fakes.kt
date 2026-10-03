@@ -41,6 +41,13 @@ class FakeRelay {
 
     private val subscriptions = mutableListOf<Subscription>()
 
+    /**
+     * Whether a new subscription is first handed everything already published
+     * that it matches, as a relay replays what it stores. Off, as before, a
+     * subscriber hears only what is published after it.
+     */
+    var replays: Boolean = false
+
     fun transport(): RoomTransport = object : RoomTransport {
         override fun publish(event: NostrEvent) {
             check(!publicationBlocked) { "Room publication is blocked during a secure update" }
@@ -63,7 +70,10 @@ class FakeRelay {
         override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
             val subscription = Subscription(filters)
             return subscription.events
-                .onSubscription { subscriptions += subscription }
+                .onSubscription {
+                    subscriptions += subscription
+                    if (replays) published.toList().filter { e -> filters.any { matches(it, e) } }.forEach(subscription::offer)
+                }
                 .onCompletion { subscriptions -= subscription }
         }
 
@@ -85,7 +95,7 @@ class FakeRelay {
         }
 
         override fun publishRecovery(event: NostrEvent) {
-            require(event.kind in setOf(1462, 20_468, 20_469))
+            require(event.kind in setOf(1462, 20_468, 20_469, 20_471, 20_472))
             this@FakeRelay.publish(event)
         }
     }

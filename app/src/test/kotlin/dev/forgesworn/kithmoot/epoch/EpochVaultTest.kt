@@ -145,6 +145,58 @@ class EpochVaultTest {
         )
     }
 
+    @Test fun `history keeps the newest 32 epochs and authority rekeys apart from the journal`() {
+        val journal = MemoryStorage()
+        val history = MemoryStorage()
+        val authoritySecret = Fixtures.key(61)
+        val authorityPubkey = Schnorr.publicKeyHex(authoritySecret)
+        val vault = EpochVault(journal, history)
+        vault.initialise(room, authorityPubkey, initial, 100)
+        val before = journal.value?.decodeToString()
+        val secrets = (1..40).map { dev.forgesworn.kithmoot.protocol.RoomEpoch(it, ByteArray(32) { b -> (it + b).toByte() }) }
+        var previous = dev.forgesworn.kithmoot.protocol.deriveEpoch(dev.forgesworn.kithmoot.protocol.RoomEpoch(0, initial))
+        val rekeys = secrets.map { next ->
+            dev.forgesworn.kithmoot.protocol.encodeRekeyEvent(room, authoritySecret, previous, next, listOf("44".repeat(32)), emptyList(), 100, commit = true)
+                .also { previous = dev.forgesworn.kithmoot.protocol.deriveEpoch(next) }
+        }
+        vault.remember(room, secrets, rekeys)
+        // The journal itself is untouched, so an older build still reads it.
+        assertEquals(before, journal.value?.decodeToString())
+        val reopened = EpochVault(journal, history)
+        assertNull(reopened.secretAt(room, 8))
+        assertNull(reopened.rekeyAt(room, 8))
+        assertArrayEquals(secrets[8].secret, reopened.secretAt(room, 9))
+        assertEquals(rekeys[39].id, reopened.rekeyAt(room, 40)?.id)
+        // A rekey not signed by the room's authority is never kept.
+        val forged = dev.forgesworn.kithmoot.protocol.encodeRekeyEvent(room, Fixtures.key(62), previous,
+            dev.forgesworn.kithmoot.protocol.RoomEpoch(41, ByteArray(32) { 1 }), emptyList(), emptyList(), 100)
+        reopened.remember(room, emptyList(), listOf(forged))
+        assertNull(EpochVault(journal, history).rekeyAt(room, 41))
+        // Without a history store nothing is kept and nothing breaks.
+        EpochVault(journal).remember(room, secrets, rekeys)
+        assertNull(EpochVault(journal).secretAt(room, 9))
+    }
+
+    @Test fun `activation keeps the epoch it leaves, and leaving the room forgets the history`() {
+        val journal = MemoryStorage()
+        val history = MemoryStorage()
+        val vault = EpochVault(journal, history)
+        vault.initialise(room, authority, initial, 100)
+        val one = ByteArray(32) { 21 }
+        val two = ByteArray(32) { 22 }
+        vault.beginTransition(room, 0, RekeyNotice(1, emptyList(), null, false, one, 101), "aa".repeat(32), null, 101)
+        vault.activate(room, 1, 102)
+        assertArrayEquals(one, vault.secretAt(room, 1))
+        vault.beginTransition(room, 1, RekeyNotice(2, emptyList(), null, false, two, 103), "bb".repeat(32), null, 103)
+        vault.activate(room, 2, 104)
+        assertArrayEquals(one, EpochVault(journal, history).secretAt(room, 1))
+        assertArrayEquals(two, EpochVault(journal, history).secretAt(room, 2))
+        assertNull(vault.secretAt(room, 0))
+        vault.terminal(room, 2, RekeyNotice(3, listOf("55".repeat(32)), null, false, null, 105), "cc".repeat(32), 105)
+        assertNull(EpochVault(journal, history).secretAt(room, 1))
+        assertNull(EpochVault(journal, history).secretAt(room, 2))
+    }
+
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {
         var value = initial?.copyOf()
         override fun read(): ByteArray? = value?.copyOf()

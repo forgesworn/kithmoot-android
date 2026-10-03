@@ -48,3 +48,17 @@ fun joinDecision(
 
 /** The line beside the call control while a press is waiting on the engine. */
 const val JOIN_PENDING_LABEL = "Joining when audio and video are ready…"
+
+/**
+ * What to say when a mic, camera or share press finds no engine here.
+ *
+ * It used to say "No camera on this device." - on a phone with a camera,
+ * answering a ring while the engine was still being built, or mid-call after
+ * an epoch change took the engine down to rebuild it. The device was never
+ * the problem; the call was not ready yet.
+ */
+fun mediaMissingNote(mediaStarting: Boolean, joinPending: Boolean, mediaFault: String?): String = when {
+    mediaFault != null -> mediaFault
+    mediaStarting || joinPending -> "The call is still connecting. Try again in a moment."
+    else -> "Audio and video are not running in this room yet."
+}

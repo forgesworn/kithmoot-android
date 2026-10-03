@@ -333,6 +333,7 @@ fun KithMootApp(
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                         leaveRoom = model::leave,
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
+                    torOnlyRoom = stage == Stage.ROOM && roomState.anonymous,
                     notificationSettings = {
                         val ringRoom = if (stage == Stage.ROOM) object : dev.forgesworn.kithmoot.notifications.CallRingRoom {
                             override val roomId = roomState.roomId
@@ -448,7 +449,6 @@ fun KithMootApp(
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,
-                        onRename = model::renameRoom,
                         onProject = model::setRoomProject,
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
@@ -553,7 +553,10 @@ fun KithMootApp(
                     onOfferRoomHistory = model::offerComparedHistoryToBothy,
                     onStartCadence = model::startCadence,
                     onStopCadence = model::stopCadence,
+                    onRenewCadence = model::renewCadence,
                     onRetryRoomUpdate = model::retryRoomUpdate,
+                    onDismissEpochTrouble = model::dismissEpochTrouble,
+                    onRenameRoom = model::renameRoomForEveryone,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
@@ -574,6 +577,7 @@ fun KithMootApp(
                     chat = {
                         ChatPane(
                             messages = roomState.chat,
+                            notes = roomState.roomNotes,
                             onReadingChanged = model::notificationReading,
                             latestRequest = roomState.notificationChatRequest,
                             selfParticipant = roomState.selfParticipant,
@@ -584,6 +588,7 @@ fun KithMootApp(
                             profiles = roomState.profiles,
                             onProfilesEnabled = model::setProfilesEnabled,
                             lane = roomState.lane,
+                            torOnly = roomState.anonymous,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,

@@ -53,6 +53,7 @@ import dev.forgesworn.kithmoot.media.effects.SeaScene
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
@@ -113,7 +114,11 @@ fun RoomScreen(
     onOfferRoomHistory: () -> Unit = {},
     onStartCadence: () -> Unit = {},
     onStopCadence: () -> Unit = {},
+    onRenewCadence: () -> Unit = {},
     onRetryRoomUpdate: () -> Unit = {},
+    onDismissEpochTrouble: () -> Unit = {},
+    /** Rename the room for everybody in it. */
+    onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
@@ -269,6 +274,17 @@ fun RoomScreen(
             Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
+                // Any member may rename the room, and the name changes for
+                // everybody in it: there is no private nickname beside it. Not
+                // in a two-person room, whose title is the other person, nor in
+                // an anonymous one, which follows no shared room state.
+                if (!state.privateConversation && !state.anonymous && state.movedOn == null && !state.conferenceEnded) {
+                    var newName by rememberSaveable(state.name) { mutableStateOf(state.name) }
+                    Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
+                    val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
+                    TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
+                }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
                 state.endsAt?.let {
@@ -305,7 +321,7 @@ fun RoomScreen(
                 }
                 if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
                     HorizontalDivider()
-                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence) }
+                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence, onRenewCadence) }
                     state.nip77?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
                 }
                 TextButton(onClick = { detailsOpen = false; onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
@@ -388,6 +404,10 @@ fun RoomScreen(
         if (state.movedOn != null || state.conferenceEnded) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                 RoomUpdatePanel(if (state.conferenceEnded) "ended" else state.roomUpdate, state.notice, onRetryRoomUpdate)
+            }
+        } else if (state.epochTrouble.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                EpochTroublePanel(state.epochTrouble, onDismissEpochTrouble)
             }
         }
        }
@@ -496,6 +516,7 @@ private fun CadencePanel(
     onRefresh: () -> Unit,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onRenew: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)
@@ -513,10 +534,20 @@ private fun CadencePanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                cadence.renewedUntilEpoch?.let {
+                    Text(
+                        "Renewed to ${cadenceTime(it)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             when (cadence.state) {
                 "off" -> TextButton(onClick = onStart, enabled = cadence.eligible && !cadence.busy) { Text("Schedule") }
-                "staged", "active" -> TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                "staged", "active" -> Row {
+                    if (cadence.renewable) TextButton(onClick = onRenew, enabled = !cadence.busy) { Text("Renew") }
+                    TextButton(onClick = onStop, enabled = !cadence.busy) { Text("Stop") }
+                }
                 else -> TextButton(onClick = onRefresh, enabled = cadence.eligible && !cadence.busy) { Text("Retry") }
             }
         }
@@ -631,6 +662,28 @@ private fun FaultPanel(message: String) {
 }
 
 /** A visible, retryable or terminal state while ordinary room traffic is blocked. */
+/** A gap or conflict in the room's epochs: it does not stop the room, so it says so once and can be put away. */
+@Composable
+private fun EpochTroublePanel(lines: List<String>, onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        for (line in lines.distinct()) {
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(vertical = 2.dp),
+            )
+        }
+        TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Got it") }
+    }
+}
+
 @Composable
 private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit) {
     val title = when (state) {

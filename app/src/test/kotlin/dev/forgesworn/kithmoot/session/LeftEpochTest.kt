@@ -1,0 +1,182 @@
+package dev.forgesworn.kithmoot.session
+
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
+import dev.forgesworn.kithmoot.protocol.KIND_MEMBER_EPOCH_REQUEST
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
+import dev.forgesworn.kithmoot.protocol.decodeMemberEpochRequest
+import dev.forgesworn.kithmoot.protocol.deriveEpoch
+import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
+import dev.forgesworn.kithmoot.protocol.encodeMemberEpochGrant
+import dev.forgesworn.kithmoot.protocol.encodeRekeyEvent
+import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.support.FakeRelay
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+/**
+ * An epoch is not forgotten the moment it is left, as in the web client
+ * (`docs/decisions.md`, 3 October 2026): a message that lands late on the
+ * epoch just left is still read, a removed member's is not, a member's grant
+ * that carried this device over epochs lets it read them, and a jump over
+ * epochs it holds no key for, or two rekeys for one epoch, is said rather
+ * than passing silently.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class LeftEpochTest {
+    private val authoritySecret = Fixtures.key(41)
+    private val authority = Schnorr.publicKeyHex(authoritySecret)
+    private val stable = Fixtures.room()
+    private val me = Fixtures.primary(stable, 1, 2)
+    private val epochs = (0..6).map { RoomEpoch(it, ByteArray(32) { b -> (if (it == 0) 7 else 70 + it + b % 2).toByte() }) }
+
+    private fun keys(epoch: Int): EpochKeys = deriveEpoch(epochs[epoch])
+
+    private fun rekey(into: Int, sealedTo: List<String> = listOf(me.devicePubkey), removed: List<String> = emptyList(), secret: RoomEpoch = epochs[into]) =
+        encodeRekeyEvent(stable.roomId, authoritySecret, keys(into - 1), secret, sealedTo, removed, 0, commit = true)
+
+    private fun chat(body: String, from: PrimaryIdentity, epoch: Int): NostrEvent = encodeChatEvent(
+        body = body,
+        participant = from.participant,
+        credential = from.credential,
+        roomId = keys(epoch).id,
+        roomKey = keys(epoch).key,
+        deviceSecretKey = from.deviceSecretKey,
+        sentAt = 0,
+        credentialRoomId = stable.roomId,
+    )
+
+    private fun TestScope.following(relay: FakeRelay, initial: Int = 0, expected: Int? = null) = session(
+        stable, me, relay, authority = authority, initialEpoch = keys(initial), expectedEpoch = expected,
+        epochGate = { _, _ -> EpochGateResult.COMMITTED },
+    )
+
+    @Test fun `a message that lands on the epoch just left is still read, unless its sender was removed`() = runTest {
+        val relay = FakeRelay()
+        val lagging = Fixtures.primary(stable, 3, 4)
+        val removed = Fixtures.primary(stable, 5, 6)
+        val live = following(relay)
+        live.join()
+        runCurrent()
+        relay.publish(rekey(1, removed = listOf(removed.participant)))
+        runCurrent()
+        assertEquals(1, live.epochKeys().epoch)
+
+        relay.publish(chat("sent before my phone followed", lagging, 0))
+        relay.publish(chat("let me back in", removed, 0))
+        relay.publish(chat("on the new key", lagging, 1))
+        runCurrent()
+
+        assertEquals(setOf("sent before my phone followed", "on the new key"), live.chat.value.map { it.body }.toSet())
+        assertEquals(emptyList(), live.epochGaps.value)
+        assertEquals(emptyList(), live.epochConflicts.value)
+    }
+
+    @Test fun `only the last few epochs left are read`() = runTest {
+        val relay = FakeRelay()
+        val other = Fixtures.primary(stable, 3, 4)
+        val live = following(relay)
+        live.join()
+        runCurrent()
+        for (epoch in 1..MAX_PAST_EPOCHS + 1) {
+            relay.publish(rekey(epoch))
+            runCurrent()
+        }
+        assertEquals(MAX_PAST_EPOCHS + 1, live.epochKeys().epoch)
+
+        relay.publish(chat("too far back", other, 0))
+        relay.publish(chat("four epochs back", other, 1))
+        runCurrent()
+
+        assertEquals(listOf("four epochs back"), live.chat.value.map { it.body })
+    }
+
+    @Test fun `of two rekeys for one epoch the first is followed and the second is said`() = runTest {
+        val relay = FakeRelay()
+        val live = following(relay)
+        live.join()
+        runCurrent()
+        val kept = rekey(1)
+        val other = rekey(1, secret = RoomEpoch(1, ByteArray(32) { 99 }))
+        relay.publish(kept)
+        runCurrent()
+        relay.publish(other)
+        // The same rekey again, as a second relay delivers it, is no conflict.
+        relay.publish(kept)
+        relay.publish(other)
+        runCurrent()
+
+        assertEquals(keys(1).id, live.epochKeys().id)
+        assertEquals(listOf(EpochConflict(1, kept.id, other.id)), live.epochConflicts.value)
+    }
+
+    @Test fun `a jump over epochs this device holds no key for is a gap`() = runTest {
+        val relay = FakeRelay()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            relay.transport().subscribe(listOf(Filter(kinds = listOf(KIND_EPOCH_REQUEST), tags = mapOf("#d" to listOf(stable.roomId)))))
+                .collect { event ->
+                    val request = decodeEpochRequest(event, stable.roomId, authoritySecret, stable.roomKey, currentTime / 1000) ?: return@collect
+                    relay.publish(encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, epoch = epochs[3]))
+                }
+        }
+        val live = following(relay, initial = 1, expected = 3)
+        live.join()
+        runCurrent()
+
+        assertEquals(3, live.epochKeys().epoch)
+        assertIs<RoomEpochState.Active>(live.epochState.value)
+        val gap = live.epochGaps.value.single()
+        assertEquals(1, gap.from)
+        assertEquals(3, gap.to)
+    }
+
+    @Test fun `a member grant that carries this device over an epoch lets it read what was said there`() = runTest {
+        val relay = FakeRelay().apply { replays = true }
+        val member = Fixtures.primary(stable, 5, 6)
+        val one = rekey(1, sealedTo = listOf(member.devicePubkey))
+        val two = rekey(2, sealedTo = listOf(member.devicePubkey))
+        relay.publish(one)
+        relay.publish(chat("said at epoch 1", member, 1))
+        relay.publish(two)
+        var answered = false
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            relay.transport().subscribe(listOf(Filter(kinds = listOf(KIND_MEMBER_EPOCH_REQUEST), tags = mapOf("#d" to listOf(stable.roomId)))))
+                .collect { event ->
+                    if (answered) return@collect
+                    val request = decodeMemberEpochRequest(event, stable.roomId, authority, stable.roomKey, currentTime / 1000) ?: return@collect
+                    answered = true
+                    relay.publish(encodeMemberEpochGrant(stable.roomId, request.device, request.request, listOf(epochs[1], epochs[2]), listOf(one, two), currentTime / 1000))
+                }
+        }
+        val live = following(relay, expected = 2)
+        live.join()
+        advanceTimeBy(3_001)
+        runCurrent()
+
+        assertTrue(answered, "a member answered")
+        assertEquals(2, live.epochKeys().epoch)
+        assertEquals(listOf("said at epoch 1"), live.chat.value.map { it.body })
+        assertEquals(emptyList(), live.epochGaps.value)
+    }
+
+    @Test fun `a newcomer's first jump from epoch 0 is not said as a gap, but a conflict always is`() {
+        assertEquals(emptyList(), epochTroubleLines(listOf(EpochGap(0, 4, 10)), emptyList()))
+        val lines = epochTroubleLines(listOf(EpochGap(2, 4, 10)), listOf(EpochConflict(3, "a", "b")))
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].startsWith("This device was away"))
+        assertTrue("(epoch 3)" in lines[1])
+    }
+}

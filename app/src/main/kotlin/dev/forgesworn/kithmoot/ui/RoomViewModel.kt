@@ -21,6 +21,8 @@ import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelayUrl
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
+import dev.forgesworn.kithmoot.protocol.RoomNameRecord
+import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
@@ -77,13 +79,18 @@ import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceOwnership
+import dev.forgesworn.kithmoot.cadence.CadenceRenewal
 import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
+import dev.forgesworn.kithmoot.cadence.CadenceSchedule
+import dev.forgesworn.kithmoot.cadence.CadenceScopeKey
 import dev.forgesworn.kithmoot.cadence.StoredCadenceLease
 import dev.forgesworn.kithmoot.epoch.CadenceEpochCoordinate
 import dev.forgesworn.kithmoot.epoch.EpochPhase
 import dev.forgesworn.kithmoot.epoch.activeEpochFor
 import dev.forgesworn.kithmoot.epoch.EpochVault
 import dev.forgesworn.kithmoot.epoch.EpochRecoveryResponder
+import dev.forgesworn.kithmoot.epoch.MemberEpochResponder
+import dev.forgesworn.kithmoot.epoch.asDesk
 import dev.forgesworn.kithmoot.epoch.StoredRoomEpoch
 import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -91,6 +98,7 @@ import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
+import dev.forgesworn.kithmoot.session.epochTroubleLines
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CompletableFuture
 import androidx.lifecycle.AndroidViewModel
@@ -166,6 +174,8 @@ import dev.forgesworn.kithmoot.relay.RelayAuthenticator
 import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
 import dev.forgesworn.kithmoot.relay.OrbotTorRelaySockets
+import dev.forgesworn.kithmoot.relay.RelayPolicy
+import dev.forgesworn.kithmoot.relay.TorCarrierTimings
 import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.service.ScreenShareService
@@ -225,10 +235,12 @@ import dev.forgesworn.kithmoot.ui.room.microphoneAction
 import dev.forgesworn.kithmoot.ui.room.JoinDecision
 import dev.forgesworn.kithmoot.ui.room.SingleBuild
 import dev.forgesworn.kithmoot.ui.room.joinDecision
+import dev.forgesworn.kithmoot.ui.room.mediaMissingNote
 import dev.forgesworn.kithmoot.ui.room.LiveMark
 import dev.forgesworn.kithmoot.ui.room.MarkAuthor
 import dev.forgesworn.kithmoot.ui.room.ShareMarks
 import dev.forgesworn.kithmoot.ui.room.shortId
+import dev.forgesworn.kithmoot.ui.room.roomLane
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -366,6 +378,21 @@ data class ContactRow(
     val expires: Long,
 )
 
+/** "<who> renamed the room to “<name>”", at the time the rename was sent. */
+data class RoomNote(val id: String, val participant: String, val name: String, val sentAt: Long)
+
+/** The chat's line for a rename read for the first time: once per rename,
+ *  never for a carried copy, and only in the room it was read in. */
+internal fun RoomState.withRenameRead(roomId: String, rename: RoomNameRecord): RoomState {
+    val by = rename.by ?: return this
+    if (this.roomId != roomId || roomNotes.any { it.id == rename.id }) return this
+    return copy(roomNotes = (roomNotes + RoomNote(rename.id, by, rename.name, rename.sentAt)).takeLast(50))
+}
+
+/** The open room's title follows its shared name. */
+internal fun RoomState.withSharedName(roomId: String, shared: RoomNameRecord): RoomState =
+    if (this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
+
 data class RoomState(
     val notificationChatRequest: Int = 0,
     /** Bumped to bring the room to its call view: an answered call opens there. */
@@ -395,6 +422,9 @@ data class RoomState(
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
+    /** Lines the chat shows that nobody typed: who renamed the room, once
+     *  per rename read this visit. */
+    val roomNotes: List<RoomNote> = emptyList(),
     /** A two-member room whose invitation must travel sealed through another room. */
     val privateConversation: Boolean = false,
     /** Current people who can be chosen for a new signer-sealed private conversation. */
@@ -503,6 +533,8 @@ data class RoomState(
     /** The observed successor epoch while recovery is pending or terminal. */
     val movedOn: Int? = null,
     val roomUpdate: String? = null,
+    /** What went wrong with the room's epochs this visit (`epochTroubleLines`), kept until dismissed. */
+    val epochTrouble: List<String> = emptyList(),
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -541,6 +573,10 @@ data class CadenceViewState(
     val queueCount: Int = 0,
     val sentCount: Int = 0,
     val failedCount: Int = 0,
+    /** Offered while the running lease can still be followed by a contiguous one. */
+    val renewable: Boolean = false,
+    /** End of a staged renewal that follows the shown lease. */
+    val renewedUntilEpoch: Long? = null,
 )
 
 data class Nip77ViewState(
@@ -1186,7 +1222,7 @@ class RoomViewModel @JvmOverloads constructor(
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
-                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt)
+                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch)
         }
     }
 
@@ -1291,7 +1327,7 @@ class RoomViewModel @JvmOverloads constructor(
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
-                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt)
+                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch)
         }
     }
 
@@ -1663,6 +1699,8 @@ class RoomViewModel @JvmOverloads constructor(
 
     private data class CadenceAccess(val context: CadenceContext?, val reason: String?)
 
+    private val CadenceContext.key get() = CadenceScopeKey(scope.nodeId, scope.trafficRoom, scope.roomGeneration)
+
     private fun activeRoomEpoch(record: SavedRoom): EpochKeys {
         val stored = record.authority?.let { roomEpochs.get(record.id) }
         return activeEpochFor(record, stored) ?: throw IllegalArgumentException(
@@ -1706,13 +1744,32 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun initialCadenceView(access: CadenceAccess, room: String, device: String): CadenceViewState {
         if (access.context == null) return CadenceViewState(detail = access.reason ?: "Cadence is unavailable.")
-        return runCatching {
-            cadenceLeases.all(room, device).filter { it.ownership != CadenceOwnership.ENDED }.maxByOrNull { it.plan.generation }
-                ?.let { cadenceView(it, eligible = true) }
-                ?: CadenceViewState(eligible = true, detail = "Bothy can take over this phone's quiet cadence for up to twelve hours.")
-        }.getOrElse {
+        return runCatching { scheduleView(access.context, room, device) }.getOrElse {
             CadenceViewState(state = "blocked", detail = "The cadence ownership journal could not be opened. Delegated counters remain unavailable.")
         }
+    }
+
+    /** The lease Bothy is running now, with any renewal that follows it. */
+    private fun scheduleView(context: CadenceContext, room: String, device: String): CadenceViewState {
+        val leases = cadenceLeases.all(room, device)
+        val epoch = DeadDrop.epochIndexAt(epochSeconds())
+        val primary = CadenceSchedule.primary(leases, context.key, epoch)
+            ?: return CadenceViewState(eligible = true, detail = "Bothy can take over this phone's quiet cadence for up to twelve hours.")
+        val view = cadenceView(primary, eligible = true)
+        val successor = CadenceSchedule.successor(leases, context.key, primary)
+        if (successor?.ownership == CadenceOwnership.CLIENT_EXCLUDED) return view.copy(
+            state = "unresolved",
+            detail = "Bothy's reply to the renewal was not confirmed. KithMoot kept its exact bytes and will retry without reclaiming the counters.",
+        )
+        // Stop lowers only real sends; a staged renewal's cover is already promised to its end.
+        val detail = if (successor != null && view.state in setOf("stopping", "cover")) {
+            "Real sends stop at the safe boundary. Bothy keeps the fixed cover pattern until the renewal's end, which a stop cannot shorten."
+        } else view.detail
+        return view.copy(
+            detail = detail,
+            renewable = CadenceSchedule.renewable(leases, context.key, epoch),
+            renewedUntilEpoch = successor?.plan?.endEpoch,
+        )
     }
 
     private fun cadenceView(lease: StoredCadenceLease, eligible: Boolean, busy: Boolean = false): CadenceViewState {
@@ -1894,7 +1951,6 @@ class RoomViewModel @JvmOverloads constructor(
         }
         savedRooms.forget(id)
     }
-    fun renameRoom(id: String, name: String) = changeSavedRooms { savedRooms.update(id) { it.renamed(name) } }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
 
     /** The link for the room row's "Share invite link": read fresh from
@@ -2759,6 +2815,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ends = admission.endsAt,
                 roomRelays = roomRelays,
                 roomRelaysSigned = signedRelays != null,
+                expectedEpoch = admission.epoch,
             )
             return
         }
@@ -2779,6 +2836,7 @@ class RoomViewModel @JvmOverloads constructor(
             ends = admission.endsAt,
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
+            expectedEpoch = admission.epoch,
         )
     }
 
@@ -2805,7 +2863,9 @@ class RoomViewModel @JvmOverloads constructor(
         if (payload.invitation.persistent) {
             val fetch: suspend (RelayPool) -> RoomAdmission = { transport ->
                 try {
-                    requestPersistentAdmission(payload.invitation) { transport.queryStored(it) }
+                    requestPersistentAdmission(payload.invitation) {
+                        transport.queryStored(it, if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e
                     throw MissingGroupInvitationException(INVITATION_NOT_FOUND)
@@ -2831,6 +2891,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         val requesterKey = Entropy.bytes(32)
@@ -2838,7 +2899,7 @@ class RoomViewModel @JvmOverloads constructor(
         val invitationId = deriveInvitationId(payload.invitation)
         transport.start()
         return try {
-            withTimeoutOrNull(INVITATION_TIMEOUT_MS) {
+            withTimeoutOrNull(if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS) {
                 coroutineScope {
                     // Start collecting before the first publish. Invitation
                     // events are ephemeral, so subscribing one line later is
@@ -2894,6 +2955,7 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         transport.start()
@@ -2903,7 +2965,8 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }))) {
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }),
+                        if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
             }
@@ -2954,6 +3017,9 @@ class RoomViewModel @JvmOverloads constructor(
         transport: RelayPool,
         host: RoomInvitationHost,
         secret: ByteArray,
+        /** The epoch this device is at, asked on every grant: the joiner is
+         *  told whether [secret] opens the live room (fold-kit's `epoch`). */
+        epoch: () -> Int?,
     ): Job {
         val invitationId = deriveInvitationId(host.invitation)
         val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
@@ -3006,6 +3072,7 @@ class RoomViewModel @JvmOverloads constructor(
                         request.requestId,
                         secret,
                         epochSeconds(),
+                        epoch = epoch(),
                     ),
                 )
             }
@@ -3033,6 +3100,9 @@ class RoomViewModel @JvmOverloads constructor(
          *  signed group invitation ([roomRelaysSigned]) or a link's hints. */
         roomRelays: List<String> = emptyList(),
         roomRelaysSigned: Boolean = false,
+        /** The epoch the responder that admitted this device said the room
+         *  is at (`RoomAdmission.epoch`), when this opening asked one. */
+        expectedEpoch: Int? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3075,6 +3145,10 @@ class RoomViewModel @JvmOverloads constructor(
             ends = ends?.takeIf { invitation?.invitation?.persistent == true })
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
+            // A room saved before its authority was recorded never followed a
+            // rekey; pin the one its link names, as a fresh join would.
+            .withInvitationAuthority()
+            .withEpochHint(expectedEpoch)
         savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
@@ -3098,6 +3172,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         if (durableEpoch?.phase == EpochPhase.REMOVED) throw RoomRecoveryException("You were removed from this room")
         if (durableEpoch?.phase == EpochPhase.CLOSED) throw RoomRecoveryException("This room was closed")
+        Log.i(JOIN_LOG, "epoch at open durable=${durableEpoch?.currentEpoch ?: "none"} hint=${record.epochHint ?: "none"} authority=${record.authority != null}")
         val openedEpoch = durableEpoch?.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) }
             ?: EpochKeys(0, derived.roomId, derived.roomKey)
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
@@ -3105,6 +3180,24 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val epochResponder = epochAuthorityHost?.let {
             EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, record.ends, ::epochSeconds)
+        }
+        // Any member in step at an epoch past 0 can bring another member's device up to date
+        // while the authority's device is away (kind 20471/20472). Not on the authority's own
+        // device, which answers as the authority, and never in an anonymous room.
+        val memberDesk = record.authority?.takeIf { !anonymousProfile && epochResponder == null }?.let { roomAuthority ->
+            MemberEpochResponder(
+                record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
+                current = {
+                    roomEpochs.get(record.id)?.takeIf { it.phase == EpochPhase.ACTIVE && it.currentEpoch > 0 }
+                        ?.let { RoomEpoch(it.currentEpoch, it.currentSecret) }
+                },
+                secretAt = { roomEpochs.secretAt(record.id, it) },
+                rekeyAt = { roomEpochs.rekeyAt(record.id, it) },
+                removed = { roomEpochs.get(record.id)?.removed.orEmpty() },
+                closed = { roomEpochs.get(record.id)?.phase == EpochPhase.CLOSED },
+                now = ::epochSeconds,
+                ends = record.ends,
+            ).asDesk(Dispatchers.IO)
         }
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
@@ -3130,6 +3223,7 @@ class RoomViewModel @JvmOverloads constructor(
             } else null
         }
         val transport = RelayPool(activeRelays, socketFactory, scope,
+            policy = if (anonymousProfile) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
             writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
@@ -3192,7 +3286,8 @@ class RoomViewModel @JvmOverloads constructor(
                                         epochSeconds(), cadenceLeases,
                                     ).get()
                                 }
-                                _room.update { state -> state.copy(cadence = cadenceView(result.lease, eligible = true)) }
+                                val view = scheduleView(context, derived.roomId, who.devicePubkey)
+                                _room.update { state -> state.copy(cadence = view) }
                                 queued.complete(true)
                             } catch (error: Exception) {
                                 queued.completeExceptionally((error as? java.util.concurrent.ExecutionException)?.cause ?: error)
@@ -3216,6 +3311,10 @@ class RoomViewModel @JvmOverloads constructor(
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), record.id,
                 who.participant, who.devicePubkey).outbox
         } else null
+        // When the authority rekeyed into each epoch, from the signed rekeys
+        // this visit hears: a rename read under an epoch the room has left
+        // counts only up to the rekey out of it (protocol/RoomName.kt).
+        val rekeyTimes = java.util.concurrent.ConcurrentHashMap<Int, Long>()
         val live = RoomSession(
             derived,
             who,
@@ -3227,6 +3326,12 @@ class RoomViewModel @JvmOverloads constructor(
             // one goes quiet the old way if it ever moves on.
             authority = record.authority,
             initialEpoch = openedEpoch,
+            // Told the room is further on than this device, ask its authority
+            // before saying anything, as the web client does; told nothing,
+            // ask once without holding the room up - except in a quiet room,
+            // whose traffic is shaped not to say when a member opens it.
+            expectedEpoch = record.epochHint,
+            epochProbe = quietMembers == null,
             chatOutbox = pendingChat,
             ends = record.ends,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
@@ -3234,8 +3339,10 @@ class RoomViewModel @JvmOverloads constructor(
                     cadenceGate.withLock { commitRoomEpoch(record, who, secondary, event, notice) }
                 }
             },
-            onEpochApplied = { _, next ->
-                roomWork?.rekey(next.id, next.key)
+            onEpochApplied = { notice, next ->
+                // A catch-up grant's time is the grant's, not the rekey's.
+                if (!notice.catchUp) rekeyTimes.putIfAbsent(notice.epoch, notice.at)
+                roomWork?.rekey(next.id, next.key, next.epoch)
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
@@ -3243,6 +3350,11 @@ class RoomViewModel @JvmOverloads constructor(
             },
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
+            },
+            memberEpochDesk = memberDesk,
+            onEpochHistory = if (anonymousProfile || record.authority == null) { _, _ -> } else { secrets, rekeys ->
+                record.authority?.let { authority -> for (rekey in rekeys) peekRekeyEpoch(rekey, record.id, authority)?.let { rekeyTimes[it] = rekey.createdAt } }
+                withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys) }
             },
             onVerifiedOwnEvent = if (!anonymousProfile && accountSession?.account?.pubkey == who.participant) {
                 { event: NostrEvent ->
@@ -3279,7 +3391,7 @@ class RoomViewModel @JvmOverloads constructor(
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
-            lane = if (anonymousProfile) null else laneOfRelays(activeRelays, circleRelaySet()),
+            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
             privateConversation = isDmPolicy(policy),
             chatOnly = chatOnly,
             profilesEnabled = !anonymousProfile && display.getBoolean("publicProfiles", true),
@@ -3345,7 +3457,7 @@ class RoomViewModel @JvmOverloads constructor(
         transport.start()
         profileTransport?.start()
         record.host(epochSeconds())?.let { host ->
-            invitationHostJob = serveInvitation(scope, transport, host, secret)
+            invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
@@ -3397,7 +3509,12 @@ class RoomViewModel @JvmOverloads constructor(
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
                     authority=record.authority,initialRoomRelays=record.roomRelayRecord,
                     onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) },
-                    ends=record.ends)
+                    ends=record.ends,
+                    initialEpoch=liveEpoch.epoch,
+                    initialRoomName=record.sharedName,
+                    rekeyedAt={ epoch -> rekeyTimes[epoch] ?: runCatching { roomEpochs.rekeyAt(record.id, epoch)?.createdAt }.getOrNull() },
+                    onRoomName={ shared -> onRoomNameReceived(record.id, shared) },
+                    onRename={ rename -> onRenameRead(derived.roomId, rename) })
                 roomWork=work
                 scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
                 scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
@@ -3459,7 +3576,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        callRinger.update(record.id, record.name, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
+                        callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -3554,13 +3671,14 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(mediaStarting = true) }
         opening = scope.launch {
             val begun = android.os.SystemClock.elapsedRealtime()
+            Log.i(JOIN_LOG, "media build begins")
             var remembered = false
             var rememberedMicOn = false
             val installed = mediaBuild.build(
                 held = { engine },
                 make = {
                     val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }}")
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
                     withContext(Dispatchers.Default) {
                         runCatching { WebRtcEngine(getApplication(), live, this@launch, ice) }
                     }.getOrElse { failure ->
@@ -3788,7 +3906,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** How many of this visit's epoch trouble lines have been dismissed. */
+    private var epochTroubleDismissed = 0
+
     private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
+        epochTroubleDismissed = 0
+        scope.launch {
+            kotlinx.coroutines.flow.combine(live.epochGaps, live.epochConflicts, ::epochTroubleLines).collect { lines ->
+                if (session !== live) return@collect
+                _room.update { it.copy(epochTrouble = lines.drop(epochTroubleDismissed)) }
+            }
+        }
         scope.launch {
             live.epochState.collect { state ->
                 if (session !== live) return@collect
@@ -3798,7 +3926,7 @@ class RoomViewModel @JvmOverloads constructor(
                         it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update {
-                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = "Secure room update is waiting for Bothy to retire the old schedule.")
+                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = if (it.cadence != null) "Secure room update is waiting for Bothy to retire the old schedule." else "Secure room update in progress.")
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
                         it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
@@ -4210,8 +4338,8 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun toggleMicrophone() = act {
         if (chatOnly) return@act
-        if (!_room.value.mediaRunning) return@act
-        val media = engine?.localMedia ?: return@act note("No microphone on this device.")
+        if (!_room.value.mediaRunning) return@act noteIfJoinPending()
+        val media = engine?.localMedia ?: return@act note(mediaMissing())
         val live = session ?: return@act
         when (microphoneAction(_room.value.micOn, _room.value.micMuted)) {
             MicrophoneAction.Start -> {
@@ -4247,10 +4375,21 @@ class RoomViewModel @JvmOverloads constructor(
         if (!media.setMicrophoneMuted(muted)) note("There is no microphone running to mute.")
     }
 
+    /** Why a mic, camera or share press found no engine, in the room's own terms. */
+    private fun mediaMissing(): String = _room.value.let {
+        mediaMissingNote(it.mediaStarting, it.callJoinPending, it.mediaFault)
+    }
+
+    /** A press between answering and the engine arriving is not ignored in
+     *  silence: the join is remembered, and the person is told it is coming. */
+    private fun noteIfJoinPending() {
+        if (_room.value.callJoinPending) note(mediaMissing())
+    }
+
     fun toggleCamera() = act {
         if (chatOnly) return@act
-        if (!_room.value.mediaRunning) return@act
-        val media = engine?.localMedia ?: return@act note("No camera on this device.")
+        if (!_room.value.mediaRunning) return@act noteIfJoinPending()
+        val media = engine?.localMedia ?: return@act note(mediaMissing())
         if (_room.value.cameraOn) {
             media.stopCamera()
         } else if (media.startCamera() == null) {
@@ -4317,7 +4456,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun startScreenShare(permission: Intent, shareAudio: Boolean = true) {
         if (!_room.value.mediaRunning) return
-        val media = engine?.localMedia ?: return note("Screen sharing needs the media stack.")
+        val media = engine?.localMedia ?: return note(mediaMissing())
         val scope = sessionScope ?: return
         scope.launch {
             ScreenShareService.start(getApplication())
@@ -4567,7 +4706,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun startCadence() = cadenceAction { record, who, secondary ->
         val access = cadenceAccess(record, who, secondary)
         val context = requireNotNull(access.context) { access.reason ?: "Cadence is unavailable." }
-        val existing = currentCadence(record.id, who.devicePubkey)
+        val existing = CadenceSchedule.primary(
+            cadenceLeases.all(record.id, who.devicePubkey), context.key, DeadDrop.epochIndexAt(epochSeconds()),
+        )
         if (existing != null) {
             refreshCadence(record, who, secondary)
             return@cadenceAction
@@ -4598,12 +4739,51 @@ class RoomViewModel @JvmOverloads constructor(
             context.scope, cadenceId(), cadenceId(), generation, context.deviceSlot,
             status.currentEpoch, start, end, context.roomKey, context.publicRelays, listOf("local"), epochSeconds(),
         )
-        val result = cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
-        _room.update { it.copy(cadence = cadenceView(result.lease, eligible = true)) }
+        cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
+    }
+
+    /**
+     * Stage the next generation of the running lease, starting exactly at its
+     * end so there is never a second scheduler or a gap. Only ever pressed by
+     * the person; a lease that is not renewed ends at its promised boundary.
+     */
+    fun renewCadence() = cadenceAction { record, who, secondary ->
+        val access = cadenceAccess(record, who, secondary)
+        val context = requireNotNull(access.context) { access.reason ?: "Cadence is unavailable." }
+        val status = cadenceClient.status(who.participant, context.scope, cadenceId(), who, epochSeconds()).get().answer
+        val credentialExpiry = who.credential.tagValue("expiration")?.toLongOrNull()
+            ?: throw IllegalStateException("The device credential has no expiry.")
+        val renewal = if (!status.ready) CadenceRenewal.Refused("Bothy is not ready: ${status.missing.joinToString(", ")}.")
+            else CadenceSchedule.renewal(
+                cadenceLeases.all(record.id, who.devicePubkey), context.key, status.currentEpoch,
+                status.earliestStartEpoch, credentialExpiry / 3600, context.grantExpiresAt / 3600,
+            )
+        when (renewal) {
+            is CadenceRenewal.Refused -> {
+                val view = scheduleView(context, record.id, who.devicePubkey).copy(detail = renewal.reason)
+                _room.update { it.copy(cadence = view) }
+            }
+            is CadenceRenewal.Ready -> {
+                val options = CadenceLeaseOptions(
+                    context.scope, cadenceId(), renewal.leaseId, renewal.generation, context.deviceSlot,
+                    status.currentEpoch, renewal.startEpoch, renewal.endEpoch, context.roomKey, context.publicRelays,
+                    listOf("local"), epochSeconds(),
+                )
+                cadenceClient.stage(who.participant, options, who, epochSeconds(), cadenceLeases).get()
+                val view = scheduleView(context, record.id, who.devicePubkey)
+                _room.update { it.copy(cadence = view) }
+            }
+        }
     }
 
     fun stopCadence() = cadenceAction { record, who, secondary ->
-        stopCadence(record, who, secondary, "Bothy could not stop the schedule.")
+        val access = cadenceAccess(record, who, secondary)
+        val context = requireNotNull(access.context) { access.reason ?: "Bothy could not stop the schedule." }
+        val failure = runCatching { stopCadenceLeases(context, who, record.id) }.exceptionOrNull()
+        runCatching { scheduleView(context, record.id, who.devicePubkey) }.onSuccess { view -> _room.update { it.copy(cadence = view) } }
+        failure?.let { throw it }
     }
 
     private fun cadenceAction(action: suspend (SavedRoom, RoomIdentity, Boolean) -> Unit) {
@@ -4633,8 +4813,8 @@ class RoomViewModel @JvmOverloads constructor(
             _room.update { it.copy(cadence = CadenceViewState(detail = access.reason ?: "Cadence is unavailable.")) }
             return
         }
-        val current = currentCadence(record.id, who.devicePubkey)
-        if (current == null) {
+        val live = CadenceSchedule.live(cadenceLeases.all(record.id, who.devicePubkey), context.key)
+        if (live.isEmpty()) {
             val status = cadenceClient.status(who.participant, context.scope, cadenceId(), who, epochSeconds()).get().answer
             _room.update { it.copy(cadence = CadenceViewState(
                 eligible = true,
@@ -4644,47 +4824,57 @@ class RoomViewModel @JvmOverloads constructor(
             )) }
             return
         }
-        val result = if (current.ownership == CadenceOwnership.CLIENT_EXCLUDED) {
+        // A renewal leaves two live leases; each is resolved, because the earlier one is the one Bothy is running.
+        for (current in live) {
+            val resolved = resolveCadence(context, who, current)
+            val result = if (resolved === current) {
+                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
+            } else resolved
+            recoverCadenceQueue(context, who, result)
+        }
+        val view = scheduleView(context, record.id, who.devicePubkey)
+        _room.update { it.copy(cadence = view) }
+    }
+
+    /** Learn the outcome of a lease whose reply was lost, never reclaiming its counters on a timeout. */
+    private fun resolveCadence(context: CadenceContext, who: RoomIdentity, current: StoredCadenceLease): StoredCadenceLease {
+        if (current.ownership != CadenceOwnership.CLIENT_EXCLUDED) return current
+        return try {
+            cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get().lease
+        } catch (_: Exception) {
+            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
+        }
+    }
+
+    /** Stop every live lease, including a staged renewal, each at its own safe boundary. */
+    private fun stopCadenceLeases(context: CadenceContext, who: RoomIdentity, room: String) {
+        CadenceSchedule.live(cadenceLeases.all(room, who.devicePubkey), context.key).forEach { resolveCadence(context, who, it) }
+        val targets = CadenceSchedule.stopTargets(
+            cadenceLeases.all(room, who.devicePubkey), context.key, DeadDrop.epochIndexAt(epochSeconds()),
+        )
+        var failure: Exception? = null
+        for ((lease, boundary) in targets) {
             try {
-                cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get()
-            } catch (_: Exception) {
-                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
+                cadenceClient.stop(who.participant, context.scope, who, lease, cadenceId(), boundary, epochSeconds(), cadenceLeases).get()
+            } catch (error: Exception) {
+                failure = failure ?: error
             }
-        } else {
-            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
         }
-        val lease = recoverCadenceQueue(context, who, result.lease)
-        _room.update { it.copy(cadence = cadenceView(lease, eligible = true)) }
+        failure?.let { throw it }
     }
 
-    private fun stopCadence(record: SavedRoom, who: RoomIdentity, secondary: Boolean, failure: String) {
-        val access = cadenceAccess(record, who, secondary)
-        val context = requireNotNull(access.context) { access.reason ?: failure }
-        val current = currentCadence(record.id, who.devicePubkey) ?: return
-        if (current.ownership != CadenceOwnership.BOX_OWNED || current.receipt?.state in setOf("cover", "ended")) return
-        val boundary = maxOf(DeadDrop.epochIndexAt(epochSeconds()) + 2, current.plan.startEpoch)
-        if (boundary > current.plan.endEpoch) {
-            refreshCadence(record, who, secondary)
-            return
+    /**
+     * Bothy's rekey retires every lease under the old key but reports only its
+     * target, so the target is the lease holding this epoch's queued messages.
+     */
+    private fun epochCadence(record: SavedRoom, who: RoomIdentity, epoch: EpochKeys): StoredCadenceLease? {
+        val live = cadenceLeases.all(record.id, who.devicePubkey).filter {
+            it.ownership != CadenceOwnership.ENDED &&
+                it.plan.trafficRoom == epoch.id && it.plan.roomGeneration == epoch.epoch.toLong() + 1
         }
-        val result = cadenceClient.stop(
-            who.participant, context.scope, who, current, cadenceId(), boundary,
-            epochSeconds(), cadenceLeases,
-        ).get()
-        _room.update { it.copy(cadence = cadenceView(result.lease, eligible = true)) }
+        val now = DeadDrop.epochIndexAt(epochSeconds())
+        return live.firstOrNull { now in it.plan.startEpoch until it.plan.endEpoch } ?: live.minByOrNull { it.plan.startEpoch }
     }
-
-    private fun currentCadence(room: String, device: String): StoredCadenceLease? = cadenceLeases.all(room, device)
-        .filter { it.ownership != CadenceOwnership.ENDED }
-        .maxByOrNull { it.plan.generation }
-
-    private fun epochCadence(record: SavedRoom, who: RoomIdentity, epoch: EpochKeys): StoredCadenceLease? =
-        cadenceLeases.all(record.id, who.devicePubkey)
-            .filter {
-                it.ownership != CadenceOwnership.ENDED &&
-                    it.plan.trafficRoom == epoch.id && it.plan.roomGeneration == epoch.epoch.toLong() + 1
-            }
-            .maxByOrNull { it.plan.generation }
 
     private fun cadenceCoordinate(lease: StoredCadenceLease?) = lease?.let {
         CadenceEpochCoordinate(
@@ -4831,23 +5021,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** Real sends stop before the Link route and its circle authority are retired. */
     private suspend fun stopCadenceBeforeDisconnect(record: SavedRoom, signer: ParticipantSigner) = cadenceGate.withLock {
         val who = record.identity(epochSeconds(), signer)
-        var current = currentCadence(record.id, who.devicePubkey) ?: return@withLock
+        if (cadenceLeases.all(record.id, who.devicePubkey).none { it.ownership != CadenceOwnership.ENDED }) return@withLock
         val access = cadenceAccess(record, who, record.secondary)
         val context = access.context ?: throw RoomRecoveryException(access.reason ?: "Cadence authority is unavailable.")
-        if (current.ownership == CadenceOwnership.CLIENT_EXCLUDED) {
-            current = try {
-                cadenceClient.retryStage(who.participant, context.scope, who, current, epochSeconds(), cadenceLeases).get().lease
-            } catch (_: Exception) {
-                cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get().lease
-            }
-        }
-        if (current.receipt?.state in setOf("cover", "ended") || current.ownership != CadenceOwnership.BOX_OWNED) return@withLock
-        val boundary = maxOf(DeadDrop.epochIndexAt(epochSeconds()) + 2, current.plan.startEpoch)
-        if (boundary <= current.plan.endEpoch) {
-            cadenceClient.stop(who.participant, context.scope, who, current, cadenceId(), boundary, epochSeconds(), cadenceLeases).get()
-        } else {
-            cadenceClient.leaseStatus(who.participant, context.scope, who, current, cadenceId(), epochSeconds(), cadenceLeases).get()
-        }
+        stopCadenceLeases(context, who, record.id)
     }
 
     fun sendChat(body: String) = sendChat(body, null)
@@ -5164,6 +5341,7 @@ class RoomViewModel @JvmOverloads constructor(
                     invitationHost = admission.delegate,
                     policy = payload.policy,
                     localName = "Private with ${shortNpub(peer)}",
+                    expectedEpoch = admission.epoch,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -5273,19 +5451,21 @@ class RoomViewModel @JvmOverloads constructor(
                 invitationHostJob?.cancel()
                 roomInvitationHost = nextHost
                 roomInvitation = nextInvitation
-                invitationHostJob = serveInvitation(scope, transport, nextHost, secret)
+                invitationHostJob = serveInvitation(scope, transport, nextHost, secret) { session?.epochKeys()?.epoch }
                 _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
             }
         }
     }
 
-    private suspend fun persistLiveRoom(id: String, change: (SavedRoom) -> SavedRoom) {
+    private suspend fun persistLiveRoom(id: String,
+        failure: String = "The room's changed access could not be saved. Check its current invitation before returning.",
+        change: (SavedRoom) -> SavedRoom) {
         withContext(Dispatchers.IO) {
             try {
                 val saved = savedRooms.update(id, change)
                 if (savedRoom?.id == id) savedRoom = saved
             } catch (_: RoomStorageException) {
-                note("The room's changed access could not be saved. Check its current invitation before returning.")
+                note(failure)
             }
         }
     }
@@ -5302,6 +5482,57 @@ class RoomViewModel @JvmOverloads constructor(
      * sheltered behind a Bothy, adds only the relays its guard accepts
      * ([roomRelayGuard]) and says how many it left out.
      */
+    /**
+     * The room's shared name changed: the newest rename that counts, read
+     * on the control channel, carried, or made here. It replaces this
+     * device's name for the room everywhere - the saved room and the rooms
+     * list, the title, chat notifications and the call ringer - and is kept
+     * with its order key, so an older link does not put the old name back.
+     * Mirrors `adoptSharedRoomName` in the web client's `app/src/main.ts`.
+     */
+    private fun onRoomNameReceived(roomId: String, shared: RoomNameRecord) {
+        if (savedRoom?.id != roomId) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (savedRoom?.id != roomId) return@launch
+            if (savedRoom?.sharedName?.let { it.id == shared.id && it.at == shared.at && it.name == shared.name } != true) {
+                persistLiveRoom(roomId, "The room's new name could not be saved on this phone. It still shows here.") { it.withSharedName(shared) }
+                runCatching { savedRooms.list() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
+            }
+            notifications.rename(roomId, shared.name)
+            withContext(Dispatchers.Main) {
+                _room.update { it.withSharedName(roomId, shared) }
+            }
+        }
+    }
+
+    /** A rename, not a carried copy, read for the first time this visit:
+     *  the chat says who renamed the room, once per rename. */
+    private fun onRenameRead(roomId: String, rename: RoomNameRecord) {
+        _room.update { it.withRenameRead(roomId, rename) }
+    }
+
+    /** Rename the room for everybody in it: hidden in a two-person room,
+     *  whose title is the other person, and in an anonymous room, which
+     *  follows no shared work or names. */
+    fun renameRoomForEveryone(name: String) {
+        val work = roomWork ?: run {
+            _room.update { it.copy(notice = "Wait for the room to finish connecting, then rename it.") }
+            return
+        }
+        val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(name)
+        if (clean == null) { _room.update { it.copy(notice = "A room name cannot be empty.") }; return }
+        if (clean == _room.value.name) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val record = work.rename(clean)
+                _room.update { if (roomWork === work) it.copy(notice = "Renamed the room to “${record.name}” for everyone.") else it }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                _room.update { if (roomWork === work) it.copy(notice = error.message ?: "The room could not be renamed. Try again.") else it }
+            }
+        }
+    }
+
     private fun onRoomRelaysReceived(roomId: String, record: RoomRelaysRecord, sentAt: Long) {
         if (savedRoom?.id != roomId) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -5320,7 +5551,7 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update {
                     if (it.roomId != roomId) it else it.copy(
                         relaysTotal = relayUrls.size,
-                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
+                        lane = roomLane(relayUrls, anonymousRoom, ::circleRelaySet),
                         notice = notice ?: it.notice,
                     )
                 }
@@ -5408,7 +5639,7 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update {
                     if (it.roomId != room.id) it else it.copy(
                         relaysTotal = relayUrls.size,
-                        lane = if (anonymousRoom) it.lane else laneOfRelays(relayUrls, circleRelaySet()),
+                        lane = roomLane(relayUrls, anonymousRoom, ::circleRelaySet),
                     )
                 }
             }
@@ -5435,6 +5666,11 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Says something short to the person in the room. Shown once, then cleared. */
     fun showNotice(message: String) = note(message)
+
+    fun dismissEpochTrouble() {
+        epochTroubleDismissed += _room.value.epochTrouble.size
+        _room.update { it.copy(epochTrouble = emptyList()) }
+    }
 
     fun dismissNotice() {
         _room.update { it.copy(notice = null) }
@@ -5537,7 +5773,7 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { state ->
             state.copy(
                 contacts = rows,
-                lane = if (relayUrls.isEmpty()) state.lane else laneOfRelays(relayUrls, circle),
+                lane = if (relayUrls.isEmpty()) state.lane else roomLane(relayUrls, anonymousRoom) { circle },
                 tiles = if (live == null) state.tiles else buildTiles(live.participants.value, state.selfParticipant, state.selfDevice, cardNames, volumesFor(live.participants.value)),
             )
         }

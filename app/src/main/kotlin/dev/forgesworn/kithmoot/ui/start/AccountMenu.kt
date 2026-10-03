@@ -38,6 +38,8 @@ data class AccountSettingsActions(
 fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
     signIn: AccountActions, actions: AccountSettingsActions,
     showProfilePicture: Boolean = true,
+    /** The open room is Tor-only: it never uses an account, signed in or not. */
+    torOnlyRoom: Boolean = false,
     notificationSettings: @Composable () -> Unit = {},
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -53,7 +55,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
         if (account == null) TextButton({ menu = true }, enabled = !state.busy) {
             Icon(Icons.Outlined.AccountCircle, null); Spacer(Modifier.width(6.dp)); Text("Sign in")
         } else IconButton({ menu = true }, Modifier.size(48.dp).semantics {
-            contentDescription = "Account menu for ${account.shownName}"
+            contentDescription = "Account menu for ${account.shownName}" + (accountNotInUse(inRoom, torOnlyRoom)?.let { ". $it" } ?: "")
             role = Role.Button
             onClick(label = "Open account menu") { menu = true; true }
         }) { ProfileAvatar(account.pubkey, account.shownName, account.profile.takeIf { showProfilePicture }, Modifier.size(36.dp)) }
@@ -63,6 +65,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(max = 280.dp)) {
                     Text(account.shownName, style = MaterialTheme.typography.titleMedium)
                     Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    accountNotInUse(inRoom, torOnlyRoom)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
                 HorizontalDivider()
                 DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
@@ -88,8 +91,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 // reason. Say why, and offer the way there, as the web client does.
                 "signin" -> if (inRoom) {
                     Text("Sign in with Nostr", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-                    Text("You are in this room with just a name: a separate identity, not your Nostr account. " +
-                        "Leave the room to sign in with your usual account. Leaving ends any call you are on; your saved rooms stay on this phone.")
+                    Text(signInFromRoom(torOnlyRoom))
                     Button({ page = null; actions.leaveRoom() }, Modifier.heightIn(min = 48.dp)) { Text("Leave to sign in") }
                 } else AccountSection(state, signIn, !state.busy)
                 "profile" -> ProfileEditorFields(state, actions)
@@ -212,3 +214,14 @@ internal fun RelayEditor(state: StartState, choices: List<RelayChoice>, inRoom: 
         confirmButton = { TextButton({ publish = false; actions.publishRelays() }) { Text("Publish relay list") } },
         dismissButton = { TextButton({ publish = false }) { Text("Cancel") } })
 }
+
+/** Why signing in means leaving the room first, for the kind of room it is. */
+internal fun signInFromRoom(torOnlyRoom: Boolean): String =
+    if (torOnlyRoom) "This Tor-only room never uses an account: you are in it with just a name, a separate identity. " +
+        "Leave the room to sign in with your usual account. Your saved rooms stay on this phone."
+    else "You are in this room with just a name: a separate identity, not your Nostr account. " +
+        "Leave the room to sign in with your usual account. Leaving ends any call you are on; your saved rooms stay on this phone."
+
+/** Said under a signed-in account inside a room that does not use it; null where the account is in use or may be. */
+internal fun accountNotInUse(inRoom: Boolean, torOnlyRoom: Boolean): String? =
+    if (inRoom && torOnlyRoom) "Not used in this Tor-only room" else null

@@ -51,7 +51,6 @@ fun StartScreen(
     onJoin: () -> Unit,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
-    onRename: (String, String) -> Unit,
     onProject: (String, String) -> Unit,
     onPairBothy: (String, String) -> Unit = { _, _ -> },
     onDisconnectBothy: (String) -> Unit = {},
@@ -84,8 +83,6 @@ fun StartScreen(
     var projectTab by rememberSaveable { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
     var newRoomOpen by rememberSaveable { mutableStateOf(false) }
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
-    var renaming by remember { mutableStateOf<SavedRoomSummary?>(null) }
-    var renamed by remember { mutableStateOf("") }
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
@@ -129,7 +126,6 @@ fun StartScreen(
         if (room.canShareInvite) add(ConversationAction("Share invite link") { onShareInvite(room.id) })
         val saved = savedById[room.id]
         if (saved != null) {
-            add(ConversationAction("Rename") { renaming = saved; renamed = saved.name })
             add(ConversationAction(if (saved.project != null) "Change project" else "Add to a project") { filing = saved; filedAs = saved.project.orEmpty() })
             if (!saved.anonymous && saved.account == state.account?.pubkey) {
                 if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
@@ -251,12 +247,6 @@ fun StartScreen(
             },
             confirmButton = { TextButton({ filing = null; onProject(room.id, filedAs) }) { Text("Save") } },
             dismissButton = { TextButton({ filing = null }) { Text("Cancel") } })
-    }
-    renaming?.let { room ->
-        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Name on this device") },
-            text = { OutlinedTextField(renamed, { renamed = it.take(80) }, label = { Text("Room name") }, singleLine = true) },
-            confirmButton = { TextButton({ renaming = null; onRename(room.id, renamed) }, enabled = renamed.isNotBlank()) { Text("Save name") } },
-            dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } })
     }
 }
 
@@ -395,7 +385,9 @@ private fun BoxWithConstraintsScope.ReturningContent(
 
     @Composable
     fun ListPane(modifier: Modifier) {
-        LazyColumn(modifier, state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
+        // Padded for the keyboard: the invite field is this list's last item,
+        // and without it the keyboard covers the field and its Open button.
+        LazyColumn(modifier.imePadding(), state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -17,11 +17,14 @@ import javax.crypto.SecretKey
  * One live Android Keystore entry per committed journal version. Replacing a
  * value deletes every older entry, so restoring an earlier ciphertext or
  * deleting the current file cannot make delegated counters look unused.
+ * [aad] is bound into every ciphertext; it is not stored, so a reader must
+ * supply the same value.
  */
 class RollbackResistantRoomStorage(
     context: Context,
     private val alias: String,
     private val maxPlaintextBytes: Int = 4 * 1024 * 1024,
+    private val aad: ByteArray = RoomCipher.AAD,
 ) : RoomStorage {
     init {
         require(alias.matches(Regex("[A-Za-z0-9._-]{1,128}")))
@@ -46,7 +49,7 @@ class RollbackResistantRoomStorage(
         try {
             val (entry, sealed) = unpack(packed)
             try {
-                val plain = RoomCipher { create -> key(entry, create) }.decrypt(sealed)
+                val plain = RoomCipher(aad) { create -> key(entry, create) }.decrypt(sealed)
                 require(plain.size <= maxPlaintextBytes)
                 deleteStaleEntries(entry)
                 return plain
@@ -62,7 +65,7 @@ class RollbackResistantRoomStorage(
         require(value.size <= maxPlaintextBytes)
         read()?.fill(0)
         val entry = entryPrefix + UUID.randomUUID().toString().replace("-", "")
-        val sealed = RoomCipher { create -> key(entry, create) }.encrypt(value)
+        val sealed = RoomCipher(aad) { create -> key(entry, create) }.encrypt(value)
         val packed = pack(entry, sealed)
         sealed.fill(0)
         var committed = false
