@@ -441,6 +441,43 @@ class RoomEpochTransitionTest {
         assertFailsWith<IllegalStateException> { live.sendChat("cannot return") }
     }
 
+    @Test fun `told nothing, the authority's 'unknown' is not a removal`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        authorityOnRelay(relay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, refused = "unknown")
+        }
+        val live = session(
+            stable, identity, relay, authority = authority, epochProbe = true,
+            epochGate = { _, _ -> error("nothing to commit") },
+        )
+        live.join()
+        runCurrent()
+        assertIs<RoomEpochState.Active>(live.epochState.value)
+    }
+
+    @Test fun `told the room is ahead, the authority's 'unknown' waits to be let in (kithmoot#207)`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        authorityOnRelay(relay, stable) { request ->
+            encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, refused = "unknown")
+        }
+        val live = session(
+            stable, identity, relay, authority = authority, expectedEpoch = 1,
+            epochGate = { _, _ -> error("nothing to commit") },
+        )
+        launch { live.join() }
+        advanceTimeBy(120_000)
+        runCurrent()
+        val state = assertIs<RoomEpochState.RecoveryNeeded>(live.epochState.value)
+        assertTrue(state.waitingToBeLetIn)
+        assertEquals(WAITING_TO_BE_LET_IN, state.reason)
+        assertTrue(relay.publicationBlocked)
+        live.leave()
+    }
+
     @Test fun `the authority device never asks itself`() = runTest {
         val stable = Fixtures.room()
         val identity = Fixtures.primary(stable, 1, 2)

@@ -394,6 +394,9 @@ internal fun RoomState.withRenameRead(roomId: String, rename: RoomNameRecord): R
 internal fun RoomState.withSharedName(roomId: String, shared: RoomNameRecord): RoomState =
     if (this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
 
+/** Somebody asking to be let into the room: their participant key, and how to name them. */
+data class LetInAsk(val participant: String, val label: String)
+
 data class RoomState(
     val notificationChatRequest: Int = 0,
     /** Bumped to bring the room to its call view: an answered call opens there. */
@@ -536,6 +539,8 @@ data class RoomState(
     val roomUpdate: String? = null,
     /** What went wrong with the room's epochs this visit (`epochTroubleLines`), kept until dismissed. */
     val epochTrouble: List<String> = emptyList(),
+    /** People the room does not know asking to come in, after a removal (kithmoot#207). */
+    val letInAsks: List<LetInAsk> = emptyList(),
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -851,6 +856,7 @@ class RoomViewModel @JvmOverloads constructor(
     private val cadenceClient: CadenceClient = (application as KithMootApplication).cadenceClient
     private val cadenceLeases: CadenceLeaseVault = (application as KithMootApplication).cadenceLeases
     private val roomEpochs: EpochVault = (application as KithMootApplication).roomEpochs
+    private val roomMembers: dev.forgesworn.kithmoot.epoch.RoomMembers = (application as KithMootApplication).roomMembers
     private val display = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
     private val callVolume = CallVolume(SharedPreferencesVolumeStore(display))
     private val selectedWebApp: WebAppAddress get() = WebAppAddress.parse(_start.value.webAppAddress)
@@ -3184,8 +3190,16 @@ class RoomViewModel @JvmOverloads constructor(
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
         }
+        // Once the room has removed somebody, its key goes only to people it knows (kithmoot#207):
+        // this participant, the authority's member list, whoever this device let in, and anybody
+        // in the roster now. Everybody else is asked about.
+        var liveForDesks: RoomSession? = null
+        val known: (String) -> Boolean = { p ->
+            p.equals(who.participant, ignoreCase = true) || roomMembers.knows(record.id, p) || liveForDesks?.hasParticipant(p) == true
+        }
         val epochResponder = epochAuthorityHost?.let {
-            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, record.ends, ::epochSeconds)
+            EpochRecoveryResponder(roomEpochs, record.id, it.inviterSecretKey, derived.roomKey, record.policy, record.ends, ::epochSeconds,
+                known = known, onUnknown = { request -> askToLetIn(record.id, request.participant) })
         }
         // Any member in step at an epoch past 0 can bring another member's device up to date
         // while the authority's device is away (kind 20471/20472). Not on the authority's own
@@ -3200,9 +3214,11 @@ class RoomViewModel @JvmOverloads constructor(
                 secretAt = { roomEpochs.secretAt(record.id, it) },
                 rekeyAt = { roomEpochs.rekeyAt(record.id, it) },
                 removed = { roomEpochs.get(record.id)?.removed.orEmpty() },
+                known = known,
                 closed = { roomEpochs.get(record.id)?.phase == EpochPhase.CLOSED },
                 now = ::epochSeconds,
                 ends = record.ends,
+                onUnknown = { request -> askToLetIn(record.id, request.participant) },
             ).asDesk(Dispatchers.IO)
         }
         val summaries = savedRooms.list()
@@ -3360,6 +3376,7 @@ class RoomViewModel @JvmOverloads constructor(
                 { request -> responder.answer(request) }
             },
             memberEpochDesk = memberDesk,
+            onMembers = { members -> withContext(Dispatchers.IO) { roomMembers.setMembers(record.id, members) } },
             onEpochHistory = if (anonymousProfile || record.authority == null) { _, _ -> } else { secrets, rekeys ->
                 record.authority?.let { authority -> for (rekey in rekeys) peekRekeyEpoch(rekey, record.id, authority)?.let { rekeyTimes[it] = rekey.createdAt } }
                 withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys) }
@@ -3381,6 +3398,7 @@ class RoomViewModel @JvmOverloads constructor(
         sessionScope = scope
         pool = transport
         session = live
+        liveForDesks = live
         identity = who
         roomSecret = secret
         roomInvitation = record.invitation
@@ -3937,7 +3955,8 @@ class RoomViewModel @JvmOverloads constructor(
                         it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = if (it.cadence != null) "Secure room update is waiting for Bothy to retire the old schedule." else "Secure room update in progress.")
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
-                        it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
+                        if (state.waitingToBeLetIn) it.copy(movedOn = state.expectedEpoch, roomUpdate = "letin", notice = null)
+                        else it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Removed -> {
                         roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
@@ -5679,6 +5698,38 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Says something short to the person in the room. Shown once, then cleared. */
     fun showNotice(message: String) = note(message)
+
+    /**
+     * Somebody the room does not know asked this device's desk for the room's key, after the
+     * room removed somebody (kithmoot#207): a newcomer, or a removed person back under a new key.
+     * Shown as a "wants to join" card; nothing is handed over unless this person says yes.
+     */
+    private fun askToLetIn(stableRoom: String, participant: String) {
+        viewModelScope.launch {
+            if (savedRoom?.id != stableRoom) return@launch
+            val p = participant.lowercase()
+            _room.update { state ->
+                if (state.letInAsks.any { it.participant == p }) state
+                else state.copy(letInAsks = state.letInAsks + LetInAsk(p, letInLabel(p)))
+            }
+        }
+    }
+
+    /** A contact's name when this device has one for them, else their short npub. */
+    private fun letInLabel(participant: String): String =
+        runCatching { contacts.get(participant)?.name }.getOrNull()?.takeIf { it.isNotBlank() } ?: shortNpub(participant)
+
+    /** The answer to a "wants to join" card: a yes lets them in from this device. */
+    fun answerLetIn(participant: String, yes: Boolean) {
+        val room = savedRoom ?: return
+        val ask = _room.value.letInAsks.firstOrNull { it.participant == participant } ?: return
+        _room.update { it.copy(letInAsks = it.letInAsks.filterNot { a -> a.participant == participant }) }
+        if (!yes) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { roomMembers.letIn(room.id, participant) }
+            _room.update { it.copy(notice = "You let ${ask.label} in.") }
+        }
+    }
 
     fun dismissEpochTrouble() {
         epochTroubleDismissed += _room.value.epochTrouble.size

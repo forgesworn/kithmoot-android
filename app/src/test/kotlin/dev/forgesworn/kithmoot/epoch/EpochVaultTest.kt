@@ -119,7 +119,9 @@ class EpochVaultTest {
         )
         vault.activate(room, 2, 102)
         val roomKey = dev.forgesworn.kithmoot.protocol.deriveRoom(initial).roomKey
-        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, roomKey, null) { 103 }
+        // The retained member is one the room knows; see the next test for anybody else (#207).
+        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, roomKey, null, now = { 103 },
+            known = { it == retained.participant.lowercase() })
 
         val retainedRequest = encodeEpochRequest(room, authorityPubkey, roomKey, retained.deviceSecretKey, retained.credential, 103)
         val retainedAnswer = requireNotNull(responder.answer(retainedRequest))
@@ -143,6 +145,52 @@ class EpochVaultTest {
             EpochGrant.Refused("closed"),
             decodeEpochGrant(closedAnswer, room, authorityPubkey, retained.deviceSecretKey, closedRequest.id, 104),
         )
+    }
+
+    @Test fun `after a removal the creator answers somebody it does not know 'unknown', once, until they are let in`() {
+        val storage = MemoryStorage()
+        val vault = EpochVault(storage)
+        val authoritySecret = Fixtures.key(62)
+        val authorityPubkey = Schnorr.publicKeyHex(authoritySecret)
+        val removed = Fixtures.primary(Fixtures.room(), 3, 4)
+        val stranger = Fixtures.primary(Fixtures.room(), 7, 8)
+        vault.initialise(room, authorityPubkey, initial, 100)
+        val successor = ByteArray(32) { 14 }
+        vault.beginCatchUp(room, 0, RekeyNotice(1, listOf(removed.participant), null, false, successor, 101, catchUp = true), "aa".repeat(32), null, 101)
+        vault.activate(room, 1, 102)
+        val roomKey = dev.forgesworn.kithmoot.protocol.deriveRoom(initial).roomKey
+        val letIn = mutableSetOf<String>()
+        val asked = mutableListOf<String>()
+        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, roomKey, null, now = { 103 },
+            known = { it in letIn }, members = { listOf(stranger.participant) }, onUnknown = { asked += it.participant })
+
+        val request = encodeEpochRequest(room, authorityPubkey, roomKey, stranger.deviceSecretKey, stranger.credential, 103)
+        val refusal = requireNotNull(responder.answer(request))
+        assertEquals(EpochGrant.Refused("unknown"), decodeEpochGrant(refusal, room, authorityPubkey, stranger.deviceSecretKey, request.id, 103))
+        assertEquals(listOf(stranger.participant), asked)
+        // Asked again while waiting: not answered again, not reported again.
+        assertNull(responder.answer(request))
+        assertEquals(1, asked.size)
+        // Let in: the same request is now granted, and told who the room knows.
+        letIn += stranger.participant.lowercase()
+        val grant = assertIs<EpochGrant.Current>(decodeEpochGrant(requireNotNull(responder.answer(request)), room, authorityPubkey, stranger.deviceSecretKey, request.id, 103))
+        assertEquals(1, grant.epoch)
+        assertEquals(listOf(stranger.participant.lowercase()), grant.members)
+    }
+
+    @Test fun `before anybody is removed the creator answers a newcomer as it always did`() {
+        val storage = MemoryStorage()
+        val vault = EpochVault(storage)
+        val authoritySecret = Fixtures.key(63)
+        val authorityPubkey = Schnorr.publicKeyHex(authoritySecret)
+        val newcomer = Fixtures.primary(Fixtures.room(), 9, 10)
+        vault.initialise(room, authorityPubkey, initial, 100)
+        vault.beginCatchUp(room, 0, RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 15 }, 101, catchUp = true), "aa".repeat(32), null, 101)
+        vault.activate(room, 1, 102)
+        val roomKey = dev.forgesworn.kithmoot.protocol.deriveRoom(initial).roomKey
+        val responder = EpochRecoveryResponder(EpochVault(storage), room, authoritySecret, roomKey, null, now = { 103 }, known = { false })
+        val request = encodeEpochRequest(room, authorityPubkey, roomKey, newcomer.deviceSecretKey, newcomer.credential, 103)
+        assertIs<EpochGrant.Current>(decodeEpochGrant(requireNotNull(responder.answer(request)), room, authorityPubkey, newcomer.deviceSecretKey, request.id, 103))
     }
 
     @Test fun `history keeps the newest 32 epochs and authority rekeys apart from the journal`() {
