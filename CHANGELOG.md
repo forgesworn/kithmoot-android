@@ -3,6 +3,13 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.55] - 2026-10-04
+
+- Run a call as a meeting from your phone. In a room you made, Run as a meeting
+  in the call's More menu turns meeting mode on and off and lists everybody,
+  raised hands first, so you can make people speakers or stop them. Only
+  speakers can talk or show video, on every phone, computer and browser.
+
 ## [0.6.54] - 2026-10-04
 
 - KithMoot can now update itself if you installed it from the downloads page.
