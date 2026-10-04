@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.SENDER_CLOCK_ALLOWANCE_SECONDS
 import org.junit.*
 import org.junit.Assert.*
 
@@ -38,7 +39,8 @@ class ChatNotificationsTest {
         NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)!!.messages
             .map { "${it.person?.name}: ${it.text}" }
     @Test fun privateAlertsCountUnreadAndClearWhenReading() {
-        notices.accept(listOf(message("old", 99), message("self", author = "self")))
+        // History: stamped before the open, beyond the sender clock allowance.
+        notices.accept(listOf(message("old", 100 - SENDER_CLOCK_ALLOWANCE_SECONDS - 1), message("self", author = "self")))
         assertTrue(manager.activeNotifications.isEmpty())
         notices.accept(listOf(message("one")))
         val first = notice()
