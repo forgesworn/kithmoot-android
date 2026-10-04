@@ -100,5 +100,5 @@ run_tests chat-notifications 2 -e class dev.forgesworn.kithmoot.notifications.Ch
 # engine, Keystore-backed and copied software-key profiles, an in-process
 # Ed25519 witness, and the order in which superseded seal keys are deleted.
 run_tests mls-vault-storage 4 -e class dev.forgesworn.kithmoot.storage.MlsVaultStorageTest
-run_tests coordinated-vault 8 -e class \
+run_tests coordinated-vault 11 -e class \
   dev.forgesworn.kithmoot.storage.CoordinatedVaultEngineTest,dev.forgesworn.kithmoot.storage.RollbackKeyOrderTest

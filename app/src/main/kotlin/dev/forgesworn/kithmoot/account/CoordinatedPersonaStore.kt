@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.SealKeyMissingException
 import dev.forgesworn.kithmoot.storage.SealKeys
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -14,6 +15,9 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -166,24 +170,53 @@ internal class PersonaFile(
     }
 }
 
-/** What the marker says. Public at the box: the subject and the writer's node id. */
-internal data class Marker(val fenced: Boolean, val reason: String?, val subject: String?, val writer: String?) {
+/**
+ * What the marker says: everything here is public at the box (the persona's
+ * public key, the subject, the persona installation and the writer's node id).
+ * A marker proves a coordinated file existed, so a missing file beside it is
+ * never a fresh start; it also keeps the subject for the keeper's
+ * `bothyd witness retire --subject` line after a fence or a clear, and lists
+ * every retired subject and installation so neither is ever reused.
+ */
+internal data class Marker(
+    val persona: String?,
+    val state: State,
+    val reason: String?,
+    val subject: String?,
+    val writer: String?,
+    val installation: String?,
+    val retired: List<Tombstone> = emptyList(),
+) {
+    enum class State(val wire: String) { Genesis("genesis"), Fenced("fenced"), Superseded("superseded") }
+    data class Tombstone(val subject: String?, val installation: String?)
+
+    val fenced: Boolean get() = state == State.Fenced
+
     fun encode(): ByteArray = buildJsonObject {
-        put("v", 1)
-        put("state", if (fenced) "fenced" else "genesis")
-        put("reason", reason?.let(::JsonPrimitive) ?: JsonNull)
-        put("subject", subject?.let(::JsonPrimitive) ?: JsonNull)
-        put("writer", writer?.let(::JsonPrimitive) ?: JsonNull)
+        put("v", 2)
+        put("persona", persona.json())
+        put("state", state.wire)
+        put("reason", reason.json())
+        put("subject", subject.json())
+        put("writer", writer.json())
+        put("installation", installation.json())
+        put("retired", buildJsonArray {
+            retired.forEach { add(buildJsonObject { put("subject", it.subject.json()); put("installation", it.installation.json()) }) }
+        })
     }.toString().toByteArray(Charsets.UTF_8)
 
     companion object {
+        private fun String?.json() = this?.let(::JsonPrimitive) ?: JsonNull
+
         fun decode(value: ByteArray): Marker {
             val json = Json.parseToJsonElement(value.toString(Charsets.UTF_8)).jsonObject
-            require(json.getValue("v").jsonPrimitive.long == 1L)
-            val state = json.getValue("state").jsonPrimitive.content
-            require(state == "fenced" || state == "genesis")
-            fun text(name: String) = (json[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            return Marker(state == "fenced", text("reason"), text("subject"), text("writer"))
+            require(json.getValue("v").jsonPrimitive.long == 2L)
+            fun JsonObject.text(name: String) = (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val state = State.entries.single { it.wire == json.text("state") }
+            return Marker(
+                json.text("persona"), state, json.text("reason"), json.text("subject"), json.text("writer"), json.text("installation"),
+                json.getValue("retired").jsonArray.map { it.jsonObject.let { t -> Tombstone(t.text("subject"), t.text("installation")) } },
+            )
         }
     }
 }
@@ -246,11 +279,11 @@ internal class CoordinatedPersonaStore(
     fun writeMarker(marker: Marker) = guarded { markerStore.write(marker.encode()) }
     fun deleteMarker() = guarded { markerStore.delete() }
 
-    /** Switches the marker to fenced; only its state changes. */
+    /** Switches the marker to fenced, keeping its subject; an earlier fence's reason stands. */
     fun fenceMarker(reason: String) {
         val current = try { marker() } catch (_: MlsVaultUnavailableException) { null }
         if (current?.fenced == true) return
-        writeMarker(Marker(true, reason, current?.subject, current?.writer))
+        writeMarker(current?.copy(state = Marker.State.Fenced, reason = reason) ?: Marker(persona, Marker.State.Fenced, reason, null, null, null))
     }
 
     // ---- the inner key ----
@@ -306,7 +339,8 @@ internal class CoordinatedPersonaStore(
             var cause: Throwable? = error
             var depth = 0
             while (cause != null && depth++ < 8) {
-                if (cause is SealKeyMissingException || cause is AEADBadTagException) return true
+                // A key invalidated by the platform never comes back: as definitive as an absent alias.
+                if (cause is SealKeyMissingException || cause is AEADBadTagException || cause is KeyPermanentlyInvalidatedException) return true
                 cause = cause.cause
             }
             return false

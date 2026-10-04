@@ -75,17 +75,22 @@ internal class PersonaCoordination<V>(
     suspend fun open(): Gate {
         justRead = false
         val marker = store.marker()
-        if (marker?.fenced == true) return fenced(marker.reason ?: MISSING_SEAL_KEY)
         val current = when (val read = store.read()) {
             FileRead.Missing -> {
                 drop()
-                // Never "file missing, start fresh": a marker says a file existed.
-                if (marker != null) throw MlsVaultUnavailableException(IllegalStateException("The coordinated persona file is missing"))
-                return Gate.NotEnrolled
+                return when {
+                    marker == null || marker.state == Marker.State.Superseded -> Gate.NotEnrolled
+                    marker.fenced -> fenced(marker.reason ?: MISSING_FILE)
+                    // Never "file missing, start fresh": the marker proves a
+                    // file existed. Fenced and persisted, so the retire line shows.
+                    else -> { store.fenceMarker(MISSING_FILE); fenced(MISSING_FILE) }
+                }
             }
             FileRead.SealLost -> return sealLost()
             is FileRead.Present -> read.file
         }
+        // A marker fence is terminal evidence; only a cleared file is still opened, for its duty.
+        if (marker?.fenced == true && marker.reason != CLEARED) { drop(); return fenced(marker.reason ?: MISSING_SEAL_KEY) }
         val open = coordinator
         if (open != null && current.revision == revision) {
             file?.wipe()
@@ -243,12 +248,17 @@ internal class PersonaCoordination<V>(
 
     // ---- genesis, status, clear and the retiring duty ----
 
-    /** Mints and persists the persona's own installation id before any pairing (PR 5 adds the seed). */
-    fun prepare(): ByteArray {
+    /**
+     * Mints and persists the persona's own installation id before any pairing
+     * (PR 5 adds the seed). Null while a marker stands that was not
+     * superseded: an earlier installation's subject may still be live at the box.
+     */
+    fun prepare(): ByteArray? {
+        val marker = store.marker()
         when (val read = store.read()) {
-            is FileRead.Present -> return read.file.installation.copyOf()
-            FileRead.SealLost -> throw MlsVaultUnavailableException(IllegalStateException("The persona's coordinated file is fenced; clear it first"))
-            FileRead.Missing -> Unit
+            is FileRead.Present -> return read.file.takeIf { it.state == null && mayEnrol(marker, it) }?.installation?.copyOf()
+            FileRead.SealLost -> return null
+            FileRead.Missing -> if (marker != null && marker.state != Marker.State.Superseded) return null
         }
         drop()
         val fresh = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2)
@@ -263,14 +273,20 @@ internal class PersonaCoordination<V>(
      */
     fun genesis(subject: ByteArray, witnessKey: ByteArray): CoordinationGenesis? {
         require(subject.size == 32 && witnessKey.size == 32)
-        prepare()
+        prepare() ?: return null
         val current = (store.read() as? FileRead.Present)?.file ?: throw MlsVaultUnavailableException(IllegalStateException("The persona was not prepared"))
         if (current.state != null) return null
+        val marker = store.marker()
+        // An interrupted genesis's subject was never shown to the keeper; it is still never reused.
+        val retired = marker?.retired.orEmpty() +
+            listOfNotNull(marker?.takeIf { it.state == Marker.State.Genesis }?.let { Marker.Tombstone(it.subject, it.installation) })
+        val installation = current.installation.toHex()
+        if (retired.any { it.subject == subject.toHex() || it.installation == installation }) return null
         drop()
         val genesis = guarded { witness.genesis(subject, current.installation, witnessKey, emptyList()) }
         store.newInnerKey()
         // The marker first: from here a missing file is never a fresh start.
-        store.writeMarker(Marker(false, null, subject.toHex(), null))
+        store.writeMarker(Marker(persona, Marker.State.Genesis, null, subject.toHex(), null, installation, retired))
         persist(current.next(state = genesis.state))
         drop()
         snapshot = null
@@ -288,10 +304,11 @@ internal class PersonaCoordination<V>(
     }
 
     /**
-     * `clear()` of a coordinated persona: `installation_replaced`, then the
-     * state, seed and route stay until a signed `retired` ends the duty. With
-     * no duty standing there is nothing to wait for, so everything goes now.
-     * A fenced marker stays, so the keeper's retire line can still be shown.
+     * `clear()` of a coordinated persona: `installation_replaced`. While a
+     * retiring duty stands, the state, seed and route stay until a signed
+     * `retired` ends it. Either way the marker is fenced `cleared` and keeps
+     * the subject, so the keeper is shown `bothyd witness retire --subject`;
+     * re-enrolment then waits for [supersede] or the duty's signed `retired`.
      */
     suspend fun clear() {
         snapshot = null
@@ -300,7 +317,8 @@ internal class PersonaCoordination<V>(
             FileRead.Missing -> {
                 drop()
                 runCatching { store.deleteInnerKey() }
-                if (marker != null && !marker.fenced) store.deleteMarker()
+                // The marker proves a file existed: fence it, never drop it.
+                if (marker != null && marker.state == Marker.State.Genesis) store.fenceMarker(MISSING_FILE)
             }
             FileRead.SealLost -> {
                 // The seed is lost with the file: only the keeper's retire is left.
@@ -312,7 +330,11 @@ internal class PersonaCoordination<V>(
             is FileRead.Present -> {
                 val current = read.file
                 val state = current.state
-                if (state == null) return deleteAll()
+                if (state == null) {
+                    // Prepared only: nothing was ever witnessed under it.
+                    drop(); store.delete(); runCatching { store.deleteInnerKey() }
+                    return
+                }
                 val c = coordinator?.takeIf { revision == current.revision }
                     ?: guarded { witness.open(state, entries(current.active), current.staged?.let(::entries)) }.also {
                         drop()
@@ -321,12 +343,47 @@ internal class PersonaCoordination<V>(
                         revision = current.revision
                     }
                 guarded { c.installationReplaced() }
-                if (!c.retiring()) return deleteAll()
+                store.fenceMarker(CLEARED)
+                if (!c.retiring()) {
+                    drop(); store.delete(); runCatching { store.deleteInnerKey() }
+                    return
+                }
                 persist(current.next(state = guarded { c.state() }, active = emptyMap(), staged = null, cleared = true))
                 runCatching { store.deleteInnerKey() }
                 retiringDuty()
             }
         }
+    }
+
+    /**
+     * The keeper's way out after a clear or a fence: they confirm, by naming
+     * it, that [retiredSubject] was retired at the box. Only then is the old
+     * installation (state, seed, route, keys) deleted, its subject and
+     * installation recorded as tombstones never to be reused, and a fresh
+     * enrolment allowed. Refused unless the marker is fenced and names exactly
+     * that subject, so a healthy persona must be cleared first.
+     */
+    fun supersede(retiredSubject: String): Boolean {
+        val marker = store.marker() ?: return false
+        if (marker.state == Marker.State.Superseded) return marker.retired.any { it.subject == retiredSubject }
+        if (!marker.fenced || marker.subject == null || marker.subject != retiredSubject) return false
+        val installation = (store.read() as? FileRead.Present)?.file?.installation?.toHex() ?: marker.installation
+        retireLocally(marker, installation)
+        return true
+    }
+
+    /** Deletes the old installation and keeps only its tombstone in the marker. */
+    private fun retireLocally(marker: Marker, installation: String?) {
+        drop()
+        snapshot = null
+        store.delete()
+        runCatching { store.deleteInnerKey() }
+        store.writeMarker(
+            marker.copy(
+                state = Marker.State.Superseded, reason = null, writer = null,
+                retired = marker.retired + Marker.Tombstone(marker.subject, installation ?: marker.installation),
+            ),
+        )
     }
 
     /** The retiring duty (§4.2): at every open and on the app's foreground timer, fenced or not. */
@@ -341,7 +398,11 @@ internal class PersonaCoordination<V>(
             decision = guarded { c.onRetiring(advance(advance)) }
             persistState(c)
         }
-        if (decision is WitnessDecision.Retired && decision.dutyEnded && file?.cleared == true) deleteAll()
+        // A signed `retired` for a replaced installation is the box's own proof: the old state may go.
+        if (decision is WitnessDecision.Retired && decision.dutyEnded && file?.cleared == true) {
+            val marker = store.marker() ?: Marker(persona, Marker.State.Fenced, CLEARED, null, null, null)
+            retireLocally(marker, file?.installation?.toHex())
+        }
     }
 
     /** Opens the persona if this process has not, then runs its duty. */
@@ -351,15 +412,6 @@ internal class PersonaCoordination<V>(
     }
 
     // ---- inside ----
-
-    /** Deletes the file, its keys and the marker; a fenced marker stays for the keeper's retire line. */
-    private fun deleteAll() {
-        drop()
-        snapshot = null
-        store.delete()
-        runCatching { store.deleteInnerKey() }
-        if (store.marker()?.fenced != true) store.deleteMarker()
-    }
 
     private fun promotedPlain(): ByteArray? {
         val current = file ?: return null
@@ -429,6 +481,15 @@ internal class PersonaCoordination<V>(
     companion object {
         const val MISSING_SEAL_KEY = "missing-seal-key"
         const val INSTALLATION_REPLACED = "installation-replaced"
+        const val MISSING_FILE = "missing-file"
+        const val CLEARED = "cleared"
+
+        /** An interrupted genesis may be retried: the marker names exactly this prepared installation. */
+        internal fun mayEnrol(marker: Marker?, file: PersonaFile): Boolean = when {
+            marker == null || marker.state == Marker.State.Superseded -> true
+            marker.state == Marker.State.Genesis -> marker.installation == file.installation.toHex()
+            else -> false
+        }
         /** C4: the whole persona record is one vault entry. */
         val RECORD_ID: ByteArray = "persona".toByteArray(Charsets.US_ASCII)
         val RECORD_HEX: String = RECORD_ID.toHex()

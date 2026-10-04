@@ -474,10 +474,27 @@ class MlsVault(
 
     // ---- coordination (P3-03b-2) ----
 
-    /** Mints and persists the persona's own installation id before any pairing; answers it in hex. */
-    suspend fun prepareCoordination(persona: String): String {
+    /**
+     * Mints and persists the persona's own installation id before any pairing;
+     * answers it in hex. Refused while an earlier installation's marker
+     * stands that was not superseded.
+     */
+    suspend fun prepareCoordination(persona: String): VaultResult<String> {
         val coordinated = coord(persona)
-        return coordinated.store.lock.withLock { coordinated.prepare().toHex() }
+        return coordinated.store.lock.withLock { coordinated.prepare()?.toHex() }
+            ?.let { VaultResult.Ok(it) } ?: refuse(VaultRefusal.Unauthorised)
+    }
+
+    /**
+     * The keeper confirms, by naming it, that the persona's old subject was
+     * retired at the box (`bothyd witness retire --subject …`). Only a
+     * cleared or fenced persona whose marker names exactly [retiredSubject]
+     * proceeds: its old installation is deleted, its ids are kept as
+     * tombstones never to be reused, and a fresh enrolment is allowed.
+     */
+    suspend fun supersedeCoordination(persona: String, retiredSubject: String): VaultResult<Unit> {
+        val coordinated = coord(persona)
+        return if (coordinated.store.lock.withLock { coordinated.supersede(retiredSubject) }) VaultResult.Ok(Unit) else refuse(VaultRefusal.Unauthorised)
     }
 
     /**
@@ -498,12 +515,29 @@ class MlsVault(
         return coordinated.store.lock.withLock { coordinated.status(check) }
     }
 
-    /** The retiring duty for each of the app's [known] personas: for the foreground timer. It also runs at every open. */
-    suspend fun runRetiringDuties(known: Collection<String>) {
-        for (persona in known) {
-            val coordinated = coord(persona)
-            coordinated.store.lock.withLock { coordinated.duty() }
+    /**
+     * The retiring duty for every coordinated persona on disk, found by its
+     * marker: for the app's foreground timer (it also runs at every open). A
+     * persona that fails does not stop the others; failures are answered by
+     * file name.
+     */
+    suspend fun runRetiringDuties(): Map<String, Exception> {
+        val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
+        val failures = linkedMapOf<String, Exception>()
+        for (name in guarded { coordinated.stores.coordinatedNames() }) {
+            try {
+                val persona = coordinated.stores.marker(name).read()?.let(Marker::decode)?.persona
+                    ?: throw IllegalStateException("No marker names this persona")
+                check(locked { coordName(persona) } == name) { "The marker names another persona" }
+                val entry = coord(persona)
+                entry.store.lock.withLock { entry.duty() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                failures[name] = error
+            }
         }
+        return failures
     }
 
     private suspend fun coord(persona: String): PersonaCoordination<EnrolledDevice> {
@@ -543,7 +577,8 @@ class MlsVault(
         record.journal.removeAll { it.deadline < at }
         if (record.journal.size >= MAX_JOURNAL_RECORDS) return refuse(VaultRefusal.Busy)
         record.journal.add(entry)
-        seal(record)
+        // Persisted by the caller's change: sealed under the vault lock, or
+        // in coordinated mode staged and witnessed. Never written here.
         return VaultResult.Ok(Unit)
     }
 
@@ -646,6 +681,7 @@ class MlsVault(
     /** Opens the persona's record; a missing one is null, an unreadable one
      * throws: never a silent fallback (§6.1). Call under the lock. */
     private fun open(persona: String): PersonaRecord? {
+        check(coordination == null) { "A coordinated vault never reads the uncoordinated persona store." }
         val bytes = guarded { stores.open(personaName(persona), personaAad(persona)).read() } ?: return null
         try {
             return guarded { PersonaRecord.decode(bytes, persona) }
@@ -655,6 +691,7 @@ class MlsVault(
     }
 
     private fun seal(record: PersonaRecord) {
+        check(coordination == null) { "A coordinated vault never writes the uncoordinated persona store." }
         val bytes = record.encode()
         try {
             guarded { stores.open(personaName(record.persona), personaAad(record.persona)).write(bytes) }
@@ -762,11 +799,18 @@ class MlsVaultUnavailableException(cause: Exception) : Exception("The MLS vault 
 // ---- public shapes ----
 
 /** The stable refusal strings of §6.2. */
-enum class VaultRefusal(val wire: String) {
+enum class VaultRefusal(
+    /** The §6.2 refusal string; null for an Android-only refusal that never goes on any wire. */
+    val wire: String?,
+) {
     Unsupported("unsupported"), Malformed("malformed"), Unauthorised("unauthorised"), Expired("expired"),
     Revoked("revoked"), Denied("denied"), Busy("busy"), Stale("stale"), Replay("replay"), RestoreFenced("restore-fenced"),
-    /** Coordinated mode: the witness has not confirmed this write (or the persona's state) yet; nothing was signed or released. */
-    WitnessPending("witness-pending"),
+    /**
+     * Coordinated mode, Kotlin-only: the witness has not confirmed this write
+     * (or the persona's state) yet; nothing was signed or released. It has no
+     * §6.2 string, so an adapter must never serialise it as a refusal.
+     */
+    WitnessPending(null),
 }
 
 sealed class VaultResult<out T> {

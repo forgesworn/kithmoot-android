@@ -117,11 +117,13 @@ class CoordinatedVaultEngineTest {
         val replayed = (restarted.signLeafBindingV1(again, req, ConsentPrompt { error("a replay never prompts") }) as VaultResult.Ok).value
         assertEquals(reply.signature, replayed.signature)
         assertEquals(2L, witness.seq(genesis.subject))
-        // Nothing on disk names the persona or the device.
-        for (file in context.noBackupFilesDir.listFiles().orEmpty().filter { it.name.startsWith("$prefix.") }) {
-            val text = String(file.readBytes(), Charsets.ISO_8859_1)
-            assertFalse(file.name.contains(identity.pubkey) || text.contains(identity.pubkey) || text.contains(device.device))
-        }
+        // Exactly the coordinated files: never the uncoordinated persona store.
+        val names = context.noBackupFilesDir.listFiles().orEmpty().map { it.name }.filter { it.startsWith("$prefix.") }.toSet()
+        val coord = names.single { it.endsWith(".vault") && it.startsWith("$prefix.coord.") }.removeSuffix(".vault")
+        assertEquals(
+            setOf("$prefix.installation.vault", "$prefix.epoch.vault", "$coord.vault", "$coord.marker", "$coord.lock"),
+            names,
+        )
     }
 
     @Test fun a_witness_signing_with_another_key_never_confirms() = runBlocking<Unit> {
@@ -185,7 +187,31 @@ class CoordinatedVaultEngineTest {
         assertEquals(CoordinationStatus.Fenced("missing-seal-key", genesis.subject), restored.coordinationStatus(identity.pubkey))
         val marker = File(file.path.removeSuffix(".vault") + ".marker").readText()
         assertTrue(marker.contains("\"fenced\"") && marker.contains(genesis.subject))
-        assertFalse(marker.contains(identity.pubkey))
+    }
+
+    @Test fun a_witness_behind_is_retired_and_a_cleared_persona_keeps_its_duty_until_retired() = runBlocking<Unit> {
+        val stores = keystoreStores()
+        val v = vault(stores)
+        val genesis = enrolAtBox(v)
+        enrolDevice(v)
+        // The witness lost state: it is back at genesis.
+        witness.subjects.getValue(genesis.subject).seq = 0
+        val reopened = vault(stores)
+        assertEquals(CoordinationStatus.Fenced("witness-behind", genesis.subject), reopened.coordinationStatus(identity.pubkey))
+        // The retiring read and advance ran at open, with the engine: the subject is retired.
+        assertTrue(witness.subjects.getValue(genesis.subject).retired)
+        witness.mode = FakeEd25519Witness.Mode.Down
+        reopened.clear(identity.pubkey)
+        assertTrue(coordinatedFile().exists())
+        // A fresh vault reopens the cleared file and stays fenced until the duty ends.
+        val cleared = vault(stores)
+        assertTrue(cleared.coordinationStatus(identity.pubkey) is CoordinationStatus.Fenced)
+        assertEquals(VaultResult.Refused(VaultRefusal.Unauthorised), cleared.beginCoordination(identity.pubkey, bytes(32), witness.publicKey))
+        witness.mode = FakeEd25519Witness.Mode.Up
+        assertEquals(emptyMap<String, Exception>(), cleared.runRetiringDuties())
+        assertTrue(context.noBackupFilesDir.listFiles().orEmpty().none { it.name.startsWith("$prefix.coord.") && it.name.endsWith(".vault") })
+        assertEquals(CoordinationStatus.NotEnrolled, cleared.coordinationStatus(identity.pubkey))
+        enrolAtBox(cleared)
     }
 
     private fun coordinatedFile(): File =
