@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import dev.forgesworn.kithmoot.account.shortNpub
@@ -258,7 +259,8 @@ fun ChatPane(
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                Text(if (r.retracted) "Message retracted" else message.body, style = MaterialTheme.typography.bodyLarge,
+                                // A link takes its own tap; anywhere else the bubble's tap and hold still open reactions.
+                                Text(if (r.retracted) AnnotatedString("Message retracted") else linkedMessage(message.body, MaterialTheme.colorScheme.primary), style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
                                     TextButton(onClick = { expandedImage = attachment }) {
