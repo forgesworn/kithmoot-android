@@ -35,6 +35,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     /** Debug builds only (P3-03b-2): null hides the row. */
     onRestoreWitness: (() -> Unit)? = null,
+    /** In-app updates: version, the automatic-check switch and any update on offer. */
+    updateSettings: (@Composable () -> Unit)? = null,
 ) {
     var relaysOpen by remember { mutableStateOf(false) }
     var profileOpen by remember { mutableStateOf(false) }
@@ -95,6 +97,14 @@ fun SettingsScreen(
                 SettingsRow("Nostr relays", if (issues > 0) "${issues} ${if (issues == 1) "needs" else "need"} attention" else null) { relaysOpen = true }
                 onRestoreWitness?.let { SettingsRow("Restore witness", "Debug build: enrol this account's vault at your Bothy box", it) }
                 SettingsRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
+            }
+
+            updateSettings?.let {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Updates", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.semantics { heading() })
+                    it()
+                }
             }
 
             Text(

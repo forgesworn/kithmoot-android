@@ -1,0 +1,121 @@
+{
+  "description": "Signed update manifests: Ed25519 over \"kithmoot/v1/update-manifest\\n\" + label + \"\\n\" + the manifest bytes, signature base64 in the .sig file. See docs/updates.md.",
+  "trustedKeys": [
+    "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+  ],
+  "untrustedKeyForReference": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+  "cases": [
+    {
+      "description": "downloads/release.json: signed by the trusted key",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "SrYIawo74HfWgWnp8lQ9wHWndq0HJc0BocTRWhnsn4rAB9M7a7DVdAeKutoEACadcscCTAs88ECH+KCsBoRXAw==",
+      "valid": true
+    },
+    {
+      "description": "downloads/release.json: one byte of the manifest changed",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"versioN\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "SrYIawo74HfWgWnp8lQ9wHWndq0HJc0BocTRWhnsn4rAB9M7a7DVdAeKutoEACadcscCTAs88ECH+KCsBoRXAw==",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: trailing newline removed",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}",
+      "signature": "SrYIawo74HfWgWnp8lQ9wHWndq0HJc0BocTRWhnsn4rAB9M7a7DVdAeKutoEACadcscCTAs88ECH+KCsBoRXAw==",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: one bit of the signature flipped",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "SrYIawo74HfWgWjp8lQ9wHWndq0HJc0BocTRWhnsn4rAB9M7a7DVdAeKutoEACadcscCTAs88ECH+KCsBoRXAw==",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: signed by a key the app does not trust",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "yJ+WIadqEgITnJgsy9UZCIPLV3UKIHrZthreYE/dAliphfQlMTyJ5uE+Ge+eke3lZWqo06C0E4syGisjNsS5DQ==",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: signature made for the other manifest",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "1L7i7dhzJxH+Gb32ONeHxBL/vJuGn2bSEuBhZAn+FO7vtCKvkhP4tKRWVYDN6/2LOphP5AmfAchupE0fyQM7AQ==",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: signature truncated",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "SrYIawo74HfWgWnp8lQ9wHWndq0HJc0BocTRWhnsn4rAB9M7a7DVdAeKutoEACadcscCTAs88ECH+KCs",
+      "valid": false
+    },
+    {
+      "description": "downloads/release.json: signature not base64",
+      "label": "downloads/release.json",
+      "manifest": "{\n  \"version\": \"0.2.0\",\n  \"files\": [\n    {\"filename\": \"KithMoot-0.2.0-windows-x64.zip\", \"version\": \"0.2.0\", \"sha256\": \"abababababababababababababababababababababababababababababababab\", \"bytes\": 1000}\n  ]\n}\n",
+      "signature": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: signed by the trusted key",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "lF5XWjk1GqnGuPehbtzxxZ8MTIF4mFLBry415XcmL0SkCxrwvn2UNvuy/kPT+VhofdpVueexAnOiPJvx6ilSDg==",
+      "valid": true
+    },
+    {
+      "description": "android-release.json: one byte of the manifest changed",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versioNName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "lF5XWjk1GqnGuPehbtzxxZ8MTIF4mFLBry415XcmL0SkCxrwvn2UNvuy/kPT+VhofdpVueexAnOiPJvx6ilSDg==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: trailing newline removed",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}",
+      "signature": "lF5XWjk1GqnGuPehbtzxxZ8MTIF4mFLBry415XcmL0SkCxrwvn2UNvuy/kPT+VhofdpVueexAnOiPJvx6ilSDg==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: one bit of the signature flipped",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "lF5XWjk1GqnGuPahbtzxxZ8MTIF4mFLBry415XcmL0SkCxrwvn2UNvuy/kPT+VhofdpVueexAnOiPJvx6ilSDg==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: signed by a key the app does not trust",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "3QryKzYI4Y+aWPeDk44M7ey7BB5NLNRI3nVIBW1ZZog5uSJ3SOn0yjf/JvaFW265mhoZHJmnZpqXVKDCI7WpDA==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: signature made for the other manifest",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "YSEyvgf3xBXTIB7WPePu2bGVXawd/DJWvtX4Vz8i+pRabGsRixuJo7kkCjU9KNkrEOKuMiBh1Ejs8cTyR8oxAw==",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: signature truncated",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "lF5XWjk1GqnGuPehbtzxxZ8MTIF4mFLBry415XcmL0SkCxrwvn2UNvuy/kPT+VhofdpVueexAnOiPJvx",
+      "valid": false
+    },
+    {
+      "description": "android-release.json: signature not base64",
+      "label": "android-release.json",
+      "manifest": "{\n  \"schemaVersion\": 1,\n  \"applicationId\": \"dev.forgesworn.kithmoot\",\n  \"versionName\": \"0.7.0\",\n  \"versionCode\": 80,\n  \"apkSha256\": \"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\n  \"apkBytes\": 2000,\n  \"downloadFilename\": \"kithmoot-0.7.0-production.apk\"\n}\n",
+      "signature": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!==",
+      "valid": false
+    }
+  ]
+}

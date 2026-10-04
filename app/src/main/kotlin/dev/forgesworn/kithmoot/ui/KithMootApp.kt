@@ -332,6 +332,7 @@ fun KithMootApp(
         return
     }
 
+    val updates = (context.applicationContext as dev.forgesworn.kithmoot.KithMootApplication).updates
     val atRiskRooms by model.reachability.collectAsState()
     val confirmingCalls by model.renewingCalls.collectAsState()
     val ringingOff by model.ringingOff.collectAsState()
@@ -466,7 +467,9 @@ fun KithMootApp(
                     rooms = model::availableProjectRooms,
                 )
                 when (homePage) {
-                    HomePage.ROOMS -> StartScreen(
+                    HomePage.ROOMS -> Column(Modifier.padding(padding)) {
+                      dev.forgesworn.kithmoot.update.UpdateNotice(updates)
+                      StartScreen(
                         state = startState,
                         onRoomNameChanged = model::onRoomNameChanged,
                         onJoinUrlChanged = model::onJoinUrlChanged,
@@ -493,7 +496,7 @@ fun KithMootApp(
                             importRooms = model::importAccountRooms,
                         ),
                         projects = homeProjectActions,
-                        modifier = Modifier.padding(padding),
+                        modifier = Modifier.weight(1f),
                         callRoomId = callRoomId,
                         onStopOpening = model::stopOpening,
                         onOpenProjects = { homePage = HomePage.PROJECTS },
@@ -503,7 +506,8 @@ fun KithMootApp(
                                 model.inviteLinkFor(id)?.let { link -> share(context, link, "Send invite link") }
                             }
                         },
-                    )
+                      )
+                    }
                     HomePage.SETTINGS -> SettingsScreen(
                         state = startState,
                         signIn = homeAccountActions,
@@ -519,6 +523,7 @@ fun KithMootApp(
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
                         onBack = { homePage = HomePage.ROOMS },
                         onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
+                        updateSettings = { dev.forgesworn.kithmoot.update.UpdateSettings(updates) },
                     )
                     HomePage.RESTORE_WITNESS -> restoreWitness?.let {
                         dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = witnessFrom })

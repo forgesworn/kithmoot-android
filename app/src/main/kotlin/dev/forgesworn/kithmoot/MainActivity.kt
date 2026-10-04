@@ -241,6 +241,12 @@ class MainActivity : ComponentActivity() {
                 }
                 val onScreen by visible.collectAsState()
                 LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
+                // Update checks run only on screen; installing ends the
+                // process, so never while a call is joined or joining.
+                val updates = (application as KithMootApplication).updates
+                LaunchedEffect(onScreen) { updates.onForeground(onScreen) }
+                val callActive = answeringNow || callStage == Stage.ROOM && (callRoom.onCall || callRoom.callJoinPending || callRoom.callChanging)
+                LaunchedEffect(callActive) { updates.setCallActive(callActive) }
                 // Ring when KithMoot is closed is on by default (see
                 // `service/BackgroundRingSettings.kt`), so most installs
                 // reach the service through here rather than the Settings
