@@ -72,6 +72,9 @@ class G5ProductJourneyTest {
             "bob-background-pending-stage" -> bobBackgroundPendingStage()
             "alice-background-pending-receive" -> aliceBackgroundPendingReceive()
             "bob-background-open" -> bobBackgroundOpen()
+            "alice-two-relay-room" -> aliceTwoRelayRoom()
+            "bob-two-relay-join" -> bobTwoRelayJoin()
+            "alice-two-relay-send" -> aliceTwoRelaySend()
             else -> throw AssertionError("unknown G5 product action")
         }
     }
@@ -464,6 +467,56 @@ class G5ProductJourneyTest {
         put("bob-background-opened", buildJsonObject {
             put("room", room); put("unreadBeforeOpen", unreadBefore); put("displayedOnce", true)
         })
+    }
+
+    /** P4-02 N-E04: an unpaired room on two of the fixture's relays. A paired
+     *  room has exactly one, the box's, so this is the room a message can
+     *  reach Bob over two relays in. */
+    private fun aliceTwoRelayRoom() {
+        val model = model()
+        restoreSignIn(model)
+        val relays = listOf(ready().getValue("introduction_relay_url").jsonPrimitive.content,
+            ready().getValue("second_relay_url").jsonPrimitive.content)
+        activity.scenario.onActivity {
+            model.onRelaysChanged(relays.joinToString("\n"))
+            model.onRoomNameChanged("N-E04 two relays")
+            model.startRoom()
+        }
+        await("Alice's two-relay room") { model.stage.value == Stage.ROOM && model.room.value.roomId.isNotBlank() }
+        val room = model.room.value.roomId
+        assertEquals(relays, application().savedRooms.get(room)?.relays)
+        put("two-relay-room", buildJsonObject { put("url", model.room.value.joinUrl); put("room", room) })
+    }
+
+    private fun bobTwoRelayJoin() {
+        val model = model()
+        restoreSignIn(model)
+        val invited = awaitValue("two-relay-room")
+        val room = invited.getValue("room").jsonPrimitive.content
+        activity.scenario.onActivity { model.joinFromUrl(invited.getValue("url").jsonPrimitive.content) }
+        await("Bob's two-relay room", details = {
+            "stage=${model.stage.value}; busy=${model.start.value.busy}; error=${model.start.value.error}"
+        }) { model.stage.value == Stage.ROOM && model.room.value.roomId == room }
+        // A joiner keeps the link's relays and adds their own; Alice sends on her two.
+        val fixtureRelays = listOf(ready().getValue("introduction_relay_url").jsonPrimitive.content,
+            ready().getValue("second_relay_url").jsonPrimitive.content)
+        assertTrue(application().savedRooms.get(room)?.relays.orEmpty().containsAll(fixtureRelays))
+        put("bob-two-relay-joined", buildJsonObject { put("room", room) })
+    }
+
+    private fun aliceTwoRelaySend() {
+        val index = requireNotNull(arguments.getString("background_index"))
+        val body = "$BACKGROUND_MESSAGE $index"
+        val model = model()
+        restoreSignIn(model)
+        val room = awaitValue("two-relay-room").getValue("room").jsonPrimitive.content
+        open(model, room, privateConversation = false)
+        await("Alice's two-relay room on both relays") { model.room.value.relaysUp == 2 }
+        activity.scenario.onActivity { model.sendChat(body) }
+        await("Alice's two-relay message $index", details = {
+            "relaysUp=${model.room.value.relaysUp}; sending=${model.room.value.chatSending}; error=${model.room.value.chatSendError}"
+        }) { !model.room.value.chatSending && !model.room.value.chatPending && model.room.value.chat.any { it.body == body } }
+        put("alice-two-relay-sent-$index", buildJsonObject { put("room", room) })
     }
 
     private fun application() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as KithMootApplication
