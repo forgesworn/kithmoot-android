@@ -68,9 +68,9 @@ internal class PersonaFile(
     val revision: Long,
     /** The persona's own 32-byte installation id, minted before pairing. */
     val installation: ByteArray,
-    /** The writer's Link seed (PR 5 fills it). */
+    /** The writer's Link seed, minted with [installation] before any pairing. */
     val writerSeed: ByteArray?,
-    /** The persona's own witness route (PR 5 fills it). */
+    /** The persona's own witness route, from the keeper's witness-only pairing code. */
     val witnessRoute: StoredLinkRoute?,
     /** The coordinator's `state()` bytes; null until genesis. */
     val state: ByteArray?,
@@ -87,6 +87,12 @@ internal class PersonaFile(
         staged: Map<String, ByteArray>? = this.staged,
         cleared: Boolean = this.cleared,
     ) = PersonaFile(persona, revision + 1, installation, writerSeed, witnessRoute, state, active, staged, cleared)
+
+    /** The same installation with its writer seed (a file prepared before seeds existed). */
+    fun seeded(seed: ByteArray) = PersonaFile(persona, revision + 1, installation, seed, witnessRoute, state, active, staged, cleared)
+
+    /** The same installation, paired with its witness. */
+    fun paired(route: StoredLinkRoute) = PersonaFile(persona, revision + 1, installation, writerSeed, route, state, active, staged, cleared)
 
     fun wipe() { writerSeed?.fill(0) }
 
@@ -129,9 +135,14 @@ internal class PersonaFile(
         const val FORMAT: Byte = 1
         private const val MAX_FIELD = 8 * 1024 * 1024
 
-        /** A new installation's file. Its revision starts at random, so a coordinator cached for an earlier incarnation never matches it. */
-        fun fresh(persona: String, installation: ByteArray, revision: Long) =
-            PersonaFile(persona, revision, installation, null, null, null, emptyMap(), null, false)
+        /**
+         * A new installation's file. Its revision starts at random, so a
+         * coordinator cached for an earlier incarnation never matches it.
+         * [writerSeed] and [witnessRoute] are carried only when an interrupted
+         * genesis is retried: that writer was never enrolled at the box.
+         */
+        fun fresh(persona: String, installation: ByteArray, revision: Long, writerSeed: ByteArray?, witnessRoute: StoredLinkRoute? = null) =
+            PersonaFile(persona, revision, installation, writerSeed, witnessRoute, null, emptyMap(), null, false)
 
         fun decode(value: ByteArray, persona: String): PersonaFile {
             val input = DataInputStream(value.inputStream())
@@ -189,6 +200,8 @@ internal data class Marker(
     val writer: String?,
     val installation: String?,
     val retired: List<Tombstone> = emptyList(),
+    /** The genesis digest, so the enrol line can be shown again until the keeper runs it. Public at the box. */
+    val digest: String? = null,
 ) {
     enum class State(val wire: String) { Genesis("genesis"), Fenced("fenced"), Superseded("superseded") }
     data class Tombstone(val subject: String?, val installation: String?)
@@ -203,6 +216,7 @@ internal data class Marker(
         put("subject", subject.json())
         put("writer", writer.json())
         put("installation", installation.json())
+        put("digest", digest.json())
         put("retired", buildJsonArray {
             retired.takeLast(MAX_TOMBSTONES).forEach { add(buildJsonObject { put("subject", it.subject.json()); put("installation", it.installation.json()) }) }
         })
@@ -229,6 +243,7 @@ internal data class Marker(
             return Marker(
                 state, json.text("reason"), json.text("subject"), json.text("writer"), json.text("installation"),
                 json.getValue("retired").jsonArray.map { it.jsonObject.let { t -> Tombstone(t.text("subject"), t.text("installation")) } },
+                json.text("digest"),
             )
         }
     }

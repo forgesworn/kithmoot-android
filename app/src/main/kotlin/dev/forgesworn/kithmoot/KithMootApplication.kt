@@ -76,6 +76,9 @@ class KithMootApplication : Application() {
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
 
+    /** The restore-witness enrolment (P3-03b-2): debug builds only; null in release. */
+    val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
+
     /** Dormant until a consented paired Bothy is explicitly probed by product UI. */
     val cadenceClient: CadenceClient by lazy { CadenceClient(linkEngine, linkConsents) }
 }

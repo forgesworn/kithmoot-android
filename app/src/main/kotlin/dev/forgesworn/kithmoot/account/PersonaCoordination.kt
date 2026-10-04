@@ -6,9 +6,13 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 
-/** Where a persona's witness traffic goes: null while it may send none (C7), so covered writes hold. */
+/**
+ * Where a persona's witness traffic goes: null while it may send none (C7), so
+ * covered writes hold. [writerSeed] is the persona's own Link identity, a copy
+ * wiped once this returns: an owner keeps only what its engine copied.
+ */
 fun interface WitnessChannels {
-    fun forPersona(persona: String, route: StoredLinkRoute?): WitnessChannel?
+    fun forPersona(persona: String, writerSeed: ByteArray?, route: StoredLinkRoute?): WitnessChannel?
 }
 
 /** What the app can show about a persona's coordination (C5). */
@@ -24,6 +28,24 @@ sealed class CoordinationStatus {
 
 /** What the keeper's enrol line needs (B3): `bothyd witness enrol --subject --installation --writer --initial-digest`. */
 data class CoordinationGenesis(val subject: String, val installation: String, val initialDigest: String)
+
+/**
+ * Where a persona's enrolment stands, read from its file and marker alone (no
+ * witness traffic), for the "Restore witness" screen. Every value is public at
+ * the box; the writer's seed never leaves the vault.
+ */
+sealed class WitnessEnrolment {
+    /** Nothing prepared, or an earlier installation superseded: a fresh enrolment may start. */
+    data object None : WitnessEnrolment()
+    /** The installation id and writer are minted; the keeper's witness pairing code comes next. */
+    data class Prepared(val writer: String) : WitnessEnrolment()
+    /** Paired with the box whose Link node id is [box]; genesis comes next. */
+    data class Paired(val writer: String, val box: String) : WitnessEnrolment()
+    /** Genesis taken: the keeper runs [line] on the box. Whether it is active is [CoordinationStatus]. */
+    data class Enrolled(val line: String?, val box: String?) : WitnessEnrolment()
+    /** Fenced for good; the keeper retires [subject] (`bothyd witness retire --subject`). */
+    data class Fenced(val reason: String, val subject: String?) : WitnessEnrolment()
+}
 
 internal sealed class Gate {
     data object Ready : Gate()
@@ -264,14 +286,42 @@ internal class PersonaCoordination<V>(
     fun prepare(): ByteArray? {
         val marker = store.marker()
         when (val read = store.read()) {
-            is FileRead.Present -> return read.file.takeIf { it.state == null && mayEnrol(marker, it) }?.installation?.copyOf()
+            is FileRead.Present -> {
+                val prepared = read.file.takeIf { it.state == null && mayEnrol(marker, it) } ?: return null
+                if (prepared.writerSeed == null) { drop(); persist(prepared.seeded(CoordinatedPersonaStore.random32(random))) }
+                return prepared.installation.copyOf()
+            }
             FileRead.SealLost -> return null
             FileRead.Missing -> if (marker != null && marker.state != Marker.State.Superseded) return null
         }
         drop()
-        val fresh = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2)
+        val fresh = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2, CoordinatedPersonaStore.random32(random))
         persist(fresh)
         return fresh.installation.copyOf()
+    }
+
+    /**
+     * Pairs the persona's own writer with the keeper's box: [pair] scans the
+     * witness-only pairing code into a Link engine started from the writer's
+     * seed (a copy, wiped afterwards) and answers the booked route, which is
+     * kept in the persona's file. Only before genesis: the route is what
+     * genesis pins the witness key from. False when the persona may not enrol.
+     */
+    suspend fun pairWitness(pair: suspend (ByteArray) -> StoredLinkRoute): Boolean {
+        prepare() ?: return false
+        val prepared = (store.read() as? FileRead.Present)?.file ?: throw MlsVaultUnavailableException(IllegalStateException("The persona was not prepared"))
+        if (prepared.state != null) return false
+        val seed = prepared.writerSeed?.copyOf() ?: throw MlsVaultUnavailableException(IllegalStateException("The persona has no writer"))
+        val route = try { pair(seed) } finally { seed.fill(0) }
+        drop()
+        persist(prepared.paired(route))
+        return true
+    }
+
+    /** The pinned box's Link node id from the paired route's card, or null before pairing. */
+    fun pairedBox(): ByteArray? {
+        val current = (store.read() as? FileRead.Present)?.file ?: return null
+        return try { current.witnessRoute?.let(WriterIdentity::boxNodeId) } finally { current.wipe() }
     }
 
     /**
@@ -292,20 +342,62 @@ internal class PersonaCoordination<V>(
         // id replaces the prepared one.
         val retired = marker?.retired.orEmpty() + listOfNotNull(interrupted?.let { Marker.Tombstone(it.subject, it.installation) })
         if (interrupted != null) {
-            current = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2)
+            // The writer was never enrolled at the box either, so its seed and
+            // pairing carry over: the keeper need not pair again.
+            current = PersonaFile.fresh(
+                persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2,
+                current.writerSeed?.copyOf() ?: CoordinatedPersonaStore.random32(random), current.witnessRoute,
+            )
             persist(current)
         }
         val installation = current.installation.toHex()
         if (retired.any { it.subject == subject.toHex() || it.installation == installation }) return null
+        val seed = current.writerSeed ?: throw MlsVaultUnavailableException(IllegalStateException("The persona has no writer"))
+        // A paired persona pins exactly the box it paired with: the same key
+        // authenticates the Link session and signs the receipts.
+        current.witnessRoute?.let { route -> if (WriterIdentity.boxNodeId(route)?.contentEquals(witnessKey) != true) return null }
+        val writer = WriterIdentity.nodeId(seed).toHex()
         drop()
         val genesis = guarded { witness.genesis(subject, current.installation, witnessKey, emptyList()) }
         store.newInnerKey()
         // The marker first: from here a missing file is never a fresh start.
-        store.writeMarker(Marker(Marker.State.Genesis, null, subject.toHex(), null, installation, retired))
+        store.writeMarker(Marker(Marker.State.Genesis, null, subject.toHex(), writer, installation, retired, genesis.digest.toHex()))
         persist(current.next(state = genesis.state))
         drop()
         snapshot = null
         return CoordinationGenesis(subject.toHex(), current.installation.toHex(), genesis.digest.toHex())
+    }
+
+    /** Where enrolment stands, from the file and marker alone (no witness traffic). */
+    fun enrolment(): WitnessEnrolment {
+        val marker = store.marker()
+        if (marker?.fenced == true) return WitnessEnrolment.Fenced(marker.reason ?: MISSING_SEAL_KEY, marker.subject)
+        return when (val read = store.read()) {
+            FileRead.Missing ->
+                if (marker == null || marker.state == Marker.State.Superseded) WitnessEnrolment.None
+                else WitnessEnrolment.Fenced(MISSING_FILE, marker.subject)
+            FileRead.SealLost -> WitnessEnrolment.Fenced(MISSING_SEAL_KEY, marker?.subject)
+            is FileRead.Present -> {
+                val current = read.file
+                try {
+                    val box = current.witnessRoute?.let { WriterIdentity.boxNodeId(it)?.toHex() }
+                    when {
+                        current.state != null -> WitnessEnrolment.Enrolled(
+                            marker?.let { m -> current.writerSeed?.let { enrolLine(m, current.installation.toHex(), WriterIdentity.nodeId(it).toHex()) } },
+                            box,
+                        )
+                        !mayEnrol(marker, current) -> WitnessEnrolment.Fenced(marker?.reason ?: MISSING_FILE, marker?.subject)
+                        current.writerSeed == null -> WitnessEnrolment.None
+                        else -> {
+                            val writer = WriterIdentity.nodeId(current.writerSeed).toHex()
+                            if (box == null) WitnessEnrolment.Prepared(writer) else WitnessEnrolment.Paired(writer, box)
+                        }
+                    }
+                } finally {
+                    current.wipe()
+                }
+            }
+        }
     }
 
     suspend fun status(check: Boolean): CoordinationStatus {
@@ -346,8 +438,11 @@ internal class PersonaCoordination<V>(
                 val current = read.file
                 val state = current.state
                 if (state == null) {
-                    // Prepared only: nothing was ever witnessed under it.
-                    drop(); store.delete(); runCatching { store.deleteInnerKey() }
+                    // Prepared only: nothing was ever witnessed under it. An
+                    // interrupted genesis's marker is superseded, its ids kept
+                    // as tombstones, rather than left to fence a missing file.
+                    if (marker?.state == Marker.State.Genesis) retireLocally(marker, marker.installation)
+                    else { drop(); store.delete(); runCatching { store.deleteInnerKey() } }
                     return
                 }
                 val c = coordinator?.takeIf { revision == current.revision }
@@ -406,7 +501,7 @@ internal class PersonaCoordination<V>(
         runCatching { store.deleteInnerKey() }
         store.writeMarker(
             marker.copy(
-                state = Marker.State.Superseded, reason = null, writer = null,
+                state = Marker.State.Superseded, reason = null, writer = null, digest = null,
                 retired = marker.retired + Marker.Tombstone(marker.subject, installation ?: marker.installation),
             ),
         )
@@ -494,7 +589,8 @@ internal class PersonaCoordination<V>(
     private suspend fun advance(request: ByteArray): WitnessAnswer = send { it.advance(request) }
 
     private suspend fun send(call: suspend (WitnessChannel) -> WitnessAnswer): WitnessAnswer {
-        val channel = channels.forPersona(persona, file?.witnessRoute) ?: return WitnessAnswer.Unavailable
+        val seed = file?.writerSeed?.copyOf()
+        val channel = try { channels.forPersona(persona, seed, file?.witnessRoute) } finally { seed?.fill(0) } ?: return WitnessAnswer.Unavailable
         return try { call(channel) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { WitnessAnswer.Unavailable }
     }
 
@@ -520,6 +616,21 @@ internal class PersonaCoordination<V>(
             marker.state == Marker.State.Genesis -> file.state == null
             else -> false
         }
+        /**
+         * The keeper's line. [installation] and [writer] come from the sealed
+         * file; the unsealed marker must agree with them, or no line is shown.
+         * Null too for a marker from before the digest was kept.
+         */
+        internal fun enrolLine(marker: Marker, installation: String, writer: String): String? {
+            val subject = marker.subject ?: return null
+            val digest = marker.digest ?: return null
+            if (marker.installation != installation || marker.writer != writer) return null
+            return "bothyd witness enrol --subject $subject --installation $installation --writer $writer --initial-digest $digest"
+        }
+
+        /** The keeper's line to retire [subject] at the box. */
+        fun retireLine(subject: String): String = "bothyd witness retire --subject $subject"
+
         /** C4: the whole persona record is one vault entry. */
         val RECORD_ID: ByteArray = "persona".toByteArray(Charsets.US_ASCII)
         val RECORD_HEX: String = RECORD_ID.toHex()
