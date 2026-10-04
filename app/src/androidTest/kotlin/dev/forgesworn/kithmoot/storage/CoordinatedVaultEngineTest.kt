@@ -209,7 +209,7 @@ class CoordinatedVaultEngineTest {
         assertTrue(cleared.coordinationStatus(identity.pubkey) is CoordinationStatus.Fenced)
         assertEquals(VaultResult.Refused(VaultRefusal.Unauthorised), cleared.beginCoordination(identity.pubkey, bytes(32), witness.publicKey))
         witness.mode = FakeEd25519Witness.Mode.Up
-        assertEquals(emptyMap<String, Exception>(), cleared.runRetiringDuties())
+        assertEquals(emptyMap<String, dev.forgesworn.kithmoot.account.RetiringDutyFailure>(), cleared.runRetiringDuties())
         assertTrue(context.noBackupFilesDir.listFiles().orEmpty().none { it.name.startsWith("$prefix.coord.") && it.name.endsWith(".vault") })
         assertEquals(CoordinationStatus.NotEnrolled, cleared.coordinationStatus(identity.pubkey))
         enrolAtBox(cleared)

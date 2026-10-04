@@ -47,6 +47,9 @@ interface CoordinatedVaultStores : MlsVaultStores {
     fun personaLock(name: String): PersonaLock
 }
 
+/** The largest marker an Android marker file holds. */
+const val MARKER_MAX_BYTES: Int = Marker.MAX_BYTES
+
 /** A small unsealed file written atomically with fsync. */
 interface MarkerStore {
     fun read(): ByteArray?
@@ -192,6 +195,7 @@ internal data class Marker(
 
     val fenced: Boolean get() = state == State.Fenced
 
+    /** At most [MAX_TOMBSTONES], the most recent kept: see [MAX_TOMBSTONES]. */
     fun encode(): ByteArray = buildJsonObject {
         put("v", 3)
         put("state", state.wire)
@@ -200,11 +204,21 @@ internal data class Marker(
         put("writer", writer.json())
         put("installation", installation.json())
         put("retired", buildJsonArray {
-            retired.forEach { add(buildJsonObject { put("subject", it.subject.json()); put("installation", it.installation.json()) }) }
+            retired.takeLast(MAX_TOMBSTONES).forEach { add(buildJsonObject { put("subject", it.subject.json()); put("installation", it.installation.json()) }) }
         })
     }.toString().toByteArray(Charsets.UTF_8)
 
     companion object {
+        /**
+         * Tombstones kept locally. The box itself never reuses a subject or
+         * installation id (§4.1), and fresh ids are 32 random bytes, so the
+         * local list is only a belt over that: the most recent 64 are kept,
+         * bounding the marker well under [MAX_BYTES].
+         */
+        const val MAX_TOMBSTONES = 64
+        /** The largest marker a store accepts. */
+        const val MAX_BYTES = 64 * 1024
+
         private fun String?.json() = this?.let(::JsonPrimitive) ?: JsonNull
 
         fun decode(value: ByteArray): Marker {

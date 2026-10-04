@@ -518,16 +518,19 @@ class MlsVault(
 
     /**
      * The retiring duty for every coordinated persona on disk, found by its
-     * marker: for the app's foreground timer (it also runs at every open). A
-     * persona that fails does not stop the others; failures are answered by
-     * file name.
+     * sealed coordination index: for the app's foreground timer (it also runs
+     * at every open). A persona that fails does not stop the others; failures
+     * are answered by file name, each with its marker's subject (when it has
+     * one) so the keeper can still be shown the retire line.
      */
-    suspend fun runRetiringDuties(): Map<String, Exception> {
+    suspend fun runRetiringDuties(): Map<String, RetiringDutyFailure> {
         val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
-        val failures = linkedMapOf<String, Exception>()
-        val index = try { locked { readIndex() } } catch (error: Exception) {
+        val failures = linkedMapOf<String, RetiringDutyFailure>()
+        val index = try {
+            locked { readIndex() } ?: throw IllegalStateException("The coordination index is corrupt")
+        } catch (error: Exception) {
             // Fail closed: nothing is started afresh; every file is reported.
-            failures[INDEX] = error
+            failures[INDEX] = RetiringDutyFailure(null, error)
             emptyMap()
         }
         for (name in guarded { coordinated.stores.coordinatedNames() }) {
@@ -539,7 +542,8 @@ class MlsVault(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                failures[name] = error
+                val subject = runCatching { coordinated.stores.marker(name).read()?.let(Marker::decode)?.subject }.getOrNull()
+                failures[name] = RetiringDutyFailure(subject, error)
             }
         }
         return failures
@@ -570,13 +574,26 @@ class MlsVault(
     private fun indexStore() = stores.open(INDEX, "$AAD_PREFIX|coord-index|${installation().toHex()}|$RECORD_VERSION".toByteArray(Charsets.US_ASCII))
 
     /** Coordinated file name -> persona. Call under the vault lock. */
-    private fun readIndex(): Map<String, String> {
-        val bytes = guarded { indexStore().read() } ?: return emptyMap()
+    /**
+     * Null when the index is definitively corrupt: its seal is lost (an absent
+     * key, a failed tag) or its contents do not decode. A transient Keystore
+     * or provider failure throws [MlsVaultUnavailableException] instead.
+     */
+    private fun readIndex(): Map<String, String>? {
+        val bytes = try {
+            indexStore().read()
+        } catch (error: Exception) {
+            if (CoordinatedPersonaStore.definitive(error)) return null
+            if (error is MlsVaultUnavailableException) throw error
+            throw MlsVaultUnavailableException(error)
+        } ?: return emptyMap()
         try {
-            return guarded {
-                Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject.mapValues { it.value.jsonPrimitive.content }
-                    .onEach { (name, persona) -> require(HEX64.matches(persona) && coordName(persona) == name) }
-            }
+            return Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject.mapValues { it.value.jsonPrimitive.content }
+                .onEach { (name, persona) -> require(HEX64.matches(persona) && coordName(persona) == name) }
+        } catch (_: MlsVaultUnavailableException) {
+            throw MlsVaultUnavailableException(IllegalStateException("The coordination index could not be checked"))
+        } catch (_: Exception) {
+            return null
         } finally {
             bytes.fill(0)
         }
@@ -584,12 +601,11 @@ class MlsVault(
 
     /** Records [persona] under [name] before any coordinated file can exist for it. Call under the vault lock. */
     private fun indexed(name: String, persona: String) {
-        val index = try {
-            readIndex()
-        } catch (_: MlsVaultUnavailableException) {
-            // A corrupt index is replaced; personas it named are then reported
-            // by runRetiringDuties until they are opened again. Never a fresh start.
-            runCatching { indexStore().reset() }
+        // A transient failure throws and leaves the index as it is. Only a
+        // definitively corrupt index is replaced; personas it named are then
+        // reported by runRetiringDuties, with their subjects, until opened again.
+        val index = readIndex() ?: run {
+            guarded { indexStore().reset() }
             emptyMap()
         }
         if (index[name] == persona) return
@@ -817,6 +833,9 @@ class VaultCoordination(
     val channels: WitnessChannels,
     val witness: VaultWitness = vaultWitness(),
 )
+
+/** A retiring duty that could not run: [subject] is the marker's, for the keeper's retire line. */
+class RetiringDutyFailure(val subject: String?, val error: Exception)
 
 /** A sealed store per name. [lockName] names the process-wide lock its vault shares. */
 interface MlsVaultStores {

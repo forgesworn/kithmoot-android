@@ -86,13 +86,13 @@ private class AtomicMarker(base: File) : MarkerStore {
     private val file = AtomicFile(base)
 
     @Synchronized override fun read(): ByteArray? = try {
-        file.readFully().also { require(it.size <= 4096) }
+        file.readFully().also { require(it.size <= dev.forgesworn.kithmoot.account.MARKER_MAX_BYTES) }
     } catch (_: FileNotFoundException) {
         null
     }
 
     @Synchronized override fun write(value: ByteArray) {
-        require(value.size <= 4096)
+        require(value.size <= dev.forgesworn.kithmoot.account.MARKER_MAX_BYTES)
         val output = file.startWrite()
         try {
             output.write(value)

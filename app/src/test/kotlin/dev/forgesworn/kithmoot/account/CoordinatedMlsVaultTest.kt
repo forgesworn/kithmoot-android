@@ -371,9 +371,33 @@ class CoordinatedMlsVaultTest {
         stores.remove(MlsVault.INDEX)
         val failures = vault().runRetiringDuties()
         assertEquals(setOf(stores.coordinatedName()), failures.keys)
+        assertEquals(subject.toHex(), failures.values.single().subject)
         // Opening the persona re-indexes it; nothing started afresh.
         assertEquals(CoordinationStatus.Active, vault().coordinationStatus(alice.pubkey, check = true))
         assertEquals(emptyMap(), vault().runRetiringDuties())
+    }
+
+    @Test fun `a transient failure leaves the index intact, definitive corruption resets it`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        val bob = Signer()
+        stores.transient = true
+        assertFailsWith<MlsVaultUnavailableException> { vault.coordinationStatus(bob.pubkey) }
+        stores.transient = false
+        assertEquals(emptyMap(), vault().runRetiringDuties())
+        stores.corrupt(MlsVault.INDEX)
+        assertEquals(CoordinationStatus.NotEnrolled, vault.coordinationStatus(bob.pubkey))
+        val failures = vault().runRetiringDuties()
+        assertEquals(setOf(stores.coordinatedName()), failures.keys)
+        assertEquals(subject.toHex(), failures.values.single().subject)
+    }
+
+    @Test fun `the marker keeps the most recent tombstones within its bound`() {
+        val retired = (1..200).map { Marker.Tombstone("%064x".format(it), "%064x".format(it + 1000)) }
+        val encoded = Marker(Marker.State.Superseded, null, "a".repeat(64), "b".repeat(64), "c".repeat(64), retired).encode()
+        assertTrue(encoded.size <= Marker.MAX_BYTES)
+        val decoded = Marker.decode(encoded)
+        assertEquals(Marker.MAX_TOMBSTONES, decoded.retired.size)
+        assertEquals(retired.takeLast(Marker.MAX_TOMBSTONES), decoded.retired)
     }
 
     @Test fun `a healthy persona cannot be superseded without a clear`() = runBlocking<Unit> {
