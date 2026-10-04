@@ -3,6 +3,17 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.56] - 2026-10-04
+
+- Uses less battery in the background. Rooms that use the same relays now
+  share one connection while the app is closed, so the phone keeps far fewer
+  connections open and wakes its radio less often.
+- A room left open behind other apps for 5 minutes is handed to the background
+  service, the same as closing it. Others see you leave the room, but calls
+  still ring and messages still arrive as notifications. Coming back to
+  KithMoot reopens the room. A call, screen share, recording or unsent message
+  keeps the room open.
+
 ## [0.6.55] - 2026-10-04
 
 - Run a call as a meeting from your phone. In a room you made, Run as a meeting
