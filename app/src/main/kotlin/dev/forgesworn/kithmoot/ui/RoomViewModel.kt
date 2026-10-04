@@ -845,6 +845,8 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var consentedRecording: String? = null
     /** This room's send path for a reply typed on its notification, as registered with [dev.forgesworn.kithmoot.notifications.OpenRoomReplies]. */
     private var noticeReplier: Pair<String, suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome>? = null
+    /** The open room's latest messages, so closing it can tell the background inbox what it showed. */
+    @Volatile private var shownChat: List<dev.forgesworn.kithmoot.session.ChatMessage> = emptyList()
     private var engine: WebRtcEngine? = null
     /** Screen-share drawing, received over signalling. See session/RoomSession.kt
      *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
@@ -3653,7 +3655,9 @@ class RoomViewModel @JvmOverloads constructor(
             // over. Claiming rather than assuming is what lets that handover happen.
             if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
 
-            if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds(), dev.forgesworn.kithmoot.session.isDmPolicy(record.policy))
+            // What the background inbox has seen does not alert again here.
+            val known = if (chatOnly) emptyList() else withContext(Dispatchers.IO) { backgroundSeen(record) }
+            if (!chatOnly) notifications.begin(record.id, record.name, who.participant, epochSeconds(), dev.forgesworn.kithmoot.session.isDmPolicy(record.policy), known)
             // The background service (service/BackgroundCallListenerService.kt)
             // skips any room open here: this coordinator already rings for it,
             // and this room shows its messages. What it received while the room
@@ -3662,12 +3666,12 @@ class RoomViewModel @JvmOverloads constructor(
             // Kept current while open, not only at open and close: if the process
             // dies with the room open, the restarted service must neither alert
             // what was read here again nor lose what alerted here unread.
-            if (!chatOnly) notifications.inbox = { read, alerted ->
+            if (!chatOnly) notifications.inbox = { read, alerted, shown ->
                 CoroutineScope(backgroundInboxWrites).launch {
                     runCatching {
                         val inbox = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox
                         alerted.forEach(inbox::recordAlerted)
-                        if (read) inbox.markRead(epochSeconds())
+                        if (read) inbox.markRead(epochSeconds(), shown)
                     }
                 }
             }
@@ -3686,6 +3690,7 @@ class RoomViewModel @JvmOverloads constructor(
             scope.launch {
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
+                        shownChat = chat
                         if (!chatOnly) notifications.accept(chat)
                         // Best-effort, for the background call listener's caller
                         // label while the app is closed - see
@@ -4231,8 +4236,10 @@ class RoomViewModel @JvmOverloads constructor(
         // was not being read keeps what it alerted unread: the inbox already
         // knows what it read and alerted while open, so the service re-posts
         // only that.
+        val shown = shownChat
+        shownChat = emptyList()
         savedRoom?.let { closed -> CoroutineScope(backgroundInboxWrites).launch {
-            if (readThrough) markBackgroundRead(closed)
+            if (readThrough) markBackgroundRead(closed, shown)
             dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(closed.id)
         } }
         session = null
@@ -5427,16 +5434,22 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun markBackgroundRead(record: SavedRoom) {
+    /** [shown] is what the room showed, so a sender's slow clock cannot have it counted again. */
+    private fun markBackgroundRead(record: SavedRoom, shown: List<dev.forgesworn.kithmoot.session.ChatMessage> = emptyList()) {
         try {
             dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey)
-                .inbox.markRead(epochSeconds())
+                .inbox.markRead(epochSeconds(), shown)
         } catch (_: Exception) {
             // Unreadable storage only costs a repeated unread count, never a message.
         }
         // What the background service showed while the room was closed is read now.
         dev.forgesworn.kithmoot.notifications.MessageNotices.cancel(getApplication(), record.id)
     }
+
+    private fun backgroundSeen(record: SavedRoom): List<String> = runCatching {
+        dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey)
+            .inbox.state().seen
+    }.getOrDefault(emptyList())
 
     fun retryPendingChat() {
         val live = session ?: return

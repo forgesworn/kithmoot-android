@@ -36,11 +36,12 @@ class ChatNotifications(private val context: Context) {
     /** Whether this room's notification offers Reply, asked at each post: a credential's life runs down. */
     @Volatile var replyable: () -> Boolean = { false }
     /**
-     * Told what this room has read ([read] true) and what it has alerted, so
-     * the background inbox knows it too and a restart after the process dies
-     * neither alerts it again nor counts it as unread. Must not block.
+     * Told what this room has read ([read] true), what it has alerted and
+     * what it has [shown], so the background inbox knows it too and a restart
+     * after the process dies neither alerts it again nor counts it as unread.
+     * Must not block.
      */
-    @Volatile var inbox: (read: Boolean, alerted: List<ChatMessage>) -> Unit = { _, _ -> }
+    @Volatile var inbox: (read: Boolean, alerted: List<ChatMessage>, shown: List<ChatMessage>) -> Unit = { _, _, _ -> }
     /** Replied from the notification: it shows the reply until something new arrives or the room is read. */
     private var keepReply = false
     private var lastNotice = ""
@@ -54,15 +55,16 @@ class ChatNotifications(private val context: Context) {
     /** The open room's members renamed it: later notices say the new name. */
     @Synchronized fun rename(id: String, name: String) { if (roomId == id) roomName = name }
 
-    @Synchronized fun begin(id: String, name: String, self: String, since: Long, private: Boolean = false) {
-        end(); roomId = id; roomName = name; this.private = private; tracker = ChatNoticeState(since, self)
+    /** [known] is what the background inbox has seen; see [ChatNoticeState]. */
+    @Synchronized fun begin(id: String, name: String, self: String, since: Long, private: Boolean = false, known: Collection<String> = emptyList()) {
+        end(); roomId = id; roomName = name; this.private = private; tracker = ChatNoticeState(since, self, known)
     }
     @Synchronized fun accept(value: List<ChatMessage>) { messages = value; refresh() }
     /** A reply sent from the notification: what it showed is read, and [MessageNotices.replied] shows the reply. */
-    @Synchronized fun replied() { tracker?.read() ?: return; keepReply = true; lastNotice = ""; inbox(true, emptyList()) }
+    @Synchronized fun replied() { tracker?.read() ?: return; keepReply = true; lastNotice = ""; inbox(true, emptyList(), emptyList()) }
     @Synchronized fun refresh() {
         val update = tracker?.update(messages, foreground && reading) ?: return
-        if (update.read || update.arrived.isNotEmpty()) inbox(update.read, update.arrived)
+        if (update.read || update.arrived.isNotEmpty()) inbox(update.read, update.arrived, update.shown)
         if (keepReply && update.unread.isEmpty() && !(foreground && reading)) return
         keepReply = false
         val settings = settings.value
@@ -98,7 +100,7 @@ class ChatNotifications(private val context: Context) {
      * [keepNotice] leaves this room's notification up for the background
      * service to take over, with its lines' text, when the close did not read it.
      */
-    @Synchronized fun end(keepNotice: Boolean = false) { if (keepNotice) lastNotice = "" else cancel(); tracker = null; keepReply = false; replyable = { false }; inbox = { _, _ -> }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
+    @Synchronized fun end(keepNotice: Boolean = false) { if (keepNotice) lastNotice = "" else cancel(); tracker = null; keepReply = false; replyable = { false }; inbox = { _, _, _ -> }; messages = emptyList(); roomId = ""; reading = false; lastSoundAt = Long.MIN_VALUE; player?.release(); player = null }
     companion object {
         // A new id because a channel's importance cannot be raised once
         // created, and messages now arrive as heads-up notices.
