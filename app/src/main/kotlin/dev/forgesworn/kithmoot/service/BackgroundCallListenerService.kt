@@ -76,11 +76,14 @@ import java.time.ZoneOffset
  * ([BackgroundDeliverySettings], on by default). See the P4-01 delivery
  * ticket and `BackgroundDelivery.kt` for the rules.
  *
- * Each watched room gets its own pool, built from the same hybrid socket
- * factory an open room uses: a Link relay address needs that room's active
- * consent and otherwise fails closed, so a box's node id never reaches
- * OkHttp or DNS. For calls it listens only for the room's bell (kind 1464,
- * `protocol/CallBell.kt`), never the roster's heartbeat. For messages it
+ * Rooms that list the same public relays share one pool ([SharedRelayPools]),
+ * each with its own subscriptions on it, so the socket count follows the
+ * relays rather than the rooms. A room with a Link relay gets its own pool.
+ * Every pool is built from the same hybrid socket factory an open room uses:
+ * a Link relay address needs that room's active consent and otherwise fails
+ * closed, so a box's node id never reaches OkHttp or DNS. For calls it
+ * listens only for the room's bell (kind 1464, `protocol/CallBell.kt`), never
+ * the roster's heartbeat. For messages it
  * listens for the room's chat under its current epoch, records verified
  * messages in the room's [dev.forgesworn.kithmoot.session.BackgroundInbox]
  * without their text, and shows each new one as a notification. The text goes
@@ -116,6 +119,15 @@ class BackgroundCallListenerService : Service() {
     /** The lines each room's notification shows, in memory only. */
     private val noticeLines = java.util.concurrent.ConcurrentHashMap<String, List<NoticeLine>>()
     private val noticeSoundAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** What the service's own notification last said, so a report that changes nothing posts nothing. */
+    private var noticeShows: List<Any>? = null
+    /** One client for every background socket: one dispatcher and one set of threads. */
+    private val publicSockets by lazy { OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()) }
+    private val sharedPoolsLazy = lazy {
+        val application = application as KithMootApplication
+        SharedRelayPools { relays -> RelayPool(relays, backgroundSockets(publicSockets, application.linkEngine, ActiveLinkRoute { null }), scope) }
+    }
+    private val sharedPools by sharedPoolsLazy
 
     /** One watched room: what it listens for, keyed so a rekey or relay change rebuilds it. */
     private class RoomHandle(
@@ -125,6 +137,8 @@ class BackgroundCallListenerService : Service() {
         val epochKey: ByteArray,
         val delivery: Boolean,
         val pool: RelayPool,
+        /** [pool] belongs to [sharedPools], and is released there rather than stopped. */
+        val shared: Boolean,
         val jobs: List<Job>,
         val needsSigner: java.util.concurrent.atomic.AtomicBoolean,
     )
@@ -230,10 +244,13 @@ class BackgroundCallListenerService : Service() {
             val id = candidate.watch.stableRoomId
             val delivery = id in delivering
             val key = listOf(id, candidate.epochId, candidate.past.joinToString(",") { it.keys.id }, delivery, id in ringing,
-                candidate.watch.relays.joinToString(",")).joinToString("|")
+                candidate.watch.relays.joinToString(","), candidate.shareable).joinToString("|")
             if (rooms[id]?.key != key) {
-                close(rooms.remove(id))
+                // Opened before the old one closes, so a shared pool this room
+                // was the last on is not stopped only to be started again.
+                val previous = rooms[id]
                 rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
+                close(previous)
             }
         }
         reconciled = true
@@ -242,12 +259,16 @@ class BackgroundCallListenerService : Service() {
     }
 
     private suspend fun rebuild(id: String) {
-        val handle = rooms.remove(id) ?: return
-        close(handle)
+        val handle = rooms[id] ?: return
         val application = application as KithMootApplication
-        val candidate = watchFor(application, id) ?: return
+        val candidate = watchFor(application, id)
+        if (candidate == null) {
+            close(rooms.remove(id))
+            return
+        }
         val bell = coordinators.containsKey(id)
         rooms[id] = open(candidate, handle.key, bell, handle.delivery)
+        close(handle)
     }
 
     private class Candidate(val watch: BackgroundRoomWatch, val epochId: String, val epochKey: ByteArray,
@@ -255,7 +276,9 @@ class BackgroundCallListenerService : Service() {
         /** Epochs the room has left whose chat is still read, newest first (kithmoot-android #128). */
         val past: List<PastEpoch> = emptyList(),
         /** Everybody the room's rekeys removed, lower case: refused on [past]. */
-        val removed: Set<String> = emptySet())
+        val removed: Set<String> = emptySet(),
+        /** No relay of the room's is a Link relay: it can go on a [SharedRelayPools] pool. */
+        val shareable: Boolean = false)
 
     /** The current keys for a saved room, following any rekey recorded in
      *  [KithMootApplication.roomEpochs] via the shared, tested [activeEpochFor]
@@ -272,7 +295,8 @@ class BackgroundCallListenerService : Service() {
             if (saved.movedOn || saved.retired || saved.anonymous || saved.ended(now())) return null
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
             val epoch = activeEpochFor(saved, stored) ?: return null
-            val usesLink = saved.relays.any { url -> application.linkConsents.activeRoute(saved.participant, saved.id, url) != null }
+            val linkRoute = { url: String -> application.linkConsents.activeRoute(saved.participant, saved.id, url) }
+            val usesLink = saved.relays.any { url -> linkRoute(url) != null }
             val exclusion = deliveryExclusion(DeliveryCandidate(
                 roomId = saved.id,
                 anonymous = saved.anonymous,
@@ -284,7 +308,8 @@ class BackgroundCallListenerService : Service() {
             val past = pastEpochsFor(saved.secret, stored,
                 { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.rekeyAt(roomId, it) }, now())
             Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
-                epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet())
+                epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet(),
+                canShareBackgroundPool(saved.relays, linkRoute))
         } catch (_: Exception) {
             null
         }
@@ -294,12 +319,15 @@ class BackgroundCallListenerService : Service() {
         val application = application as KithMootApplication
         val watch = candidate.watch
         val needsSigner = java.util.concurrent.atomic.AtomicBoolean(false)
-        val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
-        val sockets = backgroundSockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()), application.linkEngine, route)
-        val authenticators = RelayAuthenticatorProvider { url ->
-            if (route.routeId(url) == null) null else authenticatorFor(candidate.saved, needsSigner)
+        val shared = candidate.shareable
+        val pool = if (shared) sharedPools.acquire(watch.relays) else {
+            val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
+            val sockets = backgroundSockets(publicSockets, application.linkEngine, route)
+            val authenticators = RelayAuthenticatorProvider { url ->
+                if (route.routeId(url) == null) null else authenticatorFor(candidate.saved, needsSigner)
+            }
+            RelayPool(watch.relays, sockets, scope, authenticators = authenticators).also { it.start() }
         }
-        val pool = RelayPool(watch.relays, sockets, scope, authenticators = authenticators).also { it.start() }
         val jobs = mutableListOf<Job>()
         if (bell) jobs += scope.launch {
             pool.subscribe({
@@ -338,18 +366,19 @@ class BackgroundCallListenerService : Service() {
                 }
             }
         } else jobs += scope.launch { pool.connected.collect { report() } }
-        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, jobs, needsSigner)
+        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner)
     }
 
     private fun close(handle: RoomHandle?) {
         handle ?: return
         handle.jobs.forEach { it.cancel() }
-        handle.pool.stop()
+        if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
     }
 
     private fun stopAll() {
         rooms.values.forEach(::close)
         rooms.clear()
+        if (sharedPoolsLazy.isInitialized()) sharedPools.stopAll()
     }
 
     /**
@@ -523,10 +552,14 @@ class BackgroundCallListenerService : Service() {
     }
 
     private fun updateNotification(state: DeliveryState, ringing: Int, delivering: Int) {
+        // Rooms on one shared pool each report the same change.
+        val shows = listOf(state, ringing, delivering, BackgroundRingSettings(this).enabled())
+        if (shows == noticeShows) return
         try {
             val next = notification(state, ringing, delivering)
             shown = next
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, next)
+            noticeShows = shows
         } catch (_: SecurityException) {
             // Notification permission withdrawn mid-run: the service still
             // works, it just cannot say so.
