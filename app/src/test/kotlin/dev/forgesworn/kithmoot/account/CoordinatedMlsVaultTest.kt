@@ -303,7 +303,7 @@ class CoordinatedMlsVaultTest {
         assertEquals(refused(VaultRefusal.WitnessPending), vault.signLeafBindingV1(ctx, request(device), approve))
         vault.clear(alice.pubkey)
         assertEquals(emptyList(), stores.names().filter { it.startsWith("persona.") })
-        assertEquals(setOf(MlsVault.INSTALLATION, MlsVault.EPOCH), stores.names().toSet())
+        assertEquals(setOf(MlsVault.INSTALLATION, MlsVault.EPOCH, MlsVault.INDEX), stores.names().toSet())
         // So an uncoordinated vault over the same stores finds nothing to sign with.
         val legacy = MlsVault(stores, now = { clock })
         assertEquals(refused(VaultRefusal.Unauthorised), legacy.device(legacy.context(principal, alice.pubkey)))
@@ -319,8 +319,8 @@ class CoordinatedMlsVaultTest {
         // No re-enrolment until the keeper confirms the old subject was retired.
         assertEquals(refused(VaultRefusal.Unauthorised), vault.beginCoordination(alice.pubkey, bytes(32), server.key))
         assertEquals(refused(VaultRefusal.Unauthorised), vault.prepareCoordination(alice.pubkey))
-        assertEquals(refused(VaultRefusal.Unauthorised), vault.supersedeCoordination(alice.pubkey, bytes(32).toHex()))
-        assertIs<VaultResult.Ok<Unit>>(vault.supersedeCoordination(alice.pubkey, subject.toHex()))
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.keeperConfirmsRetired(alice.pubkey, bytes(32).toHex()))
+        assertIs<VaultResult.Ok<Unit>>(vault.keeperConfirmsRetired(alice.pubkey, subject.toHex()))
         assertEquals(CoordinationStatus.NotEnrolled, vault.coordinationStatus(alice.pubkey))
         // Retired ids are tombstones: the old subject is never enrolled again.
         assertEquals(refused(VaultRefusal.Unauthorised), vault.beginCoordination(alice.pubkey, subject, server.key))
@@ -329,9 +329,56 @@ class CoordinatedMlsVaultTest {
         assertTrue(String(stores.marker()!!).contains(subject.toHex()))
     }
 
+    @Test fun `a clear interrupted after its marker fence finishes the clear, never resumes`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        // The crash point: the marker is fenced `cleared`, the file still healthy.
+        val name = stores.coordinatedName()
+        val marker = Marker.decode(stores.marker(name).read()!!)
+        stores.marker(name).write(marker.copy(state = Marker.State.Fenced, reason = "cleared").encode())
+        val restarted = vault()
+        val c = restarted.context(principal, alice.pubkey)
+        assertEquals(refused(VaultRefusal.RestoreFenced), restarted.signLeafBindingV1(c, request(device), approve))
+        assertEquals(CoordinationStatus.Fenced("cleared", subject.toHex()), restarted.coordinationStatus(alice.pubkey))
+        assertTrue(stores.names().none { it.startsWith("coord.") })
+    }
+
+    @Test fun `a keeper's confirmation is refused while a retiring duty stands`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        server.subjects.getValue(subject.toHex()).seq = 0
+        vault().coordinationStatus(alice.pubkey)
+        server.mode = FakeWitnessServer.Mode.Down
+        vault().clear(alice.pubkey)
+        assertEquals(refused(VaultRefusal.Unauthorised), vault().keeperConfirmsRetired(alice.pubkey, subject.toHex()))
+        assertTrue(stores.names().any { it.startsWith("coord.") })
+    }
+
+    @Test fun `an interrupted genesis is retried with a fresh installation and never reuses its subject`() = runBlocking<Unit> {
+        val prepared = (vault.prepareCoordination(alice.pubkey) as VaultResult.Ok).value
+        stores.failNextCoordinatedWrite = true
+        assertFailsWith<MlsVaultUnavailableException> { vault.beginCoordination(alice.pubkey, subject, server.key) }
+        assertEquals(CoordinationStatus.NotEnrolled, vault().coordinationStatus(alice.pubkey))
+        val v = vault()
+        assertEquals(refused(VaultRefusal.Unauthorised), v.beginCoordination(alice.pubkey, subject, server.key))
+        val again = enrolAtBox(v, s = bytes(32))
+        assertTrue(again.installation != prepared)
+        enrolDevice(v)
+    }
+
+    @Test fun `no unsealed marker names the persona, and a lost index fails closed`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        assertFalse(String(stores.marker()!!).contains(alice.pubkey))
+        assertTrue(stores.aads().any { "coord-index" in it })
+        stores.remove(MlsVault.INDEX)
+        val failures = vault().runRetiringDuties()
+        assertEquals(setOf(stores.coordinatedName()), failures.keys)
+        // Opening the persona re-indexes it; nothing started afresh.
+        assertEquals(CoordinationStatus.Active, vault().coordinationStatus(alice.pubkey, check = true))
+        assertEquals(emptyMap(), vault().runRetiringDuties())
+    }
+
     @Test fun `a healthy persona cannot be superseded without a clear`() = runBlocking<Unit> {
         enrolAtBox(); enrolDevice()
-        assertEquals(refused(VaultRefusal.Unauthorised), vault.supersedeCoordination(alice.pubkey, subject.toHex()))
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.keeperConfirmsRetired(alice.pubkey, subject.toHex()))
         assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey))
     }
 

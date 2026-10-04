@@ -89,8 +89,16 @@ internal class PersonaCoordination<V>(
             FileRead.SealLost -> return sealLost()
             is FileRead.Present -> read.file
         }
-        // A marker fence is terminal evidence; only a cleared file is still opened, for its duty.
-        if (marker?.fenced == true && marker.reason != CLEARED) { drop(); return fenced(marker.reason ?: MISSING_SEAL_KEY) }
+        if (marker?.fenced == true) {
+            if (marker.reason == CLEARED && !current.cleared) {
+                // A clear was interrupted after its marker fence: finish it,
+                // never reopen the healthy-looking file it left behind.
+                clear()
+                return open()
+            }
+            // A marker fence is terminal evidence; only a cleared file is still opened, for its duty.
+            if (marker.reason != CLEARED) { drop(); return fenced(marker.reason ?: MISSING_SEAL_KEY) }
+        }
         val open = coordinator
         if (open != null && current.revision == revision) {
             file?.wipe()
@@ -274,19 +282,26 @@ internal class PersonaCoordination<V>(
     fun genesis(subject: ByteArray, witnessKey: ByteArray): CoordinationGenesis? {
         require(subject.size == 32 && witnessKey.size == 32)
         prepare() ?: return null
-        val current = (store.read() as? FileRead.Present)?.file ?: throw MlsVaultUnavailableException(IllegalStateException("The persona was not prepared"))
-        if (current.state != null) return null
+        val prepared = (store.read() as? FileRead.Present)?.file ?: throw MlsVaultUnavailableException(IllegalStateException("The persona was not prepared"))
+        if (prepared.state != null) return null
+        var current = prepared
         val marker = store.marker()
-        // An interrupted genesis's subject was never shown to the keeper; it is still never reused.
-        val retired = marker?.retired.orEmpty() +
-            listOfNotNull(marker?.takeIf { it.state == Marker.State.Genesis }?.let { Marker.Tombstone(it.subject, it.installation) })
+        val interrupted = marker?.takeIf { it.state == Marker.State.Genesis }
+        // An interrupted genesis's subject and installation were never shown
+        // to the keeper; both are still tombstoned, and a fresh installation
+        // id replaces the prepared one.
+        val retired = marker?.retired.orEmpty() + listOfNotNull(interrupted?.let { Marker.Tombstone(it.subject, it.installation) })
+        if (interrupted != null) {
+            current = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2)
+            persist(current)
+        }
         val installation = current.installation.toHex()
         if (retired.any { it.subject == subject.toHex() || it.installation == installation }) return null
         drop()
         val genesis = guarded { witness.genesis(subject, current.installation, witnessKey, emptyList()) }
         store.newInnerKey()
         // The marker first: from here a missing file is never a fresh start.
-        store.writeMarker(Marker(persona, Marker.State.Genesis, null, subject.toHex(), null, installation, retired))
+        store.writeMarker(Marker(Marker.State.Genesis, null, subject.toHex(), null, installation, retired))
         persist(current.next(state = genesis.state))
         drop()
         snapshot = null
@@ -356,18 +371,29 @@ internal class PersonaCoordination<V>(
     }
 
     /**
-     * The keeper's way out after a clear or a fence: they confirm, by naming
-     * it, that [retiredSubject] was retired at the box. Only then is the old
-     * installation (state, seed, route, keys) deleted, its subject and
-     * installation recorded as tombstones never to be reused, and a fresh
-     * enrolment allowed. Refused unless the marker is fenced and names exactly
-     * that subject, so a healthy persona must be cleared first.
+     * The keeper confirms that the old subject was retired at the box. This is
+     * the keeper's word, not proof: v1 (debug only) accepts it as the way out
+     * after a clear or a fence whose box gives no signed `retired`. They name
+     * [retiredSubject]; only then is the old installation (state, seed, route,
+     * keys) deleted, its subject and installation kept as tombstones never to
+     * be reused, and a fresh enrolment allowed. Refused unless the marker is
+     * fenced and names exactly that subject (so a healthy persona must be
+     * cleared first), and refused while a retiring duty stands: a witness
+     * found behind is released only by its signed `retired` (§4.2, T34).
      */
-    fun supersede(retiredSubject: String): Boolean {
+    fun keeperConfirmsRetired(retiredSubject: String): Boolean {
         val marker = store.marker() ?: return false
         if (marker.state == Marker.State.Superseded) return marker.retired.any { it.subject == retiredSubject }
         if (!marker.fenced || marker.subject == null || marker.subject != retiredSubject) return false
-        val installation = (store.read() as? FileRead.Present)?.file?.installation?.toHex() ?: marker.installation
+        val present = (store.read() as? FileRead.Present)?.file
+        val state = present?.state
+        if (state != null) {
+            val retiring = guarded {
+                witness.open(state, entries(present.active), present.staged?.let(::entries)).use { it.retiring() }
+            }
+            if (retiring) return false
+        }
+        val installation = present?.installation?.toHex() ?: marker.installation
         retireLocally(marker, installation)
         return true
     }
@@ -400,7 +426,7 @@ internal class PersonaCoordination<V>(
         }
         // A signed `retired` for a replaced installation is the box's own proof: the old state may go.
         if (decision is WitnessDecision.Retired && decision.dutyEnded && file?.cleared == true) {
-            val marker = store.marker() ?: Marker(persona, Marker.State.Fenced, CLEARED, null, null, null)
+            val marker = store.marker() ?: Marker(Marker.State.Fenced, CLEARED, null, null, null)
             retireLocally(marker, file?.installation?.toHex())
         }
     }
@@ -484,10 +510,14 @@ internal class PersonaCoordination<V>(
         const val MISSING_FILE = "missing-file"
         const val CLEARED = "cleared"
 
-        /** An interrupted genesis may be retried: the marker names exactly this prepared installation. */
+        /**
+         * A prepared file may be enrolled with no marker, after a supersede, or
+         * after an interrupted genesis (a genesis marker beside a file whose
+         * state was never persisted): its subject was never shown to the keeper.
+         */
         internal fun mayEnrol(marker: Marker?, file: PersonaFile): Boolean = when {
             marker == null || marker.state == Marker.State.Superseded -> true
-            marker.state == Marker.State.Genesis -> marker.installation == file.installation.toHex()
+            marker.state == Marker.State.Genesis -> file.state == null
             else -> false
         }
         /** C4: the whole persona record is one vault entry. */

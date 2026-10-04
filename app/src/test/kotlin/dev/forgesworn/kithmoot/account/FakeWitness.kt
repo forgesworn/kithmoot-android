@@ -429,6 +429,8 @@ internal class MemoryCoordinatedStores private constructor(
     @Volatile var transient = false
     /** The next outer read of a coordinated file fails its tag. */
     @Volatile var badTag = false
+    /** The next coordinated write fails, standing in for a kill before its commit. */
+    @Volatile var failNextCoordinatedWrite = false
     /** Coordinated writes made so far. */
     var coordinatedWrites = 0
     private val locks = mutableMapOf<String, Mutex>()
@@ -469,6 +471,7 @@ internal class MemoryCoordinatedStores private constructor(
         }
         override fun write(value: ByteArray) = synchronized(values) {
             if (transient) throw ProviderException("Keystore is busy")
+            if (coordinated && failNextCoordinatedWrite) { failNextCoordinatedWrite = false; throw java.io.IOException("killed before the commit") }
             val key = UUID.randomUUID().toString()
             values[name] = Sealed(aad.copyOf(), if (coordinated) value.copyOf() else value + TAG, key)
             liveKeys[name] = key

@@ -121,7 +121,7 @@ class CoordinatedVaultEngineTest {
         val names = context.noBackupFilesDir.listFiles().orEmpty().map { it.name }.filter { it.startsWith("$prefix.") }.toSet()
         val coord = names.single { it.endsWith(".vault") && it.startsWith("$prefix.coord.") }.removeSuffix(".vault")
         assertEquals(
-            setOf("$prefix.installation.vault", "$prefix.epoch.vault", "$coord.vault", "$coord.marker", "$coord.lock"),
+            setOf("$prefix.installation.vault", "$prefix.epoch.vault", "$prefix.coord-index.vault", "$coord.vault", "$coord.marker", "$coord.lock"),
             names,
         )
     }
@@ -187,6 +187,7 @@ class CoordinatedVaultEngineTest {
         assertEquals(CoordinationStatus.Fenced("missing-seal-key", genesis.subject), restored.coordinationStatus(identity.pubkey))
         val marker = File(file.path.removeSuffix(".vault") + ".marker").readText()
         assertTrue(marker.contains("\"fenced\"") && marker.contains(genesis.subject))
+        assertFalse(marker.contains(identity.pubkey))
     }
 
     @Test fun a_witness_behind_is_retired_and_a_cleared_persona_keeps_its_duty_until_retired() = runBlocking<Unit> {

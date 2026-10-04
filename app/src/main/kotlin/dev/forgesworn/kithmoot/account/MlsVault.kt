@@ -486,15 +486,16 @@ class MlsVault(
     }
 
     /**
-     * The keeper confirms, by naming it, that the persona's old subject was
-     * retired at the box (`bothyd witness retire --subject …`). Only a
-     * cleared or fenced persona whose marker names exactly [retiredSubject]
-     * proceeds: its old installation is deleted, its ids are kept as
-     * tombstones never to be reused, and a fresh enrolment is allowed.
+     * The keeper confirms that the persona's old subject was retired at the
+     * box (`bothyd witness retire --subject …`). This is the keeper's word,
+     * not proof, accepted for v1 debug builds only. Only a cleared or fenced
+     * persona whose marker names exactly [retiredSubject], and with no retiring
+     * duty standing, proceeds: its old installation is deleted, its ids are
+     * kept as tombstones never to be reused, and a fresh enrolment is allowed.
      */
-    suspend fun supersedeCoordination(persona: String, retiredSubject: String): VaultResult<Unit> {
+    suspend fun keeperConfirmsRetired(persona: String, retiredSubject: String): VaultResult<Unit> {
         val coordinated = coord(persona)
-        return if (coordinated.store.lock.withLock { coordinated.supersede(retiredSubject) }) VaultResult.Ok(Unit) else refuse(VaultRefusal.Unauthorised)
+        return if (coordinated.store.lock.withLock { coordinated.keeperConfirmsRetired(retiredSubject) }) VaultResult.Ok(Unit) else refuse(VaultRefusal.Unauthorised)
     }
 
     /**
@@ -524,10 +525,14 @@ class MlsVault(
     suspend fun runRetiringDuties(): Map<String, Exception> {
         val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
         val failures = linkedMapOf<String, Exception>()
+        val index = try { locked { readIndex() } } catch (error: Exception) {
+            // Fail closed: nothing is started afresh; every file is reported.
+            failures[INDEX] = error
+            emptyMap()
+        }
         for (name in guarded { coordinated.stores.coordinatedNames() }) {
             try {
-                val persona = coordinated.stores.marker(name).read()?.let(Marker::decode)?.persona
-                    ?: throw IllegalStateException("No marker names this persona")
+                val persona = index[name] ?: throw IllegalStateException("The coordination index names no persona for this file")
                 check(locked { coordName(persona) } == name) { "The marker names another persona" }
                 val entry = coord(persona)
                 entry.store.lock.withLock { entry.duty() }
@@ -543,7 +548,7 @@ class MlsVault(
     private suspend fun coord(persona: String): PersonaCoordination<EnrolledDevice> {
         val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
         personas[persona]?.let { return it }
-        val name = locked { coordName(persona) }
+        val name = locked { coordName(persona).also { indexed(it, persona) } }
         val aad = locked { coordAad(persona) }
         val stores = coordinated.stores
         return personas.getOrPut(persona) {
@@ -558,6 +563,38 @@ class MlsVault(
                 }
             }
         }
+    }
+
+    // ---- the coordination index: sealed, so no unsealed file names a persona ----
+
+    private fun indexStore() = stores.open(INDEX, "$AAD_PREFIX|coord-index|${installation().toHex()}|$RECORD_VERSION".toByteArray(Charsets.US_ASCII))
+
+    /** Coordinated file name -> persona. Call under the vault lock. */
+    private fun readIndex(): Map<String, String> {
+        val bytes = guarded { indexStore().read() } ?: return emptyMap()
+        try {
+            return guarded {
+                Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject.mapValues { it.value.jsonPrimitive.content }
+                    .onEach { (name, persona) -> require(HEX64.matches(persona) && coordName(persona) == name) }
+            }
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    /** Records [persona] under [name] before any coordinated file can exist for it. Call under the vault lock. */
+    private fun indexed(name: String, persona: String) {
+        val index = try {
+            readIndex()
+        } catch (_: MlsVaultUnavailableException) {
+            // A corrupt index is replaced; personas it named are then reported
+            // by runRetiringDuties until they are opened again. Never a fresh start.
+            runCatching { indexStore().reset() }
+            emptyMap()
+        }
+        if (index[name] == persona) return
+        val next = buildJsonObject { (index + (name to persona)).toSortedMap().forEach { (k, v) -> put(k, v) } }.toString().toByteArray(Charsets.UTF_8)
+        try { guarded { indexStore().write(next) } } finally { next.fill(0) }
     }
 
     /** Fixed per persona: re-enrolment never moves a file. Rooted in the vault-wide installation id. */
@@ -754,6 +791,7 @@ class MlsVault(
         private const val AAD_PREFIX = "kithmoot.mls-vault.v1"
         internal const val INSTALLATION = "installation"
         internal const val EPOCH = "epoch"
+        internal const val INDEX = "coord-index"
 
         /** A coordinated vault (P3-03b-2) over [coordination]'s stores. */
         fun coordinated(

@@ -171,15 +171,15 @@ internal class PersonaFile(
 }
 
 /**
- * What the marker says: everything here is public at the box (the persona's
- * public key, the subject, the persona installation and the writer's node id).
+ * What the marker says: only what is public at the box (the subject, the
+ * persona installation and the writer's node id). It never names the persona;
+ * the vault's sealed coordination index maps files to personas.
  * A marker proves a coordinated file existed, so a missing file beside it is
  * never a fresh start; it also keeps the subject for the keeper's
  * `bothyd witness retire --subject` line after a fence or a clear, and lists
  * every retired subject and installation so neither is ever reused.
  */
 internal data class Marker(
-    val persona: String?,
     val state: State,
     val reason: String?,
     val subject: String?,
@@ -193,8 +193,7 @@ internal data class Marker(
     val fenced: Boolean get() = state == State.Fenced
 
     fun encode(): ByteArray = buildJsonObject {
-        put("v", 2)
-        put("persona", persona.json())
+        put("v", 3)
         put("state", state.wire)
         put("reason", reason.json())
         put("subject", subject.json())
@@ -210,11 +209,11 @@ internal data class Marker(
 
         fun decode(value: ByteArray): Marker {
             val json = Json.parseToJsonElement(value.toString(Charsets.UTF_8)).jsonObject
-            require(json.getValue("v").jsonPrimitive.long == 2L)
+            require(json.getValue("v").jsonPrimitive.long == 3L)
             fun JsonObject.text(name: String) = (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
             val state = State.entries.single { it.wire == json.text("state") }
             return Marker(
-                json.text("persona"), state, json.text("reason"), json.text("subject"), json.text("writer"), json.text("installation"),
+                state, json.text("reason"), json.text("subject"), json.text("writer"), json.text("installation"),
                 json.getValue("retired").jsonArray.map { it.jsonObject.let { t -> Tombstone(t.text("subject"), t.text("installation")) } },
             )
         }
@@ -283,7 +282,7 @@ internal class CoordinatedPersonaStore(
     fun fenceMarker(reason: String) {
         val current = try { marker() } catch (_: MlsVaultUnavailableException) { null }
         if (current?.fenced == true) return
-        writeMarker(current?.copy(state = Marker.State.Fenced, reason = reason) ?: Marker(persona, Marker.State.Fenced, reason, null, null, null))
+        writeMarker(current?.copy(state = Marker.State.Fenced, reason = reason) ?: Marker(Marker.State.Fenced, reason, null, null, null))
     }
 
     // ---- the inner key ----
