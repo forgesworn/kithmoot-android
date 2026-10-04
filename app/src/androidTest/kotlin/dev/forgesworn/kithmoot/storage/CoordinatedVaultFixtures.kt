@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.storage
 
+import dev.forgesworn.kithmoot.account.CoordinatedVaultStores
+import dev.forgesworn.kithmoot.account.PersonaCoordination
+import dev.forgesworn.kithmoot.account.PersonaFile
 import dev.forgesworn.kithmoot.account.WitnessAnswer
 import dev.forgesworn.kithmoot.account.WitnessChannel
 import dev.forgesworn.kithmoot.crypto.hexToBytes
@@ -7,6 +10,7 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -21,33 +25,68 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * requests, answered with real 170-byte receipts signed with Ed25519
  * (BouncyCastle) over SHA-256("VMLS/1 witness receipt" || bytes[0..106]),
  * which the VMLS engine verifies against the pinned key.
+ *
+ * With [saved], its key and subjects live in that directory, outside the
+ * vault's, and each change is saved before its answer is returned, so the
+ * witness survives the force-stop of a kill test (W01-W04).
  */
-class FakeEd25519Witness(random: SecureRandom = SecureRandom()) {
-    enum class Mode { Up, Down, LoseAnswer, WrongKey }
+class FakeEd25519Witness(random: SecureRandom = SecureRandom(), private val saved: File? = null) {
+    /**
+     * [Refuse] answers as a box that refuses the writer; [ReplayRead] answers
+     * every read with the last receipt it signed for a read before, whatever
+     * the challenge.
+     */
+    enum class Mode { Up, Down, LoseAnswer, WrongKey, Refuse, ReplayRead }
 
     class Subject(var seq: Long, var digest: ByteArray, var retired: Boolean = false)
 
-    private val key = Ed25519PrivateKeyParameters(random)
+    private val key = saved?.let { File(it, "key") }?.takeIf { it.isFile }?.let { Ed25519PrivateKeyParameters(it.readBytes(), 0) }
+        ?: Ed25519PrivateKeyParameters(random).also { created -> saved?.let { File(it.apply { mkdirs() }, "key").writeBytes(created.encoded) } }
     private val other = Ed25519PrivateKeyParameters(random)
     /** The pinned witness key: the box's Link node id in production. */
     val publicKey: ByteArray = key.generatePublicKey().encoded
     val subjects = mutableMapOf<String, Subject>()
     @Volatile var mode = Mode.Up
     var advances = 0
+    /** Every read and advance that reached the channel, answered or not. */
+    var readCalls = 0
+    var advanceCalls = 0
+    /** Requests this fake could not parse: a broken fake would otherwise look like a held vault. */
+    var malformed = 0
+    private var lastRead: ByteArray? = null
+
+    init {
+        saved?.let { File(it, "subjects") }?.takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() }?.forEach { line ->
+            val (subject, seq, digest, retired) = line.split(' ')
+            subjects[subject] = Subject(seq.toLong(), digest.hexToBytes(), retired.toBoolean())
+        }
+    }
 
     fun enrol(subject: String, digest: String) {
-        subjects[subject] = Subject(0, digest.hexToBytes())
+        synchronized(this) {
+            subjects[subject] = Subject(0, digest.hexToBytes())
+            save()
+        }
     }
 
     fun seq(subject: String): Long = subjects.getValue(subject).seq
 
     val channel = object : WitnessChannel {
-        override suspend fun read(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { answer(request, advance = false) }
-        override suspend fun advance(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { answer(request, advance = true) }
+        override suspend fun read(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { readCalls++; parsed(request, advance = false) }
+        override suspend fun advance(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { advanceCalls++; parsed(request, advance = true) }
+    }
+
+    private fun parsed(request: ByteArray, advance: Boolean): WitnessAnswer = try {
+        answer(request, advance)
+    } catch (error: IllegalArgumentException) {
+        malformed++
+        throw error
     }
 
     private fun answer(request: ByteArray, advance: Boolean): WitnessAnswer {
         if (mode == Mode.Down) return WitnessAnswer.Unavailable
+        if (mode == Mode.Refuse) return WitnessAnswer.Refused
+        if (mode == Mode.ReplayRead && !advance) lastRead?.let { return WitnessAnswer.Receipt(it.copyOf()) }
         val fields = Cbor(request).map(if (advance) 6 else 3)
         require((fields.getValue(1) as Long) == 1L)
         val subject = fields.getValue(2) as ByteArray
@@ -75,8 +114,19 @@ class FakeEd25519Witness(random: SecureRandom = SecureRandom()) {
             update(digest, 0, digest.size)
             generateSignature()
         }
+        save()
+        val receipt = signed + signature
+        if (!advance) lastRead = receipt.copyOf()
         if (mode == Mode.LoseAnswer) return WitnessAnswer.Unavailable
-        return WitnessAnswer.Receipt(signed + signature)
+        return WitnessAnswer.Receipt(receipt)
+    }
+
+    /** Written whole and renamed into place: a force-stop never leaves half a file. */
+    private fun save() {
+        val directory = saved ?: return
+        val next = File(directory, "subjects.new")
+        next.writeText(subjects.entries.joinToString("\n") { (s, sub) -> "$s ${sub.seq} ${sub.digest.toHex()} ${sub.retired}" })
+        check(next.renameTo(File(directory, "subjects")))
     }
 
     /** Just enough canonical CBOR: a map of small integer keys to uints or byte strings. */
@@ -110,6 +160,77 @@ class FakeEd25519Witness(random: SecureRandom = SecureRandom()) {
             repeat(width) { value = (value shl 8) or (bytes[at++].toLong() and 0xff) }
             return value
         }
+    }
+}
+
+/**
+ * A kill at a chosen point. It is not an [Exception], so no handler in the
+ * vault answers it as a failure it can recover from: everything after the
+ * point simply never runs. The force-stop that follows is the real kill.
+ */
+class Killed(point: String) : Error("killed $point")
+
+/**
+ * Stores whose coordinated files can be killed just after a chosen write (an
+ * injected decorator: nothing in the debug APK). The hook reads the shape of
+ * what is written, never the number of writes: a state write with the stage
+ * still set can come between the advance and the promotion.
+ */
+class HookedStores(private val inner: CoordinatedVaultStores) : CoordinatedVaultStores by inner {
+    enum class Point {
+        /** Just after a write that stages a candidate. */
+        AfterStage,
+        /** Just after the write that promotes a staged candidate. */
+        AfterPromotion,
+        /** The staging write itself fails: the stage is lost. */
+        FailStage,
+    }
+
+    @Volatile private var armed: Point? = null
+    @Volatile private var sawStaged = false
+    /** The coordinated file name the last hook fired on. */
+    @Volatile var hit: String? = null
+        private set
+    /** Per file: whether its last write, killed or not, still carried a staged candidate. */
+    val lastWriteStaged = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    /** Per file: the sealed persona record of the last candidate staged there. */
+    val lastStagedRecord = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
+
+    fun arm(point: Point) { armed = point; sawStaged = false; hit = null }
+
+    override fun coordinated(name: String, aad: ByteArray): RoomStorage {
+        val storage = inner.coordinated(name, aad)
+        return object : RoomStorage by storage {
+            override fun write(value: ByteArray) {
+                val point = armed
+                val candidate = PersonaFile.decode(value, value.copyOfRange(1, 33).toHex()).staged
+                val staged = candidate != null
+                if (point == Point.FailStage && staged) { fire(name); throw IOException("the stage was lost") }
+                lastWriteStaged[name] = staged
+                candidate?.get(PersonaCoordination.RECORD_HEX)?.let { lastStagedRecord[name] = it.copyOf() }
+                storage.write(value)
+                when (point) {
+                    Point.AfterStage -> if (staged) { fire(name); throw Killed("after the stage") }
+                    Point.AfterPromotion -> if (staged) sawStaged = true else if (sawStaged) { fire(name); throw Killed("after the promotion") }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    private fun fire(name: String) { armed = null; hit = name }
+}
+
+/** Seal keys whose next deletion is a kill: after a commit, before its stale key goes. */
+class HookedKeys(private val inner: SealKeys) : SealKeys by inner {
+    @Volatile var killNextDelete = false
+
+    override fun delete(alias: String) {
+        if (killNextDelete) {
+            killNextDelete = false
+            throw Killed("before $alias was deleted")
+        }
+        inner.delete(alias)
     }
 }
 
