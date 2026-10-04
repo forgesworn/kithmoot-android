@@ -362,7 +362,7 @@ class AppUpdates(private val app: Application) {
         private const val FIRST_CHECK_DELAY_MS = 20_000L
         private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
-        const val CHECK_FAILED = "Could not check for updates. KithMoot will try again."
+        const val CHECK_FAILED = "Could not check for updates. Try again later."
         const val UNVERIFIED = "An update was offered that KithMoot could not verify, so it was not installed."
         const val DOWNLOAD_FAILED = "The update could not be downloaded. Try again."
         const val INSTALL_FAILED = "The update could not be installed. Try again."
