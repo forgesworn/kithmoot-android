@@ -4366,7 +4366,8 @@ class RoomViewModel @JvmOverloads constructor(
             recording = snapshot.recordingView(epochSeconds()),
         ) }
         if (!can) act { stopSendingForMeeting() }
-        else if (!could) note("You are a speaker now. Your microphone and camera are yours to turn on.")
+        // Put on the stage, not let off it by the mode ending: that says so itself.
+        else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")
     }
 
     private fun showRecording() {
