@@ -104,8 +104,7 @@ class AppUpdates(private val app: Application) {
     private var work: Job? = null
     private var offered: UpdateManifest.AndroidUpdate? = null
     private var apk: File? = null
-    /** Install was pressed, and is waiting on the call or the unknown-apps permission. */
-    private var installWanted = false
+    /** Install was pressed and sent the person to allow installs from KithMoot. */
     private var awaitingPermission = false
 
     init {
@@ -131,6 +130,9 @@ class AppUpdates(private val app: Application) {
             awaitingPermission = false
             install()
         }
+        // Back from the installer's confirmation without an answer from it:
+        // the verified file is still there, so Install works again.
+        (mutableState.value as? State.Installing)?.let { if (apk?.isFile == true) mutableState.value = State.Ready(it.versionName) }
         if (!automatic.value) return
         loop = scope.launch {
             while (isActive) {
@@ -154,6 +156,7 @@ class AppUpdates(private val app: Application) {
             is State.Checking, is State.Downloading, is State.Ready, is State.Installing -> return
             else -> Unit
         }
+        val before = mutableState.value
         mutableState.value = State.Checking
         mutableState.value = try {
             when (val result = withContext(Dispatchers.IO) { flow.check() }) {
@@ -169,14 +172,16 @@ class AppUpdates(private val app: Application) {
             State.Failed(UNVERIFIED)
         } catch (e: Exception) {
             Log.w(TAG, "update check failed: $e")
-            State.Failed(CHECK_FAILED)
+            // An update already on offer stays on offer through a failed recheck.
+            if (offered != null && (before is State.Available || before is State.Failed)) before else State.Failed(CHECK_FAILED)
         }
     }
 
-    /** MainActivity: true while a call is joined, joining or changing. */
+    /** MainActivity: true while a call is joined, joining or changing. A
+     *  download that finished during a call waits for Install to be pressed
+     *  again, rather than putting the installer up the moment it ends. */
     fun setCallActive(active: Boolean) {
         mutableCallActive.value = active
-        if (!active && installWanted && mutableState.value is State.Ready) install()
     }
 
     fun dismiss(versionName: String) { mutableDismissed.value = versionName }
@@ -189,7 +194,6 @@ class AppUpdates(private val app: Application) {
     fun install() {
         val update = offered ?: return
         if (installedFrom == InstalledFrom.ZAPSTORE || work?.isActive == true) return
-        installWanted = true
         if (!app.packageManager.canRequestPackageInstalls()) {
             awaitingPermission = true
             val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
@@ -203,7 +207,6 @@ class AppUpdates(private val app: Application) {
         work = scope.launch {
             val file = apk?.takeIf { it.isFile } ?: download(update) ?: return@launch
             if (callActive.value) { mutableState.value = State.Ready(update.versionName); return@launch }
-            installWanted = false
             mutableState.value = State.Installing(update.versionName)
             try {
                 withContext(Dispatchers.IO) { commit(update, file) }
@@ -252,7 +255,6 @@ class AppUpdates(private val app: Application) {
 
     /** An update that failed verification is not offered again until a check offers it afresh. */
     private fun forget() {
-        installWanted = false
         offered = null
         apk?.delete()
         apk = null
