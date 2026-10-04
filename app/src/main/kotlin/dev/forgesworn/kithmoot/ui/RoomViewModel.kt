@@ -77,6 +77,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import dev.forgesworn.kithmoot.KithMootApplication
+import dev.forgesworn.kithmoot.service.DeliveryCandidate
 import dev.forgesworn.kithmoot.cadence.CadenceClient
 import dev.forgesworn.kithmoot.cadence.CadenceLeaseVault
 import dev.forgesworn.kithmoot.cadence.CadenceOwnership
@@ -2313,6 +2314,8 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
     private fun enter(label: String = "That room", opening: String = "Opening the room…", block: suspend () -> Unit) {
+        // Whatever the person opens wins over reopening a parked room.
+        parkedRoomId = null
         if (_stage.value != Stage.START) {
             // The person is in a room, so the room's own snackbar is where they
             // will see this. See KithMootApp's notice effect.
@@ -2454,7 +2457,11 @@ class RoomViewModel @JvmOverloads constructor(
                     if (!stopped) {
                         disarmStopOpening()
                         _start.update { it.copy(busy = false, opening = null) }
-                        if (opened && session != null) _stage.value = Stage.ROOM
+                        if (opened && session != null) {
+                            _stage.value = Stage.ROOM
+                            // Opened behind other apps: the wait to park starts now.
+                            if (!appVisible && parkJob?.isActive != true) armPark()
+                        }
                     }
                 }
             }
@@ -4737,9 +4744,91 @@ class RoomViewModel @JvmOverloads constructor(
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
         engine?.localMedia?.setAppVisible(visible)
+        parkJob?.cancel()
+        parkJob = null
+        if (visible) resumeParked() else armPark()
     }
 
     @Volatile private var appVisible: Boolean = true
+
+    private var parkJob: Job? = null
+    /** The room [armPark] closed while the app was hidden, reopened on the way back unless something else opens first. */
+    @Volatile private var parkedRoomId: String? = null
+
+    /**
+     * Hands a room left on screen behind other apps to the closed-app
+     * listener once it has sat idle for [PARK_HIDDEN_ROOM_AFTER_MS]; see
+     * [shouldParkHiddenRoom]. Anything starting in the room meanwhile starts
+     * the wait again.
+     */
+    private fun armPark() {
+        if (chatOnly || _stage.value != Stage.ROOM) return
+        parkJob = viewModelScope.launch {
+            var idleSince: Long? = null
+            while (!appVisible) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (_stage.value != Stage.ROOM) return@launch
+                if (!shouldParkHiddenRoom(parkCheck())) idleSince = null
+                else if (idleSince == null) idleSince = now
+                else if (now - idleSince >= PARK_HIDDEN_ROOM_AFTER_MS) {
+                    val id = savedRoom?.id ?: return@launch
+                    parkedRoomId = id
+                    Log.i(JOIN_LOG, "parked hidden room after idleMs=${now - idleSince}")
+                    leave()
+                    return@launch
+                }
+                delay(PARK_CHECK_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun parkCheck(): ParkCheck {
+        val saved = savedRoom
+        val room = _room.value
+        val app = getApplication<KithMootApplication>()
+        val delivery = saved?.let {
+            val usesLink = it.relays.any { url -> linkConsents.activeRoute(it.participant, it.id, url) != null }
+            DeliveryCandidate(
+                roomId = it.id,
+                anonymous = anonymousRoom || it.anonymous,
+                quiet = it.policy?.quiet == true || it.quietState != null,
+                ended = it.retired || it.movedOn || it.ended(epochSeconds()),
+                epochId = (session?.epochState?.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.trafficRoom,
+                needsBunker = usesLink && it.viaAccount &&
+                    runCatching { accounts.load()?.method == "bunker" }.getOrDefault(true),
+            )
+        }
+        return ParkCheck(
+            delivery = delivery,
+            listenerReceiving = dev.forgesworn.kithmoot.service.BackgroundCallListenerService.alive &&
+                dev.forgesworn.kithmoot.service.BackgroundDeliverySettings(app).enabled(),
+            chatOnly = chatOnly,
+            onCall = room.onCall,
+            callJoinPending = room.callJoinPending,
+            callChanging = room.callChanging,
+            mediaStarting = room.mediaStarting,
+            screenOn = room.screenOn,
+            recording = room.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || consentedRecording != null,
+            // Not the `opening` job: it outlives the media build it starts, which mediaStarting already covers.
+            busy = entering.held.value || _start.value.busy || room.chatSending || room.chatPending ||
+                room.workBusy || room.roomUpdate != null,
+        )
+    }
+
+    /** A notification tap, answer or link came in with the return: it opens instead of the parked room. */
+    fun forgetParkedRoom() { parkedRoomId = null }
+
+    /** Back in front: reopens the room [armPark] closed, unless a notification tap or link opened another first. */
+    private fun resumeParked() {
+        val id = parkedRoomId ?: return
+        viewModelScope.launch {
+            delay(RESUME_PARKED_AFTER_MS)
+            if (parkedRoomId != id || _stage.value != Stage.START) return@launch
+            parkedRoomId = null
+            Log.i(JOIN_LOG, "reopening parked room")
+            reopenRoom(id)
+        }
+    }
 
     /**
      * Choose what is drawn behind you, or choose nothing.
