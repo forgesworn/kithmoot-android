@@ -79,6 +79,9 @@ class KithMootApplication : Application() {
     /** The restore-witness enrolment (P3-03b-2): debug builds only; null in release. */
     val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
 
+    /** In-app updates, checked against the signed release manifest. */
+    val updates: dev.forgesworn.kithmoot.update.AppUpdates by lazy { dev.forgesworn.kithmoot.update.AppUpdates(this) }
+
     /** Dormant until a consented paired Bothy is explicitly probed by product UI. */
     val cadenceClient: CadenceClient by lazy { CadenceClient(linkEngine, linkConsents) }
 }

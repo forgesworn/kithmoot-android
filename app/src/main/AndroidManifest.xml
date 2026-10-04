@@ -34,6 +34,10 @@
          see a KithMoot call as a call. A normal, install-time permission; it
          reaches neither the dialer nor the call log. See telecom/CallTelecom.kt. -->
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <!-- In-app updates for a copy installed from the downloads page, only
+         after the person presses Install, and only an APK the signed release
+         manifest pins. See update/AppUpdates.kt. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Neither is required: the application is useful on a device with no
          camera at all, as a screen and a voice. -->
@@ -48,6 +52,9 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="nostrsigner" />
         </intent>
+        <!-- A copy Zapstore installed updates through Zapstore, which the
+             update notice opens. -->
+        <package android:name="dev.zapstore.app" />
     </queries>
 
     <application
@@ -112,6 +119,10 @@
 
         <receiver
             android:name=".notifications.NoticeReplyReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
             android:exported="false" />
 
         <provider android:name="androidx.core.content.FileProvider"
