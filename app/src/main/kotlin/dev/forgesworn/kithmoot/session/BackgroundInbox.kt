@@ -15,6 +15,16 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 /**
+ * How far behind the reader's clock a sender's may run and still have a
+ * message alert and count. A read-through is the reader's time, a message's
+ * stamp the sender's, so without it a sender a few seconds slow is never
+ * counted. What the room showed inside the allowance is in the inbox's seen
+ * set, so the allowance never counts a message twice. A sender further
+ * behind still neither alerts nor counts.
+ */
+const val SENDER_CLOCK_ALLOWANCE_SECONDS: Long = 300
+
+/**
  * What the background delivery service has received for one saved room while
  * the room was closed: a cursor for the next subscription's `since`, a bounded
  * seen set so a reconnect, a second relay, a restart or a reboot never counts
@@ -39,7 +49,7 @@ class BackgroundInbox(
      * created at [createdAt]. Returns true when it is new and adds an unread
      * entry: someone else's conversation message, not a reaction, edit,
      * retraction or invitation, not already seen by event or by message, and
-     * sent after the room was last open.
+     * sent after the room was last open, less [SENDER_CLOCK_ALLOWANCE_SECONDS].
      */
     @Synchronized fun record(eventId: String, createdAt: Long, message: ChatMessage): Boolean {
         val current = state()
@@ -68,7 +78,7 @@ class BackgroundInbox(
         val seen = (current.seen + ids + refOf(message).key).takeLast(MAX_SEEN)
         val counts = !message.participant.hexEquals(participant) && message.reaction == null &&
             message.replaces == null && message.retracts == null && message.invite == null &&
-            maxOf(message.sentAt, createdAt) > current.readThrough
+            maxOf(message.sentAt, createdAt) > current.readThrough - SENDER_CLOCK_ALLOWANCE_SECONDS
         val unread = if (counts) (current.unread + Unread(message.id, message.participant, message.sentAt)).takeLast(MAX_UNREAD)
             else current.unread
         write(State(cursor, current.readThrough, seen, unread))
@@ -79,10 +89,16 @@ class BackgroundInbox(
      * The room is open, has just closed, or the open room has just been read,
      * at [at]: everything sent until then has been read. The next background subscription resumes a little before
      * the cursor, so without this a message shown live would count again.
+     * [shown] is what the room showed: those inside the sender clock
+     * allowance are seen, so they do not count either.
      */
-    @Synchronized fun markRead(at: Long) {
+    @Synchronized fun markRead(at: Long, shown: List<ChatMessage> = emptyList()) {
         val current = state()
-        write(current.copy(cursor = maxOf(current.cursor, at), readThrough = maxOf(current.readThrough, at), unread = emptyList()))
+        val readThrough = maxOf(current.readThrough, at)
+        val keys = shown.filter { it.sentAt > readThrough - SENDER_CLOCK_ALLOWANCE_SECONDS }
+            .map { refOf(it).key }.distinct().filter { it !in current.seen }
+        write(current.copy(cursor = maxOf(current.cursor, at), readThrough = readThrough,
+            seen = (current.seen + keys).takeLast(MAX_SEEN), unread = emptyList()))
     }
 
     @Synchronized fun clear() = storage.reset()

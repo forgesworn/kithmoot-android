@@ -16,6 +16,7 @@ import dev.forgesworn.kithmoot.session.PastEpoch
 import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
+import dev.forgesworn.kithmoot.session.SENDER_CLOCK_ALLOWANCE_SECONDS
 
 /**
  * The pure rules behind background message delivery (see
@@ -65,8 +66,12 @@ fun deliveryExclusion(candidate: DeliveryCandidate, isOpenInApp: (String) -> Boo
     else -> null
 }
 
-/** Allowance for a sender's clock and a relay's ordering when resuming from the cursor. */
-const val CHAT_CURSOR_SKEW_SECONDS: Long = 300
+/**
+ * Allowance for a sender's clock and a relay's ordering when resuming from the
+ * cursor. At least [SENDER_CLOCK_ALLOWANCE_SECONDS], or the relay would hold
+ * back a message the inbox would count.
+ */
+const val CHAT_CURSOR_SKEW_SECONDS: Long = SENDER_CLOCK_ALLOWANCE_SECONDS
 
 /** Resume from the cursor, but never ask for more than the retention window. */
 fun chatSince(cursor: Long, now: Long): Long = maxOf(cursor - CHAT_CURSOR_SKEW_SECONDS, now - CHAT_RETENTION_SECONDS)

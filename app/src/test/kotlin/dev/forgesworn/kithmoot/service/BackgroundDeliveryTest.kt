@@ -18,6 +18,7 @@ import dev.forgesworn.kithmoot.session.ChatReaction
 import dev.forgesworn.kithmoot.session.Fixtures
 import dev.forgesworn.kithmoot.session.PastEpoch
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.SENDER_CLOCK_ALLOWANCE_SECONDS
 import dev.forgesworn.kithmoot.session.encodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
@@ -178,7 +179,7 @@ class BackgroundDeliveryTest {
         val store = MemoryStore()
         val box = inbox(store)
         box.record("e1", 1_000, message("m1", sentAt = 1_000))
-        box.markRead(2_000)
+        box.markRead(2_000, shown = listOf(message("m2", sentAt = 1_990)))
         assertTrue(box.state().unread.isEmpty())
         assertEquals(2_000, box.state().cursor)
         // Shown live while the room was open, then returned by the resumed subscription.
@@ -192,7 +193,7 @@ class BackgroundDeliveryTest {
         val store = MemoryStore()
         inbox(store).markRead(1_000)
         // Read live in the open room, so read through then.
-        inbox(store).markRead(1_006)
+        inbox(store).markRead(1_006, shown = listOf(message("m1", sentAt = 1_005)))
         // Alerted by the open room and still unread.
         assertTrue(inbox(store).recordAlerted(message("m2", sentAt = 1_010)))
         assertFalse(inbox(store).recordAlerted(message("m2", sentAt = 1_010)))
@@ -210,6 +211,21 @@ class BackgroundDeliveryTest {
         // Own messages and statements are seen, never unread.
         assertFalse(inbox(fresh).recordAlerted(message("mine", from = self, sentAt = 1_060)))
         assertEquals(listOf("late"), inbox(fresh).state().unread.map { it.id })
+    }
+
+    @Test fun `a sender whose clock is behind still counts, and what the room showed does not`() {
+        val store = MemoryStore()
+        val box = inbox(store)
+        // The room showed "shown" and closed at 2_000; the sender's clock runs 49 s slow.
+        box.markRead(2_000, shown = listOf(message("shown", sentAt = 1_960), message("history", sentAt = 1_000)))
+        assertTrue(box.record("e1", 1_951, message("slow", sentAt = 1_951)))
+        assertFalse(box.record("e2", 1_960, message("shown", sentAt = 1_960)))
+        // Further behind than the allowance it is never counted.
+        val late = 2_000 - SENDER_CLOCK_ALLOWANCE_SECONDS
+        assertFalse(box.record("e3", late, message("too-slow", sentAt = late)))
+        assertEquals(listOf("slow"), box.state().unread.map { it.id })
+        // Only what was shown inside the allowance is kept as seen.
+        assertFalse("$other:history" in box.state().seen)
     }
 
     @Test fun `a room first watched now does not count its retained history`() {
