@@ -33,7 +33,19 @@ class RollbackKeyOrderTest {
 
     @After fun cleanup() {
         context.noBackupFilesDir.listFiles().orEmpty().filter { it.name.startsWith("$alias.") }.forEach { it.delete() }
-        entries().forEach { keyStore().deleteEntry(it) }
+        keyStore().aliases().toList().filter { it.startsWith("$alias.") }.forEach { keyStore().deleteEntry(it) }
+    }
+
+    @Test fun a_store_built_with_the_defaults_lives_in_no_backup_files() {
+        RollbackResistantRoomStorage(context, alias).write("one".toByteArray())
+        assertTrue(base.isFile)
+        assertEquals(context.noBackupFilesDir.canonicalPath, base.canonicalFile.parentFile!!.canonicalPath)
+        assertArrayEquals("one".toByteArray(), RollbackResistantRoomStorage(context, alias).read())
+    }
+
+    @Test fun the_vault_stores_built_with_the_defaults_live_in_no_backup_files() {
+        AndroidMlsVaultStores(context, alias).open("installation", ByteArray(1)).write("two".toByteArray())
+        assertTrue(File(context.noBackupFilesDir, "$alias.installation.vault").isFile)
     }
 
     @Test fun by_default_the_old_key_goes_before_the_new_version_is_committed() {

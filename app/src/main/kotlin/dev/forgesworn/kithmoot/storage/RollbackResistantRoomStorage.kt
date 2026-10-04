@@ -44,8 +44,9 @@ class RollbackResistantRoomStorage(
         require(maxPlaintextBytes in 1..32 * 1024 * 1024)
     }
 
-    private val directory = directory ?: context.applicationContext.noBackupFilesDir
-    private val base = File(directory, "$alias.vault")
+    /** Named apart from the [directory] parameter, so the default can never resolve to this property itself. */
+    private val root: File = directory ?: context.applicationContext.noBackupFilesDir
+    private val base = File(root, "$alias.vault")
     private val file = AtomicFile(base)
     private val entryPrefix = "$alias.entry."
 

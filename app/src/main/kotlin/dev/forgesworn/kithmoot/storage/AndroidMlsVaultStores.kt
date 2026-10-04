@@ -36,23 +36,24 @@ class AndroidMlsVaultStores(
     init { require(prefix.matches(Regex("[A-Za-z0-9._-]{1,64}"))) }
 
     private val app = context.applicationContext
-    private val directory: File = directory ?: app.noBackupFilesDir
+    /** Named apart from the [directory] parameter, so the default can never resolve to this property itself. */
+    private val root: File = directory ?: app.noBackupFilesDir
     override val lockName: String = prefix
     override val innerKeys: SealKeys get() = keys
 
     override fun open(name: String, aad: ByteArray): RoomStorage {
         require(name.matches(NAME))
-        return RollbackResistantRoomStorage(app, "$prefix.$name", MAX_BYTES, aad, directory = directory, keys = keys)
+        return RollbackResistantRoomStorage(app, "$prefix.$name", MAX_BYTES, aad, directory = root, keys = keys)
     }
 
     override fun coordinated(name: String, aad: ByteArray): RoomStorage {
         require(name.matches(COORDINATED))
-        return RollbackResistantRoomStorage(app, "$prefix.$name", MAX_COORDINATED_BYTES, aad, deleteSupersededAfterCommit = true, directory = directory, keys = keys)
+        return RollbackResistantRoomStorage(app, "$prefix.$name", MAX_COORDINATED_BYTES, aad, deleteSupersededAfterCommit = true, directory = root, keys = keys)
     }
 
     override fun marker(name: String): MarkerStore {
         require(name.matches(COORDINATED))
-        return AtomicMarker(File(directory, "$prefix.$name.marker"))
+        return AtomicMarker(File(root, "$prefix.$name.marker"))
     }
 
     override fun innerAlias(name: String): String {
@@ -62,12 +63,12 @@ class AndroidMlsVaultStores(
 
     override fun coordinatedNames(): List<String> {
         val pattern = Regex("^" + Regex.escape("$prefix.") + "(coord\\.[0-9a-f]{32})\\.(vault|vault\\.bak|vault\\.new|marker)$")
-        return directory.listFiles().orEmpty().mapNotNull { pattern.find(it.name)?.groupValues?.get(1) }.distinct().sorted()
+        return root.listFiles().orEmpty().mapNotNull { pattern.find(it.name)?.groupValues?.get(1) }.distinct().sorted()
     }
 
     override fun personaLock(name: String): PersonaLock {
         require(name.matches(COORDINATED))
-        return FilePersonaLock(File(directory, "$prefix.$name.lock"))
+        return FilePersonaLock(File(root, "$prefix.$name.lock"))
     }
 
     private companion object {
