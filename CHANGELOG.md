@@ -3,6 +3,17 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.54] - 2026-10-04
+
+- KithMoot can now update itself if you installed it from the downloads page.
+  It checks for a new version every few hours while open, and installs one only
+  if it matches a release manifest signed with a key built into the app, at the
+  exact size and fingerprint that manifest gives, and signed by the same key as
+  the app you already have. Updates wait until you are off a call. If you
+  installed KithMoot from Zapstore, it tells you an update is ready and opens
+  Zapstore to install it. Settings has a Check for updates button and a switch
+  for automatic checks.
+
 ## [0.6.53] - 2026-10-04
 
 - Meeting mode, as on the web and desktop. When the person who made a room runs
