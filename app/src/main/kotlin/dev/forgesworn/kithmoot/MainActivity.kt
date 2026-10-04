@@ -149,6 +149,8 @@ class MainActivity : ComponentActivity() {
                 // effect that is still opening the room.
                 LaunchedEffect(Unit) { notificationRoom.filterNotNull().collect { id ->
                     notificationRoom.value = null
+                    // Arrived with the return, so this, not the parked room, is what opens.
+                    model.forgetParkedRoom()
                     val callRoom = model.room.value
                     if (visiting && id == callRoom.roomId) { backToCall(); return@collect }
                     // A message from another room while on a call: open it
@@ -167,6 +169,7 @@ class MainActivity : ComponentActivity() {
                 // Collected for the same reason: an answer must run to the join.
                 LaunchedEffect(Unit) { answerCallRoom.filterNotNull().collect { id ->
                     answerCallRoom.value = null
+                    model.forgetParkedRoom()
                     answering.value = true
                     try {
                     if (visiting) backToCall()
@@ -223,6 +226,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(link) {
                     val url = link ?: return@LaunchedEffect
                     incoming.value = null
+                    model.forgetParkedRoom()
                     val target = if (visiting) visitor else model
                     target.onJoinUrlChanged(url)
                     target.joinFromUrl(url)
