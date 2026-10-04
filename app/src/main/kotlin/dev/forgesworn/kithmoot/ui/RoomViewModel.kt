@@ -2457,7 +2457,11 @@ class RoomViewModel @JvmOverloads constructor(
                     if (!stopped) {
                         disarmStopOpening()
                         _start.update { it.copy(busy = false, opening = null) }
-                        if (opened && session != null) _stage.value = Stage.ROOM
+                        if (opened && session != null) {
+                            _stage.value = Stage.ROOM
+                            // Opened behind other apps: the wait to park starts now.
+                            if (!appVisible && parkJob?.isActive != true) armPark()
+                        }
                     }
                 }
             }
