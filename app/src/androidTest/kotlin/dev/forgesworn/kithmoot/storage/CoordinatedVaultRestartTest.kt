@@ -13,6 +13,8 @@ import dev.forgesworn.kithmoot.account.EnrolledDevice
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.MlsVault
 import dev.forgesworn.kithmoot.account.ParticipantSigner
+import dev.forgesworn.kithmoot.account.PersonaCoordination
+import dev.forgesworn.kithmoot.account.PersonaFile
 import dev.forgesworn.kithmoot.account.VaultCoordination
 import dev.forgesworn.kithmoot.account.VaultRefusal
 import dev.forgesworn.kithmoot.account.VaultResult
@@ -143,12 +145,16 @@ class CoordinatedVaultRestartTest {
             )
             // The stage's outer commit landed with both keys still present.
             if (case == Case.BeforeKeyDeletion) assertEquals(2, entries(name).size)
+            // Where each kill landed: only W03's last write had promoted the candidate.
+            assertEquals("$case: the last write still carried the stage", case != Case.AfterPromotion, stores.lastWriteStaged.getValue(name))
+            expected.setProperty("$case.staged", stores.lastStagedRecord.getValue(name).toHex())
             expected.setProperty("$case.secret", secret.toHex())
             expected.setProperty("$case.subject", genesis.subject)
             expected.setProperty("$case.device", device.device)
             expected.setProperty("$case.request", request.toString())
         }
         expected.setProperty("pid", Process.myPid().toString())
+        expected.setProperty("now", now.toString())
         saved.outputStream().use { expected.store(it, "Synthetic coordinator restart-test values only") }
     }
 
@@ -158,6 +164,8 @@ class CoordinatedVaultRestartTest {
         if (InstrumentationRegistry.getArguments().getString("requireRestart") == "true") {
             assertNotEquals(expected.getProperty("pid"), Process.myPid().toString())
         }
+        // Well inside the requests' 590 s, so an expiry can never pass for a replay failure.
+        assertTrue(System.currentTimeMillis() / 1000 - expected.getProperty("now").toLong() < 480)
         try {
             val witness = FakeEd25519Witness(saved = File(state, "witness"))
             val vault = MlsVault.coordinated(
@@ -184,6 +192,8 @@ class CoordinatedVaultRestartTest {
                 val signature = (reply as VaultResult.Ok).value.signature
                 assertTrue("$case", Schnorr.verify(signature.hexToBytes(), request.text("digest").hexToBytes(), expected.getProperty("$case.device").hexToBytes()))
                 assertEquals("$case: one advance past the device enrolment, never a second candidate", 2L, witness.seq(subject))
+                // Exactly the staged candidate's sealed bytes were promoted, not the same change sealed again.
+                assertEquals("$case", expected.getProperty("$case.staged"), promotedRecord(persona)?.toHex())
             }
 
             // A logout ends the session: the same retries no longer replay.
@@ -207,13 +217,21 @@ class CoordinatedVaultRestartTest {
         state.deleteRecursively()
     }
 
+    private fun installation(): String = AndroidMlsVaultStores(context, PREFIX).let { stores ->
+        runBlocking { MlsVault.coordinated(VaultCoordination(stores, WitnessChannels { _, _, _ -> null }, EngineVaultWitness())).installationId() }
+    }
+
     /** The persona's coordinated file name, found by the vault's sealed index rule. */
     private fun coordName(persona: String): String {
-        val installation = AndroidMlsVaultStores(context, PREFIX).let { stores ->
-            runBlocking { MlsVault.coordinated(VaultCoordination(stores, WitnessChannels { _, _, _ -> null }, EngineVaultWitness())).installationId() }
-        }
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(installation.hexToBytes() + "coord|$persona".toByteArray(Charsets.US_ASCII))
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(installation().hexToBytes() + "coord|$persona".toByteArray(Charsets.US_ASCII))
         return "coord." + digest.toHex().take(32)
+    }
+
+    /** The sealed persona record the persona's file holds as promoted. */
+    private fun promotedRecord(persona: String): ByteArray? {
+        val aad = "kithmoot.mls-vault.v1|coord|$persona|${installation()}|1".toByteArray(Charsets.US_ASCII)
+        val bytes = AndroidMlsVaultStores(context, PREFIX).coordinated(coordName(persona), aad).read() ?: return null
+        return PersonaFile.decode(bytes, persona).active[PersonaCoordination.RECORD_HEX]
     }
 
     private fun entries(name: String): List<String> =

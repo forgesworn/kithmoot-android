@@ -74,6 +74,7 @@ class CoordinatedVaultEngineTest {
     }
 
     @After fun cleanup() {
+        assertEquals("the fake witness parsed every request", 0, witness.malformed)
         context.noBackupFilesDir.listFiles().orEmpty().filter { it.name.startsWith("$prefix.") }.forEach { it.delete() }
         scratch.deleteRecursively()
         val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -142,6 +143,8 @@ class CoordinatedVaultEngineTest {
         witness.mode = FakeEd25519Witness.Mode.WrongKey
         assertTrue(v.coordinationStatus(identity.pubkey, check = true) is CoordinationStatus.Pending)
         assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), v.enrol(v.context(principal, identity.pubkey), identity, now + 86_400))
+        assertEquals(0, witness.advanceCalls)
+        assertEquals(0L, witness.seq(genesis.subject))
     }
 
     @Test fun a_held_write_is_finished_by_its_resend_before_the_next_one() = runBlocking<Unit> {
@@ -202,7 +205,27 @@ class CoordinatedVaultEngineTest {
         assertEquals(2L, witness.seq(genesis.subject))
     }
 
-    @Test fun w06_a_whole_profile_restored_in_place_is_fenced_by_the_witness() = runBlocking<Unit> {
+    @Test fun w06_the_vault_files_restored_under_the_live_keystore_are_fenced_as_missing_seal_key() = runBlocking<Unit> {
+        val stores = keystoreStores()
+        val v = vault(stores)
+        val genesis = enrolAtBox(v)
+        val device = enrolDevice(v)
+        val files = context.noBackupFilesDir.listFiles().orEmpty().filter { it.name.startsWith("$prefix.") && it.isFile }
+        val snapshot = File(scratch, "files").apply { mkdirs() }
+        files.forEach { it.copyTo(File(snapshot, it.name)) }
+        assertTrue(v.signLeafBindingV1(v.context(principal, identity.pubkey), request(device), approve) is VaultResult.Ok)
+        // Every file put back as it was; the Keystore stays as it is now.
+        context.noBackupFilesDir.listFiles().orEmpty().filter { it.name.startsWith("$prefix.") }.forEach { it.delete() }
+        snapshot.listFiles().orEmpty().forEach { it.copyTo(File(context.noBackupFilesDir, it.name)) }
+        val restored = vault(stores)
+        val c = restored.context(principal, identity.pubkey)
+        assertEquals(VaultResult.Refused(VaultRefusal.RestoreFenced), restored.signLeafBindingV1(c, request(device), approve))
+        assertEquals(CoordinationStatus.Fenced("missing-seal-key", genesis.subject), restored.coordinationStatus(identity.pubkey))
+        assertEquals(2L, witness.seq(genesis.subject))
+        assertFalse(witness.subjects.getValue(genesis.subject).retired)
+    }
+
+    @Test fun w07_a_whole_profile_restored_in_place_with_its_keys_is_fenced_by_the_witness() = runBlocking<Unit> {
         val profile = File(scratch, "profile")
         val v = vault(softwareStores(profile))
         val genesis = enrolAtBox(v)
@@ -233,6 +256,9 @@ class CoordinatedVaultEngineTest {
             val copy = File(scratch, name).also { original.copyRecursively(it) }
             vault(softwareStores(copy))
         }
+        // Both open and confirm first, so the race is decided by the witness's compare-and-swap.
+        clones.forEach { assertEquals(CoordinationStatus.Active, it.coordinationStatus(identity.pubkey, check = true)) }
+        val advances = witness.advances
         val results = clones.map { clone ->
             async(Dispatchers.IO) { clone.signLeafBindingV1(clone.context(principal, identity.pubkey), request(device), approve) }
         }.awaitAll()
@@ -242,7 +268,8 @@ class CoordinatedVaultEngineTest {
         val winner = clones[results.indexOfFirst { it is VaultResult.Ok<*> }]
         val loser = clones[results.indexOfFirst { it !is VaultResult.Ok<*> }]
         assertEquals(CoordinationStatus.Active, winner.coordinationStatus(identity.pubkey, check = true))
-        assertTrue(loser.coordinationStatus(identity.pubkey, check = true) is CoordinationStatus.Fenced)
+        assertEquals(advances + 2, witness.advances)
+        assertEquals(CoordinationStatus.Fenced("witness-conflict", genesis.subject), loser.coordinationStatus(identity.pubkey, check = true))
         assertFalse(witness.subjects.getValue(genesis.subject).retired)
     }
 
@@ -255,6 +282,8 @@ class CoordinatedVaultEngineTest {
         val prompt = ConsentPrompt { asked++; ConsentDecision.Approve }
         witness.mode = FakeEd25519Witness.Mode.Down
         assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), v.signLeafBindingV1(v.context(principal, identity.pubkey), req, prompt))
+        // Consent was asked and the signature staged, then held at the advance.
+        assertEquals(1, asked)
         assertEquals(CoordinationStatus.Pending(refused = false), v.coordinationStatus(identity.pubkey, check = true))
         assertEquals(1L, witness.seq(genesis.subject))
         // Back up: the held candidate is finished and its signature released, never signed again.
@@ -271,13 +300,14 @@ class CoordinatedVaultEngineTest {
         assertEquals(CoordinationStatus.Pending(refused = true), v.coordinationStatus(identity.pubkey, check = true))
         assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), v.enrol(v.context(principal, identity.pubkey), identity, now + 86_400))
         assertTrue("no implicit enrolment", witness.subjects.isEmpty())
-        assertEquals(0, witness.advances)
+        assertEquals("nothing is advanced before the keeper enrols", 0, witness.advanceCalls)
         // Enrolled, but now refusing: still held.
         witness.enrol(genesis.subject, genesis.initialDigest)
         witness.mode = FakeEd25519Witness.Mode.Refuse
         assertEquals(CoordinationStatus.Pending(refused = true), v.coordinationStatus(identity.pubkey, check = true))
         assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), v.enrol(v.context(principal, identity.pubkey), identity, now + 86_400))
         assertEquals(0L, witness.seq(genesis.subject))
+        assertEquals(0, witness.advanceCalls)
         witness.mode = FakeEd25519Witness.Mode.Up
         assertEquals(CoordinationStatus.Active, v.coordinationStatus(identity.pubkey, check = true))
     }
@@ -285,9 +315,11 @@ class CoordinatedVaultEngineTest {
     @Test fun w10_a_replayed_read_receipt_never_confirms() = runBlocking<Unit> {
         val stores = keystoreStores()
         val v = vault(stores)
-        // Its check read is the receipt the witness will replay.
         val genesis = enrolAtBox(v)
         val device = enrolDevice(v)
+        // A fresh read at the current seq: the receipt the witness will replay,
+        // so only its stale challenge can keep it from confirming.
+        assertEquals(CoordinationStatus.Active, vault(stores).coordinationStatus(identity.pubkey, check = true))
         witness.mode = FakeEd25519Witness.Mode.ReplayRead
         val reopened = vault(stores)
         assertEquals(CoordinationStatus.Pending(refused = false), reopened.coordinationStatus(identity.pubkey, check = true))
@@ -342,7 +374,7 @@ class CoordinatedVaultEngineTest {
         val genesis = enrolAtBox(v)
         enrolDevice(v)
         // The witness lost state: it is back at genesis.
-        witness.subjects.getValue(genesis.subject).seq = 0
+        witness.subjects.getValue(genesis.subject).apply { seq = 0; digest = genesis.initialDigest.hexToBytes() }
         val reopened = vault(stores)
         assertEquals(CoordinationStatus.Fenced("witness-behind", genesis.subject), reopened.coordinationStatus(identity.pubkey))
         // The retiring read and advance ran at open, with the engine: the subject is retired.

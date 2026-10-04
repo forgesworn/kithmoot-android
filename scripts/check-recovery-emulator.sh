@@ -100,7 +100,7 @@ run_tests chat-notifications 2 -e class dev.forgesworn.kithmoot.notifications.Ch
 # engine, Keystore-backed and copied software-key profiles, an in-process
 # Ed25519 witness, and the order in which superseded seal keys are deleted.
 run_tests mls-vault-storage 4 -e class dev.forgesworn.kithmoot.storage.MlsVaultStorageTest
-run_tests coordinated-vault 18 -e class \
+run_tests coordinated-vault 19 -e class \
   dev.forgesworn.kithmoot.storage.CoordinatedVaultEngineTest,dev.forgesworn.kithmoot.storage.RollbackKeyOrderTest
 # W01-W04 and a crash before the stale key's deletion: each persona is killed
 # at its own point, then the app is force-stopped and recovers in a new process.

@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.storage
 
 import dev.forgesworn.kithmoot.account.CoordinatedVaultStores
+import dev.forgesworn.kithmoot.account.PersonaCoordination
 import dev.forgesworn.kithmoot.account.PersonaFile
 import dev.forgesworn.kithmoot.account.WitnessAnswer
 import dev.forgesworn.kithmoot.account.WitnessChannel
@@ -32,8 +33,8 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
 class FakeEd25519Witness(random: SecureRandom = SecureRandom(), private val saved: File? = null) {
     /**
      * [Refuse] answers as a box that refuses the writer; [ReplayRead] answers
-     * every read with the first receipt it signed for a read, whatever the
-     * challenge.
+     * every read with the last receipt it signed for a read before, whatever
+     * the challenge.
      */
     enum class Mode { Up, Down, LoseAnswer, WrongKey, Refuse, ReplayRead }
 
@@ -47,7 +48,12 @@ class FakeEd25519Witness(random: SecureRandom = SecureRandom(), private val save
     val subjects = mutableMapOf<String, Subject>()
     @Volatile var mode = Mode.Up
     var advances = 0
-    private var firstRead: ByteArray? = null
+    /** Every read and advance that reached the channel, answered or not. */
+    var readCalls = 0
+    var advanceCalls = 0
+    /** Requests this fake could not parse: a broken fake would otherwise look like a held vault. */
+    var malformed = 0
+    private var lastRead: ByteArray? = null
 
     init {
         saved?.let { File(it, "subjects") }?.takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() }?.forEach { line ->
@@ -66,14 +72,21 @@ class FakeEd25519Witness(random: SecureRandom = SecureRandom(), private val save
     fun seq(subject: String): Long = subjects.getValue(subject).seq
 
     val channel = object : WitnessChannel {
-        override suspend fun read(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { answer(request, advance = false) }
-        override suspend fun advance(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { answer(request, advance = true) }
+        override suspend fun read(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { readCalls++; parsed(request, advance = false) }
+        override suspend fun advance(request: ByteArray): WitnessAnswer = synchronized(this@FakeEd25519Witness) { advanceCalls++; parsed(request, advance = true) }
+    }
+
+    private fun parsed(request: ByteArray, advance: Boolean): WitnessAnswer = try {
+        answer(request, advance)
+    } catch (error: IllegalArgumentException) {
+        malformed++
+        throw error
     }
 
     private fun answer(request: ByteArray, advance: Boolean): WitnessAnswer {
         if (mode == Mode.Down) return WitnessAnswer.Unavailable
         if (mode == Mode.Refuse) return WitnessAnswer.Refused
-        if (mode == Mode.ReplayRead && !advance) firstRead?.let { return WitnessAnswer.Receipt(it.copyOf()) }
+        if (mode == Mode.ReplayRead && !advance) lastRead?.let { return WitnessAnswer.Receipt(it.copyOf()) }
         val fields = Cbor(request).map(if (advance) 6 else 3)
         require((fields.getValue(1) as Long) == 1L)
         val subject = fields.getValue(2) as ByteArray
@@ -103,7 +116,7 @@ class FakeEd25519Witness(random: SecureRandom = SecureRandom(), private val save
         }
         save()
         val receipt = signed + signature
-        if (!advance && firstRead == null) firstRead = receipt.copyOf()
+        if (!advance) lastRead = receipt.copyOf()
         if (mode == Mode.LoseAnswer) return WitnessAnswer.Unavailable
         return WitnessAnswer.Receipt(receipt)
     }
@@ -178,6 +191,10 @@ class HookedStores(private val inner: CoordinatedVaultStores) : CoordinatedVault
     /** The coordinated file name the last hook fired on. */
     @Volatile var hit: String? = null
         private set
+    /** Per file: whether its last write, killed or not, still carried a staged candidate. */
+    val lastWriteStaged = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    /** Per file: the sealed persona record of the last candidate staged there. */
+    val lastStagedRecord = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
 
     fun arm(point: Point) { armed = point; sawStaged = false; hit = null }
 
@@ -186,8 +203,11 @@ class HookedStores(private val inner: CoordinatedVaultStores) : CoordinatedVault
         return object : RoomStorage by storage {
             override fun write(value: ByteArray) {
                 val point = armed
-                val staged = point != null && PersonaFile.decode(value, value.copyOfRange(1, 33).toHex()).staged != null
+                val candidate = PersonaFile.decode(value, value.copyOfRange(1, 33).toHex()).staged
+                val staged = candidate != null
                 if (point == Point.FailStage && staged) { fire(name); throw IOException("the stage was lost") }
+                lastWriteStaged[name] = staged
+                candidate?.get(PersonaCoordination.RECORD_HEX)?.let { lastStagedRecord[name] = it.copyOf() }
                 storage.write(value)
                 when (point) {
                     Point.AfterStage -> if (staged) { fire(name); throw Killed("after the stage") }
