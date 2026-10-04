@@ -66,8 +66,10 @@ class MessageLinksTest {
         assertEquals(listOf(Text("see "), Link(long)), splitLinks("see $long"))
     }
 
-    @Test fun `a Unicode space ends a URL, as in JavaScript`() {
-        assertEquals(listOf(Link("https://example.com"), Text(" next")), splitLinks("https://example.com next"))
+    @Test fun `a Unicode space or a tab ends a URL, as in JavaScript`() {
+        for (space in listOf("\u00a0", "\u3000", "\u2028", "\t")) {
+            assertEquals(listOf(Link("https://example.com"), Text(space + "next")), splitLinks("https://example.com" + space + "next"))
+        }
     }
 
     @Test fun `the rendered message keeps its exact text and links only the URLs`() {

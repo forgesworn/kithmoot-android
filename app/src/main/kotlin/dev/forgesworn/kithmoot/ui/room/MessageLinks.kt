@@ -22,8 +22,10 @@ sealed class MessageToken {
     data class Link(val url: String) : MessageToken()
 }
 
-// (?U): `\s` covers Unicode spaces too, as JavaScript's does.
-private val URL_PATTERN = Regex("(?U)https?://[^\\s<>]+", RegexOption.IGNORE_CASE)
+// JavaScript's `\s`, spelt out: the JVM's `\s` is ASCII only and Android's
+// ICU rejects the `(?U)` flag that would widen it, so neither is used.
+private const val JS_SPACE = "\\t\\n\\u000b\\f\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff"
+private val URL_PATTERN = Regex("https?://[^$JS_SPACE<>]+", RegexOption.IGNORE_CASE)
 private val TRAILING = setOf('.', ',', '!', '?', ';', ':', '\'', '"', ')', ']', '}')
 private val OPEN_FOR_CLOSE = mapOf(')' to '(', ']' to '[', '}' to '{')
 
