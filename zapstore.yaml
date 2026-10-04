@@ -29,3 +29,4 @@ website: https://kithmoot.app
 repository: https://github.com/forgesworn/kithmoot-android
 tags: [nostr, chat, calls, video, encryption, groups]
 icon: ./zapstore/icon.png
+release_notes: ./CHANGELOG.md
