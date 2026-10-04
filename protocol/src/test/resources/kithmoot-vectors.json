@@ -11501,6 +11501,198 @@
         }
       }
     ],
+    "meeting": [
+      {
+        "name": "meeting-policy-signature",
+        "kind": "positive",
+        "note": "A room in meeting mode with two speakers. The message is `sha256(\"kithmoot/v1/meeting:<roomId>:<version>:<1 or 0>:<JSON array of the canonical speakers>\")`: participant pubkeys in lower case, deduplicated, sorted, at most 64. Newest version wins. In meeting mode a client neither sends nor plays the microphone, camera or screen of anybody not on the list. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "policy": {
+            "on": true,
+            "speakers": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "version": 1800000000000
+          },
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/meeting:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000000000:1:[\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea\"]",
+          "auxRandHex": "12455b0bfa0b0c7309451cc533ca24a89d035f62a43980d20b52d48883632ed2"
+        },
+        "output": {
+          "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392",
+          "text": "{\"op\":\"meeting\",\"on\":true,\"speakers\":[\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea\"],\"version\":1800000000000,\"sig\":\"5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392\"}",
+          "result": {
+            "op": "meeting",
+            "on": true,
+            "speakers": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "version": 1800000000000,
+            "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "policy": {
+              "on": true,
+              "speakers": [
+                "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+              ],
+              "version": 1800000000000
+            },
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "meeting-policy-mode-flipped",
+        "kind": "negative",
+        "note": "The same signature with meeting mode switched off. Refused: the mode is inside the signature, so a member cannot unmute a moderated room.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "policy": {
+            "on": false,
+            "speakers": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "version": 1800000000000
+          },
+          "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "meeting-policy-speaker-added",
+        "kind": "negative",
+        "note": "The same signature with a third speaker added. Refused: a member cannot put themselves on the stage.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "policy": {
+            "on": true,
+            "speakers": [
+              "574b6077bdfe12953110c6ea93b4c6a46ba8e62b38c752ba413b9cf46a6bd5b8",
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "version": 1800000000000
+          },
+          "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "meeting-policy-not-canonical",
+        "kind": "negative",
+        "note": "The signed list in another order. Refused rather than sorted: the list a client verifies is the list it enforces.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "policy": {
+            "on": true,
+            "speakers": [
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+            ],
+            "version": 1800000000000
+          },
+          "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "meeting-policy-another-authority",
+        "kind": "negative",
+        "note": "Checked against a different key. Refused: only the inviter pinned in the link moderates.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "policy": {
+            "on": true,
+            "speakers": [
+              "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea"
+            ],
+            "version": 1800000000000
+          },
+          "sig": "5f611a0b1f91833f55a5570d47c8622787083262342fbedd3624fd8b62068c4e0acafeec6c900f2aa23e6b12308ed71db86d1aeb62e87d75be8687b4c3f12392",
+          "authority": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "recording-notice-signature",
+        "kind": "positive",
+        "note": "A recording running. The message is `sha256(\"kithmoot/v1/recording:<roomId>:<version>:<32 hex id>:<1 or 0>\")`. Every client shows a notice for as long as the newest version is on, and keeps showing it, marked unconfirmed, if it stops being reposted. An honest client records only after posting one.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "notice": {
+            "on": true,
+            "id": "cf13ba98b47b89f6920ce814e1334c41",
+            "version": 1800000000000
+          },
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/recording:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000000000:cf13ba98b47b89f6920ce814e1334c41:1",
+          "auxRandHex": "8e3f317274a3d4eb672145158d5c5eb7c665bf575367ac9b31d639f8fd5dc713"
+        },
+        "output": {
+          "sig": "09499dd7d7617dc8b4bd4fc36b478de3a6fda305fa2a1677b5560ee293ee0aaa57e42a29bdce4f25437a7e99333029db195220b6e5cf610eb48555b313c88709",
+          "text": "{\"op\":\"recording\",\"on\":true,\"id\":\"cf13ba98b47b89f6920ce814e1334c41\",\"version\":1800000000000,\"sig\":\"09499dd7d7617dc8b4bd4fc36b478de3a6fda305fa2a1677b5560ee293ee0aaa57e42a29bdce4f25437a7e99333029db195220b6e5cf610eb48555b313c88709\"}",
+          "result": {
+            "op": "recording",
+            "on": true,
+            "id": "cf13ba98b47b89f6920ce814e1334c41",
+            "version": 1800000000000,
+            "sig": "09499dd7d7617dc8b4bd4fc36b478de3a6fda305fa2a1677b5560ee293ee0aaa57e42a29bdce4f25437a7e99333029db195220b6e5cf610eb48555b313c88709"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "notice": {
+              "on": true,
+              "id": "cf13ba98b47b89f6920ce814e1334c41",
+              "version": 1800000000000
+            },
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "recording-notice-stop-forged",
+        "kind": "negative",
+        "note": "The running notice's signature offered for a stop. Refused: a member cannot take the notice down while the recording runs.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "notice": {
+            "on": false,
+            "id": "cf13ba98b47b89f6920ce814e1334c41",
+            "version": 1800000000000
+          },
+          "sig": "09499dd7d7617dc8b4bd4fc36b478de3a6fda305fa2a1677b5560ee293ee0aaa57e42a29bdce4f25437a7e99333029db195220b6e5cf610eb48555b313c88709",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",

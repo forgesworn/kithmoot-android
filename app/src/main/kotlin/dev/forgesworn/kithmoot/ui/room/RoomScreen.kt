@@ -136,7 +136,12 @@ fun RoomScreen(
     lockedCallOnly: Boolean = false,
     /** Asks Android to unlock, from anything the locked call view leaves out. */
     onUnlock: () -> Unit = {},
+    /** Raise or lower this person's hand in meeting mode. */
+    onRaiseHand: (Boolean) -> Unit = {},
+    /** The answer to "This call is being recorded": join, or not now. */
+    onAnswerRecordingConsent: (Boolean) -> Unit = {},
 ) {
+    if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent)
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var preferGrid by rememberSaveable(state.roomId) { mutableStateOf(false) }
@@ -419,6 +424,17 @@ fun RoomScreen(
         }
        }
       }
+        // Outside the controls that hide on a call: a recording, and why a
+        // microphone is locked, are said for as long as they are true.
+        if (state.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || state.meetingOn) {
+            // With the header hidden on a call, nothing else keeps these
+            // clear of the status bar and the camera cutout.
+            val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+            Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                RecordingBanner(state.recording)
+                MeetingNotice(state, onRaiseHand)
+            }
+        }
 
         if (!state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {

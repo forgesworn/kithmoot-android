@@ -266,6 +266,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import dev.forgesworn.kithmoot.protocol.MeetingPolicy
+import dev.forgesworn.kithmoot.protocol.RecordingView
+import dev.forgesworn.kithmoot.protocol.meetingAllows
+import dev.forgesworn.kithmoot.protocol.meetingGated
+import dev.forgesworn.kithmoot.session.MeetingNews
+import dev.forgesworn.kithmoot.session.MeetingSnapshot
 import org.webrtc.AudioTrack
 import org.webrtc.EglBase
 import org.webrtc.PeerConnection
@@ -381,6 +387,12 @@ data class ContactRow(
 )
 
 /** "<who> renamed the room to “<name>”", at the time the rename was sent. */
+/** What joining a recorded call was asked for, carried out on a yes. */
+enum class RecordingConsent { JOIN, JOIN_WITH_MIC, MICROPHONE, CAMERA }
+
+/** Said wherever a control is locked, the same way every time. */
+const val MEETING_LOCKED = "This call is in meeting mode: only speakers can use a microphone, camera or screen share. Raise your hand to ask to speak."
+
 data class RoomNote(val id: String, val participant: String, val name: String, val sentAt: Long)
 
 /** The chat's line for a rename read for the first time: once per rename,
@@ -509,6 +521,21 @@ data class RoomState(
     val micMuted: Boolean = false,
     val cameraOn: Boolean = false,
     val screenOn: Boolean = false,
+    /** The room's authority has the call in meeting mode: only its speakers
+     *  can talk or show video. See protocol/Meeting.kt. */
+    val meetingOn: Boolean = false,
+    /** This person may use a microphone, camera or screen share: always,
+     *  outside meeting mode. */
+    val meetingSpeaker: Boolean = true,
+    /** This person's hand is up, asking to speak. */
+    val handUp: Boolean = false,
+    /** Hands raised by people not on the stage. */
+    val handsRaised: Int = 0,
+    /** What the room's recording notice says right now. */
+    val recording: RecordingView = RecordingView.Off,
+    /** Something was pressed that would put this device on a recorded call,
+     *  and the person is being asked first. Null when nothing is asked. */
+    val recordingConsent: RecordingConsent? = null,
     /**
      * What is drawn behind this device's camera picture, if anything.
      *
@@ -802,6 +829,13 @@ class RoomViewModel @JvmOverloads constructor(
     private var quietTransport: QuietTransport? = null
     private var session: RoomSession? = null
     private var roomWork: RoomWork? = null
+    /** The open room's meeting policy, recording notice and raised hands, as
+     *  its [roomWork] reads them. Empty while no room is open, and in a room
+     *  with no shared work (an anonymous one), which has no meeting mode. */
+    private val meetingState = MutableStateFlow(MeetingSnapshot())
+    /** The recording this person agreed to be on the call for, by id, so the
+     *  question is asked once per recording and per call, not per button. */
+    @Volatile private var consentedRecording: String? = null
     /** This room's send path for a reply typed on its notification, as registered with [dev.forgesworn.kithmoot.notifications.OpenRoomReplies]. */
     private var noticeReplier: Pair<String, suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome>? = null
     private var engine: WebRtcEngine? = null
@@ -3590,8 +3624,13 @@ class RoomViewModel @JvmOverloads constructor(
                     initialRoomName=record.sharedName,
                     rekeyedAt={ epoch -> rekeyTimes[epoch] ?: runCatching { roomEpochs.rekeyAt(record.id, epoch)?.createdAt }.getOrNull() },
                     onRoomName={ shared -> onRoomNameReceived(record.id, shared) },
-                    onRename={ rename -> onRenameRead(derived.roomId, rename) })
+                    onRename={ rename -> onRenameRead(derived.roomId, rename) },
+                    onMeetingNews={ news -> if (session === live) onMeetingNews(news) })
                 roomWork=work
+                scope.launch { work.meeting.state.collect { snapshot -> if (roomWork === work) adoptMeeting(snapshot) } }
+                // A notice that stops being reposted turns unconfirmed, then
+                // goes, with nothing arriving to say so: the clock does.
+                scope.launch { while (isActive) { delay(30_000); if (roomWork === work) showRecording() } }
                 scope.launch { work.journal.state.collect { snapshot -> _room.update { if(roomWork===work)it.copy(work=snapshot)else it } } }
                 scope.launch { work.actions.collect { actions -> _room.update { if(roomWork===work)it.copy(workActions=actions)else it } } }
                 scope.launch { work.error.collect { error -> if(error!=null)_room.update{if(roomWork===work)it.copy(workError=error)else it} } }
@@ -3807,9 +3846,10 @@ class RoomViewModel @JvmOverloads constructor(
                         ?.let { callVolume.gainFor(it.participant).toDouble() } ?: 1.0
                 }
                 val micLive = _room.map { it.micOn && !it.micMuted }.distinctUntilChanged()
-                combine(media.speakingDevices, media.selfSpeaking, micLive, live.participants) { devices, self, micOn, people ->
+                combine(media.speakingDevices, media.selfSpeaking, micLive, live.participants, meetingState) { devices, self, micOn, people, meeting ->
                     val mine = self && micOn
-                    people.filter { p -> p.devices.any { it.device in devices } }.map { it.participant }.toSet() +
+                    // Nobody off the stage is shown speaking: they are not heard.
+                    people.filter { p -> p.devices.any { it.device in devices } && meetingAllows(meeting.meeting, p.participant) }.map { it.participant }.toSet() +
                         (if (mine) setOf(who.participant) else emptySet())
                 }.distinctUntilChanged().collect { speaking ->
                     _room.update { if (session === live) it.copy(speaking = speaking) else it }
@@ -3817,7 +3857,10 @@ class RoomViewModel @JvmOverloads constructor(
             }
 
             launch {
-                combine(media.remoteTracks, media.localMedia.tracks, live.participants) { remote, local, people ->
+                combine(media.remoteTracks, media.localMedia.tracks, live.participants, meetingState) { arrived, local, people, meeting ->
+                    // In meeting mode a picture from anybody off the stage is
+                    // not shown, whatever their app sends: see protocol/Meeting.kt.
+                    val remote = arrived.filter { !meetingGated(meeting.meeting, ownerOf(it.device, people)) }
                     // Role, not the WebRTC track id, is the tile's identity:
                     // a receiver's track id never matches the sender's once a
                     // slot is swapped, and a renegotiation mints a fresh one
@@ -3860,7 +3903,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
             launch { dev.forgesworn.kithmoot.telecom.CallTelecom.audio.collect { media.audioRouting.handToTelecom(it) } }
             launch {
-                combine(media.remoteTracks, live.participants, live.localRoles, callHeld) { remote, people, roles, held ->
+                combine(media.remoteTracks, live.participants, live.localRoles, callHeld, meetingState) { remote, people, roles, held, meeting ->
                     val mine = people.firstOrNull { it.participant == who.participant }
                         ?.devices?.map { it.device }?.toSet() ?: emptySet()
                     val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
@@ -3877,7 +3920,10 @@ class RoomViewModel @JvmOverloads constructor(
                     // not keep playing over the live one.
                     remote.filter { it.receiving }.mapNotNull { track ->
                         (track.track as? AudioTrack)?.let { audio ->
-                            val play = !held && shouldPlayRemoteAudio(track.device, mine, listeningHere)
+                            // In meeting mode, nobody off the stage is played,
+                            // and a device nobody can be placed is off it.
+                            val play = !held && shouldPlayRemoteAudio(track.device, mine, listeningHere) &&
+                                !meetingGated(meeting.meeting, deviceParticipant[track.device])
                             val gain = deviceParticipant[track.device]?.let(callVolume::gainFor) ?: CallVolume.DEFAULT_GAIN
                             Triple(audio, play, gain)
                         }
@@ -4144,6 +4190,8 @@ class RoomViewModel @JvmOverloads constructor(
     private fun closeSession(keepEntry: Boolean = false) {
         roomWork?.close()
         roomWork = null
+        meetingState.value = MeetingSnapshot()
+        consentedRecording = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
@@ -4285,12 +4333,131 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Whether a screen share may be asked for now. Checked before Android's
+     * own capture prompt, so a person off the stage, or not yet agreed to a
+     * recording, is never asked to grant a capture that cannot be used.
+     */
+    fun mayShareScreen(): Boolean {
+        if (!_room.value.meetingSpeaker) { note(MEETING_LOCKED); return false }
+        return !askRecordingConsent(RecordingConsent.JOIN)
+    }
+
+    /** Says why a locked control does nothing. */
+    fun noteMeetingLocked() = note(MEETING_LOCKED)
+
+    /**
+     * Before something puts this device on a call that is being recorded,
+     * say so and ask: returns true when it asked, and the press waits on the
+     * answer. A device already on the call, or a call nobody is recording,
+     * is not asked. Mirrors `consentToRecordedCall` in the web client.
+     */
+    private fun askRecordingConsent(action: RecordingConsent): Boolean {
+        if (_room.value.onCall) return false
+        val view = meetingState.value.recordingView(epochSeconds())
+        val id = when (view) {
+            is RecordingView.On -> view.id
+            is RecordingView.Unconfirmed -> view.id
+            RecordingView.Off -> return false
+        }
+        if (consentedRecording == id) return false
+        _room.update { it.copy(recording = view, recordingConsent = action) }
+        return true
+    }
+
+    /** The answer to [askRecordingConsent]. Yes carries out what was pressed;
+     *  no leaves the person in the room, off the call. */
+    fun answerRecordingConsent(join: Boolean) {
+        val asked = _room.value.recordingConsent ?: return
+        _room.update { it.copy(recordingConsent = null) }
+        if (!join) return
+        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds())) {
+            is RecordingView.On -> view.id
+            is RecordingView.Unconfirmed -> view.id
+            RecordingView.Off -> null
+        }
+        when (asked) {
+            RecordingConsent.JOIN -> joinCall(micOn = false)
+            RecordingConsent.JOIN_WITH_MIC -> joinCall(micOn = true)
+            RecordingConsent.MICROPHONE -> toggleMicrophone()
+            RecordingConsent.CAMERA -> toggleCamera()
+        }
+    }
+
+    /** Raise or lower this person's hand, for the room's authority to see. */
+    fun raiseHand(up: Boolean) {
+        val work = roomWork ?: return note("Wait for the room to finish connecting, then raise your hand.")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                work.raiseHand(up)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (roomWork === work) note(error.message ?: "Your hand could not be raised. Try again.")
+            }
+        }
+    }
+
+    /** Which participant [device] belongs to, or null when nobody's roster entry places it. */
+    private fun ownerOf(device: String, people: List<dev.forgesworn.kithmoot.session.Participant>): String? =
+        people.firstOrNull { p -> p.devices.any { it.device == device } }?.participant
+
+    /**
+     * The room's meeting state changed: show it, and hold this device to it.
+     * Off the stage, this device stops its own microphone, camera and screen
+     * share - the half of meeting mode an honest app does for itself; every
+     * other app refusing to play them is the half that does not rely on it.
+     */
+    private fun adoptMeeting(snapshot: MeetingSnapshot) {
+        meetingState.value = snapshot
+        val me = _room.value.selfParticipant
+        val policy = snapshot.meeting
+        val could = _room.value.meetingSpeaker
+        val can = meetingAllows(policy, me)
+        _room.update { it.copy(
+            meetingOn = policy?.on == true,
+            meetingSpeaker = can,
+            handUp = me in snapshot.hands,
+            handsRaised = snapshot.hands.keys.count { p -> !meetingAllows(policy, p) },
+            recording = snapshot.recordingView(epochSeconds()),
+        ) }
+        if (!can) act { stopSendingForMeeting() }
+        // Put on the stage, not let off it by the mode ending: that says so itself.
+        else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")
+    }
+
+    private fun showRecording() {
+        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds())) }
+    }
+
+    /** Off the stage: everything this device sends is stopped, and it says what. */
+    private fun stopSendingForMeeting() {
+        val state = _room.value
+        if (state.meetingSpeaker) return
+        val media = engine?.localMedia ?: return
+        val stopped = buildList {
+            if (state.micOn) { media.stopMicrophone(); runCatching { session?.release(Roles.MIC) }; add("microphone") }
+            if (state.cameraOn) { media.stopCamera(); add("camera") }
+            if (state.screenOn) { media.stopScreenShare(); ScreenShareService.stop(getApplication()); add("screen share") }
+        }
+        if (stopped.isEmpty()) return
+        note("Meeting mode: only speakers can talk or show video. Your ${stopped.joinToString(" and ")} ${if (stopped.size == 1) "is" else "are"} off.")
+    }
+
+    private fun onMeetingNews(news: MeetingNews) = note(when (news) {
+        MeetingNews.MeetingOn -> "This call is now in meeting mode: only speakers can talk or show video."
+        MeetingNews.MeetingOff -> "Meeting mode is off: everybody can talk again."
+        MeetingNews.RecordingOn -> "This call is being recorded. Everybody on the call is told, and sees a notice until it stops."
+        MeetingNews.RecordingOff -> "The recording has stopped."
+    })
+
     /** Shows the call rather than the chat: see [RoomState.callViewRequest]. */
     fun showCallView() { _room.update { it.copy(callViewRequest = it.callViewRequest + 1) } }
 
     fun leaveCall() {
         val live = session ?: return
         if (!_room.value.onCall || _room.value.callChanging) return
+        // Joining again asks again, if it is still being recorded.
+        consentedRecording = null
         // A remembered Join must not survive a Leave; it would put the person
         // straight back on the call they just left.
         _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false) }
@@ -4348,6 +4515,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun joinCall(micOn: Boolean = false) = act {
         if (chatOnly) return@act
+        if (askRecordingConsent(if (micOn) RecordingConsent.JOIN_WITH_MIC else RecordingConsent.JOIN)) return@act
         val state = _room.value
         val live = session ?: return@act
         when (val decision = joinDecision(
@@ -4405,6 +4573,8 @@ class RoomViewModel @JvmOverloads constructor(
      * exists. Same shape as [toggleMicrophone]'s Start action.
      */
     private fun startMicrophoneForJoin(live: RoomSession) {
+        // Joined, but off the stage: in, and listening, with the microphone off.
+        if (!_room.value.meetingSpeaker) return note(MEETING_LOCKED)
         val media = engine?.localMedia ?: return
         live.claim(Roles.MIC)
         if (media.startMicrophone() == null) {
@@ -4428,7 +4598,10 @@ class RoomViewModel @JvmOverloads constructor(
         if (!_room.value.mediaRunning) return@act noteIfJoinPending()
         val media = engine?.localMedia ?: return@act note(mediaMissing())
         val live = session ?: return@act
-        when (microphoneAction(_room.value.micOn, _room.value.micMuted)) {
+        val action = microphoneAction(_room.value.micOn, _room.value.micMuted)
+        if (action != MicrophoneAction.Mute && !_room.value.meetingSpeaker) return@act note(MEETING_LOCKED)
+        if (action == MicrophoneAction.Start && askRecordingConsent(RecordingConsent.MICROPHONE)) return@act
+        when (action) {
             MicrophoneAction.Start -> {
                 // The claim goes first, and not for tidiness: the moment a track
                 // appears the roster is republished, and a device that published a
@@ -4479,6 +4652,10 @@ class RoomViewModel @JvmOverloads constructor(
         val media = engine?.localMedia ?: return@act note(mediaMissing())
         if (_room.value.cameraOn) {
             media.stopCamera()
+        } else if (!_room.value.meetingSpeaker) {
+            note(MEETING_LOCKED)
+        } else if (askRecordingConsent(RecordingConsent.CAMERA)) {
+            return@act
         } else if (media.startCamera() == null) {
             note("No camera is available here.")
         }
@@ -4543,6 +4720,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun startScreenShare(permission: Intent, shareAudio: Boolean = true) {
         if (!_room.value.mediaRunning) return
+        if (!_room.value.meetingSpeaker) return note(MEETING_LOCKED)
         val media = engine?.localMedia ?: return note(mediaMissing())
         val scope = sessionScope ?: return
         scope.launch {

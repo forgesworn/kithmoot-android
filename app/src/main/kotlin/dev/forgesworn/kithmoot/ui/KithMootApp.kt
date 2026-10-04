@@ -535,7 +535,11 @@ fun KithMootApp(
                     videos = videos,
                     eglBase = model.eglBase,
                     onToggleMic = {
-                        if (roomState.micOn) {
+                        if (!roomState.micOn && !roomState.meetingSpeaker) {
+                            // Locked: said why, and no permission asked for a
+                            // microphone that cannot be used.
+                            model.noteMeetingLocked()
+                        } else if (roomState.micOn) {
                             model.toggleMicrophone()
                         } else if (lockedCallOnly && androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
                             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -557,7 +561,9 @@ fun KithMootApp(
                     },
                     onToggleAgentsMayHear = { model.setAgentsMayHear(!roomState.agentsMayHear) },
                     onToggleCamera = {
-                        if (roomState.cameraOn) {
+                        if (!roomState.cameraOn && !roomState.meetingSpeaker) {
+                            model.noteMeetingLocked()
+                        } else if (roomState.cameraOn) {
                             model.toggleCamera()
                         } else {
                             asker.ask(
@@ -575,7 +581,7 @@ fun KithMootApp(
                     onSwitchCamera = model::switchCamera,
                     onChooseBackground = model::chooseBackground,
                     onToggleScreenShare = {
-                        if (roomState.screenOn) model.stopScreenShare() else requestScreenShare()
+                        if (roomState.screenOn) model.stopScreenShare() else if (model.mayShareScreen()) requestScreenShare()
                     },
                     onExpandScreen = { expandedScreen = it },
                     onAddDevice = model::mintPairingLink,
@@ -599,6 +605,8 @@ fun KithMootApp(
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,
                     onJoinCall = model::joinCall,
+                    onRaiseHand = model::raiseHand,
+                    onAnswerRecordingConsent = model::answerRecordingConsent,
                     onRotateInvitation = model::rotateInvitation,
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,

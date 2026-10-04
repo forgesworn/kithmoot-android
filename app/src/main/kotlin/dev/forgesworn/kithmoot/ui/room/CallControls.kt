@@ -203,6 +203,7 @@ internal fun CallControlsBar(
                     else -> ControlTone.PLAIN
                 },
                 description = when {
+                    !state.micOn && !state.meetingSpeaker -> "Microphone locked: meeting mode"
                     !state.micOn -> "Microphone off"
                     state.micMuted -> "Microphone muted"
                     else -> "Microphone on"
@@ -214,7 +215,11 @@ internal fun CallControlsBar(
                 icon = if (state.cameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
                 label = "Camera",
                 tone = if (state.cameraOn) ControlTone.ACTIVE else ControlTone.PLAIN,
-                description = if (state.cameraOn) "Camera on" else "Camera off",
+                description = when {
+                    state.cameraOn -> "Camera on"
+                    !state.meetingSpeaker -> "Camera locked: meeting mode"
+                    else -> "Camera off"
+                },
                 onClick = onToggleCamera,
                 modifier = Modifier.weight(1f),
             )
@@ -329,7 +334,11 @@ internal fun MoreCallSheet(
             }
             SheetRow(
                 if (state.screenOn) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare,
-                if (state.screenOn) "Stop sharing screen" else "Share screen",
+                when {
+                    state.screenOn -> "Stop sharing screen"
+                    !state.meetingSpeaker -> "Share screen (only speakers, in meeting mode)"
+                    else -> "Share screen"
+                },
                 closing(onToggleScreenShare),
             )
             if (layoutToggle) SheetRow(
