@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.session
 
 import dev.forgesworn.kithmoot.protocol.DisplayName
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.ROOM_RELAYS_REPOST_SECONDS
 import dev.forgesworn.kithmoot.protocol.RoomNameBook
@@ -15,6 +16,13 @@ import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.decodeRoomRelaysOp
 import dev.forgesworn.kithmoot.protocol.encodeRoomRelaysOp
 import dev.forgesworn.kithmoot.protocol.encodeHandOp
+import dev.forgesworn.kithmoot.protocol.encodeMeetingOp
+import dev.forgesworn.kithmoot.protocol.MEETING_REPOST_SECONDS
+import dev.forgesworn.kithmoot.protocol.MeetingPolicy
+import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
+import dev.forgesworn.kithmoot.protocol.signMeetingPolicy
+import dev.forgesworn.kithmoot.protocol.withMeetingMode
+import dev.forgesworn.kithmoot.protocol.withSpeaker
 import dev.forgesworn.kithmoot.protocol.verifyRoomRelays
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
@@ -75,6 +83,9 @@ class RoomWork(
     private val nowMs:()->Long={System.currentTimeMillis()},
     /** Meeting mode or a recording started or stopped, read as it happened. */
     onMeetingNews:(MeetingNews)->Unit={},
+    /** The secret half of [authority], when this device made the room and
+     *  so may run it as a meeting. Null everywhere else. */
+    private val authoritySecretKey:ByteArray?=null,
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -113,7 +124,7 @@ class RoomWork(
     private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
-        if(meeting.receive(message.body,message.participant,message.sentAt))return
+        if(receiveMeeting(message.body,message.participant,message.sentAt))return
         if(control.assignmentText("op")=="name") { roomNameFromMessage(message.body,message.participant,message.sentAt)?.let{ingestName(message.id,it,epoch)};return }
         if(control.assignmentText("op")!="catalogue"||control.assignmentText("host")!=message.participant)return
         val entries=control["agents"] as? JsonArray?:return
@@ -260,6 +271,65 @@ class RoomWork(
             channel="control",credentialRoomId=roomId,roomEnds=ends)
         check(transport.publishConfirmed(event)) {"No relay confirmed your hand"}
     }
+    /** Whether this device holds the room's authority key, and so may run
+     *  it as a meeting. */
+    val moderator:Boolean=authority!=null&&authoritySecretKey?.let{runCatching{Schnorr.publicKeyHex(it)}.getOrNull()}==authority.lowercase()
+    @Volatile private var meetingRepost:Job?=null
+    private fun receiveMeeting(body:String,participant:String,sentAt:Long):Boolean {
+        val before=meeting.state.value.policy
+        if(!meeting.receive(body,participant,sentAt))return false
+        if(meeting.state.value.policy!=before)scheduleMeetingRepost()
+        return true
+    }
+    /** The policy a change starts from: the room's own, or none at all. */
+    private fun stagePolicy():MeetingPolicy=meeting.state.value.meeting?:MeetingPolicy(false,emptyList(),0)
+    /**
+     * Turn meeting mode on or off for everybody in the room. Whoever runs
+     * the meeting is on its stage. Mirrors `setMeetingMode` in the web
+     * client's `app/src/main.ts`.
+     */
+    suspend fun setMeetingMode(on:Boolean) {
+        var next=withMeetingMode(stagePolicy(),on,nowMs())
+        if(on&&identity.participant.lowercase() !in next.speakers)next=withSpeaker(next,identity.participant,true,next.version)
+        publishMeeting(next)
+    }
+    /** Put [participant] on the stage, or take them off it. A raised hand
+     *  comes down with it, as every device reads the new policy. */
+    suspend fun setSpeaker(participant:String,speaking:Boolean)=publishMeeting(withSpeaker(stagePolicy(),participant,speaking,nowMs()))
+    /** Sign [next] with the authority key, post it on the control channel,
+     *  and adopt it here through the same check every other device makes. */
+    private suspend fun publishMeeting(next:MeetingPolicy) {
+        check(!closed) {"This room has closed"}
+        val sk=authoritySecretKey
+        check(moderator&&sk!=null) {"Only the person who made this room can run it as a meeting."}
+        val body=encodeMeetingOp(SignedMeetingPolicy(next,signMeetingPolicy(roomId,next,sk)))
+        val sentAt=now()
+        val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,sentAt,
+            channel="control",credentialRoomId=roomId,roomEnds=ends)
+        check(transport.publishConfirmed(event)) {"No relay confirmed the meeting change"}
+        receiveMeeting(body,identity.participant,sentAt)
+    }
+    /** On the authority's device, post a policy that is on again every
+     *  [MEETING_REPOST_SECONDS], so somebody who arrives hours in still reads
+     *  it from the control log. Restarted by every newer policy. */
+    private fun scheduleMeetingRepost() {
+        if(!moderator)return
+        synchronized(this) {
+            meetingRepost?.cancel()
+            if(closed)return
+            meetingRepost=scope.launch {
+                while(isActive) {
+                    delay(MEETING_REPOST_SECONDS*1000)
+                    val signed=meeting.state.value.policy?.takeIf{it.policy.on}?:return@launch
+                    if(closed)return@launch
+                    runCatching {
+                        transport.publish(encodeChatEvent(encodeMeetingOp(signed),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,
+                            identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends))
+                    }
+                }
+            }
+        }
+    }
     suspend fun open() { journal.open();refreshActions() }
     suspend fun refreshActions() = discoveryMutex.withLock {
         check(!closed) {"This room has closed"}
@@ -306,5 +376,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }

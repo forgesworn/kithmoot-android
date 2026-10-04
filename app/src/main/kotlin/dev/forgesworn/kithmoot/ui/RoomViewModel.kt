@@ -531,6 +531,13 @@ data class RoomState(
     val handUp: Boolean = false,
     /** Hands raised by people not on the stage. */
     val handsRaised: Int = 0,
+    /** This device holds the room's authority key, so it may turn meeting
+     *  mode on and off and choose the speakers. */
+    val meetingModerator: Boolean = false,
+    /** The speakers the room's meeting policy names, on or off. */
+    val meetingSpeakers: List<String> = emptyList(),
+    /** Raised hands: participant -> unix seconds raised. */
+    val raisedHands: Map<String, Long> = emptyMap(),
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
     /** Something was pressed that would put this device on a recorded call,
@@ -3625,7 +3632,10 @@ class RoomViewModel @JvmOverloads constructor(
                     rekeyedAt={ epoch -> rekeyTimes[epoch] ?: runCatching { roomEpochs.rekeyAt(record.id, epoch)?.createdAt }.getOrNull() },
                     onRoomName={ shared -> onRoomNameReceived(record.id, shared) },
                     onRename={ rename -> onRenameRead(derived.roomId, rename) },
-                    onMeetingNews={ news -> if (session === live) onMeetingNews(news) })
+                    onMeetingNews={ news -> if (session === live) onMeetingNews(news) },
+                    // The room's own key, only on the device that made it: the
+                    // one device that may run its calls as meetings.
+                    authoritySecretKey=epochAuthorityHost?.inviterSecretKey)
                 roomWork=work
                 scope.launch { work.meeting.state.collect { snapshot -> if (roomWork === work) adoptMeeting(snapshot) } }
                 // A notice that stops being reposted turns unconfirmed, then
@@ -4397,6 +4407,42 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Turn meeting mode on or off: only on the device that made the room.
+     * Whoever runs the meeting is on its stage.
+     */
+    fun setMeetingMode(on: Boolean) = moderate { work ->
+        work.setMeetingMode(on)
+        null
+    }
+
+    /** Put [participant] on the meeting's stage, or take them off it. */
+    fun setSpeaker(participant: String, speaking: Boolean) = moderate { work ->
+        work.setSpeaker(participant, speaking)
+        val name = personName(participant)
+        if (speaking) "$name is a speaker now." else "$name is no longer a speaker."
+    }
+
+    private fun moderate(change: suspend (RoomWork) -> String?) {
+        val work = roomWork?.takeIf { it.moderator } ?: return note("Only the person who made this room can run it as a meeting.")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                change(work)?.let { if (roomWork === work) note(it) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (roomWork === work) note(error.message ?: "The meeting could not be changed. Try again.")
+            }
+        }
+    }
+
+    /** How the room names [participant], as their tile does. */
+    private fun personName(participant: String): String {
+        val state = _room.value
+        val tile = state.tiles.firstOrNull { it.participant == participant }
+        return state.profiles[participant]?.name ?: tile?.cardName?.takeIf { it.isNotBlank() } ?: tile?.name
+            ?: dev.forgesworn.kithmoot.account.shortNpub(participant)
+    }
+
     /** Which participant [device] belongs to, or null when nobody's roster entry places it. */
     private fun ownerOf(device: String, people: List<dev.forgesworn.kithmoot.session.Participant>): String? =
         people.firstOrNull { p -> p.devices.any { it.device == device } }?.participant
@@ -4408,6 +4454,7 @@ class RoomViewModel @JvmOverloads constructor(
      * other app refusing to play them is the half that does not rely on it.
      */
     private fun adoptMeeting(snapshot: MeetingSnapshot) {
+        val before = meetingState.value
         meetingState.value = snapshot
         val me = _room.value.selfParticipant
         val policy = snapshot.meeting
@@ -4418,8 +4465,14 @@ class RoomViewModel @JvmOverloads constructor(
             meetingSpeaker = can,
             handUp = me in snapshot.hands,
             handsRaised = snapshot.hands.keys.count { p -> !meetingAllows(policy, p) },
+            meetingModerator = roomWork?.moderator == true,
+            meetingSpeakers = policy?.speakers.orEmpty(),
+            raisedHands = snapshot.hands,
             recording = snapshot.recordingView(epochSeconds()),
         ) }
+        // The host hears about a hand as it goes up, not one found in the log.
+        if (roomWork?.moderator == true) snapshot.hands.filter { (p, at) -> p !in before.hands && p != me && at >= epochSeconds() - 30 }
+            .keys.firstOrNull()?.let { note("${personName(it)} raised their hand.") }
         if (!can) act { stopSendingForMeeting() }
         // Put on the stage, not let off it by the mode ending: that says so itself.
         else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")

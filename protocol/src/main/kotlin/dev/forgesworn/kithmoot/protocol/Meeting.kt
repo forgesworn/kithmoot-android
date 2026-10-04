@@ -41,6 +41,10 @@ const val MAX_MEETING_SPEAKERS: Int = 64
 /** How often a running recording's notice is posted again. */
 const val RECORDING_REPOST_SECONDS: Long = 5L * 60
 
+/** How often the authority posts a meeting policy that is on again, so a
+ *  member who arrives hours in still reads it from the control log. */
+const val MEETING_REPOST_SECONDS: Long = 30L * 60
+
 /** A notice not reposted for this long is shown as unconfirmed rather than
  *  taken down: the honest failure for a notice about recording is to keep
  *  showing it. */
@@ -146,6 +150,22 @@ fun meetingGated(policy: MeetingPolicy?, owner: String?): Boolean {
     if (policy == null || !policy.on) return false
     return owner == null || !meetingAllows(policy, owner)
 }
+
+/**
+ * The policy with [participant] put on or taken off the stage, and a new
+ * version: [nowMs], or one past the old version if that is later, so a
+ * change always outranks what it changes. Mirrors `withSpeaker` in the web
+ * client's `src/meeting.ts`.
+ */
+fun withSpeaker(policy: MeetingPolicy, participant: String, speaking: Boolean, nowMs: Long): MeetingPolicy {
+    val others = policy.speakers.filter { it != participant.lowercase() }
+    val speakers = canonicalSpeakers(if (speaking) others + participant else others)
+    return MeetingPolicy(policy.on, speakers, maxOf(nowMs, policy.version + 1))
+}
+
+/** The policy switched on or off, and a new version. The speakers stay. */
+fun withMeetingMode(policy: MeetingPolicy, on: Boolean, nowMs: Long): MeetingPolicy =
+    MeetingPolicy(on, policy.speakers, maxOf(nowMs, policy.version + 1))
 
 /** What a recording notice tells the person looking at the room. */
 sealed interface RecordingView {
