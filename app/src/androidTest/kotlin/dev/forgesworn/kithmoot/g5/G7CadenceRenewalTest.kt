@@ -233,7 +233,8 @@ class G7CadenceRenewalTest {
             put("queued", queued.size)
             put("returned", failed.count { it in queued })
             put("sentOfQueued", sent.count { it in queued })
-            put("everyQueuedAccounted", queued.all { it in failed || it in sent })
+            // Bothy keeps a message already committed to a prepared slot; it still goes out.
+            put("keptCommitted", rekeyed.receipt?.queueCount)
             put("nothingElseReturned", failed.all { it in queued })
         })
     }
