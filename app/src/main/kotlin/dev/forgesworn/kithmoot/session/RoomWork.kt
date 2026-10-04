@@ -14,6 +14,7 @@ import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.decodeRoomRelaysOp
 import dev.forgesworn.kithmoot.protocol.encodeRoomRelaysOp
+import dev.forgesworn.kithmoot.protocol.encodeHandOp
 import dev.forgesworn.kithmoot.protocol.verifyRoomRelays
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
@@ -72,9 +73,15 @@ class RoomWork(
     private val onRename:(RoomNameRecord)->Unit={},
     /** Milliseconds, for a rename's `at`. */
     private val nowMs:()->Long={System.currentTimeMillis()},
+    /** Meeting mode or a recording started or stopped, read as it happened. */
+    onMeetingNews:(MeetingNews)->Unit={},
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
+    /** The room's meeting policy, recording notice and raised hands, all
+     *  read from this control channel and believed on [authority]'s
+     *  signature, as the relay list is. */
+    val meeting=RoomMeeting(roomId,authority,now,onMeetingNews)
     val journal=AssignmentJournal(roomId,roomKey,identity,transport,storage,scope,policy,now=now,
         initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey,ends=ends)
     private val mutableActions=MutableStateFlow<List<AvailableAssignmentAction>>(emptyList())
@@ -106,6 +113,7 @@ class RoomWork(
     private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
+        if(meeting.receive(message.body,message.participant,message.sentAt))return
         if(control.assignmentText("op")=="name") { roomNameFromMessage(message.body,message.participant,message.sentAt)?.let{ingestName(message.id,it,epoch)};return }
         if(control.assignmentText("op")!="catalogue"||control.assignmentText("host")!=message.participant)return
         val entries=control["agents"] as? JsonArray?:return
@@ -238,6 +246,19 @@ class RoomWork(
         val confirmed=runCatching{transport.publishConfirmed(event)}.getOrElse{if(it is CancellationException)throw it;false}
         if(confirmed)ingestName(messageId,RoomNameRecord(due.name,due.id,due.at,null,sentAt),epoch)
         return confirmed
+    }
+    /**
+     * Raise or lower this person's hand for everybody in the room: a `hand`
+     * op on this epoch's control channel. Shown here at once; throws when no
+     * relay confirmed it.
+     */
+    suspend fun raiseHand(up:Boolean) {
+        check(!closed) {"This room has closed"}
+        val sentAt=now()
+        meeting.hand(identity.participant,up,sentAt)
+        val event=encodeChatEvent(encodeHandOp(up),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,sentAt,
+            channel="control",credentialRoomId=roomId,roomEnds=ends)
+        check(transport.publishConfirmed(event)) {"No relay confirmed your hand"}
     }
     suspend fun open() { journal.open();refreshActions() }
     suspend fun refreshActions() = discoveryMutex.withLock {
