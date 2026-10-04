@@ -48,4 +48,17 @@ class RoomMembersTest {
         members.letIn(room, ann)
         assertTrue(members.knows(room, ann))
     }
+
+    @Test fun `forgetting rooms forgets who they know`() {
+        val storage = MemoryStorage()
+        val members = RoomMembers(storage)
+        members.setMembers(room, listOf(ann))
+        members.setMembers(other, listOf(bob))
+        members.retainOnly { setOf(other) }
+        assertFalse(RoomMembers(storage).knows(room, ann))
+        assertTrue(RoomMembers(storage).knows(other, bob))
+        members.reset()
+        assertFalse(members.knows(other, bob))
+        assertFalse(RoomMembers(storage).knows(other, bob))
+    }
 }

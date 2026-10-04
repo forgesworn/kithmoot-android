@@ -1718,10 +1718,22 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 }
                 val rooms = savedRooms.list()
+                sweepForgottenRooms()
                 val linked = activeLinkRooms()
                 _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
         }
+    }
+
+    /**
+     * Erase the epoch keys and member lists of rooms no longer saved: rooms forgotten before
+     * forgetting erased them, and any whose erasure failed. Never on a saved-room list that
+     * could not be read, which would sweep every room.
+     */
+    private fun sweepForgottenRooms() {
+        val saved = { savedRooms.list().mapTo(mutableSetOf()) { it.id } }
+        runCatching { roomEpochs.retainOnly(saved) }
+        runCatching { roomMembers.retainOnly(saved) }
     }
 
     /** Finish a committed relay change after process death and discard every incomplete or orphaned route. */
@@ -2032,6 +2044,9 @@ class RoomViewModel @JvmOverloads constructor(
                 it.id, it.participant, it.devicePubkey).outbox.clear()
         }
         savedRooms.forget(id)
+        // Its keys go with it. What cannot be erased now, the next load's sweep erases.
+        runCatching { roomEpochs.forget(id) }
+        roomMembers.forget(id)
     }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
 
@@ -2059,6 +2074,8 @@ class RoomViewModel @JvmOverloads constructor(
         } catch (_: RoomStorageException) { /* Nothing readable to clear. */ }
         dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
         savedRooms.reset()
+        runCatching { roomEpochs.reset() }
+        roomMembers.reset()
     }
 
     fun pairBothy(roomId: String, code: String) {

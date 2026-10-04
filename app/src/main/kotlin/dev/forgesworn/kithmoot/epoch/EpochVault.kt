@@ -190,8 +190,39 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         records[index] = next
         write(records)
         // Nothing of a room this device has left is handed on.
-        forgetHistory(stableRoom)
+        forgetHistory { it != stableRoom }
         return next.copyOut()
+    }
+
+    /**
+     * Forget everything kept for [stableRoom]: its journal entry and its history. The journal's
+     * storage retires its Keystore key at every write, so the old version is unreadable, not
+     * merely unlisted.
+     */
+    @Synchronized fun forget(stableRoom: String) = retain { it != stableRoom }
+
+    /**
+     * Forget every room [saved] does not name. [saved] is read under this vault's lock, and a
+     * room is saved before its epoch is initialised, so a room opening meanwhile is never swept.
+     */
+    @Synchronized fun retainOnly(saved: () -> Set<String>) {
+        val keep = saved()
+        retain { it in keep }
+    }
+
+    /** Forget every room, whether or not the stores can still be read. */
+    @Synchronized fun reset() {
+        guarded { storage.reset() }
+        try { history?.reset() } catch (_: Exception) { }
+        historyCache?.values?.forEach { epochs -> epochs.values.forEach { it.secret?.fill(0) } }
+        historyCache = null
+    }
+
+    private fun retain(keep: (String) -> Boolean) {
+        val records = read()
+        val kept = records.filter { keep(it.stableRoom) }
+        if (kept.size != records.size) write(kept)
+        forgetHistory(keep)
     }
 
     /**
@@ -250,11 +281,15 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         }
     }
 
-    private fun forgetHistory(stableRoom: String) {
+    private fun forgetHistory(keep: (String) -> Boolean) {
         val store = history ?: return
         try {
             val all = readHistory()
-            if (stableRoom in all) writeHistory(store, all - stableRoom)
+            val gone = all.filterKeys { !keep(it) }
+            if (gone.isEmpty()) return
+            writeHistory(store, all.filterKeys(keep))
+            // The cache held these for the life of the process.
+            gone.values.forEach { epochs -> epochs.values.forEach { it.secret?.fill(0) } }
         } catch (_: Exception) {
             historyCache = null
         }

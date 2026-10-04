@@ -59,6 +59,18 @@ class RoomMembers(private val storage: RoomStorage) {
         if (rooms.remove(stableRoom) != null) save(rooms)
     }
 
+    /** Forget every room [saved] does not name, read under this lock as `EpochVault.retainOnly` reads it. */
+    @Synchronized fun retainOnly(saved: () -> Set<String>) {
+        val keep = saved()
+        val rooms = rooms()
+        if (rooms.keys.retainAll(keep)) save(rooms)
+    }
+
+    @Synchronized fun reset() {
+        cache = mutableMapOf()
+        try { storage.reset() } catch (_: Exception) { }
+    }
+
     private fun rooms(): MutableMap<String, Entry> {
         cache?.let { return it }
         val parsed = try {

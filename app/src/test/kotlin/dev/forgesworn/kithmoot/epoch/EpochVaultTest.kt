@@ -245,6 +245,58 @@ class EpochVaultTest {
         assertNull(EpochVault(journal, history).secretAt(room, 2))
     }
 
+    @Test fun `forgetting a room erases its journal and history, and only its own`() {
+        val journal = MemoryStorage()
+        val history = MemoryStorage()
+        val vault = EpochVault(journal, history)
+        val otherSecret = ByteArray(32) { 8 }
+        val other = dev.forgesworn.kithmoot.protocol.deriveRoom(otherSecret).roomId
+        for ((id, secret) in listOf(room to initial, other to otherSecret)) {
+            vault.initialise(id, authority, secret, 100)
+            vault.beginTransition(id, 0, RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 21 }, 101), "aa".repeat(32), null, 101)
+            vault.activate(id, 1, 102)
+            vault.beginTransition(id, 1, RekeyNotice(2, emptyList(), null, false, ByteArray(32) { 22 }, 103), "bb".repeat(32), null, 103)
+            vault.activate(id, 2, 104)
+        }
+        vault.forget(room)
+        val reopened = EpochVault(journal, history)
+        assertNull(reopened.get(room))
+        assertNull(reopened.secretAt(room, 1))
+        assertEquals(2, reopened.get(other)?.currentEpoch)
+        assertArrayEquals(ByteArray(32) { 21 }, reopened.secretAt(other, 1))
+        // Forgotten, the room starts again from its link like any room never opened here.
+        assertEquals(0, reopened.initialise(room, authority, initial, 105).currentEpoch)
+    }
+
+    @Test fun `the sweep keeps saved rooms, and keeps everything when the saved list cannot be read`() {
+        val journal = MemoryStorage()
+        val history = MemoryStorage()
+        val vault = EpochVault(journal, history)
+        val otherSecret = ByteArray(32) { 8 }
+        val other = dev.forgesworn.kithmoot.protocol.deriveRoom(otherSecret).roomId
+        for ((id, secret) in listOf(room to initial, other to otherSecret)) {
+            vault.initialise(id, authority, secret, 100)
+            vault.beginTransition(id, 0, RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 21 }, 101), "aa".repeat(32), null, 101)
+            vault.activate(id, 1, 102)
+        }
+        assertThrows(RoomStorageException::class.java) {
+            vault.retainOnly { throw RoomStorageException(java.io.IOException("unreadable")) }
+        }
+        assertEquals(1, EpochVault(journal, history).get(room)?.currentEpoch)
+        assertEquals(1, EpochVault(journal, history).get(other)?.currentEpoch)
+
+        vault.retainOnly { setOf(other) }
+        assertNull(EpochVault(journal, history).get(room))
+        assertNull(EpochVault(journal, history).secretAt(room, 1))
+        assertArrayEquals(ByteArray(32) { 21 }, EpochVault(journal, history).secretAt(other, 1))
+
+        vault.reset()
+        assertNull(journal.value)
+        assertNull(history.value)
+        assertNull(vault.get(other))
+        assertNull(vault.secretAt(other, 1))
+    }
+
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {
         var value = initial?.copyOf()
         override fun read(): ByteArray? = value?.copyOf()
