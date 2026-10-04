@@ -30,6 +30,8 @@ class SharedProjects(
     private val storage: ProjectStorage,
     private val scope: CoroutineScope,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** Waits out [AccountWriteHold] before each relay publish. */
+    private val beforePublish: suspend () -> Unit = {},
 ) {
     private data class Pending(val inner: NostrEvent, val outer: NostrEvent, val recipient: String)
     private data class Receipt(val intent: String, val head: String)
@@ -256,6 +258,8 @@ class SharedProjects(
         try {
             val batch = gate.withLock { if (closed || !state.value.ready) emptyList() else pending.values.toList() }
             for (chunk in batch.chunked(4)) {
+                if (closed) break
+                beforePublish()
                 if (closed) break
                 val accepted = coroutineScope { chunk.map { p -> async {
                     if (gate.withLock { closed || fatal != null || p.outer.id !in pending }) return@async null

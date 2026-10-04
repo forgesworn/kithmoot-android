@@ -35,6 +35,8 @@ class RoomBookmarks(
     private val storage: ProjectStorage,
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
+    /** Waits out [AccountWriteHold] before each relay publish. */
+    private val beforePublish: suspend () -> Unit = {},
 ) {
     private data class Record(val event: NostrEvent, val value: JsonObject) {
         val roomId get() = value.getValue("roomId").jsonPrimitive.content
@@ -225,6 +227,8 @@ class RoomBookmarks(
     suspend fun retry() = sendGate.withLock {
         try {
             while (true) {
+                if (gate.withLock { pending.isEmpty() }) break
+                beforePublish()
                 val record = gate.withLock { live(); check(loaded && fatal == null); pending.values.firstOrNull() } ?: break
                 check(transport.publishConfirmed(record.event)) { "No relay acknowledgement" }
                 gate.withLock {
