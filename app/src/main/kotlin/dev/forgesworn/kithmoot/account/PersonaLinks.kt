@@ -55,6 +55,8 @@ class PersonaLinks(
 
     /** Touched only on [worker]. */
     private val sessions = HashMap<String, Held>()
+    /** Pairing engines still running, stopped from any thread by [pause], [close] or a caller giving up. */
+    private val pairingEngines = java.util.Collections.synchronizedSet(HashSet<LinkTransportSession>())
     @Volatile private var closed = false
 
     override fun forPersona(persona: String, writerSeed: ByteArray?, route: StoredLinkRoute?): WitnessChannel? {
@@ -85,17 +87,23 @@ class PersonaLinks(
         val task = Runnable {
             var session: LinkTransportSession? = null
             try {
-                check(!closed && !quiet()) { PAUSED }
+                check(!closed && !quiet() && !result.isDone) { PAUSED }
                 session = runtime.start(state)
+                pairingEngines += session
+                // Paused, closed or abandoned while starting: stop before sending anything.
+                check(!closed && !quiet() && !result.isDone) { PAUSED }
                 result.complete(session.pair(routeId, pairing.card, pairing.pairingSecret, pairing.expiresAt.toULong()))
             } catch (error: Exception) {
                 result.completeExceptionally(error)
             } finally {
                 state.transportSeed.fill(0)
                 pairing.pairingSecret.fill(0)
-                session?.let { runCatching { it.stop() } }
+                session?.let { pairingEngines -= it; runCatching { it.stop() } }
             }
         }
+        // A caller that gives up (its timeout cancels this) stops the engine at once:
+        // the native pairing has no bound of its own and would otherwise run on.
+        result.whenComplete { _, _ -> if (result.isCancelled) stopPairing() }
         try { pairer.execute(task) } catch (error: RejectedExecutionException) {
             state.transportSeed.fill(0)
             pairing.pairingSecret.fill(0)
@@ -104,9 +112,16 @@ class PersonaLinks(
         return result
     }
 
-    /** Stops every open session at once: a Tor-only room has just opened (C7). */
+    /** Stops every open session at once, pairings included: a Tor-only room has just opened (C7). */
     fun pause() {
+        stopPairing()
         submit({ stopAll() }) {}
+    }
+
+    /** Any thread: stopping an engine cancels its native pairing. */
+    private fun stopPairing() {
+        val running = synchronized(pairingEngines) { pairingEngines.toList().also { pairingEngines.clear() } }
+        running.forEach { runCatching { it.stop() } }
     }
 
     /** Stops [persona]'s engine, after its installation is retired or replaced. */
@@ -117,6 +132,7 @@ class PersonaLinks(
     override fun close() {
         if (closed) return
         closed = true
+        stopPairing()
         submit({
             stopAll()
             (worker as? ExecutorService)?.shutdown()
@@ -143,13 +159,22 @@ class PersonaLinks(
         return result
     }
 
-    /** On the worker: the persona's engine for [key], starting it afresh when the seed or route changed. */
+    /**
+     * On the worker: the persona's engine for [key], starting it afresh when
+     * the seed or route changed. Never while [quiet]: a Tor-only room may have
+     * opened after the channel was given. Counts as a use, with its own idle
+     * stop, so an engine started here never outlives its idleness and an idle
+     * stop cannot land between this and the request it serves.
+     */
     private fun ensure(persona: String, key: String, state: LinkTransportState) {
-        check(!closed) { "The witness link has stopped" }
-        val held = sessions[persona]
-        if (held?.key == key) return
-        held?.let { sessions.remove(persona); runCatching { it.session.stop() } }
-        sessions[persona] = Held(key, runtime.start(state))
+        check(!closed && !quiet()) { PAUSED }
+        var held = sessions[persona]
+        if (held?.key != key) {
+            held?.let { sessions.remove(persona); runCatching { it.session.stop() } }
+            held = Held(key, runtime.start(state)).also { sessions[persona] = it }
+        }
+        val use = ++held.uses
+        later(idleMillis) { submit({ stopIdle(persona, held, use) }) {} }
     }
 
     /** On the worker: stops [held] if it is still [persona]'s engine and unused since [use]. */

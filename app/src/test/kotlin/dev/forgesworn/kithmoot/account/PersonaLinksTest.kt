@@ -29,11 +29,15 @@ class PersonaLinksTest {
         val requests = mutableListOf<LinkJsonRequest>()
         var paired: Triple<String, ByteArray, ULong>? = null
         var stopped = false
+        /** Runs inside pair(), as a box that accepts and goes silent leaves it running. */
+        var onPair: (() -> Unit)? = null
         var answer = LinkJsonResponse(403, ByteArray(0), LinkPathState("direct", null, null, ""), witnessRefused = true)
 
         override fun request(request: LinkJsonRequest): LinkJsonResponse { requests += request; return answer }
         override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
             paired = Triple(routeId, pairingSecret.copyOf(), expiresAt)
+            onPair?.invoke()
+            check(!stopped) { "stopped" }
             return StoredLinkRoute(routeId, card.copyOf(), ByteArray(32) { 9 }, 1uL, NOW.toULong())
         }
         override fun stop() { stopped = true }
@@ -45,9 +49,12 @@ class PersonaLinksTest {
     }
 
     private val started = mutableListOf<FakeSession>()
+    /** Given to the next session started. */
+    private var nextOnPair: (() -> Unit)? = null
     private val runtime = object : LinkTransportRuntime {
         override fun start(state: LinkTransportState): LinkTransportSession =
-            FakeSession(state.transportSeed.copyOf(), state.routes.map { it.copy(card = it.card.copyOf()) }).also { started += it }
+            FakeSession(state.transportSeed.copyOf(), state.routes.map { it.copy(card = it.card.copyOf()) })
+                .also { it.onPair = nextOnPair; started += it }
     }
     private var quiet = false
     /** Idle stops waiting to run, as the timer would run them. */
@@ -148,14 +155,53 @@ class PersonaLinksTest {
     @Test fun `an engine stops once idle, but not while it is still in use`() = runBlocking<Unit> {
         links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(1))
         links.forPersona(PERSONA, seed, route)!!.advance(byteArrayOf(2))
-        assertEquals(2, idle.size)
-        idle[0]()
+        // Each request's start and send both count as uses; only the last one's stop applies.
+        assertEquals(4, idle.size)
+        idle.dropLast(1).forEach { it() }
         assertTrue(!started.single().stopped)
-        idle[1]()
+        idle.last()()
         assertTrue(started.single().stopped)
         // The next request starts it afresh.
         links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(3))
         assertEquals(2, started.size)
+    }
+
+    @Test fun `a Tor-only room opening mid-pairing stops the pairing engine`() {
+        nextOnPair = { links.pause() }
+        val future = links.pair(seed, pairing())
+        pairings.single().run()
+        val error = assertFailsWith<ExecutionException> { future.get() }
+        assertEquals("stopped", error.cause!!.message)
+        assertTrue(started.single().stopped)
+    }
+
+    @Test fun `a caller giving up mid-pairing stops the pairing engine`() {
+        lateinit var future: java.util.concurrent.CompletableFuture<StoredLinkRoute>
+        nextOnPair = { future.cancel(true) }
+        future = links.pair(seed, pairing())
+        pairings.single().run()
+        assertTrue(future.isCancelled)
+        assertTrue(started.single().stopped)
+    }
+
+    @Test fun `a caller that gives up on a pairing stops its engine`() {
+        val future = links.pair(seed, pairing())
+        future.cancel(true)
+        pairings.single().run()
+        // Abandoned before it started: no engine, no pairing sent.
+        assertTrue(started.isEmpty())
+    }
+
+    @Test fun `no engine starts for a channel given just before a Tor-only room opened`() {
+        val queue = ArrayDeque<Runnable>()
+        val deferred = PersonaLinks(runtime, quiet = { quiet }, worker = { queue += it }, later = { _, _ -> }, pairer = { it.run() })
+        // The channel is given, and its engine's start queued, while not yet quiet...
+        assertTrue(deferred.forPersona(PERSONA, seed, route) != null)
+        // ...then the room opens before the worker gets to it.
+        quiet = true
+        deferred.pause()
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        assertTrue(started.isEmpty())
     }
 
     @Test fun `forgetting a persona stops its engine`() = runBlocking<Unit> {

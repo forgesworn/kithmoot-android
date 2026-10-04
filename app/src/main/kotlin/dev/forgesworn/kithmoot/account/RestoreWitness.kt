@@ -128,13 +128,15 @@ class RestoreWitness(
 
     private suspend fun refreshBanner(persona: String?) {
         if (persona != bannerPersona) return
-        _banner.value = try {
+        val status = try {
             if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            _banner.value
+            return
         }
+        // The account may have changed while this was suspended.
+        if (persona == bannerPersona) _banner.value = status
     }
 
     private suspend fun refresh(persona: String?, check: Boolean) {
