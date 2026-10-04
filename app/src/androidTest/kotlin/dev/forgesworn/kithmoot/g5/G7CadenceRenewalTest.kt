@@ -94,7 +94,9 @@ class G7CadenceRenewalTest {
             quietEvent(who, B_TRAFFIC, 1), epochSeconds(), app.cadenceLeases).get(120, TimeUnit.SECONDS).lease
         assertEquals(1, b1Queued.receipt?.queueCount)
         put("g7-renewal-a", buildJsonObject { put("leaseId", A_LEASE); put("generation", 1); put("startEpoch", s) })
-        put("g7-renewal-b", buildJsonObject { put("leaseId", B_LEASE); put("generation", 1); put("startEpoch", s + 2) })
+        put("g7-renewal-b", buildJsonObject {
+            put("leaseId", B_LEASE); put("generation", 1); put("startEpoch", s + 2); put("trafficRoom", B_TRAFFIC)
+        })
     }
 
     /**
@@ -167,6 +169,7 @@ class G7CadenceRenewalTest {
         assertEquals(1, queued.receipt?.queueCount)
         put("g7-renewal-b2", buildJsonObject {
             put("leaseId", B_LEASE); put("generation", renewal.generation); put("startEpoch", renewal.startEpoch)
+            put("trafficRoom", B_TRAFFIC)
             put("endEpoch", renewal.endEpoch)
         })
     }
