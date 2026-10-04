@@ -19,19 +19,32 @@ import javax.crypto.SecretKey
  * deleting the current file cannot make delegated counters look unused.
  * [aad] is bound into every ciphertext; it is not stored, so a reader must
  * supply the same value.
+ *
+ * By default the superseded key is deleted *before* the new version is
+ * committed, which cadence journals, the epoch store and the MLS vault's
+ * installation store depend on: a crash in that interval can make the store
+ * unavailable but never revives an older version. [deleteSupersededAfterCommit]
+ * reverses that order for the coordinated MLS persona store alone (P3-03b-2),
+ * whose rollback detection is the restore witness's job: a crash then leaves
+ * either the old file with its key or the new file with its key, and [read]
+ * sweeps the stale one. [directory] and [keys] are seams for tests that copy a
+ * whole profile; production uses `noBackupFilesDir` and AndroidKeyStore.
  */
 class RollbackResistantRoomStorage(
     context: Context,
     private val alias: String,
     private val maxPlaintextBytes: Int = 4 * 1024 * 1024,
     private val aad: ByteArray = RoomCipher.AAD,
+    private val deleteSupersededAfterCommit: Boolean = false,
+    directory: File? = null,
+    private val keys: SealKeys = AndroidKeyStoreSealKeys,
 ) : RoomStorage {
     init {
         require(alias.matches(Regex("[A-Za-z0-9._-]{1,128}")))
         require(maxPlaintextBytes in 1..32 * 1024 * 1024)
     }
 
-    private val directory = context.applicationContext.noBackupFilesDir
+    private val directory = directory ?: context.applicationContext.noBackupFilesDir
     private val base = File(directory, "$alias.vault")
     private val file = AtomicFile(base)
     private val entryPrefix = "$alias.entry."
@@ -43,7 +56,11 @@ class RollbackResistantRoomStorage(
                 it.readBytes().also { bytes -> require(bytes.size <= maxPlaintextBytes + MAX_OVERHEAD) }
             }
         } catch (error: FileNotFoundException) {
-            if (base.exists() || File(base.path + ".bak").exists() || entries().isNotEmpty()) throw error
+            if (base.exists() || File(base.path + ".bak").exists()) throw error
+            // With deletion after the commit, a crash before the very first
+            // commit can leave a key with no file. The coordinated store
+            // decides what a missing file means from its own marker.
+            if (!deleteSupersededAfterCommit && entries().isNotEmpty()) throw error
             return null
         }
         try {
@@ -77,7 +94,7 @@ class RollbackResistantRoomStorage(
                 // Retire the previous key before AtomicFile makes this version
                 // authoritative. A crash in this narrow interval may make the
                 // journal unavailable, but can never revive delegated counters.
-                deleteStaleEntries(entry)
+                if (!deleteSupersededAfterCommit) deleteStaleEntries(entry)
                 file.finishWrite(output)
                 committed = true
             } catch (error: Exception) {
@@ -85,6 +102,11 @@ class RollbackResistantRoomStorage(
                 throw error
             }
             if (!file.readFully().contentEquals(packed)) throw IOException("Cadence journal could not be committed")
+            if (deleteSupersededAfterCommit) {
+                // The new version is committed with its key. A failure (or a
+                // crash) here leaves a stale key, which the next read sweeps.
+                try { deleteStaleEntries(entry) } catch (_: Exception) { }
+            }
         } catch (error: Exception) {
             if (!committed) deleteEntry(entry)
             throw error
@@ -117,27 +139,14 @@ class RollbackResistantRoomStorage(
     }
 
     private fun key(entry: String, create: Boolean): SecretKey {
-        val keys = keyStore()
-        val existing = keys.getKey(entry, null)
-        if (existing != null) return existing as SecretKey
-        if (!create) throw IOException("The cadence journal key is unavailable")
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
-            init(
-                KeyGenParameterSpec.Builder(entry, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                    .setKeySize(256)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setRandomizedEncryptionRequired(true)
-                    .build(),
-            )
-            generateKey()
-        }
+        keys.get(entry)?.let { return it }
+        if (!create) throw SealKeyMissingException("The cadence journal key is unavailable")
+        return keys.create(entry)
     }
 
-    private fun entries(): List<String> = keyStore().aliases().toList().filter { it.startsWith(entryPrefix) }
+    private fun entries(): List<String> = keys.aliases().filter { it.startsWith(entryPrefix) }
     private fun deleteStaleEntries(current: String) = entries().filterNot { it == current }.forEach(::deleteEntry)
-    private fun deleteEntry(entry: String) = keyStore().deleteEntry(entry)
-    private fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    private fun deleteEntry(entry: String) = keys.delete(entry)
 
     private companion object {
         const val FORMAT: Byte = 1
@@ -146,3 +155,39 @@ class RollbackResistantRoomStorage(
         val ENTRY_SUFFIX = Regex("[0-9a-f]{32}")
     }
 }
+
+/**
+ * Where a store's AES-GCM sealing keys live. [get] answers null only when the
+ * alias is definitively absent; a transient Keystore failure throws.
+ */
+interface SealKeys {
+    fun get(alias: String): SecretKey?
+    fun create(alias: String): SecretKey
+    fun delete(alias: String)
+    fun aliases(): List<String>
+}
+
+/** Non-exportable AES-256-GCM keys in AndroidKeyStore. */
+object AndroidKeyStoreSealKeys : SealKeys {
+    override fun get(alias: String): SecretKey? = keyStore().getKey(alias, null) as SecretKey?
+
+    override fun create(alias: String): SecretKey =
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+            init(
+                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                    .setKeySize(256)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .build(),
+            )
+            generateKey()
+        }
+
+    override fun delete(alias: String) = keyStore().deleteEntry(alias)
+    override fun aliases(): List<String> = keyStore().aliases().toList()
+    private fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+}
+
+/** A sealed file is present but its key alias is absent: definitive evidence, never a transient failure. */
+class SealKeyMissingException(message: String) : IOException(message)
