@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.vmls.BindingErrorCode
 import dev.forgesworn.kithmoot.vmls.BindingException
@@ -510,6 +511,47 @@ class MlsVault(
             ?.let { VaultResult.Ok(it) } ?: refuse(VaultRefusal.Unauthorised)
     }
 
+    /**
+     * Pairs [persona]'s own writer with the keeper's box (C1): [pair] gets a
+     * copy of the writer's Link seed, scans the box's witness-only pairing
+     * code into an engine started from it, and answers the booked route. The
+     * persona is prepared first if it is not. Before genesis only; a pairing
+     * that fails changes nothing.
+     */
+    suspend fun pairWitness(persona: String, pair: suspend (ByteArray) -> StoredLinkRoute): VaultResult<Unit> {
+        val coordinated = coord(persona)
+        return if (coordinated.store.lock.withLock { coordinated.pairWitness(pair) }) VaultResult.Ok(Unit) else refuse(VaultRefusal.Unauthorised)
+    }
+
+    /**
+     * Genesis pinned to the box [persona] paired with: the witness key is the
+     * node id on the paired route's card. Refused before pairing.
+     */
+    suspend fun beginCoordination(persona: String, subject: ByteArray): VaultResult<CoordinationGenesis> {
+        val coordinated = coord(persona)
+        return coordinated.store.lock.withLock {
+            val box = coordinated.pairedBox() ?: return@withLock null
+            coordinated.genesis(subject, box)
+        }?.let { VaultResult.Ok(it) } ?: refuse(VaultRefusal.Unauthorised)
+    }
+
+    /**
+     * Whether [persona] has coordinated state on this device, creating none:
+     * for the pending banner, which must not enrol an account by looking. A
+     * corrupt index answers true, so its trouble still shows.
+     */
+    suspend fun coordinationKnown(persona: String): Boolean {
+        val coordinated = coordination ?: return false
+        if (guarded { coordinated.stores.coordinatedNames() }.isEmpty()) return false
+        return locked { readIndex() }?.containsValue(persona) ?: true
+    }
+
+    /** Where [persona]'s enrolment stands, without any witness traffic. */
+    suspend fun witnessEnrolment(persona: String): WitnessEnrolment {
+        val coordinated = coord(persona)
+        return coordinated.store.lock.withLock { coordinated.enrolment() }
+    }
+
     /** Whether [persona] is active, pending or fenced; [check] also asks the witness again ("Check now"). */
     suspend fun coordinationStatus(persona: String, check: Boolean = false): CoordinationStatus {
         val coordinated = coord(persona)
@@ -526,6 +568,9 @@ class MlsVault(
     suspend fun runRetiringDuties(): Map<String, RetiringDutyFailure> {
         val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
         val failures = linkedMapOf<String, RetiringDutyFailure>()
+        // Nothing coordinated on this phone: nothing to retire, and nothing is created by looking.
+        val names = guarded { coordinated.stores.coordinatedNames() }
+        if (names.isEmpty()) return failures
         val index = try {
             locked { readIndex() } ?: throw IllegalStateException("The coordination index is corrupt")
         } catch (error: Exception) {
@@ -533,7 +578,7 @@ class MlsVault(
             failures[INDEX] = RetiringDutyFailure(null, error)
             emptyMap()
         }
-        for (name in guarded { coordinated.stores.coordinatedNames() }) {
+        for (name in names) {
             try {
                 val persona = index[name] ?: throw IllegalStateException("The coordination index names no persona for this file")
                 check(locked { coordName(persona) } == name) { "The marker names another persona" }

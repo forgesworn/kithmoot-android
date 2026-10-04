@@ -58,7 +58,7 @@ class CoordinatedMlsVaultTest {
         subject = bytes(32)
     }
 
-    private fun vault(on: MemoryCoordinatedStores = stores, channels: WitnessChannels = WitnessChannels { _, _ -> server.channel }) =
+    private fun vault(on: MemoryCoordinatedStores = stores, channels: WitnessChannels = WitnessChannels { _, _, _ -> server.channel }) =
         MlsVault.coordinated(VaultCoordination(on, channels, witness), now = { clock })
 
     /** Genesis, the keeper's enrol line run at the box, and "Check now". */
@@ -461,7 +461,7 @@ class CoordinatedMlsVaultTest {
             override fun genesis(subject: ByteArray, installation: ByteArray, witnessKey: ByteArray, active: List<CoordEntry>): CoordGenesis = throw VaultWitnessUnavailableException()
             override fun open(state: ByteArray, active: List<CoordEntry>, staged: List<CoordEntry>?): WitnessCoordinator = throw VaultWitnessUnavailableException()
         }
-        val v = MlsVault.coordinated(VaultCoordination(stores, { _, _ -> server.channel }, none), now = { clock })
+        val v = MlsVault.coordinated(VaultCoordination(stores, { _, _, _ -> server.channel }, none), now = { clock })
         assertFailsWith<MlsVaultUnavailableException> { runBlocking { v.beginCoordination(alice.pubkey, subject, server.key) } }
         assertEquals(refused(VaultRefusal.WitnessPending), runBlocking { v.enrol(v.context(principal, alice.pubkey), alice, now + 3600) })
         assertTrue(alice.signed.isEmpty())

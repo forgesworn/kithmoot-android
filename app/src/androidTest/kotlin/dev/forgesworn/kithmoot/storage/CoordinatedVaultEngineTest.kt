@@ -71,7 +71,7 @@ class CoordinatedVaultEngineTest {
         keys.aliases().toList().filter { it.startsWith("$prefix.") }.forEach(keys::deleteEntry)
     }
 
-    private val channels = WitnessChannels { _, _ -> witness.channel }
+    private val channels = WitnessChannels { _, _, _ -> witness.channel }
 
     /** Keystore-backed stores in `noBackupFilesDir`, as production would use. */
     private fun keystoreStores() = AndroidMlsVaultStores(context, prefix)

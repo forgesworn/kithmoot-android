@@ -35,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
@@ -61,7 +63,10 @@ import kotlinx.coroutines.launch
 
 /** Which page home shows: the rooms list, or one of the two full-screen
  *  pages reached from it (design-home-rooms.md section 4). */
-enum class HomePage { ROOMS, SETTINGS, PROJECTS }
+/** How often the restore witness's retiring duty runs while the app is in the foreground. */
+private const val RETIRING_DUTY_INTERVAL_MILLIS = 15 * 60 * 1000L
+
+enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS }
 
 /**
  * The whole application: two screens, two sheets, and the permission asks.
@@ -131,6 +136,24 @@ fun KithMootApp(
         onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false); model.setCallRingForeground(false) }
     }
     val context = LocalContext.current
+    // The restore witness (P3-03b-2): debug builds only. No witness traffic
+    // while a Tor-only room is open (C7); the retiring duty runs at open and
+    // on a timer while the app is in the foreground.
+    val restoreWitness = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.restoreWitness }
+    val witnessPersona = startState.account?.pubkey
+    val witnessStatus = restoreWitness?.banner?.collectAsState()?.value
+    if (restoreWitness != null) {
+        val torOnlyOpen = stage == Stage.ROOM && roomState.anonymous
+        SideEffect { restoreWitness.quiet.set(torOnlyOpen) }
+        LaunchedEffect(restoreWitness, witnessPersona, lifecycle) {
+            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                while (true) {
+                    restoreWitness.foregroundTick(witnessPersona)
+                    kotlinx.coroutines.delay(RETIRING_DUTY_INTERVAL_MILLIS)
+                }
+            }
+        }
+    }
     val snackbars = remember { SnackbarHostState() }
     val roomUiState = rememberSaveableStateHolder()
     var searchOpen by remember { mutableStateOf(false) }
@@ -347,7 +370,9 @@ fun KithMootApp(
     // Calls cannot be answered until the signer confirms this phone again: said on the
     // rooms list and in the room, for as long as it is true, whatever became of the notification.
     val reachBanner = if (lockedCallOnly || inPictureInPicture) null else when (stage) {
-        Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) else null
+        Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) ?: dev.forgesworn.kithmoot.account.witnessBanner(witnessStatus)?.let {
+            dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, busy = false) { homePage = HomePage.RESTORE_WITNESS }
+        } else null
         // A room that is not set to Ring me has nothing to say about ringing being off.
         Stage.ROOM -> if (roomState.onCall || (ringingOff && model.callRingMode(roomState.roomId) != dev.forgesworn.kithmoot.notifications.CallRingMode.RING)) null
             else promptFor(roomState.roomId)
@@ -489,7 +514,11 @@ fun KithMootApp(
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
                         onBack = { homePage = HomePage.ROOMS },
+                        onRestoreWitness = restoreWitness?.let { { homePage = HomePage.RESTORE_WITNESS } },
                     )
+                    HomePage.RESTORE_WITNESS -> restoreWitness?.let {
+                        dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = HomePage.SETTINGS })
+                    }
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
                 }
                 if (signInSheetOpen) SignInSheet(startState, homeAccountActions, onDismiss = { signInSheetOpen = false })
