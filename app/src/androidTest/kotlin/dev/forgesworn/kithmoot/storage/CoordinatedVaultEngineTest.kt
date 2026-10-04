@@ -377,7 +377,7 @@ class CoordinatedVaultEngineTest {
         val v = vault(stores)
         val genesis = enrolAtBox(v)
         val device = enrolDevice(v)
-        // Move the persisted coordinator state and the witness to two below
+        // Move the persisted coordinator state and the witness to one below
         // the last safe sequence number (2^53 - 1); the record is unchanged.
         val last = (1L shl 53) - 1
         val name = coordinatedFile().name.removePrefix("$prefix.").removeSuffix(".vault")
