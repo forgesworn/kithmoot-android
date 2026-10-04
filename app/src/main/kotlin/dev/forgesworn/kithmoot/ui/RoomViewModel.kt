@@ -816,6 +816,19 @@ class RoomViewModel @JvmOverloads constructor(
     private var invitationHostJob: Job? = null
     private var relayUrls: List<String> = emptyList()
     private var anonymousRoom: Boolean = false
+    // This instance's share of AccountWriteHold: one for a Tor-only room being
+    // entered (admission, publishing its group), one for its open session.
+    private val torOnlyHoldLock = Any()
+    private var torOnlyEntryHeld = false
+    private var torOnlySessionHeld = false
+
+    private fun holdForTorOnlyEntry() = synchronized(torOnlyHoldLock) {
+        if (!torOnlyEntryHeld) { torOnlyEntryHeld = true; AccountWriteHold.process.torOnlyRoomOpened() }
+    }
+
+    private fun releaseTorOnlyEntry() = synchronized(torOnlyHoldLock) {
+        if (torOnlyEntryHeld) { torOnlyEntryHeld = false; AccountWriteHold.process.torOnlyRoomClosed() }
+    }
     private var opening: Job? = null
     /** One WebRTC engine per session, however many callers ask for one. */
     private val mediaBuild = SingleBuild<WebRtcEngine> { runCatching { it.stop() }; runCatching { it.dispose() } }
@@ -1375,6 +1388,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun signIn(block: suspend () -> Pair<AccountSession, NostrAccount>) {
+        AccountWriteHold.process.personActed()
         if (_start.value.signingIn) return
         _start.update { it.copy(signingIn = true, signInError = null) }
         viewModelScope.launch(Dispatchers.IO) {
@@ -1408,6 +1422,7 @@ class RoomViewModel @JvmOverloads constructor(
      * only the person returning.
      */
     fun signInWithSignet() {
+        AccountWriteHold.process.personActed()
         if (_start.value.signingIn) return
         val webApp = runCatching { selectedWebApp }.getOrElse {
             _start.update { it.copy(signInError = "Choose a valid HTTPS site in Site settings.") }
@@ -1461,6 +1476,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** A pasted `bunker://` link: any NIP-46 signer, a Heartwood included. */
     fun signInWithBunker(text: String) {
+        AccountWriteHold.process.personActed()
         val uri = text.trim()
         if (BunkerPointer.parse(uri) == null) {
             _start.update { it.copy(signInError = "That is not a bunker link. It starts with bunker:// and names at least one relay.") }
@@ -2193,6 +2209,7 @@ class RoomViewModel @JvmOverloads constructor(
         "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
     private suspend fun openSaved(saved: SavedRoom) {
+        if (saved.anonymous) holdForTorOnlyEntry()
         val who = saved.identity(epochSeconds(), accountSigner, lifetime = callCredentialLifetime(saved.id))
         open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
             saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
@@ -2370,6 +2387,7 @@ class RoomViewModel @JvmOverloads constructor(
                     else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
                 }
             } finally {
+                releaseTorOnlyEntry()
                 // Stopped by the person: whatever part of the room had opened
                 // is closed again, never shown. See [stopOpening].
                 val stopped = !isActive
@@ -2469,6 +2487,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun publishProfile(values: Map<String, String>) {
+        AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val base = _start.value.profileMetadata ?: return
         if (_start.value.profileBusy) return
@@ -2520,6 +2539,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** Publish the account's DM relay list: where private conversations
      *  started with this person, and by them, are kept from now on. */
     fun publishDmRelays(relays: List<String>) {
+        AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
         val tags = try { dmRelayListTags(relays) } catch (e: IllegalArgumentException) {
@@ -2547,6 +2567,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun publishAccountRelayList() {
+        AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
         val tags = try { RelaySelection.tags(accountRelayChoices()) } catch (_: Exception) { return }
@@ -2606,6 +2627,7 @@ class RoomViewModel @JvmOverloads constructor(
         val length = _start.value.conferenceLength
         enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
+            if (anonymous) holdForTorOnlyEntry()
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation(persistent)
             val invitation = InvitationPayload(invitationHost.invitation, relays, null)
@@ -2697,6 +2719,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.value = _start.value.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.")
             return
         }
+        if (anonymous) holdForTorOnlyEntry()
         // The link's relays are the room's own, on first sight; this device's
         // own relays join them rather than standing in for them.
         val pooled = if (anonymous) relays else RoomRelays.atOpen(payload.relays, listOf(ownRelays))
@@ -2757,6 +2780,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.") }
             return
         }
+        if (anonymous) holdForTorOnlyEntry()
         // A group this account joined on another device opens by the secret its
         // bookmark carries, without the signed invitation, which public relays
         // drop within a day or two. A room this phone already keeps opens as saved.
@@ -3239,6 +3263,9 @@ class RoomViewModel @JvmOverloads constructor(
         val summaries = savedRooms.list()
         _start.update { it.copy(savedRooms = summaries) }
         roomBookmarks?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
+            // Opening an account room is the person's own account action: sent now, the
+            // bookmark carries its own time rather than one held back minutes.
+            AccountWriteHold.process.personActed()
             changeRoomBookmarks { it.save(bookmark) }
         } }
         val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
@@ -3419,8 +3446,11 @@ class RoomViewModel @JvmOverloads constructor(
         roomInvitation = record.invitation
         roomInvitationHost = record.host(epochSeconds())
         relayUrls = activeRelays
-        anonymousRoom = anonymousProfile
-        if (anonymousProfile) AccountWriteHold.process.torOnlyRoomOpened()
+        synchronized(torOnlyHoldLock) {
+            anonymousRoom = anonymousProfile
+            if (anonymousProfile && !torOnlySessionHeld) { torOnlySessionHeld = true; AccountWriteHold.process.torOnlyRoomOpened() }
+        }
+        releaseTorOnlyEntry()
         val nip77Ready = !anonymousProfile && record.viaAccount && accountSession?.account?.pubkey == who.participant &&
             ownRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
@@ -4153,8 +4183,11 @@ class RoomViewModel @JvmOverloads constructor(
         invitationHostJob?.cancel()
         invitationHostJob = null
         // closeSession can run more than once; only the first close of a Tor-only room counts.
-        if (anonymousRoom) AccountWriteHold.process.torOnlyRoomClosed()
-        anonymousRoom = false
+        synchronized(torOnlyHoldLock) {
+            if (torOnlySessionHeld) { torOnlySessionHeld = false; AccountWriteHold.process.torOnlyRoomClosed() }
+            anonymousRoom = false
+        }
+        releaseTorOnlyEntry()
         sessionScope?.coroutineContext?.get(Job)?.cancel()
         sessionScope = null
     }

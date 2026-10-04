@@ -56,4 +56,13 @@ class AccountWriteHoldTest {
         runCurrent(); assertFalse(resumed)
         hold.torOnlyRoomClosed(); advanceTimeBy(wait); runCurrent(); assertTrue(resumed)
     }
+
+    @Test fun theDefaultWaitIsBetweenThreeAndTenMinutes() = runTest {
+        assertEquals(3 * 60_000L, AccountWriteHold.MIN_WAIT_MS); assertEquals(10 * 60_000L, AccountWriteHold.MAX_WAIT_MS)
+        repeat(20) {
+            val hold = AccountWriteHold(backgroundScope); hold.torOnlyRoomOpened(); hold.torOnlyRoomClosed()
+            advanceTimeBy(AccountWriteHold.MIN_WAIT_MS - 1); runCurrent(); assertTrue(hold.isHeld)
+            advanceTimeBy(AccountWriteHold.MAX_WAIT_MS - AccountWriteHold.MIN_WAIT_MS + 1); runCurrent(); assertFalse(hold.isHeld)
+        }
+    }
 }
