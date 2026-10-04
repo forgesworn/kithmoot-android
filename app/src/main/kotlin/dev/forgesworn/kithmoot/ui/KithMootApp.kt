@@ -611,6 +611,8 @@ fun KithMootApp(
                     onLeaveCall = model::leaveCall,
                     onJoinCall = model::joinCall,
                     onRaiseHand = model::raiseHand,
+                    onSetMeetingMode = model::setMeetingMode,
+                    onSetSpeaker = model::setSpeaker,
                     onAnswerRecordingConsent = model::answerRecordingConsent,
                     onRotateInvitation = model::rotateInvitation,
                     inPictureInPicture = inPictureInPicture,

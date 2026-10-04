@@ -140,6 +140,10 @@ fun RoomScreen(
     onRaiseHand: (Boolean) -> Unit = {},
     /** The answer to "This call is being recorded": join, or not now. */
     onAnswerRecordingConsent: (Boolean) -> Unit = {},
+    /** The host turns meeting mode on or off. */
+    onSetMeetingMode: (Boolean) -> Unit = {},
+    /** The host puts somebody on the meeting's stage, or takes them off it. */
+    onSetSpeaker: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent)
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -162,6 +166,8 @@ fun RoomScreen(
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var backgroundOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var meetingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    if (meetingOpen && state.meetingModerator) MeetingSheet(state, { meetingOpen = false }, onSetMeetingMode, onSetSpeaker)
     val chatState = rememberSaveableStateHolder()
     // Every member can share the room's link; a two-person conversation's
     // went to the other person sealed, and an ended room's no longer works.
@@ -219,6 +225,7 @@ fun RoomScreen(
             onToggleAgentsMayHear = onToggleAgentsMayHear,
             onPopOut = onPopOut,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null,
+            onOpenMeeting = if (state.meetingModerator) ({ meetingOpen = true }) else null,
         )
     }
     if (backgroundOpen) {
@@ -432,7 +439,7 @@ fun RoomScreen(
             val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
             Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 RecordingBanner(state.recording)
-                MeetingNotice(state, onRaiseHand)
+                MeetingNotice(state, onRaiseHand, onOpenMeeting = { meetingOpen = true })
             }
         }
 

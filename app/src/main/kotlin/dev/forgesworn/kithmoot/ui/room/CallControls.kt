@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HideImage
 import androidx.compose.material.icons.filled.Landscape
@@ -321,6 +322,8 @@ internal fun MoreCallSheet(
     onPopOut: (() -> Unit)?,
     /** Shows the room's invitation as a QR for somebody in the same room to scan; null where there is none to show. */
     onInviteByQr: (() -> Unit)? = null,
+    /** The host's meeting controls; null on every device but the one that made the room. */
+    onOpenMeeting: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
@@ -359,6 +362,11 @@ internal fun MoreCallSheet(
                 if (state.agentsMayHear) Icons.Filled.SmartToy else Icons.Filled.VoiceOverOff,
                 if (state.agentsMayHear) "Agents can hear and see you: stop" else "Let agents hear and see you",
                 closing(onToggleAgentsMayHear),
+            )
+            if (onOpenMeeting != null) SheetRow(
+                Icons.Filled.RecordVoiceOver,
+                if (state.meetingOn) "Meeting: speakers and hands" else "Run as a meeting",
+                closing(onOpenMeeting),
             )
             if (onInviteByQr != null) SheetRow(Icons.Filled.QrCode2, "Invite by QR", closing(onInviteByQr))
             if (state.canAddDevice) SheetRow(Icons.Filled.PersonAdd, "Add your device", closing(onAddDevice))
