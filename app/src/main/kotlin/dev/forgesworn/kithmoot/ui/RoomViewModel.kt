@@ -5260,12 +5260,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Stop every live lease, including a staged renewal, each at its own safe boundary. */
+    /**
+     * Stop every live lease, including a staged renewal, each at its own safe
+     * boundary. Bothy checks a boundary against its own epoch. A phone clock
+     * behind Bothy's, within the two-minute signing allowance, can still read
+     * the previous hour, and a boundary from it is one Bothy refuses, so the
+     * boundaries come from Bothy's epoch.
+     */
     private fun stopCadenceLeases(context: CadenceContext, who: RoomIdentity, room: String) {
         CadenceSchedule.live(cadenceLeases.all(room, who.devicePubkey), context.key).forEach { resolveCadence(context, who, it) }
-        val targets = CadenceSchedule.stopTargets(
-            cadenceLeases.all(room, who.devicePubkey), context.key, DeadDrop.epochIndexAt(epochSeconds()),
-        )
+        val epoch = cadenceClient.status(who.participant, context.scope, cadenceId(), who, epochSeconds()).get().answer.currentEpoch
+        val targets = CadenceSchedule.stopTargets(cadenceLeases.all(room, who.devicePubkey), context.key, epoch)
         var failure: Exception? = null
         for ((lease, boundary) in targets) {
             try {
