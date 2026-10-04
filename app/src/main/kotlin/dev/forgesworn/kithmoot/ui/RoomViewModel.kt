@@ -2210,10 +2210,13 @@ class RoomViewModel @JvmOverloads constructor(
 
     private suspend fun openSaved(saved: SavedRoom) {
         if (saved.anonymous) holdForTorOnlyEntry()
-        val who = saved.identity(epochSeconds(), accountSigner, lifetime = callCredentialLifetime(saved.id))
-        open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
-            saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
-            anonymous = saved.anonymous)
+        // Also reached outside runEnter (a room update retry), so the entry share is given back here too.
+        try {
+            val who = saved.identity(epochSeconds(), accountSigner, lifetime = callCredentialLifetime(saved.id))
+            open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
+                saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
+                anonymous = saved.anonymous)
+        } finally { releaseTorOnlyEntry() }
     }
 
     /** How long a credential minted now for this saved room lasts: longer for a Ring me room, which must stay reachable. */
@@ -3269,7 +3272,8 @@ class RoomViewModel @JvmOverloads constructor(
             changeRoomBookmarks { it.save(bookmark) }
         } }
         val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
-        closeSession()
+        // The room being opened keeps its entry share until its session holds one.
+        closeSession(keepEntry = true)
         oldSessionJob?.join()
         savedRoom = record
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
@@ -4137,7 +4141,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun closeSession() {
+    private fun closeSession(keepEntry: Boolean = false) {
         roomWork?.close()
         roomWork = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
@@ -4187,7 +4191,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (torOnlySessionHeld) { torOnlySessionHeld = false; AccountWriteHold.process.torOnlyRoomClosed() }
             anonymousRoom = false
         }
-        releaseTorOnlyEntry()
+        if (!keepEntry) releaseTorOnlyEntry()
         sessionScope?.coroutineContext?.get(Job)?.cancel()
         sessionScope = null
     }
