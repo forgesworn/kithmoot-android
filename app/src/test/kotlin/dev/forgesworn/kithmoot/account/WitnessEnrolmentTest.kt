@@ -146,6 +146,33 @@ class WitnessEnrolmentTest {
         assertNotEquals(writer, fresh.writer)
     }
 
+    /**
+     * A profile and Keystore restored or copied from after pairing but before
+     * the genesis state write carries an enrolled writer (and, before the
+     * marker, its installation) into a new subject. The box refuses that enrol
+     * line, so this phone is only ever refused; replacing it leaves nothing of
+     * the old writer or installation.
+     */
+    @Test fun `an enrol line the box refused is replaced by a new writer and installation`() = runBlocking<Unit> {
+        pair()
+        val writer = (vault.witnessEnrolment(persona) as WitnessEnrolment.Paired).writer
+        val first = (vault.beginCoordination(persona, SUBJECT) as VaultResult.Ok).value
+        // The keeper's enrol was refused: the box never knows the subject.
+        assertEquals(CoordinationStatus.Pending(refused = true), vault().coordinationStatus(persona))
+        vault().clear(persona)
+        val fenced = assertIs<WitnessEnrolment.Fenced>(vault().witnessEnrolment(persona))
+        assertEquals(SUBJECT.toHex(), fenced.subject)
+        // Nothing to retire at the box, and no retiring duty holds the keeper's word back.
+        assertEquals(VaultResult.Ok(Unit), vault().keeperConfirmsRetired(persona, SUBJECT.toHex()))
+        pair(vault())
+        val fresh = assertIs<WitnessEnrolment.Paired>(vault().witnessEnrolment(persona))
+        assertNotEquals(writer, fresh.writer)
+        val again = (vault().beginCoordination(persona, OTHER_SUBJECT) as VaultResult.Ok).value
+        assertNotEquals(first.installation, again.installation)
+        server.enrol(OTHER_SUBJECT.toHex(), again.initialDigest)
+        assertEquals(CoordinationStatus.Active, vault().coordinationStatus(persona))
+    }
+
     @Test fun `clearing during an interrupted enrolment supersedes it rather than fencing a missing file`() = runBlocking<Unit> {
         pair()
         stores.failNextCoordinatedWrite = true

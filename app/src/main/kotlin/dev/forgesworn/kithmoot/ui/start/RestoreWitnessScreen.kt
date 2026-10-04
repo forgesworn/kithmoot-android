@@ -85,6 +85,14 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
                         if (state.status !is CoordinationStatus.Active) {
                             Text("Run this on your box, then check:")
                             Command(line, "The enrol line as a QR code")
+                            // A restore or copy taken before genesis finished reuses an
+                            // enrolled installation or writer: only the box can tell.
+                            Text(
+                                "If your box refuses the enrol line itself (a conflict, or a writer that still " +
+                                    "serves a live subject), this phone was restored or copied from an earlier " +
+                                    "enrolment. Replace this installation and enrol afresh.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                     Button({ witness.checkNow(persona) }, enabled = !busy) { Text("Check now") }
@@ -98,6 +106,10 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
                     )
                     enrolment.subject?.let { subject ->
                         Command(PersonaCoordination.retireLine(subject), "The retire line as a QR code")
+                        Text(
+                            "If the box answers \"refused\", it never enrolled this subject, so there is nothing to retire.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                         Button({ witness.keeperRetired(persona, subject) }, enabled = !busy) { Text("The keeper has retired it") }
                     } ?: Text("Its subject is unknown here: the keeper retires it by this phone's writer on the box.")
                     TextButton({ witness.checkNow(persona) }, enabled = !busy) { Text("Check now") }
