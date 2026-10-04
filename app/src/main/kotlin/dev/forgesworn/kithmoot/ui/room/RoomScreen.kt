@@ -293,7 +293,8 @@ fun RoomScreen(
                         style = MaterialTheme.typography.bodyMedium)
                 }
                 if (state.secondary) Text("You are here as another of your own devices.")
-                if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here.")
+                if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here. " +
+                    "A signed-in account stays connected to its own relays outside Tor, and holds back its changes until a few minutes after you leave.")
                 if (!state.privateConversation) {
                     TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) { Text("Invite people") }
                     TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) {

@@ -71,6 +71,18 @@ class RoomBookmarksTest {
         first.close(); second.close(); foreign.close()
     }
 
+    @Test fun aSaveDuringATorOnlyRoomIsKeptOnThePhoneAndSentOnlyAfterTheHold() = runTest {
+        val hold = AccountWriteHold(backgroundScope) { 60_000 }; hold.torOnlyRoomOpened()
+        val net = Network(); val store = Store()
+        val log = RoomBookmarks(signer, net, store, backgroundScope, { now }, hold::awaitReleased); log.open()
+        backgroundScope.launch { log.save(room) }; runCurrent()
+        assertTrue(net.sent.isEmpty()); assertNotNull(store.raw); assertEquals(listOf(room), log.state.value.rooms)
+        hold.torOnlyRoomClosed(); advanceTimeBy(59_999); runCurrent(); assertTrue(net.sent.isEmpty())
+        advanceTimeBy(1); runCurrent()
+        assertEquals(1, net.sent.size); assertNull(log.state.value.error)
+        log.close()
+    }
+
     private val groupSecret = ByteArray(32) { 7 }
     private val groupRoom get() = AccountRoom(deriveRoom(groupSecret).roomId, link, "Private chat", now / 1000, groupSecret.joinToString("") { "%02x".format(it) })
 

@@ -68,6 +68,19 @@ class SharedProjectsTest {
         log.close()
     }
 
+    @Test fun aChangeDuringATorOnlyRoomWaitsOutTheHoldWithoutCountingAsAFailedSend() = runTest {
+        val hold = AccountWriteHold(backgroundScope) { 60_000 }; hold.torOnlyRoomOpened()
+        val store = Store(); val net = Network()
+        val log = SharedProjects(owner, net, store, backgroundScope, { now }, hold::awaitReleased); log.open()
+        log.create(definition(), "create-during-tor-only-room"); runCurrent()
+        assertTrue(net.sent.isEmpty()); assertEquals(2, log.state.value.pendingSends)
+        // Longer than the 15 s publish timeout: the wait must not count as a failed send.
+        hold.torOnlyRoomClosed(); advanceTimeBy(59_999); runCurrent(); assertTrue(net.sent.isEmpty())
+        advanceTimeBy(1); runCurrent()
+        assertEquals(2, net.sent.size); assertEquals(0, log.state.value.pendingSends); assertNull(log.state.value.error)
+        log.close()
+    }
+
     @Test fun failedStorageCannotPublishOrEraseTheLastDurableState() = runTest {
         val store = Store(); val net = Network(); val log = open(store, net); log.open()
         store.fail = true

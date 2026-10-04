@@ -58,6 +58,7 @@ import dev.forgesworn.kithmoot.account.BunkerPointer
 import dev.forgesworn.kithmoot.account.BunkerSigner
 import dev.forgesworn.kithmoot.account.InstalledSigner
 import dev.forgesworn.kithmoot.account.LocalSigner
+import dev.forgesworn.kithmoot.account.AccountWriteHold
 import dev.forgesworn.kithmoot.account.Nip46Client
 import dev.forgesworn.kithmoot.account.Nip55Bridge
 import dev.forgesworn.kithmoot.account.Nip55Signer
@@ -1112,7 +1113,8 @@ class RoomViewModel @JvmOverloads constructor(
         catch (_: Exception) { _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Check Relay settings, then retry room sync.")) }; return }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
-        val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope)
+        val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope,
+            beforePublish = AccountWriteHold.process::awaitReleased)
         roomBookmarks = bookmarks; roomBookmarkScope = scope
         _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
         roomBookmarkLifecycle = scope.launch {
@@ -1134,7 +1136,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun refreshRoomBookmarks() { viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+    fun refreshRoomBookmarks() { AccountWriteHold.process.personActed(); viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
         val account = accountSession ?: return@withLock
         stopRoomBookmarks(); startRoomBookmarks(account)
         val bookmarks = roomBookmarks ?: return@withLock
@@ -1185,14 +1187,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun importAccountRooms() = changeRoomBookmarks { bookmarks ->
-        for (summary in savedRooms.list()) {
-            val saved = savedRooms.get(summary.id) ?: continue
-            accountBookmark(saved, bookmarks.identity)?.let { bookmarks.save(it) }
+    fun importAccountRooms() {
+        AccountWriteHold.process.personActed()
+        changeRoomBookmarks { bookmarks ->
+            for (summary in savedRooms.list()) {
+                val saved = savedRooms.get(summary.id) ?: continue
+                accountBookmark(saved, bookmarks.identity)?.let { bookmarks.save(it) }
+            }
         }
     }
 
-    fun removeAccountRoom(roomId: String) = changeRoomBookmarks { it.remove(roomId) }
+    fun removeAccountRoom(roomId: String) { AccountWriteHold.process.personActed(); changeRoomBookmarks { it.remove(roomId) } }
 
     /** The account record is only a locator. Verify admission before saving or opening any room. */
     fun openAccountRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation",
@@ -1250,7 +1255,8 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         projectsScope = scope
         val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
-        val directory = SharedProjects(account.signer, pool, ProjectVault(getApplication(), account.signer.pubkey), scope)
+        val directory = SharedProjects(account.signer, pool, ProjectVault(getApplication(), account.signer.pubkey), scope,
+            beforePublish = AccountWriteHold.process::awaitReleased)
         sharedProjects = directory
         _start.update { it.copy(projects = ProjectAccountSnapshot(syncing = true), projectError = null) }
         projectsLifecycle = scope.launch {
@@ -1268,6 +1274,7 @@ class RoomViewModel @JvmOverloads constructor(
 
 
     fun refreshSharedProjects() {
+        AccountWriteHold.process.personActed()
         viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
             val account = accountSession ?: return@withLock
             stopSharedProjects(); startSharedProjects(account)
@@ -1278,6 +1285,7 @@ class RoomViewModel @JvmOverloads constructor(
         val directory = sharedProjects ?: return false
         val scope = projectsScope ?: return false
         if (!projectEditing.compareAndSet(false, true)) return false
+        AccountWriteHold.process.personActed()
         _start.update { it.copy(projectsBusy = true, projectError = null) }
         return try {
             withContext(scope.coroutineContext) { action(directory) }; true
@@ -1641,7 +1649,14 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 recoverLinkActivation()
-                accountSession?.let { recoverCircleGrantCleanup(it.account.pubkey, it.signer) }
+                accountSession?.let { session ->
+                    // Leaving a Tor-only room must not publish the account's revocations at that moment.
+                    if (!AccountWriteHold.process.isHeld) recoverCircleGrantCleanup(session.account.pubkey, session.signer)
+                    else viewModelScope.launch(Dispatchers.IO) {
+                        AccountWriteHold.process.awaitReleased()
+                        if (accountSession === session) recoverCircleGrantCleanup(session.account.pubkey, session.signer)
+                    }
+                }
                 val rooms = savedRooms.list()
                 val linked = activeLinkRooms()
                 _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
@@ -3405,6 +3420,7 @@ class RoomViewModel @JvmOverloads constructor(
         roomInvitationHost = record.host(epochSeconds())
         relayUrls = activeRelays
         anonymousRoom = anonymousProfile
+        if (anonymousProfile) AccountWriteHold.process.torOnlyRoomOpened()
         val nip77Ready = !anonymousProfile && record.viaAccount && accountSession?.account?.pubkey == who.participant &&
             ownRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
@@ -4136,6 +4152,8 @@ class RoomViewModel @JvmOverloads constructor(
         roomInvitationHost = null
         invitationHostJob?.cancel()
         invitationHostJob = null
+        // closeSession can run more than once; only the first close of a Tor-only room counts.
+        if (anonymousRoom) AccountWriteHold.process.torOnlyRoomClosed()
         anonymousRoom = false
         sessionScope?.coroutineContext?.get(Job)?.cancel()
         sessionScope = null
