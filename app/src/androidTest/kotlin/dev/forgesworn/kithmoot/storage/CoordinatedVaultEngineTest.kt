@@ -14,6 +14,7 @@ import dev.forgesworn.kithmoot.account.EnrolledDevice
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.MlsVault
 import dev.forgesworn.kithmoot.account.MlsVaultUnavailableException
+import dev.forgesworn.kithmoot.account.PersonaFile
 import dev.forgesworn.kithmoot.account.VaultCoordination
 import dev.forgesworn.kithmoot.account.VaultRefusal
 import dev.forgesworn.kithmoot.account.VaultResult
@@ -33,7 +34,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -366,6 +370,40 @@ class CoordinatedVaultEngineTest {
         assertEquals(VaultResult.Refused(VaultRefusal.RestoreFenced), reopened.device(c))
         assertEquals(CoordinationStatus.Fenced("missing-seal-key", genesis.subject), reopened.coordinationStatus(identity.pubkey))
         assertEquals(1L, witness.seq(genesis.subject))
+    }
+
+    @Test fun at_the_last_sequence_number_staging_fences_sequence_exhausted() = runBlocking<Unit> {
+        val stores = keystoreStores()
+        val v = vault(stores)
+        val genesis = enrolAtBox(v)
+        val device = enrolDevice(v)
+        // Move the persisted coordinator state and the witness to two below
+        // the last safe sequence number (2^53 - 1); the record is unchanged.
+        val last = (1L shl 53) - 1
+        val name = coordinatedFile().name.removePrefix("$prefix.").removeSuffix(".vault")
+        val aad = "kithmoot.mls-vault.v1|coord|${identity.pubkey}|${v.installationId()}|1".toByteArray(Charsets.US_ASCII)
+        val storage = stores.coordinated(name, aad)
+        val file = PersonaFile.decode(storage.read()!!, identity.pubkey)
+        val state = Json.parseToJsonElement(file.state!!.decodeToString()).jsonObject
+        storage.write(file.next(state = JsonObject(state + ("active_seq" to JsonPrimitive(last - 1))).toString().toByteArray()).encode())
+        witness.subjects.getValue(genesis.subject).seq = last - 1
+
+        val reopened = vault(stores)
+        val c = reopened.context(principal, identity.pubkey)
+        assertEquals(CoordinationStatus.Active, reopened.coordinationStatus(identity.pubkey, check = true))
+        // One below the last: witnessed as usual, and the witness reaches the last number.
+        assertTrue(reopened.signLeafBindingV1(c, request(device), approve) is VaultResult.Ok)
+        assertEquals(last, witness.seq(genesis.subject))
+        // At the last: staging fences; nothing is advanced, signed or released.
+        val advances = witness.advanceCalls
+        assertEquals(VaultResult.Refused(VaultRefusal.RestoreFenced), reopened.signLeafBindingV1(c, request(device), approve))
+        assertEquals(advances, witness.advanceCalls)
+        assertEquals(last, witness.seq(genesis.subject))
+        assertEquals(CoordinationStatus.Fenced("sequence-exhausted", genesis.subject), reopened.coordinationStatus(identity.pubkey))
+        // The fence was persisted with the state.
+        val again = vault(stores)
+        assertEquals(CoordinationStatus.Fenced("sequence-exhausted", genesis.subject), again.coordinationStatus(identity.pubkey, check = true))
+        assertEquals(VaultResult.Refused(VaultRefusal.RestoreFenced), again.device(again.context(principal, identity.pubkey)))
     }
 
     @Test fun a_witness_behind_is_retired_and_a_cleared_persona_keeps_its_duty_until_retired() = runBlocking<Unit> {
