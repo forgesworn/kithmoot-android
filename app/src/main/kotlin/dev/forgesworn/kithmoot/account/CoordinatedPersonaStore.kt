@@ -122,8 +122,9 @@ internal class PersonaFile(
         const val FORMAT: Byte = 1
         private const val MAX_FIELD = 8 * 1024 * 1024
 
-        fun fresh(persona: String, installation: ByteArray) =
-            PersonaFile(persona, 1, installation, null, null, null, emptyMap(), null, false)
+        /** A new installation's file. Its revision starts at random, so a coordinator cached for an earlier incarnation never matches it. */
+        fun fresh(persona: String, installation: ByteArray, revision: Long) =
+            PersonaFile(persona, revision, installation, null, null, null, emptyMap(), null, false)
 
         fun decode(value: ByteArray, persona: String): PersonaFile {
             val input = DataInputStream(value.inputStream())

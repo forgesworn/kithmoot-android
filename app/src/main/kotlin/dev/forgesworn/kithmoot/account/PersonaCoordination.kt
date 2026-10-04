@@ -250,7 +250,8 @@ internal class PersonaCoordination<V>(
             FileRead.SealLost -> throw MlsVaultUnavailableException(IllegalStateException("The persona's coordinated file is fenced; clear it first"))
             FileRead.Missing -> Unit
         }
-        val fresh = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random))
+        drop()
+        val fresh = PersonaFile.fresh(persona, CoordinatedPersonaStore.random32(random), random.nextLong() ushr 2)
         persist(fresh)
         return fresh.installation.copyOf()
     }
