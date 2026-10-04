@@ -50,8 +50,15 @@ class PersonaLinksTest {
             FakeSession(state.transportSeed.copyOf(), state.routes.map { it.copy(card = it.card.copyOf()) }).also { started += it }
     }
     private var quiet = false
+    /** Idle stops waiting to run, as the timer would run them. */
+    private val idle = mutableListOf<() -> Unit>()
+    /** Pairings waiting for their own thread. */
+    private val pairings = mutableListOf<Runnable>()
     // Runs every native call inline, so each test reads in order.
-    private val links = PersonaLinks(runtime, quiet = { quiet }, worker = { it.run() })
+    private val links = PersonaLinks(
+        runtime, quiet = { quiet }, worker = { it.run() },
+        later = { _, task -> idle += task }, pairer = { pairings += it },
+    )
 
     private val seed = ByteArray(32) { 5 }
     private val route = StoredLinkRoute("witness-a", WitnessEnrolmentTest.CARD, ByteArray(32) { 3 }, 1uL, NOW.toULong())
@@ -96,29 +103,59 @@ class PersonaLinksTest {
         assertTrue(started.single().requests.isEmpty())
     }
 
-    @Test fun `pairing scans the code into the persona's engine, which then serves its first request`() = runBlocking<Unit> {
+    @Test fun `pairing runs a throwaway engine on the persona's seed, then the persona's own engine serves the route`() = runBlocking<Unit> {
         val pairing = pairing()
         val secret = pairing.pairingSecret.copyOf()
-        val paired = links.pair(PERSONA, seed, pairing).get()
-        val session = started.single()
-        assertContentEquals(seed, session.seed)
-        assertTrue(session.routes.isEmpty())
+        val future = links.pair(seed, pairing)
+        pairings.single().run()
+        val paired = future.get()
+        val pairer = started.single()
+        assertContentEquals(seed, pairer.seed)
+        assertTrue(pairer.routes.isEmpty())
         assertTrue(paired.routeId.startsWith("witness-"))
-        assertContentEquals(secret, session.paired!!.second)
-        // The secret is wiped once used.
+        assertContentEquals(secret, pairer.paired!!.second)
+        // The secret is wiped once used, and the throwaway engine stopped.
         assertContentEquals(ByteArray(16), pairing.pairingSecret)
+        assertTrue(pairer.stopped)
         links.forPersona(PERSONA, seed, paired)!!.read(byteArrayOf(1))
-        assertEquals(1, started.size)
-        assertEquals(paired.routeId, session.requests.single().routeId)
+        assertEquals(2, started.size)
+        assertEquals(listOf(paired.routeId), started[1].routes.map { it.routeId })
+    }
+
+    @Test fun `a pairing that never answers blocks no witness traffic`() = runBlocking<Unit> {
+        val future = links.pair(seed, pairing())
+        // Not run: the box accepted the session and went silent.
+        assertEquals(WitnessAnswer.Refused, links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(1)))
+        assertTrue(!future.isDone)
     }
 
     @Test fun `no pairing while quiet`() {
         quiet = true
         val pairing = pairing()
-        val error = assertFailsWith<ExecutionException> { links.pair(PERSONA, seed, pairing).get() }
+        val error = assertFailsWith<ExecutionException> { links.pair(seed, pairing).get() }
         assertIs<IllegalStateException>(error.cause)
-        assertTrue(started.isEmpty())
+        assertTrue(pairings.isEmpty())
         assertContentEquals(ByteArray(16), pairing.pairingSecret)
+    }
+
+    @Test fun `a Tor-only room opening stops every open session`() = runBlocking<Unit> {
+        links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(1))
+        links.forPersona(OTHER, seed, route)!!.read(byteArrayOf(1))
+        links.pause()
+        assertTrue(started.all { it.stopped })
+    }
+
+    @Test fun `an engine stops once idle, but not while it is still in use`() = runBlocking<Unit> {
+        links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(1))
+        links.forPersona(PERSONA, seed, route)!!.advance(byteArrayOf(2))
+        assertEquals(2, idle.size)
+        idle[0]()
+        assertTrue(!started.single().stopped)
+        idle[1]()
+        assertTrue(started.single().stopped)
+        // The next request starts it afresh.
+        links.forPersona(PERSONA, seed, route)!!.read(byteArrayOf(3))
+        assertEquals(2, started.size)
     }
 
     @Test fun `forgetting a persona stops its engine`() = runBlocking<Unit> {

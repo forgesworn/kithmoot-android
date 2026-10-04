@@ -382,7 +382,10 @@ internal class PersonaCoordination<V>(
                 try {
                     val box = current.witnessRoute?.let { WriterIdentity.boxNodeId(it)?.toHex() }
                     when {
-                        current.state != null -> WitnessEnrolment.Enrolled(marker?.let(::enrolLine), box)
+                        current.state != null -> WitnessEnrolment.Enrolled(
+                            marker?.let { m -> current.writerSeed?.let { enrolLine(m, current.installation.toHex(), WriterIdentity.nodeId(it).toHex()) } },
+                            box,
+                        )
                         !mayEnrol(marker, current) -> WitnessEnrolment.Fenced(marker?.reason ?: MISSING_FILE, marker?.subject)
                         current.writerSeed == null -> WitnessEnrolment.None
                         else -> {
@@ -435,8 +438,11 @@ internal class PersonaCoordination<V>(
                 val current = read.file
                 val state = current.state
                 if (state == null) {
-                    // Prepared only: nothing was ever witnessed under it.
-                    drop(); store.delete(); runCatching { store.deleteInnerKey() }
+                    // Prepared only: nothing was ever witnessed under it. An
+                    // interrupted genesis's marker is superseded, its ids kept
+                    // as tombstones, rather than left to fence a missing file.
+                    if (marker?.state == Marker.State.Genesis) retireLocally(marker, marker.installation)
+                    else { drop(); store.delete(); runCatching { store.deleteInnerKey() } }
                     return
                 }
                 val c = coordinator?.takeIf { revision == current.revision }
@@ -610,12 +616,15 @@ internal class PersonaCoordination<V>(
             marker.state == Marker.State.Genesis -> file.state == null
             else -> false
         }
-        /** The keeper's line, or null for a marker from before the digest was kept. */
-        internal fun enrolLine(marker: Marker): String? {
+        /**
+         * The keeper's line. [installation] and [writer] come from the sealed
+         * file; the unsealed marker must agree with them, or no line is shown.
+         * Null too for a marker from before the digest was kept.
+         */
+        internal fun enrolLine(marker: Marker, installation: String, writer: String): String? {
             val subject = marker.subject ?: return null
-            val installation = marker.installation ?: return null
-            val writer = marker.writer ?: return null
             val digest = marker.digest ?: return null
+            if (marker.installation != installation || marker.writer != writer) return null
             return "bothyd witness enrol --subject $subject --installation $installation --writer $writer --initial-digest $digest"
         }
 

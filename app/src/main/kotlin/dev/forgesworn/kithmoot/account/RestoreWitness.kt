@@ -15,6 +15,7 @@ import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** What the debug-only "Restore witness" screen shows for the signed-in persona (C5). */
 data class RestoreWitnessState(
@@ -52,6 +53,17 @@ class RestoreWitness(
     /** One action at a time: each holds the persona lock across its witness trip anyway. */
     private val acting = Mutex()
 
+    /** Whose status [banner] shows, so one account's never shows on another's rooms list. */
+    @Volatile private var bannerPersona: String? = null
+
+    /**
+     * A Tor-only room opened or closed (C7). Opening one stops every witness
+     * session at once, not only new traffic.
+     */
+    fun torOnlyRoomOpen(open: Boolean) {
+        if (!quiet.getAndSet(open) && open) links.pause()
+    }
+
     /** The screen opened for [persona] (or none signed in): reads where enrolment stands. */
     fun open(persona: String?) = act(persona) { refresh(it, check = false) }
 
@@ -67,9 +79,16 @@ class RestoreWitness(
         val pairing = try { BothyPairing.parse(code.trim(), now()) } catch (error: IllegalArgumentException) {
             throw IllegalStateException(error.message ?: "The pairing code is not valid.")
         }
-        vault.pairWitness(p) { seed ->
-            try { links.pair(p, seed, pairing).await() } catch (error: ExecutionException) { throw error.cause ?: error }
-        }.refusedAs("This account cannot pair a witness now.")
+        try {
+            vault.pairWitness(p) { seed ->
+                // Bounded: the persona's lock is held meanwhile. A late answer is discarded with its engine.
+                withTimeoutOrNull(PAIR_TIMEOUT_MILLIS) {
+                    try { links.pair(seed, pairing).await() } catch (error: ExecutionException) { throw error.cause ?: error }
+                } ?: throw IllegalStateException("Your box did not answer. Show a fresh code with `bothyd witness pair` and try again.")
+            }.refusedAs("This account cannot pair a witness now.")
+        } finally {
+            pairing.pairingSecret.fill(0)
+        }
         refresh(p, check = false)
     }
 
@@ -101,12 +120,14 @@ class RestoreWitness(
      * banner for [persona]. Failures leave the banner as it was.
      */
     suspend fun foregroundTick(persona: String?) {
+        if (persona != bannerPersona) { bannerPersona = persona; _banner.value = null }
         if (quiet.get()) return
         runCatching { vault.runRetiringDuties() }
         refreshBanner(persona)
     }
 
     private suspend fun refreshBanner(persona: String?) {
+        if (persona != bannerPersona) return
         _banner.value = try {
             if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona)
         } catch (cancelled: CancellationException) {
@@ -125,7 +146,7 @@ class RestoreWitness(
         val enrolment = vault.witnessEnrolment(persona)
         val status = if (enrolment is WitnessEnrolment.Enrolled || enrolment is WitnessEnrolment.Fenced) vault.coordinationStatus(persona, check) else null
         _state.update { it.copy(persona = persona, enrolment = enrolment, status = status) }
-        _banner.value = status
+        if (persona == bannerPersona) _banner.value = status
     }
 
     private fun act(persona: String?, work: suspend (String) -> Unit) {
@@ -151,6 +172,9 @@ class RestoreWitness(
     }
 
     private companion object {
+        /** The bridge's pairing rendezvous allows 60 s; the booking itself has no bound of its own. */
+        const val PAIR_TIMEOUT_MILLIS = 90_000L
+
         /** Words for the person; never a stack trace or a secret. */
         fun describe(error: Exception): String = when (error) {
             is IllegalStateException -> error.message ?: "That did not work."

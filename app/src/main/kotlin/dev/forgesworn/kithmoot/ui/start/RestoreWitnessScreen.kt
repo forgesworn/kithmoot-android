@@ -69,7 +69,16 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
                     Labelled("Your box", enrolment.box)
                     Button({ witness.begin(persona) }, enabled = !busy) { Text("Take genesis") }
                 }
-                is WitnessEnrolment.Enrolled -> {
+                is WitnessEnrolment.Enrolled -> if (state.status is CoordinationStatus.Fenced) {
+                    // The witness fenced it (a copy lost, or the box is behind): never the enrol line again.
+                    Heading("Fenced")
+                    Text(
+                        "Your box refused this vault as a copy or a rollback " +
+                            "(${(state.status as CoordinationStatus.Fenced).reason}). It will not be used again. " +
+                            "Replace this installation, then ask your box's keeper to retire it.",
+                    )
+                    ReplaceButton(busy, primary = true) { witness.replace(persona) }
+                } else {
                     Heading("4. Enrol on your box")
                     Text(statusLine(state.status), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     enrolment.line?.let { line ->
@@ -121,9 +130,10 @@ private fun PairStep(witness: RestoreWitness, persona: String, writer: String, b
 }
 
 @Composable
-private fun ReplaceButton(busy: Boolean, onReplace: () -> Unit) {
+private fun ReplaceButton(busy: Boolean, primary: Boolean = false, onReplace: () -> Unit) {
     var confirming by remember { mutableStateOf(false) }
-    TextButton({ confirming = true }, enabled = !busy) { Text("Replace this installation") }
+    if (primary) Button({ confirming = true }, enabled = !busy) { Text("Replace this installation") }
+    else TextButton({ confirming = true }, enabled = !busy) { Text("Replace this installation") }
     if (confirming) AlertDialog(
         onDismissRequest = { confirming = false },
         title = { Text("Replace this installation?") },

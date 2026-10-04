@@ -505,7 +505,7 @@ class MlsVault(
      * Device enrolment is then the first witnessed advance. A persona that
      * already has a genesis is refused.
      */
-    suspend fun beginCoordination(persona: String, subject: ByteArray, witnessKey: ByteArray): VaultResult<CoordinationGenesis> {
+    internal suspend fun beginCoordination(persona: String, subject: ByteArray, witnessKey: ByteArray): VaultResult<CoordinationGenesis> {
         val coordinated = coord(persona)
         return coordinated.store.lock.withLock { coordinated.genesis(subject, witnessKey) }
             ?.let { VaultResult.Ok(it) } ?: refuse(VaultRefusal.Unauthorised)
@@ -537,13 +537,17 @@ class MlsVault(
 
     /**
      * Whether [persona] has coordinated state on this device, creating none:
-     * for the pending banner, which must not enrol an account by looking. A
-     * corrupt index answers true, so its trouble still shows.
+     * for the pending banner, which must not enrol an account by looking. It
+     * asks for the persona's own file name, never the index, so a corrupt
+     * index is left for the duty to report rather than rewritten from here.
      */
     suspend fun coordinationKnown(persona: String): Boolean {
         val coordinated = coordination ?: return false
+        if (!HEX64.matches(persona)) return false
         if (guarded { coordinated.stores.coordinatedNames() }.isEmpty()) return false
-        return locked { readIndex() }?.containsValue(persona) ?: true
+        // Files exist, so the installation does too: coordName never mints one here.
+        val name = locked { coordName(persona) }
+        return name in guarded { coordinated.stores.coordinatedNames() }
     }
 
     /** Where [persona]'s enrolment stands, without any witness traffic. */

@@ -146,6 +146,18 @@ class WitnessEnrolmentTest {
         assertNotEquals(writer, fresh.writer)
     }
 
+    @Test fun `clearing during an interrupted enrolment supersedes it rather than fencing a missing file`() = runBlocking<Unit> {
+        pair()
+        stores.failNextCoordinatedWrite = true
+        assertFailsWith<MlsVaultUnavailableException> { vault.beginCoordination(persona, SUBJECT) }
+        vault().clear(persona)
+        assertEquals(WitnessEnrolment.None, vault().witnessEnrolment(persona))
+        assertEquals(CoordinationStatus.NotEnrolled, vault().coordinationStatus(persona))
+        // Its subject stays a tombstone, never reused.
+        pair(vault())
+        assertEquals(VaultResult.Refused(VaultRefusal.Unauthorised), vault().beginCoordination(persona, SUBJECT))
+    }
+
     // ---- the banner never enrols by looking ----
 
     @Test fun `asking whether a persona is known, and the foreground duty, create nothing`() = runBlocking<Unit> {
@@ -155,6 +167,17 @@ class WitnessEnrolmentTest {
         vault.prepareCoordination(persona)
         assertTrue(vault().coordinationKnown(persona))
         assertFalse(vault().coordinationKnown("cd".repeat(32)))
+    }
+
+    @Test fun `the banner asks for the persona's own file and leaves a corrupt index alone`() = runBlocking<Unit> {
+        vault.prepareCoordination(persona)
+        val index = stores.names().single { it.endsWith(MlsVault.INDEX) }
+        stores.corrupt(index)
+        val before = stores.sealed(index)!!.value.copyOf()
+        val v = vault()
+        assertTrue(v.coordinationKnown(persona))
+        assertFalse(v.coordinationKnown("cd".repeat(32)))
+        assertTrue(before.contentEquals(stores.sealed(index)!!.value))
     }
 
     @Test fun `the banner speaks only for a persona the witness does not confirm`() {

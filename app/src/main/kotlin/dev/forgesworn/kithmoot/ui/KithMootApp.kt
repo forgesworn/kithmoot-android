@@ -117,7 +117,11 @@ fun KithMootApp(
     // Settings and Projects are pushed over home; back returns to the rooms
     // list rather than leaving the app (design-home-rooms.md section 7).
     var homePage by rememberSaveable { mutableStateOf(HomePage.ROOMS) }
-    androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) { homePage = HomePage.ROOMS }
+    // Restore witness opens from Settings or from its banner; back returns there.
+    var witnessFrom by rememberSaveable { mutableStateOf(HomePage.SETTINGS) }
+    androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) {
+        homePage = if (homePage == HomePage.RESTORE_WITNESS) witnessFrom else HomePage.ROOMS
+    }
     var signInSheetOpen by remember { mutableStateOf(false) }
     val homeCoroutines = rememberCoroutineScope()
 
@@ -144,7 +148,7 @@ fun KithMootApp(
     val witnessStatus = restoreWitness?.banner?.collectAsState()?.value
     if (restoreWitness != null) {
         val torOnlyOpen = stage == Stage.ROOM && roomState.anonymous
-        SideEffect { restoreWitness.quiet.set(torOnlyOpen) }
+        SideEffect { restoreWitness.torOnlyRoomOpen(torOnlyOpen) }
         LaunchedEffect(restoreWitness, witnessPersona, lifecycle) {
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 while (true) {
@@ -371,7 +375,7 @@ fun KithMootApp(
     // rooms list and in the room, for as long as it is true, whatever became of the notification.
     val reachBanner = if (lockedCallOnly || inPictureInPicture) null else when (stage) {
         Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) ?: dev.forgesworn.kithmoot.account.witnessBanner(witnessStatus)?.let {
-            dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, busy = false) { homePage = HomePage.RESTORE_WITNESS }
+            dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, busy = false) { witnessFrom = HomePage.ROOMS; homePage = HomePage.RESTORE_WITNESS }
         } else null
         // A room that is not set to Ring me has nothing to say about ringing being off.
         Stage.ROOM -> if (roomState.onCall || (ringingOff && model.callRingMode(roomState.roomId) != dev.forgesworn.kithmoot.notifications.CallRingMode.RING)) null
@@ -514,10 +518,10 @@ fun KithMootApp(
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
                         onBack = { homePage = HomePage.ROOMS },
-                        onRestoreWitness = restoreWitness?.let { { homePage = HomePage.RESTORE_WITNESS } },
+                        onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
                     )
                     HomePage.RESTORE_WITNESS -> restoreWitness?.let {
-                        dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = HomePage.SETTINGS })
+                        dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = witnessFrom })
                     }
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
                 }
