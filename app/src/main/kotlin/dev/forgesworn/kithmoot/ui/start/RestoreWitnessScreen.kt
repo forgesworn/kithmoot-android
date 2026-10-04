@@ -88,7 +88,7 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
                             // A restore or copy taken before genesis finished reuses an
                             // enrolled installation or writer: only the box can tell.
                             Text(
-                                "If your box refuses the enrol line itself (a conflict, or a writer that still " +
+                                "If your box refuses the enrol line itself (an installation id already used, or a writer that still " +
                                     "serves a live subject), this phone was restored or copied from an earlier " +
                                     "enrolment. Replace this installation and enrol afresh.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -107,7 +107,7 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
                     enrolment.subject?.let { subject ->
                         Command(PersonaCoordination.retireLine(subject), "The retire line as a QR code")
                         Text(
-                            "If the box answers \"refused\", it never enrolled this subject, so there is nothing to retire.",
+                            "If the box this phone paired with answers \"refused\", it never enrolled this subject, so there is nothing to retire.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button({ witness.keeperRetired(persona, subject) }, enabled = !busy) { Text("The keeper has retired it") }

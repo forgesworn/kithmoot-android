@@ -153,7 +153,7 @@ class WitnessEnrolmentTest {
      * line, so this phone is only ever refused; replacing it leaves nothing of
      * the old writer or installation.
      */
-    @Test fun `an enrol line the box refused is replaced by a new writer and installation`() = runBlocking<Unit> {
+    @Test fun `a genesis the box never enrolled is replaced by a new writer and installation`() = runBlocking<Unit> {
         pair()
         val writer = (vault.witnessEnrolment(persona) as WitnessEnrolment.Paired).writer
         val first = (vault.beginCoordination(persona, SUBJECT) as VaultResult.Ok).value
