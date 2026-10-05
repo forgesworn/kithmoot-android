@@ -91,6 +91,47 @@ class BoxRequestAuthTest {
         )
     }
 
+    @Test fun `the u tag names the node in link-core's form, from an independent vector`() = runBlocking<Unit> {
+        val fixed = ByteArray(32) { it.toByte() }.toHex()
+        val reply = (vault.signBoxRequestV1(ctx, fetch(fixed), approve) as VaultResult.Ok).value
+        assertEquals(listOf("u", "http://aaaqeayeaudaocajbifqydiob4ibceqtcqkrmfyydenbwha5dypq/vmls/v1/fetch"), event(reply).tags[0])
+    }
+
+    @Test fun `the same request signed again in the same second is a new event, and the vault never runs far ahead`() = runBlocking<Unit> {
+        val ids = mutableSetOf<String>()
+        val times = mutableListOf<Long>()
+        repeat(31) {
+            val e = event((vault.signBoxRequestV1(ctx, fetch(), approve) as VaultResult.Ok).value)
+            ids += e.id
+            times += e.createdAt
+        }
+        assertEquals(31, ids.size)
+        assertEquals((now..now + 30).toList(), times)
+        assertEquals(VaultResult.Refused(VaultRefusal.Busy), vault.signBoxRequestV1(ctx, fetch(), approve))
+        // Another request is its own sequence; and once the clock moves on, so does this one.
+        assertEquals(now, event((vault.signBoxRequestV1(ctx, BoxRequest(box, "POST", "/vmls/v1/ack", bytes(32).toHex()), approve) as VaultResult.Ok).value).createdAt)
+        clock = now + 60
+        assertEquals(now + 60, event((vault.signBoxRequestV1(ctx, fetch(), approve) as VaultResult.Ok).value).createdAt)
+    }
+
+    @Test fun `a withdrawn approval is asked again, and an approval the witness cannot take signs nothing`() = runBlocking<Unit> {
+        assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, fetch(), approve))
+        val scope = ConsentScope(principal, alice.pubkey, device.device, box, MlsVault.BOX_METHOD)
+        assertIs<VaultResult.Ok<Unit>>(vault.withdraw(ctx, scope))
+        assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, fetch(), approve))
+        assertEquals(2, asked)
+        val other = bytes(32).toHex()
+        server.mode = FakeWitnessServer.Mode.LoseAnswer
+        assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), vault.signBoxRequestV1(ctx, fetch(other), approve))
+        assertEquals(3, asked)
+    }
+
+    @Test fun `an uncoordinated vault signs no box request`() = runBlocking<Unit> {
+        val plain = MlsVault(MemoryCoordinatedStores(), now = { clock })
+        assertEquals(VaultResult.Refused(VaultRefusal.Unsupported), plain.signBoxRequestV1(plain.context(principal, alice.pubkey), fetch(), approve))
+        assertEquals(0, asked)
+    }
+
     @Test fun `a new box is asked once, the approval is witnessed, and later requests take no round trip`() = runBlocking<Unit> {
         val before = seq()
         assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, fetch(), approve))
@@ -117,13 +158,19 @@ class BoxRequestAuthTest {
     @Test fun `only the box's own routes, in its own forms, are signed`() = runBlocking<Unit> {
         val id = bytes(32).toHex()
         val hash = bytes(32).toHex()
+        val empty = Digests.sha256(ByteArray(0)).toHex()
         val good = listOf(
             "PUT" to "/vmls/v1/mailboxes/$id/records", "POST" to "/vmls/v1/fetch", "POST" to "/vmls/v1/ack",
-            "PUT" to "/vmls/v1/packages/$id", "DELETE" to "/vmls/v1/packages/$id",
+            "PUT" to "/vmls/v1/packages/$id",
             "PUT" to "/vmls/v1/slots/$id/0", "PUT" to "/vmls/v1/slots/$id/4294967295",
-            "POST" to "/vmls/v1/slots/$id/12/status", "GET" to "/vmls/v1/capabilities",
+            "POST" to "/vmls/v1/slots/$id/12/status",
         )
         for ((method, path) in good) assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, BoxRequest(box, method, path, hash), approve), path)
+        // The box takes no body on these two.
+        for ((method, path) in listOf("DELETE" to "/vmls/v1/packages/$id", "GET" to "/vmls/v1/capabilities")) {
+            assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, BoxRequest(box, method, path, empty), approve), path)
+            assertEquals(VaultResult.Refused(VaultRefusal.Malformed), vault.signBoxRequestV1(ctx, BoxRequest(box, method, path, hash), approve), path)
+        }
         val bad = listOf(
             "GET" to "/vmls/v1/fetch", "POST" to "/vmls/v1/fetch?x=1", "POST" to "/vmls/v1/fetch/",
             "PUT" to "/vmls/v1/mailboxes/${id.uppercase()}/records", "PUT" to "/vmls/v1/mailboxes/${id.take(62)}/records",
@@ -148,8 +195,15 @@ class BoxRequestAuthTest {
     }
 
     @Test fun `with no device, a stale context or the witness unconfirmed nothing is signed`() = runBlocking<Unit> {
+        // Bob is enrolled at the witness but has no device.
         val bob = LocalSigner(secret())
-        assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), vault.signBoxRequestV1(vault.context(principal, bob.pubkey), fetch(), approve))
+        val bobGenesis = (vault.beginCoordination(bob.pubkey, bytes(32), server.key) as VaultResult.Ok).value
+        server.enrol(bobGenesis.subject, bobGenesis.initialDigest)
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(bob.pubkey, check = true))
+        assertEquals(VaultResult.Refused(VaultRefusal.Unauthorised), vault.signBoxRequestV1(vault.context(principal, bob.pubkey), fetch(), approve))
+        // Nor anyone the witness has not enrolled.
+        val carol = LocalSigner(secret())
+        assertEquals(VaultResult.Refused(VaultRefusal.WitnessPending), vault.signBoxRequestV1(vault.context(principal, carol.pubkey), fetch(), approve))
         val stale = ctx
         vault.bump()
         assertEquals(VaultResult.Refused(VaultRefusal.Stale), vault.signBoxRequestV1(stale, fetch(), approve))

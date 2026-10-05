@@ -42,10 +42,12 @@ import kotlinx.serialization.json.put
  *
  * It holds one person-scoped secp256k1 device key per persona, enrolled with
  * a kind-20460 person credential from the identity signer, and does exactly
- * two things with it: signs a validated unsigned leaf binding
- * ([signLeafBindingV1], §6.2) and answers a rendezvous ECDH through the
- * separate [RendezvousVault]'s child ([rendezvousEcdhV1], §6.3). There is no
- * scalar getter, no generic digest signing and no identity-key fallback.
+ * three things with it: signs a validated unsigned leaf binding
+ * ([signLeafBindingV1], §6.2), authenticates a request to the home box's
+ * `/vmls/v1/` routes ([signBoxRequestV1], §6.2.1), and answers a rendezvous
+ * ECDH through the separate [RendezvousVault]'s child ([rendezvousEcdhV1],
+ * §6.3). There is no scalar getter, no generic digest or event signing and no
+ * identity-key fallback.
  *
  * Storage is one sealed record per persona (device, consent policy and
  * decision journal together, so a signature's approval and journal entry
@@ -93,6 +95,7 @@ class MlsVault(
     }
     @Volatile private var epoch: String? = null
     private val personas = ConcurrentHashMap<String, PersonaCoordination<EnrolledDevice>>()
+    private val boxTimes = BoxRequestTimes()
 
     private fun generation(): Generation = Generation(boot, appGeneration(), bumps, epoch())
 
@@ -423,6 +426,8 @@ class MlsVault(
         refusing { boxChecked(ctx, request, consent) }
 
     private suspend fun boxChecked(ctx: VaultContext, request: BoxRequest, consent: ConsentPrompt): VaultResult<BoxRequestReply> {
+        // §6.2.1 signs only what the witness confirms: an uncoordinated vault has no witness.
+        if (coordination == null) return refuse(VaultRefusal.Unsupported)
         if (!current(ctx)) return refuse(VaultRefusal.Stale)
         if (!request.wellFormed()) return refuse(VaultRefusal.Malformed)
         // A first look decides whether the scope needs asking.
@@ -469,10 +474,13 @@ class MlsVault(
                 listOf("method", request.method),
                 listOf("payload", request.payload),
             )
-            val event = Events.sign(device.scalar, BOX_AUTH_KIND, at, tags, "", ByteArray(32).also(random::nextBytes))
+            // A retry within the same second would be the same event id, which
+            // the box refuses as a replay: each signing of one request moves on.
+            val createdAt = boxTimes.next(ctx.persona, request, at) ?: return@look refuse(VaultRefusal.Busy)
+            val event = Events.sign(device.scalar, BOX_AUTH_KIND, createdAt, tags, "", ByteArray(32).also(random::nextBytes))
             if (event.pubkey != device.device || !Events.verify(event)) return@look refuse(VaultRefusal.Malformed)
             val wire = event.toRustWireJson().toString().toByteArray(Charsets.UTF_8)
-            VaultResult.Ok(BoxRequestReply(device.device, "Nostr " + Base64.getEncoder().encodeToString(wire), at))
+            VaultResult.Ok(BoxRequestReply(device.device, "Nostr " + Base64.getEncoder().encodeToString(wire), createdAt))
         }
     }
 
@@ -1069,10 +1077,13 @@ data class BoxRequest(val box: String, val method: String, val path: String, val
                 // An attempt is a `u32`, as the box parses it.
                 match.groupValues.drop(1).all { it.isEmpty() || it.toLong() <= 0xFFFF_FFFFL }
             } == true
-        }
+        } &&
+        // The box refuses a body on these two: only the empty body's hash is signed for them.
+        ((method != "GET" && method != "DELETE") || payload == EMPTY_SHA256)
 
     private companion object {
         const val ID = "[0-9a-f]{64}"
+        const val EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         /** A plain decimal attempt, no sign or leading zero; its `u32` bound is checked after the match. */
         const val ATTEMPT = "(0|[1-9][0-9]{0,9})"
         /** The box's own routes (bothy-link `vmls.rs`), and nothing else. */
@@ -1086,6 +1097,32 @@ data class BoxRequest(val box: String, val method: String, val path: String, val
             "POST" to Regex("/vmls/v1/slots/$ID/$ATTEMPT/status"),
             "GET" to Regex("/vmls/v1/capabilities"),
         )
+    }
+}
+
+/**
+ * The `created_at` of each recent box request, so the same request signed
+ * again never repeats an event id (§6.2.1). A later second is taken while the
+ * clock has not moved; at most [MAX_AHEAD] seconds ahead, inside the box's
+ * 120-second allowance, after which the request waits (`busy`).
+ */
+internal class BoxRequestTimes {
+    private val last = object : LinkedHashMap<String, Long>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > MAX_ENTRIES
+    }
+
+    @Synchronized fun next(persona: String, request: BoxRequest, now: Long): Long? {
+        val key = "$persona|${request.box}|${request.method}|${request.path}|${request.payload}"
+        val earlier = last[key]
+        val at = if (earlier == null || earlier < now) now else earlier + 1
+        if (at - now > MAX_AHEAD) return null
+        last[key] = at
+        return at
+    }
+
+    private companion object {
+        const val MAX_ENTRIES = 1024
+        const val MAX_AHEAD = 30L
     }
 }
 
