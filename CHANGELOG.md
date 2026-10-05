@@ -3,6 +3,17 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.59] - 2026-10-06
+
+- A call no longer starts by itself. After a call ended, a phone could start
+  a new one on its own - just after Leave, or while its relays were catching
+  up - and everyone in the room was rung "… is calling" with nobody calling.
+  Now only pressing Join starts a call; otherwise the phone rejoins the call
+  it was on.
+- A new call in a room you were on a call in less than a minute ago does not
+  ring. It still shows in the room. This keeps phones quiet if someone on an
+  older version starts a call by accident.
+
 ## [0.6.58] - 2026-10-05
 
 - The rooms list is easier to scan when you have a lot of rooms. Rooms are
