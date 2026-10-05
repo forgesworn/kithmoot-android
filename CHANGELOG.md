@@ -3,6 +3,16 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.57] - 2026-10-05
+
+- Forgetting a room now erases its keys from this phone: the current room key,
+  the past keys it kept to bring other people's devices up to date, and the
+  list of who the room knows. Reset saved rooms erases them for every room.
+  Keys left behind by rooms you forgot on earlier versions are erased the
+  first time this version opens.
+- Stopping a Bothy's quiet cadence for a room no longer fails for up to an
+  hour when the phone's clock is slightly behind the Bothy's.
+
 ## [0.6.56] - 2026-10-04
 
 - Uses less battery in the background. Rooms that use the same relays now
