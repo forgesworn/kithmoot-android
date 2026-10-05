@@ -1,6 +1,22 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.mls.AckRule
+import dev.forgesworn.kithmoot.mls.CapabilitiesParser
+import dev.forgesworn.kithmoot.mls.Destination
+import dev.forgesworn.kithmoot.mls.DriverSession
+import dev.forgesworn.kithmoot.mls.Effects
+import dev.forgesworn.kithmoot.mls.Outgoing
+import dev.forgesworn.kithmoot.mls.Processed
+import dev.forgesworn.kithmoot.mls.SlotOutcome
+import dev.forgesworn.kithmoot.mls.Watched
+import dev.forgesworn.vmls.ffi.VmlsAck
+import dev.forgesworn.vmls.ffi.VmlsBoxInstallation
+import dev.forgesworn.vmls.ffi.VmlsDestination
+import dev.forgesworn.vmls.ffi.VmlsEvent
 import dev.forgesworn.vmls.ffi.VmlsException
+import dev.forgesworn.vmls.ffi.VmlsSlotStatus
+import dev.forgesworn.vmls.ffi.VmlsWatchKind
+import dev.forgesworn.vmls.ffi.parseCapabilities
 import dev.forgesworn.vmls.ffi.VmlsPlatform
 import dev.forgesworn.vmls.ffi.VmlsRandom
 import dev.forgesworn.vmls.ffi.VmlsSession
@@ -28,12 +44,81 @@ class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: Sec
 }
 
 /** One engine session under the host. [inner] is for engine calls inside [SessionHost.step] only. */
-class EngineSession(val inner: VmlsSession) : HostedSession {
+class EngineSession(val inner: VmlsSession) : DriverSession {
     override fun generation(): Long = sessionCall { inner.generation() }.let { check(it <= Long.MAX_VALUE.toULong()); it.toLong() }
 
     override fun commitAck(generation: Long, highWater: Long) = sessionCall { inner.commitAck(generation.toULong(), highWater.toULong()) }
 
     override fun close() = inner.close()
+
+    // ---- the driver's calls (P3-03b-3a) ----
+
+    override fun outbox(): List<Outgoing> = sessionCall { inner.outbox() }.map { out ->
+        Outgoing(out.recordId, out.mailbox, when (val d = out.destination) {
+            is VmlsDestination.Leaf -> Destination.Leaf(d.homeBox)
+            is VmlsDestination.CommitSlot -> Destination.Slot(d.homeBox, d.attempt.toLong())
+            is VmlsDestination.Welcome -> Destination.Welcome(d.packageId)
+            is VmlsDestination.Introduction -> Destination.Introduction
+            is VmlsDestination.ForkEvidence -> Destination.Evidence(d.homeBox)
+        }, out.envelope)
+    }
+
+    override fun watchList(): List<Watched> = sessionCall { inner.watchList() }.map { w ->
+        Watched(w.mailbox, when (val k = w.kind) {
+            is VmlsWatchKind.OwnLeaf, is VmlsWatchKind.ForkEvidence -> Watched.Kind.Mailbox(retained = false)
+            is VmlsWatchKind.RetainedLeaf -> Watched.Kind.Mailbox(retained = true)
+            VmlsWatchKind.Welcome -> Watched.Kind.Welcome
+            is VmlsWatchKind.CommitSlot -> Watched.Kind.Slot(k.attempt.toLong())
+        }, w.homeBox)
+    }
+
+    override fun tick(now: Long) = effects { inner.tick(now.u()) }
+    override fun delivered(recordIds: List<ByteArray>) = effects { inner.outboundDelivered(recordIds) }
+    override fun depositResult(now: Long, attempt: Long, signedReceipt: ByteArray) = effects { inner.depositResult(now.u(), attempt.u32(), signedReceipt) }
+    override fun slotStatus(now: Long, attempt: Long, outcome: SlotOutcome, signedReceipt: ByteArray) = effects {
+        inner.slotStatus(now.u(), attempt.u32(), when (outcome) {
+            SlotOutcome.Filled -> VmlsSlotStatus.FILLED
+            SlotOutcome.Expired -> VmlsSlotStatus.EXPIRED
+            SlotOutcome.Void -> VmlsSlotStatus.VOID
+        }, signedReceipt)
+    }
+    override fun observeReceipt(now: Long, signedReceipt: ByteArray) = effects { inner.observeReceipt(now.u(), signedReceipt) }
+    override fun observeInstallation(now: Long, installation: ByteArray) = effects { inner.observeInstallation(now.u(), installation) }
+    override fun mailboxDrained(mailbox: ByteArray) = effects { inner.mailboxDrained(mailbox) }
+    override fun confirmMember(packageId: ByteArray) = effects { inner.confirmMember(packageId) }
+
+    override fun process(now: Long, mailbox: ByteArray, envelope: ByteArray, signedReceipt: ByteArray?, installation: Pair<ByteArray, ByteArray>?): EngineStep<Processed> {
+        val processed = sessionCall { inner.process(now.u(), mailbox, envelope, signedReceipt, installation?.let { VmlsBoxInstallation(it.first, it.second) }) }
+        val ack = when (processed.ack) {
+            VmlsAck.Now -> AckRule.Now
+            is VmlsAck.AfterCommitAck -> AckRule.AfterStep
+            VmlsAck.Keep -> AckRule.Keep
+        }
+        val step = hostedStep(processed.step)
+        return EngineStep(step.snapshot, Processed(effectsOf(processed.step), ack))
+    }
+
+    private inline fun effects(call: () -> VmlsStep): EngineStep<Effects> {
+        val step = sessionCall(call)
+        return EngineStep(hostedStep(step).snapshot, effectsOf(step))
+    }
+
+    private fun effectsOf(step: VmlsStep) = Effects(
+        events = step.events,
+        unconfirmed = step.events.filterIsInstance<VmlsEvent.OrderingUnconfirmed>().map { it.slot to it.attempt.toLong() },
+    )
+
+    private fun Long.u(): ULong { require(this >= 0); return toULong() }
+    private fun Long.u32(): UInt { require(this in 0..0xFFFF_FFFFL); return toUInt() }
+}
+
+/** The engine's strict reading of a capabilities body (`parse_capabilities`). */
+object EngineCapabilities : CapabilitiesParser {
+    override fun installation(body: ByteArray): ByteArray? = try {
+        parseCapabilities(body)
+    } catch (_: VmlsException) {
+        null
+    }
 }
 
 /** An engine step as the host takes it: its snapshot to seal, and the step itself for the caller. */
