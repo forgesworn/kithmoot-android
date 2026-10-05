@@ -1,6 +1,15 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.em
+import dev.forgesworn.kithmoot.protocol.conferenceEnded
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,6 +19,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,6 +63,7 @@ fun StartScreen(
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
     onProject: (String, String) -> Unit,
+    onPin: (String, Boolean) -> Unit = { _, _ -> },
     onPairBothy: (String, String) -> Unit = { _, _ -> },
     onDisconnectBothy: (String) -> Unit = {},
     onRevokeBothyGuests: (String) -> Unit = {},
@@ -79,6 +91,11 @@ fun StartScreen(
     val locale = remember { java.util.Locale.getDefault() }
     val prefs = remember { context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE) }
 
+    // Older and Ended start folded; each fold's state is this device's, not the room's.
+    val foldOpen = remember { mutableStateMapOf(
+        HomeSection.OLDER to prefs.getBoolean(foldPreference(HomeSection.OLDER), false),
+        HomeSection.ENDED to prefs.getBoolean(foldPreference(HomeSection.ENDED), false),
+    ) }
     var query by rememberSaveable { mutableStateOf("") }
     var projectTab by rememberSaveable { mutableStateOf(prefs.getString("projectTab", "") ?: "") }
     var newRoomOpen by rememberSaveable { mutableStateOf(false) }
@@ -111,6 +128,11 @@ fun StartScreen(
     val held = listState.isScrollInProgress
     val orderedIds = holdOrder(previousOrder, sortedIds, held)
     SideEffect { previousOrder = orderedIds }
+    val now = System.currentTimeMillis() / 1000
+    val freshSections = homeRooms.associate { it.id to sectionOf(it, null, now) }
+    var previousSections by remember { mutableStateOf<Map<String, HomeSection>?>(null) }
+    val sections = holdSections(previousSections, freshSections, held)
+    SideEffect { previousSections = sections }
     val byId = remember(homeRooms) { homeRooms.associateBy { it.id } }
     val orderedRooms = orderedIds.mapNotNull(byId::get)
 
@@ -126,6 +148,7 @@ fun StartScreen(
         if (room.canShareInvite) add(ConversationAction("Share invite link") { onShareInvite(room.id) })
         val saved = savedById[room.id]
         if (saved != null) {
+            add(0, ConversationAction(if (saved.pinned) "Unpin" else "Pin") { onPin(saved.id, !saved.pinned) })
             add(ConversationAction(if (saved.project != null) "Change project" else "Add to a project") { filing = saved; filedAs = saved.project.orEmpty() })
             if (!saved.anonymous && saved.account == state.account?.pubkey) {
                 if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
@@ -160,10 +183,16 @@ fun StartScreen(
 
             else -> ReturningContent(
                 layout = layout, state = state, enabled = enabled, homeRooms = homeRooms, orderedRooms = orderedRooms,
+                sections = sections, foldOpen = foldOpen,
+                onFoldToggled = { section ->
+                    val open = foldOpen[section] != true
+                    foldOpen[section] = open
+                    prefs.edit().putBoolean(foldPreference(section), open).apply()
+                },
                 query = query, onQueryChanged = { query = it }, projectTab = projectTab,
                 onProjectTabChanged = { projectTab = it; prefs.edit().putString("projectTab", it).apply() },
                 openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
-                now = System.currentTimeMillis() / 1000, zone = zone, locale = locale, is24Hour = is24Hour,
+                now = now, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
                 onConferenceLengthChanged = onConferenceLengthChanged,
@@ -365,6 +394,7 @@ private fun BoxWithConstraintsScope.ColdContent(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun BoxWithConstraintsScope.ReturningContent(
     layout: HomeLayout, state: StartState, enabled: Boolean, homeRooms: List<HomeRoom>, orderedRooms: List<HomeRoom>,
+    sections: Map<String, HomeSection>, foldOpen: Map<HomeSection, Boolean>, onFoldToggled: (HomeSection) -> Unit,
     query: String, onQueryChanged: (String) -> Unit, projectTab: String, onProjectTabChanged: (String) -> Unit,
     openRoom: (HomeRoom) -> Unit, actionsFor: (HomeRoom) -> List<ConversationAction>, callRoomId: String?,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
@@ -377,11 +407,18 @@ private fun BoxWithConstraintsScope.ReturningContent(
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
     val byProject = orderedRooms.filter { tab.isEmpty() || (if (tab == NO_PROJECT_TAB) it.project == null else it.project == tab) }
-    val filtered = byProject.filter { query.isBlank() || it.label.contains(query.trim(), true) || it.id.contains(query.trim(), true) }
+    val groups = groupRooms(byProject, query, sections)
+    val filtered = byProject.filter { matchesQuery(it, query) }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var inviteOpen by rememberSaveable { mutableStateOf(false) }
+    var overflowOpen by remember { mutableStateOf(false) }
     val showSearch = homeRooms.size >= 8
 
     val expanded = layout == HomeLayout.EXPANDED
     val maxListWidth = when (layout) { HomeLayout.MEDIUM -> 640.dp; HomeLayout.EXPANDED -> 640.dp; else -> Dp.Unspecified }
+
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(searchOpen) { if (searchOpen) runCatching { searchFocus.requestFocus() } }
 
     @Composable
     fun ListPane(modifier: Modifier) {
@@ -394,9 +431,19 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() })
+                        if (showSearch) IconButton({ if (searchOpen) onQueryChanged(""); searchOpen = !searchOpen }, Modifier.size(48.dp)) {
+                            Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search rooms")
+                        }
                         if (state.account != null) TextButton(onOpenProjects) { Text("Projects") }
+                        Box {
+                            IconButton({ overflowOpen = true }, Modifier.size(48.dp)) { Icon(Icons.Filled.MoreVert, "More") }
+                            DropdownMenu(overflowOpen, { overflowOpen = false }) {
+                                DropdownMenuItem(text = { Text("Open invite link") }, onClick = { overflowOpen = false; inviteOpen = true })
+                                if (state.account == null) DropdownMenuItem(text = { Text("Sign in") }, onClick = { overflowOpen = false; onSignIn() })
+                            }
+                        }
                     }
-                    if (showSearch) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth(), singleLine = true,
+                    if (showSearch && (searchOpen || query.isNotEmpty())) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth().focusRequester(searchFocus), singleLine = true,
                         label = { Text("Find a room") },
                         trailingIcon = { if (query.isNotEmpty()) IconButton({ onQueryChanged("") }) {
                             Icon(Icons.Filled.Close, "Clear search")
@@ -435,14 +482,16 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     }
                 }
             }
-            items(filtered, key = { it.id }) { room ->
-                val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
-                RoomRow(room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room))
-            }
-            item {
-                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin)
-                    if (state.account == null) TextButton(onSignIn, Modifier.heightIn(min = 48.dp)) { Text("Already on Nostr? Sign in") }
+            for (group in groups) {
+                val section = group.section
+                val open = section == null || !section.foldable || foldOpen[section] == true
+                if (section != null) item(key = "heading-${section.name}") {
+                    SectionHeading(section, group.rooms.size, folded = !open, onToggle = { onFoldToggled(section) })
+                }
+                if (open) items(group.rooms, key = { it.id }) { room ->
+                    val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
+                    RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
+                        pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now))
                 }
             }
         }
@@ -477,6 +526,16 @@ private fun BoxWithConstraintsScope.ReturningContent(
         }
     }
 
+    if (inviteOpen) {
+        ModalBottomSheet(onDismissRequest = { inviteOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Open invite link", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, { inviteOpen = false; onJoin() }, collapsible = false)
+            }
+        }
+    }
+
     if (newRoomOpen) {
         ModalBottomSheet(onDismissRequest = { onNewRoomOpenChanged(false) }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
@@ -491,3 +550,22 @@ private fun BoxWithConstraintsScope.ReturningContent(
 }
 
 private const val NO_PROJECT_TAB = "\u0000none"
+
+private fun foldPreference(section: HomeSection) = "homeFoldOpen.${section.name.lowercase()}"
+
+/** A small heading row. Older and Ended are fold buttons; the rest are plain headings. */
+@Composable
+private fun SectionHeading(section: HomeSection, count: Int, folded: Boolean, onToggle: () -> Unit) {
+    val text = sectionHeading(section, count, folded)
+    val style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.04.em)
+    val colour = MaterialTheme.colorScheme.onSurfaceVariant
+    if (section.foldable) {
+        Text(text, style = style, color = colour,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button, onClick = onToggle)
+                .semantics { heading(); stateDescription = if (folded) "Collapsed" else "Expanded" }
+                .wrapContentHeight(Alignment.CenterVertically))
+    } else {
+        Text(text, style = style, color = colour, modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp).semantics { heading() })
+    }
+}

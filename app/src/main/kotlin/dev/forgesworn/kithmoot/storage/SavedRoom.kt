@@ -52,7 +52,9 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** There is a link worth sharing: not ended, not a paired secondary device, and the saved link holds an invitation payload. */
     val canShareInvite: Boolean = false,
     /** A conference room's end, unix seconds; null for a room that does not end. */
-    val endsAt: Long? = null)
+    val endsAt: Long? = null,
+    /** Pinned to the top of the home list on this device. Never leaves it: not in account bookmarks, not on a relay. */
+    val pinned: Boolean = false)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -91,6 +93,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     /** The project this room is filed under on this device, if any. A label
      *  and nothing more: it changes nothing about the room or who is in it. */
     val project: String? get() = json["project"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+    /** Pinned on this device. A record written before pins existed has no key, so it reads false. */
+    val pinned: Boolean get() = json["pinned"]?.jsonPrimitive?.boolean ?: false
     val retired: Boolean get() = json["retired"]?.jsonPrimitive?.boolean ?: false
     val movedOn: Boolean get() = json["movedOn"]?.jsonPrimitive?.boolean ?: false
     /** A conference room's end, unix seconds, from its group invitation.
@@ -105,7 +109,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     fun summary(now: Long = System.currentTimeMillis() / 1000): SavedRoomSummary {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
-            ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends)
+            ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
+            pinned = pinned)
     }
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
@@ -241,6 +246,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val clean = project?.trim()?.take(48).orEmpty()
         if (clean.isEmpty()) remove("project") else put("project", clean)
     }
+    fun withPinned(pinned: Boolean): SavedRoom = changed { if (pinned) put("pinned", JsonPrimitive(true)) else remove("pinned") }
     fun withRelays(relays: List<String>): SavedRoom = changed {
         require(relays.isNotEmpty() && relays.size <= 16)
         require(relays.all { it.startsWith("ws://") || it.startsWith("wss://") })

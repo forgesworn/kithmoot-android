@@ -35,8 +35,10 @@ import kotlinx.coroutines.delay
  *  the link the scan just filled in. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Unit, enabled: Boolean, onJoin: () -> Unit) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Unit, enabled: Boolean, onJoin: () -> Unit,
+    /** False inside the home list's bottom sheet, where the field is the whole point and there is nothing to collapse. */
+    collapsible: Boolean = true) {
+    var expanded by rememberSaveable { mutableStateOf(!collapsible) }
     var scanning by remember { mutableStateOf(false) }
     var fieldFocused by remember { mutableStateOf(false) }
     // Set by a person's own tap or scan, never by restoring the screen, so
@@ -52,7 +54,7 @@ internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Un
         if (reveal) { delay(EXPAND_SETTLE_MS); group.bringIntoView(); reveal = false }
     }
     Column {
-        TextButton(
+        if (collapsible) TextButton(
             onClick = { expanded = !expanded; reveal = expanded },
             modifier = Modifier.heightIn(min = 48.dp)
                 .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed"; role = Role.Button },
