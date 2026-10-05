@@ -40,12 +40,14 @@ class HomeScreenUiTest {
     private fun room(
         id: String, name: String, openedAt: Long = 0, project: String? = null, account: String? = null,
         anonymous: Boolean = false, secondary: Boolean = false, ended: Boolean = false, canShareInvite: Boolean = false,
-    ) = SavedRoomSummary(id, name, secondary, openedAt, project, account, anonymous, ended, canShareInvite)
+        pinned: Boolean = false,
+    ) = SavedRoomSummary(id, name, secondary, openedAt, project, account, anonymous, ended, canShareInvite, pinned = pinned)
 
     private fun setHome(
         state: StartState, widthDp: Int = 360, heightDp: Int = 640, fontScale: Float = 1f,
         callRoomId: String? = null, onReopen: (String) -> Unit = {}, onAnonymousModeChanged: (Boolean) -> Unit = {},
         onJoin: () -> Unit = {}, onForget: (String) -> Unit = {}, onOpenProjects: () -> Unit = {},
+        onPin: (String, Boolean) -> Unit = { _, _ -> }, onSignIn: () -> Unit = {},
         accountRooms: dev.forgesworn.kithmoot.ui.start.AccountRoomActions = dev.forgesworn.kithmoot.ui.start.AccountRoomActions(),
     ) {
         compose.setContent {
@@ -58,6 +60,7 @@ class HomeScreenUiTest {
                             onAnonymousModeChanged = onAnonymousModeChanged, onPersistentGroupChanged = {},
                             onStartRoom = {}, onJoin = onJoin, onReopen = onReopen, onForget = onForget,
                             onProject = { _, _ -> }, onRetryStorage = {}, onResetStorage = {},
+                            onPin = onPin, onSignIn = onSignIn,
                             callRoomId = callRoomId, onOpenProjects = onOpenProjects, accountRooms = accountRooms,
                         )
                     }
@@ -192,11 +195,15 @@ class HomeScreenUiTest {
         val seven = (1..7).map { room("r$it", "Room $it") }
         setHome(StartState(loadingRooms = false, savedRooms = seven))
         compose.onNodeWithText("Find a room").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Search rooms").assertDoesNotExist()
     }
 
     @Test fun search_field_appears_at_eight_rooms_and_reports_no_matches() {
         val eight = (1..8).map { room("r$it", "Room $it") }
         setHome(StartState(loadingRooms = false, savedRooms = eight))
+        // The search field opens in place from the search icon (room-list-sections.md section 4).
+        compose.onNodeWithText("Find a room").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Search rooms").performClick()
         compose.onNodeWithText("Find a room").assertIsDisplayed()
         compose.onNodeWithText("Find a room").performTextInput("zzz")
         compose.onNodeWithText("No rooms match “zzz”.").assertIsDisplayed()
@@ -211,6 +218,78 @@ class HomeScreenUiTest {
         assertEquals(true, compose.onNodeWithText("Work").fetchSemanticsNode().config.getOrNull(SemanticsProperties.Selected))
         compose.onNodeWithText("Work room").assertIsDisplayed()
         compose.onNodeWithText("Plain room").assertDoesNotExist()
+    }
+
+    // room-list-sections.md sections 1, 2 and 4
+    private fun resetFolds() {
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).edit()
+            .remove("homeFoldOpen.older").remove("homeFoldOpen.ended").apply()
+    }
+
+    // The window is taller than the screen, so rows are checked to exist rather than to be on screen.
+    private fun manyRooms(): List<SavedRoomSummary> {
+        val now = System.currentTimeMillis() / 1000
+        return (1..8).map { room("%02x".format(it) + "0".repeat(62), "Fresh $it", openedAt = now - it) } +
+            room("a1" + "0".repeat(62), "Dusty one", openedAt = 1) + room("a2" + "0".repeat(62), "Dusty two", openedAt = 2) +
+            room("b1" + "0".repeat(62), "Finished", openedAt = now, ended = true) +
+            SavedRoomSummary("c1" + "0".repeat(62), "Starred", false, 3, pinned = true)
+    }
+
+    @Test fun past_eight_rooms_the_list_has_headings_with_older_and_ended_folded() {
+        resetFolds()
+        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        compose.onNodeWithText("Pinned").assertExists()
+        compose.onNodeWithText("Recent").assertExists()
+        compose.onNodeWithText("Older · 2").assertExists()
+        compose.onNodeWithText("Ended · 1").assertExists()
+        compose.onNodeWithText("Dusty one").assertDoesNotExist()
+        compose.onNodeWithText("Starred").assertExists()
+        // Pinned sorts above the rest even though it is the oldest room.
+        assertTrue(compose.onNodeWithText("Starred").getUnclippedBoundsInRoot().top < compose.onNodeWithText("Fresh 1").getUnclippedBoundsInRoot().top)
+    }
+
+    @Test fun the_older_fold_opens_and_closes() {
+        resetFolds()
+        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        compose.onNodeWithText("Older · 2").performClick()
+        compose.onNodeWithText("Older").assertExists()
+        compose.onNodeWithText("Dusty one").assertExists()
+        compose.onNodeWithText("Dusty two").assertExists()
+        compose.onNodeWithText("Older").performClick()
+        compose.onNodeWithText("Older · 2").assertExists()
+        compose.onNodeWithText("Dusty one").assertDoesNotExist()
+    }
+
+    @Test fun a_search_lists_matches_from_closed_folds_without_headings() {
+        resetFolds()
+        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        compose.onNodeWithContentDescription("Search rooms").performClick()
+        compose.onNodeWithText("Find a room").performTextInput("Dusty")
+        compose.onNodeWithText("Dusty one").assertExists()
+        compose.onNodeWithText("Dusty two").assertExists()
+        compose.onNodeWithText("Older · 2").assertDoesNotExist()
+        compose.onNodeWithText("Recent").assertDoesNotExist()
+    }
+
+    @Test fun the_menu_offers_pin_or_unpin_first_and_asks_to_toggle() {
+        var pinned: Pair<String, Boolean>? = null
+        val id = "d1" + "0".repeat(62)
+        setHome(StartState(loadingRooms = false, savedRooms = listOf(room(id, "Garden group"))), onPin = { room, on -> pinned = room to on })
+        compose.onNodeWithContentDescription("More options for Garden group").performClick()
+        compose.onNodeWithText("Pin").performClick()
+        assertEquals(id to true, pinned)
+    }
+
+    @Test fun overflow_holds_open_invite_link_and_sign_in() {
+        var signedIn = false
+        setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))), onSignIn = { signedIn = true })
+        compose.onNodeWithText("Open an invite link").assertDoesNotExist()
+        compose.onNodeWithText("Already on Nostr? Sign in").assertDoesNotExist()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Open invite link").performClick()
+        compose.onNodeWithText("Invite link").assertIsDisplayed()
+        compose.onNodeWithText("Scan QR code").assertIsDisplayed()
     }
 
     // AC 22

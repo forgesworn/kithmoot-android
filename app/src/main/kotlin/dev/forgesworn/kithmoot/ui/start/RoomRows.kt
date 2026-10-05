@@ -27,6 +27,8 @@ internal data class HomeRoom(
     val secondary: Boolean, val ended: Boolean, val canShareInvite: Boolean,
     /** A conference room's end, unix seconds; null for a room that does not end. */
     val endsAt: Long? = null,
+    /** Pinned on this device; account bookmarks are never pinned. */
+    val pinned: Boolean = false,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -39,6 +41,8 @@ internal data class PreviewMessage(val participant: String, val text: String, va
 internal data class Presence(val participant: String, val agent: Boolean)
 
 internal data class RoomRowState(val status: String?, val time: String, val timeSpoken: String)
+
+internal const val NO_MESSAGES_YET = "No messages yet"
 
 internal enum class HomeLayout { COMPACT, SHORT, MEDIUM, EXPANDED }
 
@@ -60,7 +64,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             id = room.id, label = roomLabel(room.name, room.id), source = RoomSource.PHONE,
             openedAt = room.openedAt, project = room.project, account = room.account,
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
-            canShareInvite = room.canShareInvite, endsAt = room.endsAt,
+            canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
         )
     }
     if (!signedIn) return fromSaved
@@ -98,6 +102,68 @@ internal fun holdOrder(previous: List<String>?, sorted: List<String>, held: Bool
     return kept + appended
 }
 
+internal enum class HomeSection(val label: String, val foldable: Boolean) {
+    PINNED("Pinned", false), UNREAD("Unread", false), RECENT("Recent", false), OLDER("Older", true), ENDED("Ended", true),
+}
+
+/** A run of rooms under one heading; a null [section] is the flat list, with no heading. */
+internal data class RoomSectionGroup(val section: HomeSection?, val rooms: List<HomeRoom>)
+
+internal const val SECTIONING_MAX_FLAT_ROOMS = 8
+internal const val RECENT_WINDOW_SECONDS = 7L * 24 * 60 * 60
+
+/** The one section a room belongs to (room-list-sections.md section 1): pinned
+ *  beats everything, ended beats unread, and an unpinned read room is Recent
+ *  until it has been quiet for seven days. */
+internal fun sectionOf(room: HomeRoom, activity: RoomActivity?, now: Long): HomeSection = when {
+    room.pinned -> HomeSection.PINNED
+    room.ended || conferenceEnded(room.endsAt, now) -> HomeSection.ENDED
+    (activity?.unreadPeople ?: 0) > 0 -> HomeSection.UNREAD
+    activityAt(room, activity) >= now - RECENT_WINDOW_SECONDS -> HomeSection.RECENT
+    else -> HomeSection.OLDER
+}
+
+/** Like [holdOrder], for sections: while the list is held a room keeps the
+ *  section it was in, so it does not jump under the pointer. */
+internal fun holdSections(previous: Map<String, HomeSection>?, current: Map<String, HomeSection>, held: Boolean): Map<String, HomeSection> =
+    if (previous == null || !held) current else current.mapValues { (id, section) -> previous[id] ?: section }
+
+internal fun matchesQuery(room: HomeRoom, query: String): Boolean =
+    query.isBlank() || room.label.contains(query.trim(), true) || room.id.contains(query.trim(), true)
+
+/** Groups [rooms] (already in activity order and already project-filtered).
+ *  A search, or eight rooms or fewer, gives one flat list with pinned rooms
+ *  first and no headings, so nothing is ever hidden in a closed fold. */
+internal fun groupRooms(rooms: List<HomeRoom>, query: String, sections: Map<String, HomeSection>): List<RoomSectionGroup> {
+    if (query.isNotBlank() || rooms.size <= SECTIONING_MAX_FLAT_ROOMS) {
+        val (pinned, rest) = rooms.filter { matchesQuery(it, query) }.partition { it.pinned }
+        return listOf(RoomSectionGroup(null, pinned + rest))
+    }
+    return HomeSection.entries.mapNotNull { section ->
+        rooms.filter { sections[it.id] == section }.takeIf { it.isNotEmpty() }?.let { RoomSectionGroup(section, it) }
+    }
+}
+
+/** The heading's text: the label, plus the count while the section is folded. */
+internal fun sectionHeading(section: HomeSection, count: Int, folded: Boolean): String =
+    if (folded) "${section.label} · $count" else section.label
+
+/** Avatar palette (room-list-sections.md section 2): light, dark. White text passes 4.5:1 on every one. */
+private val AVATAR_PALETTE = listOf(
+    0xFF0B6B8A to 0xFF0E7FA3, 0xFF6A4FB3 to 0xFF7A5FC4, 0xFFA2431F to 0xFFB54C25, 0xFF2F6F3E to 0xFF357D46,
+    0xFF8A3A6B to 0xFF9C4479, 0xFF5B5F1C to 0xFF6B7020, 0xFF1F5F9E to 0xFF2A6DB0, 0xFF7A4A12 to 0xFF8C5616,
+)
+
+/** `parseInt(roomId.slice(0, 2), 16) % 8`, as ARGB: the light or the dark colour. */
+internal fun avatarColour(roomId: String, dark: Boolean): Long {
+    val index = (roomId.take(2).toIntOrNull(16) ?: 0) % AVATAR_PALETTE.size
+    return AVATAR_PALETTE[index].let { if (dark) it.second else it.first }
+}
+
+/** The room's first letter or digit, uppercased, else `#`. */
+internal fun avatarLetter(label: String): String =
+    label.firstOrNull { it.isLetterOrDigit() }?.toString()?.uppercase(Locale.ROOT) ?: "#"
+
 /** The row's second line, in the precedence order of design-home-rooms.md
  *  section 6. [selfParticipant] and [nameOf] are pass 2 only: this pass
  *  always calls with a null [activity], so every row falls to the
@@ -118,7 +184,7 @@ internal fun roomRowState(
         room.endsAt != null && activity == null -> "Conference room. ${conferenceEndsLine(room.endsAt, zone, locale)}."
         activity == null -> if (room.anonymous) "Tor-only room." else null
         !activity.readsChat -> "Quiet room. Open it to read."
-        else -> previewLine(activity.latest, selfParticipant.orEmpty(), nameOf) ?: "No messages yet"
+        else -> previewLine(activity.latest, selfParticipant.orEmpty(), nameOf) ?: NO_MESSAGES_YET
     }
     val (time, timeSpoken) = formatActivityTime(activityAt(room, activity), now, zone, locale, is24Hour)
     return RoomRowState(status, time, timeSpoken)

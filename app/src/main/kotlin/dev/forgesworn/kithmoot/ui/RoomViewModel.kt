@@ -2049,6 +2049,7 @@ class RoomViewModel @JvmOverloads constructor(
         roomMembers.forget(id)
     }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
+    fun setRoomPinned(id: String, pinned: Boolean) = changeSavedRooms { savedRooms.update(id) { it.withPinned(pinned) } }
 
     /** The link for the room row's "Share invite link": read fresh from
      *  storage, handed straight to the share intent, and never kept in

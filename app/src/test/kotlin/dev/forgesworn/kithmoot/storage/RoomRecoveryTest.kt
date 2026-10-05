@@ -258,4 +258,52 @@ class SavedRoomProjectTest {
         assertNull(filed.inProject(null).project)
         assertEquals(48, filed.inProject("x".repeat(80)).project?.length)
     }
+
+    private fun savedRoom(): SavedRoom {
+        val secret = Entropy.bytes(32)
+        val derived = deriveRoom(secret)
+        val who = PrimaryIdentity.create(derived.roomId, now + 3600, now)
+        val host = createRoomInvitation(false)
+        return SavedRoom.create(secret, who, encodeInvitationUrl("https://example.test/j/", host.invitation, relays), relays, "Pinned", now, host, host.invitation.canonicalInviter)
+    }
+
+    @Test fun `a pin is device-local, survives a reload and clears on unpin`() {
+        val room = savedRoom()
+        assertFalse(room.pinned)
+        assertFalse(room.summary().pinned)
+        val disk = MemoryStorage()
+        RoomRepository(disk).save(room)
+        RoomRepository(disk).update(room.id) { it.withPinned(true) }
+        assertTrue(RoomRepository(disk).get(room.id)!!.pinned)
+        assertTrue(RoomRepository(disk).list().single().pinned)
+        // A rename or a project must not lose it.
+        assertTrue(room.withPinned(true).renamed("Other").inProject("Work").pinned)
+        RoomRepository(disk).update(room.id) { it.withPinned(false) }
+        val unpinned = RoomRepository(disk).get(room.id)!!
+        assertFalse(unpinned.pinned)
+        assertFalse(unpinned.json.containsKey("pinned"))
+    }
+
+    @Test fun `a record written before pins existed reads as not pinned`() {
+        val room = savedRoom()
+        assertFalse(room.json.containsKey("pinned"))
+        val disk = MemoryStorage()
+        RoomRepository(disk).save(room)
+        assertFalse(RoomRepository(disk).get(room.id)!!.pinned)
+    }
+
+    @Test fun `forgetting or resetting takes the pin with the room`() {
+        val room = savedRoom().withPinned(true)
+        val disk = MemoryStorage()
+        val repository = RoomRepository(disk)
+        repository.save(room)
+        repository.forget(room.id)
+        assertNull(repository.get(room.id))
+        assertFalse(String(disk.value!!).contains("pinned"))
+        repository.save(room)
+        repository.reset()
+        assertNull(disk.value)
+        // Joining again later starts unpinned.
+        repository.save(savedRoom().let { assertFalse(it.pinned); it })
+    }
 }

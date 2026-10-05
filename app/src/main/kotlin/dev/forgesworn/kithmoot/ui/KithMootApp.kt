@@ -482,6 +482,7 @@ fun KithMootApp(
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,
                         onProject = model::setRoomProject,
+                        onPin = model::setRoomPinned,
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
                         onRevokeBothyGuests = model::revokeBothyGuests,
