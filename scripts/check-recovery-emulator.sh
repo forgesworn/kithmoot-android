@@ -105,6 +105,9 @@ run_tests coordinated-vault 20 -e class \
 # P3-03b-3a: a real engine session under the coordinator, created with the
 # vault's own leaf binding signature, each step witnessed before release.
 run_tests session-host 2 -e class dev.forgesworn.kithmoot.storage.SessionHostEngineTest
+# P3-03b-3a: the driver loop with the real engine, an Update commit through a
+# box signing real Ed25519 slot receipts, read back and applied.
+run_tests session-driver 1 -e class dev.forgesworn.kithmoot.storage.SessionDriverEngineTest
 # W01-W04 and a crash before the stale key's deletion: each persona is killed
 # at its own point, then the app is force-stopped and recovers in a new process.
 run_tests coordinated-kill 1 -e class dev.forgesworn.kithmoot.storage.CoordinatedVaultRestartTest#a_kill

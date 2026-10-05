@@ -15,6 +15,7 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.vmls.ffi.VmlsBindingRequest
 import dev.forgesworn.vmls.ffi.VmlsCredential
+import dev.forgesworn.vmls.ffi.VmlsSignRequest
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.prepareCreate
 import java.security.SecureRandom
@@ -31,13 +32,27 @@ import kotlinx.serialization.json.put
 suspend fun createGroup(
     vault: MlsVault, host: SessionHost<EngineSession>, sessions: EngineSessions,
     persona: String, credential: NostrEvent, now: Long, random: SecureRandom = SecureRandom(),
+    homeBox: ByteArray = ByteArray(32).also(random::nextBytes),
+    installation: ByteArray = ByteArray(32).also(random::nextBytes),
 ): Hosted<VmlsStep> {
-    val request = VmlsBindingRequest(
-        VmlsCredential(credential.pubkey.hexToBytes(), credential.createdAt.toULong(), credential.tags, credential.content, credential.sig.hexToBytes()),
-        ByteArray(32).also(random::nextBytes), (now + 3_600).toULong(),
-    )
-    val pending = prepareCreate(sessions.platform, now.toULong(), request, ByteArray(32).also(random::nextBytes))
+    val request = bindingRequest(credential, homeBox, now)
+    val pending = prepareCreate(sessions.platform, now.toULong(), request, installation)
     val sign = pending.request()
+    val signature = signBinding(vault, persona, sign)
+    return host.create(persona) {
+        val created = pending.complete(now.toULong(), sign.operation, signature)
+        EngineSession(created.session) to hostedStep(created.step)
+    }
+}
+
+/** The binding request for this persona's enrolled device credential at [homeBox]. */
+fun bindingRequest(credential: NostrEvent, homeBox: ByteArray, now: Long) = VmlsBindingRequest(
+    VmlsCredential(credential.pubkey.hexToBytes(), credential.createdAt.toULong(), credential.tags, credential.content, credential.sig.hexToBytes()),
+    homeBox, (now + 3_600).toULong(),
+)
+
+/** The vault's leaf binding signature for an engine sign request. */
+suspend fun signBinding(vault: MlsVault, persona: String, sign: VmlsSignRequest): ByteArray {
     val reply = vault.signLeafBindingV1(
         vault.context("dev.forgesworn.kithmoot", persona),
         buildJsonObject {
@@ -49,9 +64,5 @@ suspend fun createGroup(
         },
         ConsentPrompt { ConsentDecision.Approve },
     )
-    val signature = (reply as VaultResult.Ok<SignLeafBindingReply>).value.signature.hexToBytes()
-    return host.create(persona) {
-        val created = pending.complete(now.toULong(), sign.operation, signature)
-        EngineSession(created.session) to hostedStep(created.step)
-    }
+    return (reply as VaultResult.Ok<SignLeafBindingReply>).value.signature.hexToBytes()
 }
