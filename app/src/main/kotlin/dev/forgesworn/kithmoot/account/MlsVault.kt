@@ -4,7 +4,9 @@ import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.toRustWireJson
 import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.vmls.BindingErrorCode
@@ -403,6 +405,86 @@ class MlsVault(
         if (!Schnorr.verify(reply.signature.hexToBytes(), req.digest.hexToBytes(), reply.device.hexToBytes())) return refuse(VaultRefusal.Unauthorised)
         return VaultResult.Ok(reply)
     }
+
+    // ---- signBoxRequestV1 (§6.2.1) ----
+
+    /**
+     * NIP-98 authentication of one `/vmls/v1/` request to an approved home
+     * box, signed by the persona's MLS device key (§6.2.1, P3-03b-3a).
+     *
+     * Not journalled and no witness round trip: it changes no state, it binds
+     * the box, method, path and body, and the box admits each mutating event
+     * once in its 120-second window. It still signs only while the persona's
+     * promoted record is confirmed, the device is current and the scope is
+     * approved; approving a new scope is a covered write. The clock is the
+     * vault's own.
+     */
+    suspend fun signBoxRequestV1(ctx: VaultContext, request: BoxRequest, consent: ConsentPrompt): VaultResult<BoxRequestReply> =
+        refusing { boxChecked(ctx, request, consent) }
+
+    private suspend fun boxChecked(ctx: VaultContext, request: BoxRequest, consent: ConsentPrompt): VaultResult<BoxRequestReply> {
+        if (!current(ctx)) return refuse(VaultRefusal.Stale)
+        if (!request.wellFormed()) return refuse(VaultRefusal.Malformed)
+        // A first look decides whether the scope needs asking.
+        val asked = look<VaultResult<Pair<ConsentScope, Boolean>>>(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            boxDevice(record, now())?.let { return@look it }
+            val scope = boxScope(ctx, record!!.device!!.device, request.box)
+            VaultResult.Ok(scope to (scope in record.approved))
+        }
+        val (scope, approved) = when (asked) {
+            is VaultResult.Refused -> return asked
+            is VaultResult.Ok -> asked.value
+        }
+        if (!approved) {
+            val decision = try {
+                consent.ask(scope)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                ConsentDecision.Deny
+            }
+            if (!current(ctx)) return refuse(VaultRefusal.Stale)
+            // A denial is not kept: nothing was signed, and a later request asks again.
+            if (decision != ConsentDecision.Approve) return refuse(VaultRefusal.Denied)
+            val written = change(ctx.persona) { record ->
+                if (!current(ctx)) return@change Change.Keep(refuse(VaultRefusal.Stale))
+                boxDevice(record, now())?.let { return@change Change.Keep(it) }
+                if (record!!.device!!.device != scope.device) return@change Change.Keep(refuse(VaultRefusal.Unauthorised))
+                if (scope in record.approved) return@change Change.Keep(VaultResult.Ok(Unit))
+                record.approved.add(scope)
+                Change.Write(record, VaultResult.Ok(Unit))
+            }
+            if (written is VaultResult.Refused) return written
+        }
+        // Signed from the promoted record, everything rechecked at the time of signing.
+        return look<VaultResult<BoxRequestReply>>(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            val at = now()
+            boxDevice(record, at)?.let { return@look it }
+            val device = record!!.device!!
+            if (boxScope(ctx, device.device, request.box) != scope || scope !in record.approved) return@look refuse(VaultRefusal.Unauthorised)
+            val tags = listOf(
+                listOf("u", "http://${linkNodeBase32(request.box.hexToBytes())}${request.path}"),
+                listOf("method", request.method),
+                listOf("payload", request.payload),
+            )
+            val event = Events.sign(device.scalar, BOX_AUTH_KIND, at, tags, "", ByteArray(32).also(random::nextBytes))
+            if (event.pubkey != device.device || !Events.verify(event)) return@look refuse(VaultRefusal.Malformed)
+            val wire = event.toRustWireJson().toString().toByteArray(Charsets.UTF_8)
+            VaultResult.Ok(BoxRequestReply(device.device, "Nostr " + Base64.getEncoder().encodeToString(wire), at))
+        }
+    }
+
+    /** The refusal for signing box requests with [record]'s device at [at], or null when it may. */
+    private fun boxDevice(record: PersonaRecord?, at: Long): VaultResult.Refused? {
+        val device = record?.device ?: return refuse(VaultRefusal.Unauthorised)
+        if (device.credentialId in record.revoked) return refuse(VaultRefusal.Revoked)
+        if (device.credentialExpiresAt <= at) return refuse(VaultRefusal.Expired)
+        return null
+    }
+
+    private fun boxScope(ctx: VaultContext, device: String, box: String) = ConsentScope(ctx.principal, ctx.persona, device, box, BOX_METHOD)
 
     // ---- rendezvousEcdhV1 (§6.3) ----
 
@@ -857,6 +939,10 @@ class MlsVault(
 
     companion object {
         const val SIGN_METHOD = "signLeafBindingV1/1"
+        /** The consent method of box request authentication (§6.2.1). */
+        const val BOX_METHOD = "signBoxRequestV1/1"
+        /** NIP-98 HTTP authentication. */
+        const val BOX_AUTH_KIND = 27235
         /** Live journal records per persona-installation (§6.2). */
         const val MAX_JOURNAL_RECORDS = 1024
         /** An operation may be at most this far in the future (inclusive). */
@@ -956,7 +1042,7 @@ class VaultContext internal constructor(val principal: String, val persona: Stri
 /** One consent scope (§6.2): approved once, retained revocably. */
 data class ConsentScope(val principal: String, val persona: String, val device: String, val homeBox: String, val method: String) {
     internal fun wellFormed(): Boolean = principal.isNotEmpty() && MlsVault.HEX64.matches(persona) &&
-        MlsVault.HEX64.matches(device) && MlsVault.HEX64.matches(homeBox) && method == MlsVault.SIGN_METHOD
+        MlsVault.HEX64.matches(device) && MlsVault.HEX64.matches(homeBox) && (method == MlsVault.SIGN_METHOD || method == MlsVault.BOX_METHOD)
 }
 
 enum class ConsentDecision { Approve, Deny }
@@ -970,6 +1056,63 @@ data class EnrolledDevice(val persona: String, val device: String, val credentia
 class SignLeafBindingReply internal constructor(val operation: String, val digest: String, val device: String, val signature: String) {
     val v: Int get() = 1
     override fun toString(): String = "SignLeafBindingReply(operation=$operation, device=$device)"
+}
+
+/**
+ * One `/vmls/v1/` request to authenticate (§6.2.1): [box] is the home box's
+ * Link node id in hex, [payload] the SHA-256 of the exact body in hex.
+ */
+data class BoxRequest(val box: String, val method: String, val path: String, val payload: String) {
+    internal fun wellFormed(): Boolean = MlsVault.HEX64.matches(box) && MlsVault.HEX64.matches(payload) &&
+        BOX_ROUTES.any { (m, p) ->
+            method == m && p.matchEntire(path)?.let { match ->
+                // An attempt is a `u32`, as the box parses it.
+                match.groupValues.drop(1).all { it.isEmpty() || it.toLong() <= 0xFFFF_FFFFL }
+            } == true
+        }
+
+    private companion object {
+        const val ID = "[0-9a-f]{64}"
+        /** A plain decimal attempt, no sign or leading zero; its `u32` bound is checked after the match. */
+        const val ATTEMPT = "(0|[1-9][0-9]{0,9})"
+        /** The box's own routes (bothy-link `vmls.rs`), and nothing else. */
+        val BOX_ROUTES = listOf(
+            "PUT" to Regex("/vmls/v1/mailboxes/$ID/records"),
+            "POST" to Regex("/vmls/v1/fetch"),
+            "POST" to Regex("/vmls/v1/ack"),
+            "PUT" to Regex("/vmls/v1/packages/$ID"),
+            "DELETE" to Regex("/vmls/v1/packages/$ID"),
+            "PUT" to Regex("/vmls/v1/slots/$ID/$ATTEMPT"),
+            "POST" to Regex("/vmls/v1/slots/$ID/$ATTEMPT/status"),
+            "GET" to Regex("/vmls/v1/capabilities"),
+        )
+    }
+}
+
+/** The `Authorization` header for one box request, signed by [device] at [createdAt]. */
+class BoxRequestReply internal constructor(val device: String, val authorization: String, val createdAt: Long) {
+    val v: Int get() = 1
+    override fun toString(): String = "BoxRequestReply(device=$device)"
+}
+
+/** A Link node id's own 52-character form: RFC 4648 base32, lowercase, unpadded (link-core `to_base32`). */
+internal fun linkNodeBase32(node: ByteArray): String {
+    require(node.size == 32)
+    val alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+    val out = StringBuilder(52)
+    var acc = 0
+    var bits = 0
+    for (byte in node) {
+        acc = (acc shl 8) or (byte.toInt() and 0xff)
+        bits += 8
+        while (bits >= 5) {
+            out.append(alphabet[(acc shr (bits - 5)) and 31])
+            bits -= 5
+        }
+        acc = acc and ((1 shl bits) - 1)
+    }
+    if (bits > 0) out.append(alphabet[(acc shl (5 - bits)) and 31])
+    return out.toString()
 }
 
 /** `{v:1, operation, peer_rz, own_rz, shared_x}`. Only this vault makes one; equality is identity. */
