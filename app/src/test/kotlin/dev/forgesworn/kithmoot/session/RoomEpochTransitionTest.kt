@@ -72,6 +72,37 @@ class RoomEpochTransitionTest {
         assertEquals(successor.id, relay.published.last().tagValue("d"))
     }
 
+    @Test fun `a scheduled rekey moves the room quietly, and a removal after it is still announced`() = runTest {
+        val stable = Fixtures.room()
+        val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay()
+        lateinit var live: RoomSession
+        val atGate = mutableListOf<RoomEpochState>()
+        live = session(
+            stable, identity, relay, authority = authority,
+            epochGate = { _, _ -> atGate += live.epochState.value; EpochGateResult.COMMITTED },
+        )
+        live.join()
+        runCurrent()
+        val zero = deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 }))
+        val one = RoomEpoch(1, ByteArray(32) { 46 })
+        relay.publish(encodeRekeyEvent(stable.roomId, authoritySecret, zero, one, listOf(identity.devicePubkey), emptyList(), 1, commit = true, scheduled = true))
+        runCurrent()
+
+        assertEquals(1, live.epochKeys().epoch)
+        assertEquals(RoomEpochState.Updating(1, scheduled = true), atGate.single())
+        assertEquals(RoomEpochState.Active(1, deriveEpoch(one).id, scheduled = true), live.epochState.value)
+        live.sendChat("under the scheduled successor")
+        assertEquals(deriveEpoch(one).id, relay.published.last().tagValue("d"))
+
+        val two = RoomEpoch(2, ByteArray(32) { 47 })
+        relay.publish(encodeRekeyEvent(stable.roomId, authoritySecret, deriveEpoch(one), two, listOf(identity.devicePubkey), listOf("55".repeat(32)), 2))
+        runCurrent()
+
+        assertEquals(RoomEpochState.Updating(2, scheduled = false), atGate.last())
+        assertEquals(RoomEpochState.Active(2, deriveEpoch(two).id, scheduled = false), live.epochState.value)
+    }
+
     @Test fun `a pending cadence retirement keeps every room publication blocked`() = runTest {
         val stable = Fixtures.room()
         val identity = Fixtures.primary(stable, 1, 2)

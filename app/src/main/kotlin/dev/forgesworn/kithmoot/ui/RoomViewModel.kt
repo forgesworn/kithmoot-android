@@ -408,6 +408,25 @@ internal fun RoomState.withRenameRead(roomId: String, rename: RoomNameRecord): R
 internal fun RoomState.withSharedName(roomId: String, shared: RoomNameRecord): RoomState =
     if (this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
 
+/**
+ * The room as a secure update moves it: [state] is [RoomEpochState.Active] or
+ * [RoomEpochState.Updating]; any other leaves it as it is.
+ *
+ * A scheduled turn of the key removed nobody, so it is not announced: the room moves on with
+ * no line either side of it, as the web client's does. Without a Bothy schedule the move is a
+ * local write and over at once, so there is nothing to show. With one it waits on Bothy and can
+ * stall, and the update panel is what holds the retry, so even a scheduled turn shows it then.
+ */
+internal fun RoomState.withEpochProgress(state: dev.forgesworn.kithmoot.session.RoomEpochState): RoomState = when (state) {
+    is dev.forgesworn.kithmoot.session.RoomEpochState.Active ->
+        // A scheduled turn that did show the panel, waiting on Bothy, says it is done too.
+        copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0 && (!state.scheduled || roomUpdate == "updating")) "Secure room update complete." else notice)
+    is dev.forgesworn.kithmoot.session.RoomEpochState.Updating ->
+        if (state.scheduled && cadence == null) this
+        else copy(movedOn = state.epoch, roomUpdate = "updating", notice = if (cadence != null) "Secure room update is waiting for Bothy to retire the old schedule." else "Secure room update in progress.")
+    else -> this
+}
+
 /** Somebody asking to be let into the room: their participant key, and how to name them. */
 data class LetInAsk(val participant: String, val label: String)
 
@@ -3295,7 +3314,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The epochs this room left before this opening, so a message that
         // lands late on one is still read (kithmoot-android #128).
         val leftEpochs = pastEpochsFor(record.secret, durableEpoch,
-            { roomEpochs.secretAt(record.id, it) }, { roomEpochs.rekeyAt(record.id, it) }, epochSeconds())
+            { roomEpochs.secretAt(record.id, it) }, { roomEpochs.leftAt(record.id, it) }, epochSeconds())
         if (leftEpochs.isNotEmpty()) Log.i(JOIN_LOG, "left epochs at open ${leftEpochs.map { it.keys.epoch }}")
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
@@ -3491,9 +3510,9 @@ class RoomViewModel @JvmOverloads constructor(
             },
             memberEpochDesk = memberDesk,
             onMembers = { members -> withContext(Dispatchers.IO) { roomMembers.setMembers(record.id, members) } },
-            onEpochHistory = if (anonymousProfile || record.authority == null) { _, _ -> } else { secrets, rekeys ->
+            onEpochHistory = if (anonymousProfile || record.authority == null) { _, _, _ -> } else { secrets, rekeys, leftAt ->
                 record.authority?.let { authority -> for (rekey in rekeys) peekRekeyEpoch(rekey, record.id, authority)?.let { rekeyTimes[it] = rekey.createdAt } }
-                withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys) }
+                withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys, leftAt) }
             },
             onVerifiedOwnEvent = if (!anonymousProfile && accountSession?.account?.pubkey == who.participant) {
                 { event: NostrEvent ->
@@ -4084,12 +4103,8 @@ class RoomViewModel @JvmOverloads constructor(
                 if (session !== live) return@collect
                 Log.i(JOIN_LOG, "epoch state=${state.javaClass.simpleName}")
                 when (state) {
-                    is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update {
-                        it.copy(movedOn = null, roomUpdate = null, notice = if (state.epoch > 0) "Secure room update complete." else it.notice)
-                    }
-                    is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update {
-                        it.copy(movedOn = state.epoch, roomUpdate = "updating", notice = if (it.cadence != null) "Secure room update is waiting for Bothy to retire the old schedule." else "Secure room update in progress.")
-                    }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update { it.withEpochProgress(state) }
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update { it.withEpochProgress(state) }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
                         if (state.waitingToBeLetIn) it.copy(movedOn = state.expectedEpoch, roomUpdate = "letin", notice = null)
                         else it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
