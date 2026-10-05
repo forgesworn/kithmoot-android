@@ -66,12 +66,12 @@ class IncomingCallRingCoordinator(
         if (call != null && !joined && !handled && call.caller != self && HandledCalls.justOnCall(roomId, at)) {
             HandledCalls.add(roomId, call.id)
             handled = true
-            Log.i(RING_LOG, "kept quiet source=$source room=${roomId.take(8)} call=${call.id.take(8)} caller=${call.caller.take(8)} self=${self.take(8)} reason=just-on-a-call")
+            Log.i(RING_LOG, "kept quiet source=$source room=${roomId.take(8)} call=${call.id.take(8)} ${callerField()}=${call.caller.take(8)} self=${self.take(8)} reason=just-on-a-call")
         }
         val change = tracker.update(call, self, joined || handled)
         if (change is IncomingCallChange.Ring || change is IncomingCallChange.OwnCallElsewhere) {
             val what = if (change is IncomingCallChange.Ring) "ring" else "own-call-elsewhere"
-            Log.i(RING_LOG, "$what source=$source room=${roomId.take(8)} call=${call?.id?.take(8)} caller=${call?.caller?.take(8)} self=${self.take(8)}")
+            Log.i(RING_LOG, "$what source=$source room=${roomId.take(8)} call=${call?.id?.take(8)} ${callerField()}=${call?.caller?.take(8)} self=${self.take(8)}")
         }
         when (change) {
             null -> Unit
@@ -106,6 +106,11 @@ class IncomingCallRingCoordinator(
             }
         }
     }
+
+    /** The open room names the call's earliest participant; the bell names
+     *  the device that rang it, the one that declared the call. Two
+     *  different things, so they are logged under two names. */
+    private fun callerField(): String = if (source == "bell") "bell-from" else "starter"
 
     fun dismissBanner() {
         mutableBanner.value = null
