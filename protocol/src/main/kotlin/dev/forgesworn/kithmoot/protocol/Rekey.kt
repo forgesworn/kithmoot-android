@@ -69,6 +69,12 @@ class RekeyNotice(
     val commit: String? = null,
     /** The authority's member list (#207), when the rekey or grant carried one. */
     members: List<String>? = null,
+    /**
+     * A scheduled turn of the key rather than a removal: the body said so, nobody was removed
+     * and the room stays open. Moving to it needs no announcement. See fold-kit
+     * `docs/scheduled-rekey.md`.
+     */
+    val scheduled: Boolean = false,
 ) {
     val removed = removed.toList()
     val secret = secret?.copyOf()
@@ -78,11 +84,20 @@ class RekeyNotice(
 data class EpochRequest(val device: String, val participant: String, val request: String)
 
 sealed interface EpochGrant {
-    class Current(val epoch: Int, secret: ByteArray?, removed: List<String>, members: List<String>? = null) : EpochGrant {
+    class Current(
+        val epoch: Int,
+        secret: ByteArray?,
+        removed: List<String>,
+        members: List<String>? = null,
+        /** The epochs the room has left that are still read, oldest first, when the authority's
+         *  answer carried them (`passed`): a newcomer reads the last month, not only [epoch]. */
+        passed: List<LeftEpoch> = emptyList(),
+    ) : EpochGrant {
         val secret = secret?.copyOf()
         val removed = removed.toList()
         /** The participants the room knows (#207), when the authority's answer carried them. */
         val members = members?.toList()
+        val passed = passed.map { LeftEpoch(it.epoch, it.secret, it.leftAt) }
     }
     data class Refused(val reason: String) : EpochGrant
 }
@@ -144,6 +159,9 @@ fun encodeRekeyEvent(
     /** The authority's member list (#207): written after `commit`, removed participants
      *  dropped. Null, the event is byte-identical to before. */
     members: List<String>? = null,
+    /** Mark a scheduled turn of the key (`"scheduled": true`, after `closed`). Never beside a
+     *  removal or a close. Off, the event is byte-identical to before. */
+    scheduled: Boolean = false,
     recipientNonces: Map<String, ByteArray> = emptyMap(),
     bodyNonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
@@ -152,6 +170,7 @@ fun encodeRekeyEvent(
     val room = requireEpochHex(roomId, "room id")
     require(next.epoch == current.epoch + 1) { "a rekey moves the room forward by exactly one epoch" }
     val canonicalRemoved = removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted()
+    require(!scheduled || canonicalRemoved.isEmpty() && !closed) { "a scheduled rekey removes nobody and does not close the room" }
     val sealed = buildJsonObject { put("v", 1); put("secret", base64UrlEncode(next.secret)) }.toString()
     val keys = buildJsonObject {
         if (!closed) recipients.forEach { raw ->
@@ -166,6 +185,7 @@ fun encodeRekeyEvent(
         put("v", 1); put("epoch", next.epoch); put("removed", strings(canonicalRemoved))
         if (by != null) put("by", requireEpochHex(by, "admin"))
         if (closed) put("closed", true)
+        if (scheduled) put("scheduled", true)
         if (commit) put("commit", epochCommitment(room, next.epoch, next.secret))
         if (members != null) put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in canonicalRemoved }.sorted()))
         put("keys", keys)
@@ -208,8 +228,10 @@ fun decodeRekeyEvent(
             }
         } finally { conversation.fill(0) }
     }
+    // Believed only beside no removal and no close: a body that contradicts itself is still announced.
+    val scheduled = body.isScheduled() && removed.isEmpty() && !closed
     try {
-        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit, members = readMemberList(body["members"]))
+        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit, members = readMemberList(body["members"]), scheduled = scheduled)
     } finally { secret?.fill(0) }
 }.getOrNull()
 
@@ -240,6 +262,8 @@ data class RekeyEvidence(
     val commit: String? = null,
     /** The authority's member list (#207), when it wrote one. */
     val members: List<String>? = null,
+    /** A scheduled turn of the key: see [RekeyNotice.scheduled]. */
+    val scheduled: Boolean = false,
 )
 
 /**
@@ -258,8 +282,20 @@ fun readRekeyEvidence(event: NostrEvent, roomId: String, authority: String, prev
         .takeIf { it.all(HEX64::matches) }?.map(String::normaliseHex)?.distinct()?.sorted() ?: return null
     val closed = (body["closed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
     val commit = (body["commit"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX64::matches)?.normaliseHex()
-    RekeyEvidence(epoch, removed, closed, commit, readMemberList(body["members"]))
+    RekeyEvidence(epoch, removed, closed, commit, readMemberList(body["members"]), body.isScheduled() && removed.isEmpty() && !closed)
 }.getOrNull()
+
+/** A JSON number that is an integer, as `Number.isSafeInteger` would see it, as a Long; null otherwise. */
+internal fun kotlinx.serialization.json.JsonElement?.exactLong(): Long? {
+    val primitive = this as? JsonPrimitive ?: return null
+    if (primitive.isString) return null
+    return primitive.content.toLongOrNull()?.takeIf { it in -MAX_SAFE_INTEGER..MAX_SAFE_INTEGER }
+}
+
+private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
+
+/** Exactly `"scheduled": true`, as fold-kit's `body.scheduled === true` reads it. */
+private fun JsonObject.isScheduled(): Boolean = (this["scheduled"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
 
 /** A JSON number that is an integer, as `Number.isSafeInteger` would see it; null otherwise. */
 internal fun kotlinx.serialization.json.JsonElement?.exactInt(): Int? {
@@ -378,6 +414,13 @@ fun encodeEpochGrant(
     refused: String? = null,
     /** The participants the room knows (#207), so the requester's own member desk knows them. */
     members: List<String>? = null,
+    /**
+     * The epochs the room has left that are still read ([epochsInWindow]), written as `passed`
+     * after `members`: each after epoch 0 and before [epoch], each once, at most
+     * [MAX_HISTORY_EPOCHS]. Empty, the body is as before. This client's own desk never sends
+     * any (rooms it is the authority of never leave epoch 0); it is here so the vectors rebuild.
+     */
+    passed: List<LeftEpoch> = emptyList(),
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
     /** A conference room's end; see [withRoomExpiration]. */
@@ -402,6 +445,7 @@ fun encodeEpochGrant(
                 val gone = removed.map(String::normaliseHex).toSet()
                 put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in gone }.sorted()))
             }
+            if (passed.isNotEmpty()) put("passed", passedList(passed, current.epoch))
         }
     }
     val key = Nip44.conversationKey(authoritySecretKey, recipient.hexToBytes())
@@ -434,10 +478,52 @@ fun decodeEpochGrant(
     val members = readMemberList(body["members"])
     if (epoch == 0) return EpochGrant.Current(0, null, removed, members)
     val secret = body["secret"]?.jsonPrimitive?.content?.let(::base64UrlDecode)?.takeIf { it.size == 32 } ?: return null
+    val passed = readPassedList(body["passed"], epoch)
     try {
-        EpochGrant.Current(epoch, secret, removed, members)
-    } finally { secret.fill(0) }
+        EpochGrant.Current(epoch, secret, removed, members, passed.orEmpty())
+    } finally {
+        secret.fill(0)
+        passed?.forEach { it.secret.fill(0) }
+    }
 }.getOrNull()
+
+private fun passedList(passed: List<LeftEpoch>, granted: Int) = buildJsonArray {
+    require(passed.size <= MAX_HISTORY_EPOCHS) { "a grant carries at most $MAX_HISTORY_EPOCHS passed epochs" }
+    val sorted = passed.sortedBy { it.epoch }
+    require(sorted.all { it.epoch in 1 until granted }) { "a passed epoch comes after epoch 0 and before the one granted" }
+    require(sorted.all { it.leftAt >= 0 }) { "leftAt must be a non-negative integer" }
+    require(sorted.zipWithNext().none { (a, b) -> a.epoch == b.epoch }) { "a passed epoch is listed once" }
+    sorted.forEach { add(buildJsonObject { put("epoch", it.epoch); put("secret", base64UrlEncode(it.secret)); put("left", it.leftAt) }) }
+}
+
+/**
+ * A grant's passed epochs, or null unless every entry is in the form [encodeEpochGrant] writes:
+ * strictly increasing, each in `[1, granted)`, at most [MAX_HISTORY_EPOCHS], 32-byte unpadded
+ * base64url secrets and a non-negative integer `left`. One bad entry costs the history, never
+ * the grant: the current epoch still stands. fold-kit's `readPassedList`.
+ */
+private fun readPassedList(raw: kotlinx.serialization.json.JsonElement?, granted: Int): List<LeftEpoch>? {
+    val list = raw as? JsonArray ?: return null
+    if (list.isEmpty() || list.size > MAX_HISTORY_EPOCHS) return null
+    val out = mutableListOf<LeftEpoch>()
+    try {
+        for (entry in list) {
+            val value = entry as? JsonObject ?: return null
+            val epoch = value["epoch"].exactInt()?.takeIf { it in 1 until granted } ?: return null
+            if (out.isNotEmpty() && epoch <= out.last().epoch) return null
+            val left = value["left"].exactLong()?.takeIf { it >= 0 } ?: return null
+            val text = (value["secret"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+            // Unpadded, as `base64urlnopad` insists; Java's decoder would take the padding too.
+            if ('=' in text) return null
+            val secret = runCatching { base64UrlDecode(text) }.getOrNull() ?: return null
+            try {
+                if (secret.size != 32) return null
+                out += LeftEpoch(epoch, secret, left)
+            } finally { secret.fill(0) }
+        }
+        return out.toList().also { out.clear() }
+    } finally { out.forEach { it.secret.fill(0) } }
+}
 
 fun canonicalAdmins(admins: List<String>): List<String> = admins.map { requireEpochHex(it, "admin pubkey") }.distinct().sorted()
 
