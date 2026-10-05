@@ -3,6 +3,19 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.58] - 2026-10-05
+
+- The rooms list is easier to scan when you have a lot of rooms. Rooms are
+  grouped into Pinned, Recent and Older, with ended rooms at the end;
+  Older and Ended fold away behind a count until you open them. With eight
+  rooms or fewer it stays one list.
+- Pin a room from its ⋯ menu to keep it at the top. Pins stay on this phone,
+  and forgetting a room removes its pin.
+- Each room has a coloured initial, and rows are shorter with no divider lines.
+- Search, Projects and Open invite link are at the top of the list. Opening
+  an invite link and signing in are in the ⋮ menu, rather than under your
+  last room.
+
 ## [0.6.57] - 2026-10-05
 
 - Forgetting a room now erases its keys from this phone: the current room key,
