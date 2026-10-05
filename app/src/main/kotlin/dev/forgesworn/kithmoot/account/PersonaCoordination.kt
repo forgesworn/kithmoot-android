@@ -64,6 +64,9 @@ internal sealed class CommitOutcome {
 /** The promoted record's public view, taken at the last promotion, for reads that release nothing. */
 internal class Snapshot<V>(val view: V?, val fenced: String?)
 
+/** A session snapshot's plaintext at its witnessed [generation]; the reader wipes [plaintext]. */
+internal class WitnessedSnapshot(val generation: Long, val plaintext: ByteArray)
+
 /**
  * One persona installation under the restore-witness coordinator (contract
  * §4.3, P3-03b-2). Every method but [snapshot] runs under the persona's lock,
@@ -88,6 +91,8 @@ internal class PersonaCoordination<V>(
     private var file: PersonaFile? = null
     /** The last [open] reopened the coordinator and already asked the witness. */
     private var justRead = false
+    /** Each snapshot's hash as the core was given it, so a file swapped since is never opened. */
+    private val hashes = HashMap<Pair<String, Long>, ByteArray>()
     @Volatile var snapshot: Snapshot<V>? = null
         private set
 
@@ -134,7 +139,7 @@ internal class PersonaCoordination<V>(
         val state = current.state ?: return Gate.NotEnrolled
         // `open` hashes only the sealed bytes, so the inner key's loss is checked here.
         if (!store.innerKeyPresent() && (current.active.isNotEmpty() || current.staged != null || !current.cleared)) return sealLost()
-        val c = guarded { witness.open(state, entries(current.active), current.staged?.let(::entries)) }
+        val c = guarded { witness.open(state, activeEntries(current), stagedEntries(current)) }
         coordinator = c
         persistState(c)
         c.fenced()?.let { reason ->
@@ -185,19 +190,31 @@ internal class PersonaCoordination<V>(
     private fun promote(c: WitnessCoordinator): Gate {
         val current = file ?: return Gate.Pending
         val staged = current.staged ?: return Gate.Pending
+        val stagedSessions = current.stagedSessions ?: return Gate.Pending
         val promotion = guarded { c.promote() }
         promotion.use {
-            val next = current.next(state = it.state, active = staged, staged = null)
+            val next = current.next(state = it.state, active = staged, staged = null, sessions = stagedSessions)
             persist(next)
-            try {
+            val marks = try {
                 c.promoted(it)
             } catch (_: WitnessCoordinatorException) {
                 // Persisted, but it no longer fits: reopen from what is stored.
                 drop()
                 return Gate.Pending
             }
+            // The core's marks are the witnessed manifest: they must be exactly the file's sessions.
+            if (marks.associate { m -> m.session.toHex() to m.generation } != next.sessions) {
+                drop()
+                throw MlsVaultUnavailableException(IllegalStateException("The witnessed sessions differ from the stored ones"))
+            }
         }
         if (!takeSnapshot()) return sealLost()
+        // Old snapshots go only once the promoted file naming their successors is persisted (§4.4).
+        file?.let { promoted ->
+            val live = promoted.sessions.toList().toSet()
+            hashes.keys.retainAll(live)
+            runCatching { store.sweepSnapshots(live) }
+        }
         return Gate.Ready
     }
 
@@ -229,7 +246,7 @@ internal class PersonaCoordination<V>(
             is Gate.Fenced -> return CommitOutcome.Fenced(gate.reason)
         }
         val c = coordinator ?: return CommitOutcome.Pending
-        val current = file ?: return CommitOutcome.Pending
+        val current = file?.takeIf { it.staged == null } ?: return CommitOutcome.Pending
         val plain = try { promotedPlain() } catch (_: SealLostException) { return CommitOutcome.Fenced(sealLost().reason) }
         val candidate = try {
             val next = change(plain) ?: return CommitOutcome.Unchanged
@@ -243,8 +260,17 @@ internal class PersonaCoordination<V>(
         } finally {
             plain?.fill(0)
         }
+        return advanceTo(c, current, candidate, current.sessions)
+    }
+
+    /**
+     * Stages [objects] and [sessions] as the candidate after [current], has the
+     * witness advance to it and promotes it: the note's steps 2 to 4.
+     */
+    private suspend fun advanceTo(c: WitnessCoordinator, current: PersonaFile, objects: Map<String, ByteArray>, sessions: Map<String, Long>): CommitOutcome {
+        val candidate = objects
         val staged = try {
-            c.stage(entries(candidate))
+            c.stage(entries(candidate, sessions, fresh = false))
         } catch (error: WitnessCoordinatorException) {
             if (error.code == "SequenceExhausted") {
                 persistState(c)
@@ -254,7 +280,7 @@ internal class PersonaCoordination<V>(
             throw MlsVaultUnavailableException(error)
         }
         val request = staged.use {
-            persist(current.next(state = it.state, staged = candidate))
+            persist(current.next(state = it.state, staged = candidate, stagedSessions = sessions))
             try {
                 c.staged(it)
             } catch (_: WitnessCoordinatorException) {
@@ -274,6 +300,76 @@ internal class PersonaCoordination<V>(
             is WitnessDecision.Fenced -> { retiringDuty(); CommitOutcome.Fenced(fenced(decision.reason).reason) }
             else -> CommitOutcome.Pending
         }
+    }
+
+    // ---- MLS sessions (P3-03b-3a) ----
+
+    /** Each session's witnessed generation, by session id in hex, only while the witness confirms them. */
+    suspend fun sessionMarks(): Pair<Gate, Map<String, Long>?> {
+        val gate = ready()
+        if (gate != Gate.Ready) return gate to null
+        val c = coordinator ?: return Gate.Pending to null
+        val marks = guarded { c.sessionMarks() }.associate { it.session.toHex() to it.generation }
+        return Gate.Ready to marks
+    }
+
+    /**
+     * [session]'s snapshot plaintext at its witnessed generation, to open the
+     * engine session at that mark (§4.3: the mark is the session generation in
+     * the witnessed manifest). Null while not confirmed, or for no such session.
+     */
+    suspend fun sessionSnapshot(session: String): Pair<Gate, WitnessedSnapshot?> {
+        val (gate, marks) = sessionMarks()
+        if (gate != Gate.Ready || marks == null) return gate to null
+        val generation = marks[session] ?: return Gate.Ready to null
+        val current = file ?: return Gate.Pending to null
+        val sealed = store.readSnapshot(session, generation)
+        val expected = hashes[session to generation]
+        if (sealed == null || expected == null || !guarded { witness.objectHash(sealed) }.contentEquals(expected)) {
+            // Changed on disk since the core checked it: the next open fences.
+            drop()
+            throw MlsVaultUnavailableException(IllegalStateException("A session snapshot changed after it was checked"))
+        }
+        val plain = try { store.openSnapshot(current, session, generation, sealed) } catch (_: SealLostException) { return sealLost() to null }
+        return Gate.Ready to WitnessedSnapshot(generation, plain)
+    }
+
+    /**
+     * A session's next snapshot as a covered write: sealed into its own file,
+     * then staged, witnessed and promoted with the persona's other objects.
+     * The caller acknowledges [generation] to the engine (`commit_ack`) and
+     * releases the step's effects only on [CommitOutcome.Written].
+     */
+    suspend fun commitSession(session: String, generation: Long, plain: ByteArray): CommitOutcome {
+        require(CoordinatedPersonaStore.SESSION_HEX.matches(session) && generation > 0)
+        when (val gate = ready()) {
+            Gate.Ready -> Unit
+            Gate.Pending, Gate.NotEnrolled -> return CommitOutcome.Pending
+            is Gate.Fenced -> return CommitOutcome.Fenced(gate.reason)
+        }
+        val c = coordinator ?: return CommitOutcome.Pending
+        val current = file?.takeIf { it.staged == null } ?: return CommitOutcome.Pending
+        val previous = current.sessions[session]
+        // The engine's generations only rise; anything else is a host fault, never written.
+        if (previous != null && generation <= previous) throw MlsVaultUnavailableException(IllegalStateException("A session generation did not advance"))
+        if (previous == null && current.sessions.size >= PersonaFile.MAX_SESSIONS) throw MlsVaultUnavailableException(IllegalStateException("Too many sessions"))
+        val sealed = store.sealSnapshot(current, session, generation, plain)
+        // The file first: a candidate never names a snapshot that is not durable.
+        store.writeSnapshot(session, generation, sealed)
+        return advanceTo(c, current, current.active, current.sessions + (session to generation))
+    }
+
+    /** Removes [session] from the manifest (the room is left or forgotten); its files go at promotion. */
+    suspend fun dropSession(session: String): CommitOutcome {
+        when (val gate = ready()) {
+            Gate.Ready -> Unit
+            Gate.Pending, Gate.NotEnrolled -> return CommitOutcome.Pending
+            is Gate.Fenced -> return CommitOutcome.Fenced(gate.reason)
+        }
+        val c = coordinator ?: return CommitOutcome.Pending
+        val current = file?.takeIf { it.staged == null } ?: return CommitOutcome.Pending
+        if (session !in current.sessions) return CommitOutcome.Unchanged
+        return advanceTo(c, current, current.active, current.sessions - session)
     }
 
     // ---- genesis, status, clear and the retiring duty ----
@@ -446,7 +542,7 @@ internal class PersonaCoordination<V>(
                     return
                 }
                 val c = coordinator?.takeIf { revision == current.revision }
-                    ?: guarded { witness.open(state, entries(current.active), current.staged?.let(::entries)) }.also {
+                    ?: guarded { witness.open(state, activeEntries(current), stagedEntries(current)) }.also {
                         drop()
                         coordinator = it
                         file = current
@@ -458,7 +554,8 @@ internal class PersonaCoordination<V>(
                     drop(); store.delete(); runCatching { store.deleteInnerKey() }
                     return
                 }
-                persist(current.next(state = guarded { c.state() }, active = emptyMap(), staged = null, cleared = true))
+                persist(current.next(state = guarded { c.state() }, active = emptyMap(), staged = null, cleared = true, sessions = emptyMap()))
+                runCatching { store.sweepSnapshots(emptySet()) }
                 runCatching { store.deleteInnerKey() }
                 retiringDuty()
             }
@@ -484,7 +581,7 @@ internal class PersonaCoordination<V>(
         val state = present?.state
         if (state != null) {
             val retiring = guarded {
-                witness.open(state, entries(present.active), present.staged?.let(::entries)).use { it.retiring() }
+                witness.open(state, activeEntries(present), stagedEntries(present)).use { it.retiring() }
             }
             if (retiring) return false
         }
@@ -579,10 +676,29 @@ internal class PersonaCoordination<V>(
         coordinator?.let { runCatching { it.close() } }
         coordinator = null
         revision = -1
+        hashes.clear()
     }
 
-    private fun entries(objects: Map<String, ByteArray>): List<CoordEntry> = guarded {
-        objects.toSortedMap().map { (id, sealed) -> CoordEntry.Vault(hex(id), witness.objectHash(sealed)) }
+    private fun activeEntries(file: PersonaFile): List<CoordEntry> = entries(file.active, file.sessions)
+    private fun stagedEntries(file: PersonaFile): List<CoordEntry>? = file.staged?.let { entries(it, file.stagedSessions.orEmpty()) }
+
+    /**
+     * The covered objects as they really are on disk (§4.3 step 1): at open,
+     * each session's snapshot file is read and hashed. A file definitively absent
+     * is left out, so the core fences (`local-state-mismatch`, or
+     * `stage-corrupt` for a candidate); a failed read is only unavailable.
+     */
+    private fun entries(objects: Map<String, ByteArray>, sessions: Map<String, Long>, fresh: Boolean = true): List<CoordEntry> = guarded {
+        objects.toSortedMap().map { (id, sealed) -> CoordEntry.Vault(hex(id), witness.objectHash(sealed)) } +
+            sessions.toSortedMap().mapNotNull { (id, generation) ->
+                // Staging reuses the hashes this open computed; a snapshot written since is read back from disk.
+                if (!fresh) hashes[id to generation]?.let { return@mapNotNull CoordEntry.Session(hex(id), generation, it.copyOf()) }
+                store.readSnapshot(id, generation)?.let { sealed ->
+                    val hash = witness.objectHash(sealed)
+                    hashes[id to generation] = hash
+                    CoordEntry.Session(hex(id), generation, hash)
+                }
+            }
     }
 
     private suspend fun read(request: ByteArray): WitnessAnswer = send { it.read(request) }

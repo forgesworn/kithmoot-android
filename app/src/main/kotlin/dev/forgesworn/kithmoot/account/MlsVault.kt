@@ -598,6 +598,16 @@ class MlsVault(
         return failures
     }
 
+    /**
+     * Runs [work] on [persona]'s coordination under its lock, held across the
+     * witness round trip: the MLS session host's way in (P3-03b-3a).
+     */
+    internal suspend fun <T> underPersona(persona: String, work: suspend (PersonaCoordination<EnrolledDevice>) -> T): T {
+        require(HEX64.matches(persona))
+        val coordinated = coord(persona)
+        return coordinated.store.lock.withLock { work(coordinated) }
+    }
+
     private suspend fun coord(persona: String): PersonaCoordination<EnrolledDevice> {
         val coordinated = coordination ?: throw IllegalStateException("This vault is not coordinated")
         personas[persona]?.let { return it }

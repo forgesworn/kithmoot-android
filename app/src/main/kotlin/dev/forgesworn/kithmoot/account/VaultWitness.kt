@@ -30,7 +30,16 @@ interface VaultWitness {
 sealed class CoordEntry {
     /** A sealed vault record: its short record id and the hash of its sealed bytes. */
     class Vault(val record: ByteArray, val sealedHash: ByteArray) : CoordEntry()
+
+    /**
+     * An MLS session (P3-03b-3a): its 32-byte id, the generation of its sealed
+     * snapshot and the hash of that snapshot's sealed bytes.
+     */
+    class Session(val session: ByteArray, val generation: Long, val snapshotHash: ByteArray) : CoordEntry()
 }
+
+/** The generation a session's snapshot must be opened at: the one in the witnessed manifest (§4.3). */
+class SessionMark(val session: ByteArray, val generation: Long)
 
 class CoordGenesis(val state: ByteArray, val digest: ByteArray)
 
@@ -83,7 +92,10 @@ interface WitnessCoordinator : AutoCloseable {
     fun resend(): ByteArray
     fun onAdvance(answer: WitnessAnswer): WitnessDecision
     fun promote(): PromotionCandidate
-    fun promoted(promotion: PromotionCandidate)
+    /** The promotion is persisted: each session's witnessed generation, to `commit_ack` before anything is released. */
+    fun promoted(promotion: PromotionCandidate): List<SessionMark>
+    /** Each session's witnessed generation; refused unless the witness confirms the active state. */
+    fun sessionMarks(): List<SessionMark>
     fun installationReplaced()
     fun retiringRead(): ByteArray?
     fun onRetiringRead(answer: WitnessAnswer): WitnessDecision
