@@ -93,4 +93,39 @@ object HandledCalls {
 
     @Synchronized
     fun contains(roomId: String, callId: String): Boolean = calls.contains("$roomId|$callId")
+
+    private val lastOnCall = mutableMapOf<String, Long>()
+
+    /** This device is on a call in [roomId] at [atMillis]. */
+    @Synchronized
+    fun onCall(roomId: String, atMillis: Long) {
+        if (roomId.isEmpty()) return
+        lastOnCall[roomId] = atMillis
+    }
+
+    /**
+     * Whether this device was on a call in [roomId] less than
+     * [QUIET_AFTER_CALL_MILLIS] before [nowMillis]: a new call there then
+     * does not ring. Kept here, beside the calls handled, for the same
+     * reason: the room's ringing moves from the open room's tracker to the
+     * background listener's the moment KithMoot closes, and the listener
+     * starts with nothing seen.
+     */
+    @Synchronized
+    fun justOnCall(roomId: String, nowMillis: Long): Boolean =
+        lastOnCall[roomId]?.let { nowMillis - it < QUIET_AFTER_CALL_MILLIS } == true
 }
+
+/**
+ * How long after this device was last on a call in a room a new call there
+ * does not ring. The web client's `QUIET_AFTER_CALL_MS`.
+ *
+ * A call nobody started is the one ring worse than none. When a call broke
+ * up, a device still running an older build - or one whose relays were a
+ * beat behind and so could not see the call it was on - declared a fresh
+ * call on its own, and every phone in the room rang with its owner's name
+ * while nobody was calling. A minute covers that tail. A call somebody
+ * really does start straight after still shows in the room; it just does
+ * not ring the people who have only just put the last one down.
+ */
+const val QUIET_AFTER_CALL_MILLIS = 60_000L

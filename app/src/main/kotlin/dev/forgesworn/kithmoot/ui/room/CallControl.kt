@@ -62,3 +62,20 @@ fun mediaMissingNote(mediaStarting: Boolean, joinPending: Boolean, mediaFault: S
     mediaStarting || joinPending -> "The call is still connecting. Try again in a moment."
     else -> "Audio and video are not running in this room yet."
 }
+
+/**
+ * Which call this device says it is on when it declares one.
+ *
+ * The room's current call when one is visible. Failing that, the call this
+ * device was last on in this room, if it has not pressed Leave since: an
+ * epoch change rebuilds the session mid-call, and the new one cannot see the
+ * call until its relays catch up. A fresh id only for a press of Join.
+ *
+ * Never a fresh id otherwise. A fresh id is a new call, and a new call rings
+ * every phone in the room in this person's name: after one call broke up, a
+ * phone whose last track emission landed behind its Leave, or whose relays
+ * were a beat behind, started a second call nobody had asked for, and the
+ * whole room rang with "TheCryptoDonkey is calling".
+ */
+fun callToDeclare(visible: String?, remembered: String?, pressed: Boolean, fresh: () -> String): String? =
+    visible ?: remembered ?: if (pressed) fresh() else null

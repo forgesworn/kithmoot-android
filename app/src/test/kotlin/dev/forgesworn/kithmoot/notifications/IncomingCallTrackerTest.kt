@@ -123,4 +123,12 @@ class IncomingCallTrackerTest {
         assertFalse(HandledCalls.contains("room-x", "call-0"))
         assertTrue(HandledCalls.contains("room-x", "call-99"))
     }
+
+    @Test
+    fun `a room this device was just on a call in stays quiet for a minute`() {
+        HandledCalls.onCall("room-q", 1_000L)
+        assertTrue(HandledCalls.justOnCall("room-q", 1_000L + QUIET_AFTER_CALL_MILLIS - 1))
+        assertFalse(HandledCalls.justOnCall("room-q", 1_000L + QUIET_AFTER_CALL_MILLIS))
+        assertFalse(HandledCalls.justOnCall("room-other", 1_000L))
+    }
 }

@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.notifications
 
 import android.content.Context
+import android.util.Log
 import dev.forgesworn.kithmoot.telecom.CallTelecom
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +18,13 @@ import kotlinx.coroutines.flow.asStateFlow
  * [ChatNotifications] - a call starting in a visited chat-only room rings
  * independently of a call already under way in the primary one.
  */
-class IncomingCallRingCoordinator(private val context: Context) {
+class IncomingCallRingCoordinator(
+    private val context: Context,
+    /** Which path is deciding - "room" for an open room, "bell" for the
+     *  background listener - written into every ring decision logged. */
+    private val source: String,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
     private val tracker = IncomingCallTracker()
     private val settings = CallRingSettings(context)
 
@@ -48,11 +55,25 @@ class IncomingCallRingCoordinator(private val context: Context) {
     fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean) {
         currentRoomId = roomId
         val call = if (callId != null && caller != null) IncomingCall(callId, caller) else null
+        val at = now()
         if (call != null && joined) HandledCalls.add(roomId, call.id)
+        if (joined) HandledCalls.onCall(roomId, at)
         // A call this device already answered or declined counts as joined:
         // it stops any ring and never starts one, whichever tracker sees it.
-        val handled = call != null && HandledCalls.contains(roomId, call.id)
-        when (val change = tracker.update(call, self, joined || handled)) {
+        var handled = call != null && HandledCalls.contains(roomId, call.id)
+        // A new call straight after this device was on one here is held
+        // quiet, for good: see QUIET_AFTER_CALL_MILLIS.
+        if (call != null && !joined && !handled && call.caller != self && HandledCalls.justOnCall(roomId, at)) {
+            HandledCalls.add(roomId, call.id)
+            handled = true
+            Log.i(RING_LOG, "kept quiet source=$source room=${roomId.take(8)} call=${call.id.take(8)} caller=${call.caller.take(8)} self=${self.take(8)} reason=just-on-a-call")
+        }
+        val change = tracker.update(call, self, joined || handled)
+        if (change is IncomingCallChange.Ring || change is IncomingCallChange.OwnCallElsewhere) {
+            val what = if (change is IncomingCallChange.Ring) "ring" else "own-call-elsewhere"
+            Log.i(RING_LOG, "$what source=$source room=${roomId.take(8)} call=${call?.id?.take(8)} caller=${call?.caller?.take(8)} self=${self.take(8)}")
+        }
+        when (change) {
             null -> Unit
             is IncomingCallChange.Stop -> {
                 mutableBanner.value = null
@@ -99,3 +120,7 @@ class IncomingCallRingCoordinator(private val context: Context) {
         if (change is IncomingCallChange.OwnCallElsewhereStop) OwnCallElsewhereNotice.cancel(context, currentRoomId)
     }
 }
+
+/** Every ring decision, with the call, caller and self short ids and which
+ *  path made it, so a ring nobody can explain can be traced afterwards. */
+private const val RING_LOG = "KithMootRing"
