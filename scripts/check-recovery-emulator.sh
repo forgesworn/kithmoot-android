@@ -102,8 +102,16 @@ run_tests chat-notifications 2 -e class dev.forgesworn.kithmoot.notifications.Ch
 run_tests mls-vault-storage 4 -e class dev.forgesworn.kithmoot.storage.MlsVaultStorageTest
 run_tests coordinated-vault 20 -e class \
   dev.forgesworn.kithmoot.storage.CoordinatedVaultEngineTest,dev.forgesworn.kithmoot.storage.RollbackKeyOrderTest
+# P3-03b-3a: a real engine session under the coordinator, created with the
+# vault's own leaf binding signature, each step witnessed before release.
+run_tests session-host 2 -e class dev.forgesworn.kithmoot.storage.SessionHostEngineTest
 # W01-W04 and a crash before the stale key's deletion: each persona is killed
 # at its own point, then the app is force-stopped and recovers in a new process.
 run_tests coordinated-kill 1 -e class dev.forgesworn.kithmoot.storage.CoordinatedVaultRestartTest#a_kill
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests coordinated-recover 1 -e class dev.forgesworn.kithmoot.storage.CoordinatedVaultRestartTest#b_recover -e requireRestart true
+# P3-03b-3a: a session step killed after its snapshot write, its stage, the
+# witness's commit and its promotion, recovered in a new process.
+run_tests session-kill 1 -e class dev.forgesworn.kithmoot.storage.SessionRestartTest#a_kill
+adb_device shell am force-stop dev.forgesworn.kithmoot
+run_tests session-recover 1 -e class dev.forgesworn.kithmoot.storage.SessionRestartTest#b_recover -e requireRestart true

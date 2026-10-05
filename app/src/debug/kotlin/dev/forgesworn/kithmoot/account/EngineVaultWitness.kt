@@ -7,6 +7,7 @@ import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsPlatform
 import dev.forgesworn.vmls.ffi.VmlsPromotion
 import dev.forgesworn.vmls.ffi.VmlsRandom
+import dev.forgesworn.vmls.ffi.VmlsSessionMark
 import dev.forgesworn.vmls.ffi.VmlsStaged
 import dev.forgesworn.vmls.ffi.VmlsWitnessAnswer
 import dev.forgesworn.vmls.ffi.coordinatorGenesis
@@ -61,7 +62,9 @@ private class EngineCoordinator(private val inner: VmlsCoordinator) : WitnessCoo
     override fun resend(): ByteArray = engine { inner.resend() }
     override fun onAdvance(answer: WitnessAnswer): WitnessDecision = engine { decision(inner.onAdvance(answer(answer))) }
     override fun promote(): PromotionCandidate = engine { EnginePromotion(inner.promote()) }
-    override fun promoted(promotion: PromotionCandidate) { engine { inner.promoted((promotion as EnginePromotion).inner) } }
+    override fun promoted(promotion: PromotionCandidate): List<SessionMark> =
+        engine { inner.promoted((promotion as EnginePromotion).inner).map(::mark) }
+    override fun sessionMarks(): List<SessionMark> = engine { inner.sessionMarks().map(::mark) }
     override fun installationReplaced() = engine { inner.installationReplaced() }
     override fun retiringRead(): ByteArray? = engine { inner.retiringRead() }
     override fun onRetiringRead(answer: WitnessAnswer): WitnessDecision = engine { decision(inner.onRetiringRead(answer(answer))) }
@@ -72,6 +75,16 @@ private class EngineCoordinator(private val inner: VmlsCoordinator) : WitnessCoo
 
 private fun entry(entry: CoordEntry): VmlsCoordEntry = when (entry) {
     is CoordEntry.Vault -> VmlsCoordEntry.Vault(entry.record.copyOf(), entry.sealedHash.copyOf())
+    is CoordEntry.Session -> {
+        require(entry.generation >= 0)
+        VmlsCoordEntry.Session(entry.session.copyOf(), entry.generation.toULong(), entry.snapshotHash.copyOf())
+    }
+}
+
+private fun mark(mark: VmlsSessionMark): SessionMark {
+    // The engine's digest holds a generation as a signed 64-bit integer, so a larger one never reaches here.
+    check(mark.generation <= Long.MAX_VALUE.toULong())
+    return SessionMark(mark.session, mark.generation.toLong())
 }
 
 private fun answer(answer: WitnessAnswer): VmlsWitnessAnswer = when (answer) {

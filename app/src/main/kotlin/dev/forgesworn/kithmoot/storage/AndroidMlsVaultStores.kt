@@ -5,6 +5,7 @@ import android.util.AtomicFile
 import dev.forgesworn.kithmoot.account.CoordinatedVaultStores
 import dev.forgesworn.kithmoot.account.MarkerStore
 import dev.forgesworn.kithmoot.account.PersonaLock
+import dev.forgesworn.kithmoot.account.SnapshotFiles
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -71,6 +72,11 @@ class AndroidMlsVaultStores(
         return FilePersonaLock(File(root, "$prefix.$name.lock"))
     }
 
+    override fun snapshots(name: String): SnapshotFiles {
+        require(name.matches(COORDINATED))
+        return AtomicSnapshots(root, "$prefix.$name.snap.")
+    }
+
     private companion object {
         /** A full journal of 1,024 decisions is about 600 KiB. */
         const val MAX_BYTES = 1024 * 1024
@@ -78,6 +84,65 @@ class AndroidMlsVaultStores(
         const val MAX_COORDINATED_BYTES = 4 * 1024 * 1024
         val NAME = Regex("[A-Za-z0-9.-]{1,48}")
         val COORDINATED = Regex("coord\\.[0-9a-f]{32}")
+    }
+}
+
+/**
+ * A persona's session snapshots, each sealed by the vault before it gets
+ * here: `<prefix><session hex>.<generation>`, written once with [AtomicFile]
+ * and fsync, never rewritten.
+ */
+private class AtomicSnapshots(private val root: File, private val prefix: String) : SnapshotFiles {
+    private fun file(session: String, generation: Long): AtomicFile {
+        require(SESSION.matches(session) && generation > 0)
+        return AtomicFile(File(root, "$prefix$session.$generation"))
+    }
+
+    @Synchronized override fun read(session: String, generation: Long): ByteArray? {
+        val file = file(session, generation)
+        if (!file.baseFile.exists()) return null
+        // A sealed snapshot is at most the engine's 64 MiB plus the seal.
+        if (file.baseFile.length() > MAX_SEALED) throw IOException("The snapshot is too large")
+        return try {
+            file.readFully()
+        } catch (error: FileNotFoundException) {
+            // Only a file that is really gone is absent: any other open failure
+            // (descriptors exhausted, a permission error) is transient, never a fence.
+            if (file.baseFile.exists()) throw error
+            null
+        }
+    }
+
+    @Synchronized override fun write(session: String, generation: Long, sealed: ByteArray) {
+        require(sealed.size <= MAX_SEALED)
+        val file = file(session, generation)
+        val output = file.startWrite()
+        try {
+            output.write(sealed)
+            output.fd.sync()
+            file.finishWrite(output)
+        } catch (error: Exception) {
+            file.failWrite(output)
+            throw error
+        }
+    }
+
+    @Synchronized override fun delete(session: String, generation: Long) {
+        val file = file(session, generation)
+        file.delete()
+        if (file.baseFile.exists()) throw IOException("The snapshot could not be deleted")
+    }
+
+    @Synchronized override fun list(): List<Pair<String, Long>> {
+        val pattern = Regex("^" + Regex.escape(prefix) + "([0-9a-f]{64})\\.([1-9][0-9]{0,18})(?:\\.new|\\.bak)?$")
+        return root.listFiles().orEmpty().mapNotNull { f ->
+            pattern.find(f.name)?.let { m -> m.groupValues[2].toLongOrNull()?.let { m.groupValues[1] to it } }
+        }.distinct()
+    }
+
+    private companion object {
+        val SESSION = Regex("[0-9a-f]{64}")
+        const val MAX_SEALED = 64L * 1024 * 1024 + 64
     }
 }
 

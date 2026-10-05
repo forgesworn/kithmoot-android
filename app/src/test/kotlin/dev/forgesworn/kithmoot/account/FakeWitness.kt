@@ -87,6 +87,13 @@ internal class FakeVaultWitness(private val random: SecureRandom = SecureRandom(
     companion object {
         fun pair(entry: CoordEntry): Pair<String, String> = when (entry) {
             is CoordEntry.Vault -> entry.record.toHex() to entry.sealedHash.toHex()
+            is CoordEntry.Session -> "session:" + entry.session.toHex() to "${entry.generation}:${entry.snapshotHash.toHex()}"
+        }
+
+        /** The core's `session_marks`: each session entry's generation. */
+        fun marks(entries: List<Pair<String, String>>): List<SessionMark> = entries.filter { it.first.startsWith("session:") }.map { (key, value) ->
+            val id = key.removePrefix("session:")
+            SessionMark(ByteArray(32) { id.substring(it * 2, it * 2 + 2).toInt(16).toByte() }, value.substringBefore(':').toLong())
         }
 
         fun digest(subject: ByteArray, installation: ByteArray, entries: List<Pair<String, String>>): ByteArray {
@@ -267,11 +274,18 @@ internal class FakeCoordinator private constructor(private var state: FakeState,
         return FakePromotion(next.encode(), next)
     }
 
-    override fun promoted(promotion: PromotionCandidate) {
+    override fun promoted(promotion: PromotionCandidate): List<SessionMark> {
         unfenced()
         val expected = promote() as FakePromotion
         if (!expected.state.contentEquals(promotion.state)) throw WitnessCoordinatorException("Stale")
         state = expected.next; promotable = null; confirmed = true
+        return sessionMarks()
+    }
+
+    override fun sessionMarks(): List<SessionMark> {
+        unfenced()
+        if (!confirmed) throw WitnessCoordinatorException("NotConfirmed")
+        return FakeVaultWitness.marks(state.activeEntries)
     }
 
     override fun installationReplaced() { state = state.copy(replaced = true) }
@@ -420,8 +434,9 @@ internal class MemoryCoordinatedStores private constructor(
     private val liveKeys: MutableMap<String, String>,
     private val markers: MutableMap<String, ByteArray>,
     private val keys: MutableMap<String, SecretKey>,
+    private val snapshotFiles: MutableMap<String, ByteArray>,
 ) : CoordinatedVaultStores {
-    constructor() : this("coord-test-" + UUID.randomUUID(), mutableMapOf(), mutableMapOf(), mutableMapOf(), mutableMapOf())
+    constructor() : this("coord-test-" + UUID.randomUUID(), mutableMapOf(), mutableMapOf(), mutableMapOf(), mutableMapOf(), mutableMapOf())
 
     class Sealed(val aad: ByteArray, val value: ByteArray, val key: String)
 
@@ -440,8 +455,19 @@ internal class MemoryCoordinatedStores private constructor(
             "coord-test-" + UUID.randomUUID(),
             values.toMutableMap(), liveKeys.toMutableMap(),
             markers.mapValues { it.value.copyOf() }.toMutableMap(), keys.toMutableMap(),
+            snapshotFiles.mapValues { it.value.copyOf() }.toMutableMap(),
         )
     }
+
+    /** Every snapshot file, as `<name>.snap.<session>.<generation>` -> sealed bytes. */
+    fun snapshotNames() = synchronized(values) { snapshotFiles.keys.sorted() }
+    fun snapshotBytes(file: String): ByteArray? = synchronized(values) { snapshotFiles[file]?.copyOf() }
+    fun putSnapshot(file: String, bytes: ByteArray) = synchronized(values) { snapshotFiles[file] = bytes.copyOf() }
+    fun removeSnapshot(file: String) = synchronized(values) { snapshotFiles.remove(file) }
+    /** The next snapshot read fails as a transient I/O error would. */
+    @Volatile var failNextSnapshotRead = false
+    /** The next snapshot write fails, standing in for a kill before its fsync. */
+    @Volatile var failNextSnapshotWrite = false
 
     fun names() = synchronized(values) { values.keys.toList() }
     fun aads() = synchronized(values) { values.values.map { String(it.aad, Charsets.US_ASCII) } }
@@ -502,6 +528,25 @@ internal class MemoryCoordinatedStores private constructor(
 
     override fun coordinatedNames(): List<String> = synchronized(values) {
         (values.keys.filter { it.startsWith("coord.") } + markers.keys).distinct().sorted()
+    }
+
+    override fun snapshots(name: String): SnapshotFiles = object : SnapshotFiles {
+        private fun file(session: String, generation: Long): String {
+            require(session.matches(Regex("[0-9a-f]{64}")) && generation > 0)
+            return "$name.snap.$session.$generation"
+        }
+        override fun read(session: String, generation: Long): ByteArray? = synchronized(values) {
+            if (failNextSnapshotRead) { failNextSnapshotRead = false; throw java.io.IOException("read failed") }
+            snapshotFiles[file(session, generation)]?.copyOf()
+        }
+        override fun write(session: String, generation: Long, sealed: ByteArray) = synchronized(values) {
+            if (failNextSnapshotWrite) { failNextSnapshotWrite = false; throw java.io.IOException("killed before the fsync") }
+            snapshotFiles[file(session, generation)] = sealed.copyOf()
+        }
+        override fun delete(session: String, generation: Long) { synchronized(values) { snapshotFiles.remove(file(session, generation)) } }
+        override fun list(): List<Pair<String, Long>> = synchronized(values) {
+            snapshotFiles.keys.filter { it.startsWith("$name.snap.") }.map { it.removePrefix("$name.snap.").let { rest -> rest.substringBefore('.') to rest.substringAfter('.').toLong() } }
+        }
     }
 
     override fun personaLock(name: String): PersonaLock {

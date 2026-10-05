@@ -45,6 +45,23 @@ interface CoordinatedVaultStores : MlsVaultStores {
     /** Names of every coordinated persona with a file or a marker present, readable or not. */
     fun coordinatedNames(): List<String>
     fun personaLock(name: String): PersonaLock
+    /** The persona's sealed session snapshots (P3-03b-3a). */
+    fun snapshots(name: String): SnapshotFiles
+}
+
+/**
+ * A persona's MLS session snapshots: one immutable file per session and
+ * generation, written atomically with fsync before the candidate naming it is
+ * staged. The inner key seals them; the witnessed manifest holds each one's
+ * generation and hash, so an older file is never opened as current.
+ */
+interface SnapshotFiles {
+    /** The sealed bytes, or null when no such file exists. A failed read throws. */
+    fun read(session: String, generation: Long): ByteArray?
+    fun write(session: String, generation: Long, sealed: ByteArray)
+    fun delete(session: String, generation: Long)
+    /** Every snapshot file present, as (session hex, generation). */
+    fun list(): List<Pair<String, Long>>
 }
 
 /** The largest marker an Android marker file holds. */
@@ -80,19 +97,32 @@ internal class PersonaFile(
     val staged: Map<String, ByteArray>?,
     /** `clear()` replaced this installation; only the retiring duty remains. */
     val cleared: Boolean,
+    /** Session id (hex) -> the generation of its snapshot file, as last promoted. */
+    val sessions: Map<String, Long> = emptyMap(),
+    /** The staged candidate's sessions; present exactly when [staged] is. */
+    val stagedSessions: Map<String, Long>?,
 ) {
+    init { require((staged == null) == (stagedSessions == null)) }
+
     fun next(
         state: ByteArray? = this.state,
         active: Map<String, ByteArray> = this.active,
         staged: Map<String, ByteArray>? = this.staged,
         cleared: Boolean = this.cleared,
-    ) = PersonaFile(persona, revision + 1, installation, writerSeed, witnessRoute, state, active, staged, cleared)
+        sessions: Map<String, Long> = this.sessions,
+        // A new candidate names its sessions explicitly: a default here would stage "no sessions", and its promotion would sweep them all.
+        stagedSessions: Map<String, Long>? = when {
+            staged == null -> null
+            staged === this.staged -> this.stagedSessions
+            else -> throw IllegalArgumentException("A new candidate names its sessions")
+        },
+    ) = PersonaFile(persona, revision + 1, installation, writerSeed, witnessRoute, state, active, staged, cleared, sessions, stagedSessions)
 
     /** The same installation with its writer seed (a file prepared before seeds existed). */
-    fun seeded(seed: ByteArray) = PersonaFile(persona, revision + 1, installation, seed, witnessRoute, state, active, staged, cleared)
+    fun seeded(seed: ByteArray) = PersonaFile(persona, revision + 1, installation, seed, witnessRoute, state, active, staged, cleared, sessions, stagedSessions)
 
     /** The same installation, paired with its witness. */
-    fun paired(route: StoredLinkRoute) = PersonaFile(persona, revision + 1, installation, writerSeed, route, state, active, staged, cleared)
+    fun paired(route: StoredLinkRoute) = PersonaFile(persona, revision + 1, installation, writerSeed, route, state, active, staged, cleared, sessions, stagedSessions)
 
     fun wipe() { writerSeed?.fill(0) }
 
@@ -121,8 +151,15 @@ internal class PersonaFile(
             state?.let { bytes(it) }
             objects(active)
             staged?.let { objects(it) }
+            generations(sessions)
+            stagedSessions?.let { generations(it) }
         }
         return out.toByteArray()
+    }
+
+    private fun DataOutputStream.generations(map: Map<String, Long>) {
+        writeInt(map.size)
+        for ((session, generation) in map.toSortedMap()) { write(hex32(session)); writeLong(generation) }
     }
 
     private fun DataOutputStream.bytes(value: ByteArray) { writeInt(value.size); write(value) }
@@ -132,8 +169,12 @@ internal class PersonaFile(
     }
 
     companion object {
-        const val FORMAT: Byte = 1
+        /** 2 adds the session generations (P3-03b-3a); a format 1 file has none. */
+        const val FORMAT: Byte = 2
+        private const val FORMAT_1: Byte = 1
         private const val MAX_FIELD = 8 * 1024 * 1024
+        /** Sessions one persona may hold; the engine's coordinator takes at most 4,096 entries in all. */
+        const val MAX_SESSIONS = 1024
 
         /**
          * A new installation's file. Its revision starts at random, so a
@@ -142,11 +183,12 @@ internal class PersonaFile(
          * genesis is retried: that writer was never enrolled at the box.
          */
         fun fresh(persona: String, installation: ByteArray, revision: Long, writerSeed: ByteArray?, witnessRoute: StoredLinkRoute? = null) =
-            PersonaFile(persona, revision, installation, writerSeed, witnessRoute, null, emptyMap(), null, false)
+            PersonaFile(persona, revision, installation, writerSeed, witnessRoute, null, emptyMap(), null, false, emptyMap(), null)
 
         fun decode(value: ByteArray, persona: String): PersonaFile {
             val input = DataInputStream(value.inputStream())
-            require(input.readByte() == FORMAT)
+            val format = input.readByte()
+            require(format == FORMAT || format == FORMAT_1)
             require(ByteArray(32).also(input::readFully).toHex() == persona)
             val revision = input.readLong()
             val installation = ByteArray(32).also(input::readFully)
@@ -160,8 +202,17 @@ internal class PersonaFile(
             val state = if (flags and 4 != 0) input.bytes() else null
             val active = input.objects()
             val staged = if (flags and 8 != 0) input.objects() else null
+            val sessions = if (format == FORMAT) input.generations() else emptyMap()
+            val stagedSessions = if (staged == null) null else if (format == FORMAT) input.generations() else emptyMap()
             require(input.read() == -1)
-            return PersonaFile(persona, revision, installation, seed, route, state, active, staged, flags and 16 != 0)
+            return PersonaFile(persona, revision, installation, seed, route, state, active, staged, flags and 16 != 0, sessions, stagedSessions)
+        }
+
+        private fun DataInputStream.generations(): Map<String, Long> {
+            val count = readInt()
+            require(count in 0..MAX_SESSIONS)
+            return (0 until count).associate { ByteArray(32).also(::readFully).toHex() to readLong().also { g -> require(g > 0) } }
+                .also { require(it.size == count) }
         }
 
         private fun DataInputStream.bytes(): ByteArray {
@@ -176,7 +227,7 @@ internal class PersonaFile(
             return (0 until count).associate { bytes().toHex() to bytes() }.also { require(it.size == count) }
         }
 
-        private fun hex32(hex: String): ByteArray = hexBytes(hex).also { require(it.size == 32) }
+        internal fun hex32(hex: String): ByteArray = hexBytes(hex).also { require(it.size == 32) }
         private fun hexBytes(hex: String): ByteArray {
             require(hex.length % 2 == 0)
             return ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
@@ -277,6 +328,7 @@ internal class CoordinatedPersonaStore(
     private val storage = stores.coordinated(name, outerAad)
     private val markerStore = stores.marker(name)
     private val innerAlias = stores.innerAlias(name)
+    private val snapshots = stores.snapshots(name)
     val lock: PersonaLock = stores.personaLock(name)
 
     fun read(): FileRead {
@@ -298,8 +350,24 @@ internal class CoordinatedPersonaStore(
         try { guarded { storage.write(bytes) } } finally { bytes.fill(0) }
     }
 
-    /** Removes the file and its outer keys. */
-    fun delete() = guarded { storage.reset() }
+    /** Removes the file and its outer keys, then every session snapshot. */
+    fun delete() {
+        guarded { storage.reset() }
+        // Orphaned snapshots are unreadable without the file and inner key; a failed sweep never blocks a retirement.
+        runCatching { sweepSnapshots(emptySet()) }
+    }
+
+    // ---- session snapshots (P3-03b-3a) ----
+
+    /** A snapshot's sealed bytes, or null when its file is definitively absent. */
+    fun readSnapshot(session: String, generation: Long): ByteArray? = guarded { snapshots.read(session, generation) }
+
+    fun writeSnapshot(session: String, generation: Long, sealed: ByteArray) = guarded { snapshots.write(session, generation, sealed) }
+
+    /** Deletes every snapshot file not in [keep]: only ever ones no active or staged manifest names. */
+    fun sweepSnapshots(keep: Set<Pair<String, Long>>) = guarded {
+        for (file in snapshots.list()) if (file !in keep) snapshots.delete(file.first, file.second)
+    }
 
     // ---- the marker ----
 
@@ -327,23 +395,35 @@ internal class CoordinatedPersonaStore(
 
     fun deleteInnerKey() = guarded { stores.innerKeys.delete(innerAlias) }
 
-    fun seal(file: PersonaFile, recordId: ByteArray, plain: ByteArray): ByteArray = guarded {
+    fun seal(file: PersonaFile, recordId: ByteArray, plain: ByteArray): ByteArray = seal(innerAad(file, recordId), plain)
+
+    /** Opens an inner object. A missing key or failed tag is [SealLostException]. */
+    fun open(file: PersonaFile, recordId: ByteArray, sealed: ByteArray): ByteArray = open(innerAad(file, recordId), sealed)
+
+    /** Seals a session snapshot, bound to the persona, installation, session and generation (§4.3 step 2). */
+    fun sealSnapshot(file: PersonaFile, session: String, generation: Long, plain: ByteArray): ByteArray =
+        seal(snapshotAad(file, session, generation), plain)
+
+    /** Opens a session snapshot. A missing key or failed tag is [SealLostException]. */
+    fun openSnapshot(file: PersonaFile, session: String, generation: Long, sealed: ByteArray): ByteArray =
+        open(snapshotAad(file, session, generation), sealed)
+
+    private fun seal(aad: ByteArray, plain: ByteArray): ByteArray = guarded {
         val key = stores.innerKeys.get(innerAlias) ?: throw SealKeyMissingException("The persona's inner key is unavailable")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key)
         require(cipher.iv.size == 12)
-        cipher.updateAAD(innerAad(file, recordId))
+        cipher.updateAAD(aad)
         byteArrayOf(1) + cipher.iv + cipher.doFinal(plain)
     }
 
-    /** Opens an inner object. A missing key or failed tag is [SealLostException]. */
-    fun open(file: PersonaFile, recordId: ByteArray, sealed: ByteArray): ByteArray {
+    private fun open(aad: ByteArray, sealed: ByteArray): ByteArray {
         try {
             require(sealed.size >= 29 && sealed[0] == 1.toByte())
             val key = stores.innerKeys.get(innerAlias) ?: throw SealKeyMissingException("The persona's inner key is unavailable")
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, sealed.copyOfRange(1, 13)))
-            cipher.updateAAD(innerAad(file, recordId))
+            cipher.updateAAD(aad)
             return cipher.doFinal(sealed, 13, sealed.size - 13)
         } catch (error: Exception) {
             if (definitive(error)) throw SealLostException(error)
@@ -351,8 +431,14 @@ internal class CoordinatedPersonaStore(
         }
     }
 
+    // The record AAD keeps format 1's number: records sealed before format 2 still open, and their bytes never change.
     private fun innerAad(file: PersonaFile, recordId: ByteArray): ByteArray =
-        "$INNER_AAD|${PersonaFile.FORMAT}|$persona|${file.installation.toHex()}|${recordId.toHex()}".toByteArray(Charsets.US_ASCII)
+        "$INNER_AAD|1|$persona|${file.installation.toHex()}|${recordId.toHex()}".toByteArray(Charsets.US_ASCII)
+
+    private fun snapshotAad(file: PersonaFile, session: String, generation: Long): ByteArray {
+        require(SESSION_HEX.matches(session) && generation > 0)
+        return "$SESSION_AAD|1|$persona|${file.installation.toHex()}|$session|$generation".toByteArray(Charsets.US_ASCII)
+    }
 
     private inline fun <T> guarded(block: () -> T): T = try { block() } catch (error: Exception) {
         if (error is MlsVaultUnavailableException) throw error
@@ -361,6 +447,9 @@ internal class CoordinatedPersonaStore(
 
     companion object {
         private const val INNER_AAD = "kithmoot.mls-vault.v1|coord-object"
+        private const val SESSION_AAD = "kithmoot.mls-vault.v1|coord-session"
+        /** A session id as every map and file name holds it: 32 bytes in lowercase hex. */
+        val SESSION_HEX = Regex("[0-9a-f]{64}")
 
         /** Fence only on definitive evidence; a transient Keystore or provider failure stays unavailable. */
         fun definitive(error: Throwable): Boolean {
