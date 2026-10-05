@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.room
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -85,5 +86,22 @@ class CallControlTest {
         val message = mediaMissingNote(mediaStarting = false, joinPending = false, mediaFault = null)
         assertTrue(message.isNotBlank())
         assertTrue("on this device" !in message, message)
+    }
+
+    @Test
+    fun `declaring a call joins the one that is on`() {
+        assertEquals("call-a", callToDeclare(visible = "call-a", remembered = "call-b", pressed = false) { "fresh" })
+        assertEquals("call-a", callToDeclare(visible = "call-a", remembered = null, pressed = true) { "fresh" })
+    }
+
+    @Test
+    fun `a rebuilt session rejoins the call it was on while the room cannot see it yet`() {
+        assertEquals("call-b", callToDeclare(visible = null, remembered = "call-b", pressed = false) { "fresh" })
+    }
+
+    @Test
+    fun `only a press of Join starts a call`() {
+        assertEquals("fresh", callToDeclare(visible = null, remembered = null, pressed = true) { "fresh" })
+        assertNull(callToDeclare(visible = null, remembered = null, pressed = false) { "fresh" })
     }
 }

@@ -236,7 +236,7 @@ class BackgroundCallListenerService : Service() {
         val wanted = candidates.filter { it.watch.stableRoomId in ringing || it.watch.stableRoomId in delivering }
 
         coordinators.keys.filterNot { it in ringing }.forEach { id -> coordinators.remove(id)?.end() }
-        for (id in ringing) coordinators.getOrPut(id) { IncomingCallRingCoordinator(applicationContext) }
+        for (id in ringing) coordinators.getOrPut(id) { IncomingCallRingCoordinator(applicationContext, source = "bell") }
 
         val wantedIds = wanted.map { it.watch.stableRoomId }.toSet()
         rooms.keys.filterNot { it in wantedIds }.forEach { id -> close(rooms.remove(id)) }

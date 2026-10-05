@@ -237,6 +237,7 @@ import dev.forgesworn.kithmoot.ui.room.microphoneAction
 import dev.forgesworn.kithmoot.ui.room.JoinDecision
 import dev.forgesworn.kithmoot.ui.room.SingleBuild
 import dev.forgesworn.kithmoot.ui.room.joinDecision
+import dev.forgesworn.kithmoot.ui.room.callToDeclare
 import dev.forgesworn.kithmoot.epoch.pastEpochsFor
 import dev.forgesworn.kithmoot.ui.room.mediaMissingNote
 import dev.forgesworn.kithmoot.ui.room.LiveMark
@@ -776,7 +777,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
      *  same as [notifications] above. */
-    private val callRinger = dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator(application)
+    private val callRinger = dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator(application, source = "room")
     // Declared before init, whose collectors run at once on Main.immediate.
     /** Held by Telecom: a phone call answered over this one. Remote sound is
      *  silenced (see the remote audio collector in startMedia) and a live
@@ -890,6 +891,10 @@ class RoomViewModel @JvmOverloads constructor(
     private val entering = EntryGate()
     /** A Leave has been pressed and has not settled. Blocks the call self-heal. */
     @Volatile private var leavingCall = false
+    /** The call this device last said it was on in this room, until Leave.
+     *  What a rebuilt session rejoins while it cannot see the call yet - see
+     *  [callToDeclare]. */
+    @Volatile private var lastCallId: String? = null
     /** The room tap waiting behind a teardown, if any: always the latest one. */
     private val queuedEnter = LatestRequest<QueuedEnter>()
     /** The entry under way, a tap waiting for the last room to close, and the
@@ -3876,7 +3881,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (remembered) {
                 Log.i(JOIN_LOG, "remembered join carried out now that media exists")
                 if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
-                adoptRoomCall()
+                adoptRoomCall(pressed = true)
                 if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
@@ -4253,6 +4258,7 @@ class RoomViewModel @JvmOverloads constructor(
         val readThrough = chatOnly || notifications.closeReadsThrough()
         if (!chatOnly) notifications.end(keepNotice = !readThrough)
         callRinger.end()
+        lastCallId = null
         // At once, unlike the registry's unmark below: a reply arriving now takes the background path.
         noticeReplier?.let { (id, replier) -> dev.forgesworn.kithmoot.notifications.OpenRoomReplies.unregister(id, replier) }
         noticeReplier = null
@@ -4552,6 +4558,7 @@ class RoomViewModel @JvmOverloads constructor(
         // without this, that emission re-declares a call nobody is on and
         // mints a fresh id for it.
         leavingCall = true
+        lastCallId = null
         Log.i(JOIN_LOG, "call leave requested")
         act {
             try {
@@ -4627,7 +4634,7 @@ class RoomViewModel @JvmOverloads constructor(
         Log.i(JOIN_LOG, "call join now")
         _room.update { it.copy(onCall = true, mediaRunning = true) }
         media.setCallActive(true)
-        adoptRoomCall()
+        adoptRoomCall(pressed = true)
         if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
         if (micOn) startMicrophoneForJoin(live)
     }
@@ -6164,19 +6171,22 @@ class RoomViewModel @JvmOverloads constructor(
         // with something live that is not saying which call it is on is the
         // exact shape of the complaint - a phone streaming to a Mac that still
         // offered to Start one. Adopt the call that is on rather than minting a
-        // second.
-        if (tracks.isNotEmpty()) adoptRoomCall()
+        // second. Only while this device is meant to be on a call at all:
+        // `leaveCall` clears `mediaRunning` before anything else, so a track
+        // emission landing behind a Leave declares nothing.
+        if (tracks.isNotEmpty() && _room.value.mediaRunning) adoptRoomCall(pressed = false)
     }
 
     /**
      * Say which call this device is on: the room's current one if any present
-     * device advertises one, else a new one.
+     * device advertises one, else the one this device was last on, else - for
+     * a press of Join only - a new one. See [callToDeclare].
      *
      * The choice rule is the head of [RoomSession.calls], which is the web's
      * `calls()[0]` - most people, then oldest - so two clients adopting at the
      * same moment adopt the same call rather than each other's.
      */
-    private fun adoptRoomCall() {
+    private fun adoptRoomCall(pressed: Boolean) {
         val live = session ?: return
         // Never while a leave is settling. See leaveCall.
         if (leavingCall) {
@@ -6190,10 +6200,19 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val existing = live.calls().firstOrNull()?.id
-        val id = existing ?: newCallId()
-        Log.i(JOIN_LOG, "call ${if (existing != null) "joined" else "started"} id=${id.take(8)}")
+        val remembered = lastCallId
+        val id = callToDeclare(existing, remembered, pressed, ::newCallId)
+        if (id == null) {
+            Log.i(JOIN_LOG, "call adopt skipped reason=no-call-visible")
+            return
+        }
+        val how = when (id) { existing -> "joined"; remembered -> "rejoined"; else -> "started" }
+        Log.i(JOIN_LOG, "call $how id=${id.take(8)} by=${if (pressed) "press" else "self-heal"}")
         runCatching { live.setCall(CallMembership(id, epochSeconds())) }
-            .onSuccess { _room.update { if (session === live) it.copy(onCall = true) else it } }
+            .onSuccess {
+                lastCallId = id
+                _room.update { if (session === live) it.copy(onCall = true) else it }
+            }
             .onFailure { Log.w(JOIN_LOG, "call declaration could not be published") }
     }
 
