@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.account
 import dev.forgesworn.kithmoot.crypto.toHex
 import java.nio.ByteBuffer
 import java.security.SecureRandom
+import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,7 +32,13 @@ class SessionHostTest {
     private val session = bytes(32)
     private val id = session.toHex()
 
+    @AfterTest fun noFaults() {
+        assertEquals(0, ModelSession.faults, "a session was stepped ahead of its acknowledgement")
+    }
+
     @BeforeTest fun setup() {
+        ModelSession.faults = 0
+        ModelSession.ackHook = {}
         stores = MemoryCoordinatedStores()
         server = FakeWitnessServer(bytes(32))
         witness = FakeVaultWitness()
@@ -80,6 +87,37 @@ class SessionHostTest {
         assertEquals(mapOf(id to 3L), marks())
         assertEquals(listOf("${stores.coordinatedName()}.snap.$id.3"), files())
         assertEquals(3L, ModelSession.lastFresh!!.acked)
+    }
+
+    @Test fun `commit_ack lands only after the witness has the step`() = runBlocking<Unit> {
+        enrolAtBox()
+        val seen = mutableListOf<Long>()
+        ModelSession.ackHook = { seen += seq() }
+        created(); bump(); bump()
+        assertEquals(listOf(1L, 2L, 3L), seen)
+    }
+
+    @Test fun `a logout during a step releases the witnessed step but keeps no session`() = runBlocking<Unit> {
+        enrolAtBox(); created()
+        val live = ModelSession.lastFresh!!
+        assertEquals(Hosted.Released(1L), host.step(persona, session) { s -> host.closeAll(); EngineStep(s.next(), s.counter) })
+        assertTrue(live.closed)
+        // The next step reopens from the witnessed snapshot.
+        val opens = opened.size
+        assertEquals(Hosted.Released(2L), bump())
+        assertEquals(opens + 1, opened.size)
+    }
+
+    @Test fun `a session dropped and made again elsewhere is reopened, never stepped from the old handle`() = runBlocking<Unit> {
+        enrolAtBox(); created(); bump()
+        val other = host(vault)
+        assertEquals(Hosted.Released(Unit), other.drop(persona, session))
+        assertEquals(Hosted.Released("created"), created(other))
+        assertEquals(Hosted.Released(1L), bump(other))
+        // Both at generation 2 with counter 1, but another snapshot: this host's old handle is not reused.
+        val opens = opened.size
+        assertEquals(Hosted.Released(2L), bump())
+        assertEquals(opens + 1, opened.size)
     }
 
     @Test fun `a call that changes nothing is released without a witness round trip`() = runBlocking<Unit> {
@@ -238,24 +276,49 @@ class SessionHostTest {
         assertTrue(decoded.encode().contentEquals(v2))
     }
 
+    @Test fun `a format 1 persona file with a staged candidate opens with no staged sessions`() {
+        val file = PersonaFile.fresh(persona, bytes(32), 5, bytes(32)).let { it.next(staged = mapOf("00" to bytes(40)), stagedSessions = emptyMap()) }
+        val v2 = file.encode()
+        // Format 2 appends two empty session lists after the staged objects.
+        val v1 = byteArrayOf(1) + v2.copyOfRange(1, v2.size - 8)
+        val decoded = PersonaFile.decode(v1, persona)
+        assertEquals(emptyMap(), decoded.sessions)
+        assertEquals(emptyMap(), decoded.stagedSessions)
+        assertEquals(setOf("00"), decoded.staged!!.keys)
+    }
+
+    @Test fun `a new candidate must name its sessions`() {
+        val file = PersonaFile.fresh(persona, bytes(32), 5, bytes(32))
+        assertFailsWith<IllegalArgumentException> { file.next(staged = mapOf("00" to bytes(40))) }
+    }
+
     private fun bytes(n: Int) = ByteArray(n).also(random::nextBytes)
 }
 
-/** A model engine session: its snapshot is (id, generation, counter), and it refuses rollback as the engine does. */
+/**
+ * A model engine session: its snapshot is (id, generation, counter), and it
+ * refuses rollback as the engine does. Like the engine's `process` and `tick`,
+ * [next] does not check the acknowledgement: a host that steps an
+ * unacknowledged session is counted in [faults] instead, and every test
+ * checks that none did. A closed session refuses everything, as a closed
+ * uniffi handle does.
+ */
 class ModelSession private constructor(val id: ByteArray, var generation: Long, var acked: Long, var counter: Long, val openedAt: Long) : HostedSession {
     var closed = false
 
-    override fun generation(): Long = generation
+    override fun generation(): Long { check(!closed) { "closed" }; return generation }
 
     override fun commitAck(generation: Long, highWater: Long) {
-        check(!closed)
+        check(!closed) { "closed" }
         require(generation in 1..this.generation && highWater >= generation)
+        ackHook()
         if (generation > acked) acked = generation
     }
 
     /** One mutation: the counter moves, and a new generation's snapshot comes out unacknowledged. */
     fun next(): StepSnapshot {
-        check(!closed && acked == generation) { "AwaitingCommitAck" }
+        check(!closed) { "closed" }
+        if (acked != generation) faults++
         counter++
         generation++
         return StepSnapshot(id.copyOf(), generation, encode())
@@ -267,6 +330,10 @@ class ModelSession private constructor(val id: ByteArray, var generation: Long, 
 
     companion object {
         var lastFresh: ModelSession? = null
+        /** Steps run on a session ahead of its acknowledgement: always a host fault. */
+        var faults = 0
+        /** Runs inside every `commit_ack`, before it lands. */
+        var ackHook: () -> Unit = {}
 
         /** A session the engine has just made: generation 0, its first step makes generation 1. */
         fun fresh(id: ByteArray): ModelSession = ModelSession(id.copyOf(), 0, 0, -1, 0).also { lastFresh = it }

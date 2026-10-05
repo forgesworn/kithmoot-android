@@ -600,7 +600,8 @@ class MlsVault(
 
     /**
      * Runs [work] on [persona]'s coordination under its lock, held across the
-     * witness round trip: the MLS session host's way in (P3-03b-3a).
+     * witness round trip: the MLS session host's way in (P3-03b-3a). The lock
+     * is not reentrant: [work] must not call the vault for the same persona.
      */
     internal suspend fun <T> underPersona(persona: String, work: suspend (PersonaCoordination<EnrolledDevice>) -> T): T {
         require(HEX64.matches(persona))

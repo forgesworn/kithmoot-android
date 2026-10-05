@@ -103,7 +103,14 @@ private class AtomicSnapshots(private val root: File, private val prefix: String
         if (!file.baseFile.exists()) return null
         // A sealed snapshot is at most the engine's 64 MiB plus the seal.
         if (file.baseFile.length() > MAX_SEALED) throw IOException("The snapshot is too large")
-        return try { file.readFully() } catch (_: FileNotFoundException) { null }
+        return try {
+            file.readFully()
+        } catch (error: FileNotFoundException) {
+            // Only a file that is really gone is absent: any other open failure
+            // (descriptors exhausted, a permission error) is transient, never a fence.
+            if (file.baseFile.exists()) throw error
+            null
+        }
     }
 
     @Synchronized override fun write(session: String, generation: Long, sealed: ByteArray) {

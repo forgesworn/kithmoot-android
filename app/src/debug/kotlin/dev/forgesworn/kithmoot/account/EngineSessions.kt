@@ -18,8 +18,8 @@ class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: Sec
 
     override fun open(session: ByteArray, plaintext: ByteArray, highWater: Long): EngineSession {
         require(highWater > 0)
-        // The adapter wipes its own copy; the host wipes [plaintext].
-        return EngineSession(sessionCall { openSession(platform, session, plaintext.copyOf(), highWater.toULong()) })
+        // Passed as is, so no unwiped heap copy is left: the adapter wipes its own, the host wipes [plaintext].
+        return EngineSession(sessionCall { openSession(platform, session, plaintext, highWater.toULong()) })
     }
 
     private class Random(private val random: SecureRandom) : VmlsRandom {

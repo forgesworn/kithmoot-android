@@ -304,6 +304,9 @@ internal class PersonaCoordination<V>(
 
     // ---- MLS sessions (P3-03b-3a) ----
 
+    /** The hash of [session]'s snapshot at [generation] as the core was given it, if this open has it. */
+    fun snapshotHash(session: String, generation: Long): ByteArray? = hashes[session to generation]?.copyOf()
+
     /** Each session's witnessed generation, by session id in hex, only while the witness confirms them. */
     suspend fun sessionMarks(): Pair<Gate, Map<String, Long>?> {
         val gate = ready()

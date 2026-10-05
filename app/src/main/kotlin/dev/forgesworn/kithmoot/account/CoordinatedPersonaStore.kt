@@ -110,7 +110,12 @@ internal class PersonaFile(
         staged: Map<String, ByteArray>? = this.staged,
         cleared: Boolean = this.cleared,
         sessions: Map<String, Long> = this.sessions,
-        stagedSessions: Map<String, Long>? = if (staged == null) null else this.stagedSessions ?: emptyMap(),
+        // A new candidate names its sessions explicitly: a default here would stage "no sessions", and its promotion would sweep them all.
+        stagedSessions: Map<String, Long>? = when {
+            staged == null -> null
+            staged === this.staged -> this.stagedSessions
+            else -> throw IllegalArgumentException("A new candidate names its sessions")
+        },
     ) = PersonaFile(persona, revision + 1, installation, writerSeed, witnessRoute, state, active, staged, cleared, sessions, stagedSessions)
 
     /** The same installation with its writer seed (a file prepared before seeds existed). */
@@ -348,7 +353,8 @@ internal class CoordinatedPersonaStore(
     /** Removes the file and its outer keys, then every session snapshot. */
     fun delete() {
         guarded { storage.reset() }
-        sweepSnapshots(emptySet())
+        // Orphaned snapshots are unreadable without the file and inner key; a failed sweep never blocks a retirement.
+        runCatching { sweepSnapshots(emptySet()) }
     }
 
     // ---- session snapshots (P3-03b-3a) ----
