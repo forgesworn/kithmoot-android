@@ -100,7 +100,7 @@ internal class PersonaFile(
     /** Session id (hex) -> the generation of its snapshot file, as last promoted. */
     val sessions: Map<String, Long> = emptyMap(),
     /** The staged candidate's sessions; present exactly when [staged] is. */
-    val stagedSessions: Map<String, Long>? = staged?.let { emptyMap() },
+    val stagedSessions: Map<String, Long>?,
 ) {
     init { require((staged == null) == (stagedSessions == null)) }
 
@@ -183,7 +183,7 @@ internal class PersonaFile(
          * genesis is retried: that writer was never enrolled at the box.
          */
         fun fresh(persona: String, installation: ByteArray, revision: Long, writerSeed: ByteArray?, witnessRoute: StoredLinkRoute? = null) =
-            PersonaFile(persona, revision, installation, writerSeed, witnessRoute, null, emptyMap(), null, false)
+            PersonaFile(persona, revision, installation, writerSeed, witnessRoute, null, emptyMap(), null, false, emptyMap(), null)
 
         fun decode(value: ByteArray, persona: String): PersonaFile {
             val input = DataInputStream(value.inputStream())

@@ -101,7 +101,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
         val step = try {
             if (markHash == null) throw MlsVaultUnavailableException(IllegalStateException("The snapshot's hash is unknown"))
             call(handle)
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             // A refused call leaves the engine as it was, but a fault may not: reopen next time.
             close(key, handle)
             throw error
@@ -125,10 +125,16 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
         val snapshot = step.snapshot
         val id = try {
             if (snapshot == null) throw IllegalArgumentException("A new session has a first snapshot")
-            sessionId(snapshot.session).also { id ->
-                if (coord.sessionMarks().second?.containsKey(id) != false) throw MlsVaultUnavailableException(IllegalStateException("The session already exists"))
+            val id = sessionId(snapshot.session)
+            val (gate, marks) = coord.sessionMarks()
+            if (gate != Gate.Ready || marks == null) {
+                runCatching { handle.close() }
+                snapshot.plaintext.fill(0)
+                return@underPersona if (gate is Gate.Fenced) Hosted.Fenced(gate.reason) else Hosted.Held
             }
-        } catch (error: Exception) {
+            if (id in marks) throw MlsVaultUnavailableException(IllegalStateException("The session already exists"))
+            id
+        } catch (error: Throwable) {
             runCatching { handle.close() }
             snapshot?.plaintext?.fill(0)
             throw error
@@ -178,8 +184,13 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
         handle: S, step: EngineStep<R>, previous: Long, previousHash: ByteArray?, began: Long,
     ): Hosted<R> {
         val snapshot = step.snapshot ?: run {
-            // Nothing changed: the session still stands for the witnessed snapshot it was opened at.
-            if (previousHash != null) keep(began, key, Open(handle, previous, previousHash)) else close(key, handle)
+            // Nothing changed, so nothing needs the witness: but only if the engine really did not move.
+            val unmoved = previousHash != null && runCatching { handle.generation() == previous }.getOrDefault(false)
+            if (!unmoved) {
+                close(key, handle)
+                throw MlsVaultUnavailableException(IllegalStateException("The session changed without a snapshot"))
+            }
+            keep(began, key, Open(handle, previous, previousHash!!))
             return Hosted.Released(step.value)
         }
         val outcome = try {
@@ -187,7 +198,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
                 throw MlsVaultUnavailableException(IllegalStateException("The step's snapshot is not this session's next"))
             }
             coord.commitSession(id, snapshot.generation, snapshot.plaintext)
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             close(key, handle)
             throw error
         } finally {
@@ -204,7 +215,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
                     handle.commitAck(snapshot.generation, snapshot.generation)
                     // After a logout the step is still witnessed and released, but its session is not kept.
                     keep(began, key, Open(handle, snapshot.generation, hash))
-                } catch (error: Exception) {
+                } catch (error: Throwable) {
                     close(key, handle)
                     throw error
                 }

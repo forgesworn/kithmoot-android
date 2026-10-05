@@ -46,20 +46,22 @@ import org.junit.runners.MethodSorters
  *
  * Nothing is released while the witness is down. With it up, the session
  * opens at exactly the generation the witness holds: the created one when
- * the kill came before the witness saw the step, the step's own when after.
+ * the kill came before the step was staged, the step's own once it was
+ * staged (a surviving stage is finished, never rebuilt) or witnessed.
  */
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SessionRestartTest {
-    private enum class Case(val stepWitnessed: Boolean) {
+    /** [stepWitnessed]: the witness had the step at the kill. [recovered]: the step is current after recovery. */
+    private enum class Case(val stepWitnessed: Boolean, val recovered: Boolean) {
         /** The snapshot file is written; no candidate names it yet. */
-        AfterSnapshot(false),
-        /** The candidate is staged; the witness never saw it. */
-        AfterStage(false),
+        AfterSnapshot(false, false),
+        /** The candidate is staged; the witness never saw it, so recovery finishes it. */
+        AfterStage(false, true),
         /** The witness committed the advance; its answer never arrived. */
-        AfterWitnessCommit(true),
+        AfterWitnessCommit(true, true),
         /** The promotion is written; `commit_ack` never ran. */
-        AfterPromotion(true),
+        AfterPromotion(true, true),
     }
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -158,9 +160,9 @@ class SessionRestartTest {
 
                 // With it up the session opens at exactly the witnessed generation.
                 witness.mode = FakeEd25519Witness.Mode.Up
-                val witnessed = if (case.stepWitnessed) created + 1 else created
+                val witnessed = if (case.recovered) created + 1 else created
                 assertEquals("$case", mapOf(id to witnessed), (host.sessions(persona) as Hosted.Released).value)
-                assertEquals("$case: the killed step was never staged again", if (case.stepWitnessed) seq + 1 else seq, witness.seq(subject))
+                assertEquals("$case: the killed step advanced the witness at most once", if (case.recovered) seq + 1 else seq, witness.seq(subject))
                 val sent = host.step(persona, id.hexToBytes()) { s -> hostedStep(s.inner.send("after".toByteArray())) }
                 assertTrue("$case: $sent", sent is Hosted.Released)
                 assertEquals("$case", witnessed + 1, (sent as Hosted.Released).value.snapshot!!.generation.toLong())
