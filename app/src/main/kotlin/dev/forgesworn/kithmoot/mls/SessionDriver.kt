@@ -10,8 +10,8 @@ import dev.forgesworn.kithmoot.crypto.toHex
 sealed class Destination {
     /** A member leaf's mailbox, on [box]. */
     class Leaf(val box: ByteArray) : Destination()
-    /** A commit slot at [attempt], on the group's home [box]. */
-    class Slot(val box: ByteArray, val attempt: Long) : Destination()
+    /** A commit slot of [epoch] at [attempt], on the group's home [box]. */
+    class Slot(val box: ByteArray, val epoch: Long, val attempt: Long) : Destination()
     /** A capability's single-use Welcome mailbox; the engine names no box. */
     class Welcome(val packageId: ByteArray) : Destination()
     /** An introduction mailbox for an adding person; the engine names no box. */
@@ -39,7 +39,23 @@ class Effects(
     val events: List<Any> = emptyList(),
     /** `OrderingUnconfirmed`: the slots whose receipts to query. */
     val unconfirmed: List<Pair<ByteArray, Long>> = emptyList(),
+    /**
+     * The engine refused the call with this stable code (`UnexpectedSlot`,
+     * `ReceiptUnverified`, `NotActive`, ...). A refused call changes nothing,
+     * so the driver decides whether to go on.
+     */
+    val refused: String? = null,
 )
+
+/** The session's phase (the engine's `Phase`). */
+sealed class Phase {
+    data object PendingJoin : Phase()
+    data object Active : Phase()
+    /** [reason] is the engine's code: `Gap`, `Fork`, `RestoreFenced`, `Rollback`, `ConfirmationTag`. */
+    data class NeedsRecovery(val reason: String) : Phase()
+    data object Removed : Phase()
+    data object Expired : Phase()
+}
 
 /** When a fetched record may be acknowledged at its box (the engine's `Ack`). */
 enum class AckRule {
@@ -62,6 +78,9 @@ enum class SlotOutcome { Filled, Expired, Void }
  * which witnesses any snapshot before the step is released.
  */
 interface DriverSession : HostedSession {
+    fun phase(): Phase
+    /** The current epoch, or null before the group is joined. */
+    fun epoch(): Long?
     fun outbox(): List<Outgoing>
     fun watchList(): List<Watched>
     fun tick(now: Long): EngineStep<Effects>
@@ -84,8 +103,14 @@ fun interface CapabilitiesParser {
 
 /** How one round ended. */
 sealed class Round {
-    /** Everything this round could do is done. [held] counts records left for another box (P3-03b-3b). */
-    data class Done(val delivered: Int, val processed: Int, val held: Int) : Round()
+    /**
+     * The round ran to its end. [held] counts records left for another box
+     * (P3-03b-3b); [stalled] is true when a deposit had no answer, so the
+     * rest of the outbox waits for the next round.
+     */
+    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false) : Round()
+    /** The session is removed, expired or in a recovery other than a gap: nothing is driven (the room shows why). */
+    data class Stopped(val phase: Phase) : Round()
     /** The box gave no capabilities reply: nothing was sent or fetched (no reply holds, P2-R-02). */
     data class Offline(val answer: BoxAnswer<Nothing>?) : Round()
     /** The witness has not confirmed a step: the round stopped; nothing unwitnessed was released. */
@@ -123,6 +148,9 @@ class SessionDriver<S : DriverSession>(
 ) {
     init { require(homeBox.size == 32 && maxPages > 0) }
 
+    /** `OrderingUnconfirmed` queries not yet answered, by session: the engine raises each once. */
+    private val pendingQueries = HashMap<String, MutableSet<Pair<String, Long>>>()
+
     suspend fun round(persona: String, session: ByteArray, now: Long): Round {
         // 1. Capabilities first: no reply holds, never fences (engine `observe_installation`).
         val installation = when (val answer = client.capabilities()) {
@@ -132,20 +160,43 @@ class SessionDriver<S : DriverSession>(
             BoxAnswer.Unreachable -> return Round.Offline(BoxAnswer.Unreachable)
             BoxAnswer.Malformed -> return Round.Offline(BoxAnswer.Malformed)
         }
-        val unconfirmed = mutableListOf<Pair<ByteArray, Long>>()
-        fun take(effects: Effects) { if (effects.events.isNotEmpty()) events(effects.events); unconfirmed += effects.unconfirmed }
+        val queries = synchronized(pendingQueries) { pendingQueries.getOrPut(session.toHex()) { mutableSetOf() } }
+        fun take(effects: Effects) {
+            if (effects.events.isNotEmpty()) events(effects.events)
+            synchronized(pendingQueries) { effects.unconfirmed.forEach { (slot, attempt) -> queries += slot.toHex() to attempt } }
+        }
 
-        stepped(persona, session) { it.observeInstallation(now, installation) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
-        // 2. Time-driven rules.
+        // The group's installation exists only once it is joined: a pending join is never compared.
+        var phase = read(persona, session) { it.phase() }.let { r -> r.stop?.let { return it }; r.value!! }
+        if (phase == Phase.Active || phase is Phase.NeedsRecovery) {
+            stepped(persona, session) { it.observeInstallation(now, installation) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
+        }
+        // 2. Time-driven rules (a pending join's expiry among them).
         stepped(persona, session) { it.tick(now) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
+        phase = read(persona, session) { it.phase() }.let { r -> r.stop?.let { return it }; r.value!! }
+        // A gap still watches its evidence mailbox (P2-R-05); any other recovery, removal or expiry drives nothing.
+        when (phase) {
+            Phase.Active, Phase.PendingJoin, Phase.NeedsRecovery("Gap") -> Unit
+            else -> return Round.Stopped(phase)
+        }
+        val active = phase == Phase.Active
+        val epoch = read(persona, session) { it.epoch() }.let { r -> r.stop?.let { return it }; r.value }
 
         // 3. The outbox, to the home box only.
         val outgoing = read(persona, session) { it.outbox() }.let { r -> r.stop?.let { return it }; r.value!! }
         var held = 0
-        var delivered = 0
+        var stalled = false
         val sent = mutableListOf<ByteArray>()
         for (out in outgoing) {
-            val box = when (val d = out.destination) {
+            val d = out.destination
+            if (d is Destination.Slot && epoch != null && d.epoch < epoch) {
+                // An earlier epoch's commit: decided already, and never deposited again.
+                sent += out.recordId
+                continue
+            }
+            // Commits wait while the session is not active (a gap): the engine refuses their results.
+            if (d is Destination.Slot && !active) continue
+            val box = when (d) {
                 is Destination.Leaf -> d.box
                 is Destination.Slot -> d.box
                 is Destination.Evidence -> d.box
@@ -153,30 +204,45 @@ class SessionDriver<S : DriverSession>(
                 is Destination.Welcome, Destination.Introduction -> homeBox
             }
             if (!box.contentEquals(homeBox)) { held++; continue }
-            when (val d = out.destination) {
-                is Destination.Slot -> {
-                    val answer = client.depositSlot(out.mailbox, d.attempt, out.envelope) as? BoxAnswer.Ok ?: break
+            val answer: BoxAnswer<*> = when (d) {
+                is Destination.Slot -> client.depositSlot(out.mailbox, d.attempt, out.envelope)
+                else -> client.deposit(out.mailbox, out.envelope)
+            }
+            when (answer) {
+                // No answer, or nothing signed: the box may have it; the rest waits for the next round.
+                BoxAnswer.Unreachable, is BoxAnswer.NotSigned -> { stalled = true; break }
+                // Refused or not trusted: this record waits, the others go on. A Welcome the box will
+                // never take (its package expired, gone or consumed) leaves the outbox.
+                is BoxAnswer.Refused -> {
+                    if (d is Destination.Welcome && answer.code in WELCOME_GONE) sent += out.recordId
+                    continue
+                }
+                BoxAnswer.Malformed -> continue
+                is BoxAnswer.Ok -> Unit
+            }
+            when (val value = (answer as BoxAnswer.Ok).value) {
+                is SlotDeposited -> {
                     sent += out.recordId
                     // No signed receipt yet (not durable): the slot's status is read below instead.
-                    answer.value.signedReceipt?.let { signed ->
-                        stepped(persona, session) { it.depositResult(now, d.attempt, signed) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
+                    value.signedReceipt?.let { signed ->
+                        // A refusal (`UnexpectedSlot`, `ReceiptUnverified`) changes nothing; the slot is read back below.
+                        stepped(persona, session) { it.depositResult(now, d.let { s -> (s as Destination.Slot).attempt }, signed) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
                     }
                 }
-                is Destination.Welcome -> {
-                    val answer = client.deposit(out.mailbox, out.envelope) as? BoxAnswer.Ok ?: break
-                    // Kept in the outbox, and deposited again each round, until the joiner's
-                    // acknowledgement shows: the deposit's answer is the only way the adder learns it.
-                    if (answer.value.welcomeAcknowledged == true) {
-                        stepped(persona, session) { it.confirmMember(d.packageId) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
-                        sent += out.recordId
+                is Deposited -> when (d) {
+                    is Destination.Welcome -> {
+                        // Kept in the outbox, and deposited again each round, until the joiner's
+                        // acknowledgement shows: the deposit's answer is the only way the adder learns it.
+                        if (value.welcomeAcknowledged == true) {
+                            stepped(persona, session) { it.confirmMember(d.packageId) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
+                            sent += out.recordId
+                        }
                     }
-                }
-                else -> {
-                    client.deposit(out.mailbox, out.envelope) as? BoxAnswer.Ok ?: break
-                    sent += out.recordId
+                    else -> sent += out.recordId
                 }
             }
         }
+        var delivered = 0
         if (sent.isNotEmpty()) {
             stepped(persona, session) { it.delivered(sent) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
             delivered = sent.size
@@ -204,7 +270,8 @@ class SessionDriver<S : DriverSession>(
                     val result = r.value!!
                     take(result.effects)
                     processed++
-                    if (result.ack != AckRule.Keep) acks += AckItem(record.mailbox, record.receipt)
+                    // A refused record is left at the box.
+                    if (result.effects.refused == null && result.ack != AckRule.Keep) acks += AckItem(record.mailbox, record.receipt)
                 }
                 ack(acks)
                 after = answer.value.next
@@ -224,6 +291,7 @@ class SessionDriver<S : DriverSession>(
             val kind = w.kind as? Watched.Kind.Slot ?: continue
             val state = (client.slotStatus(w.mailbox, kind.attempt) as? BoxAnswer.Ok)?.value ?: continue
             val signed = state.signedReceipt ?: continue
+            // A slot of an epoch a commit read back in this loop has left is refused, changing nothing.
             val r = when (state.state) {
                 SlotState.State.Empty -> continue
                 SlotState.State.Filled -> stepped(persona, session) { s -> s.process(now, w.mailbox, state.envelope!!, signed, null).let { EngineStep(it.snapshot, it.value.effects) } }
@@ -235,12 +303,17 @@ class SessionDriver<S : DriverSession>(
             processed++
         }
 
-        // 5. Receipts an OrderingUnconfirmed asked for.
-        for ((slot, attempt) in unconfirmed.distinctBy { it.first.toHex() to it.second }) {
-            val signed = ((client.slotStatus(slot, attempt) as? BoxAnswer.Ok)?.value?.signedReceipt) ?: continue
-            stepped(persona, session) { it.observeReceipt(now, signed) }.let { r -> r.stop?.let { return it }; r.value?.let { e -> if (e.events.isNotEmpty()) events(e.events) } }
+        // 5. Receipts an OrderingUnconfirmed asked for, kept until the engine takes one.
+        for ((slot, attempt) in synchronized(pendingQueries) { queries.toList() }) {
+            val signed = ((client.slotStatus(slot.hexToBytesOrNull() ?: continue, attempt) as? BoxAnswer.Ok)?.value?.signedReceipt) ?: continue
+            val r = stepped(persona, session) { it.observeReceipt(now, signed) }
+            r.stop?.let { return it }
+            val effects = r.value!!
+            if (effects.events.isNotEmpty()) events(effects.events)
+            // Taken, or refused as unrelated or departed for good: either way the query is answered.
+            synchronized(pendingQueries) { queries -= slot to attempt }
         }
-        return Round.Done(delivered, processed, held)
+        return Round.Done(delivered, processed, held, stalled)
     }
 
     private suspend fun ack(items: List<AckItem>) {
@@ -249,6 +322,14 @@ class SessionDriver<S : DriverSession>(
     }
 
     private class Stepped<T>(val value: T?, val stop: Round?)
+
+    private companion object {
+        /** Bothy's refusals for a Welcome mailbox whose package can never take it. */
+        val WELCOME_GONE = setOf("expired", "consumed", "withdrawn", "not-found")
+
+        fun String.hexToBytesOrNull(): ByteArray? =
+            if (length == 64 && all { it in '0'..'9' || it in 'a'..'f' }) ByteArray(32) { substring(it * 2, it * 2 + 2).toInt(16).toByte() } else null
+    }
 
     private suspend fun <T> stepped(persona: String, session: ByteArray, call: (S) -> EngineStep<T>): Stepped<T> =
         when (val hosted = host.step(persona, session, call)) {

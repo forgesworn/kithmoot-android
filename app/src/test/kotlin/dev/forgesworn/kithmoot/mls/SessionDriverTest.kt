@@ -118,18 +118,18 @@ class SessionDriverTest {
     @Test fun `a deposit with no answer stops the outbox and marks nothing`() = runBlocking<Unit> {
         world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
         fake.downAfterCapabilities = true
-        assertEquals(Round.Done(0, 0, 0), round())
+        assertEquals(Round.Done(0, 0, 0, stalled = true), round())
         assertTrue(world.calls.none { it.startsWith("delivered") })
         assertEquals(1, world.outbox.size)
     }
 
     @Test fun `a commit slot's signed receipt goes to the engine at the attempt deposited`() = runBlocking<Unit> {
         val slot = bytes(32)
-        world.outbox += Outgoing(bytes(32), slot, Destination.Slot(box, 4), bytes(64))
+        world.outbox += Outgoing(bytes(32), slot, Destination.Slot(box, 7, 4), bytes(64))
         round()
         assertTrue(world.calls.any { it == "deposit_result 4 ${slot.toHex()}" }, world.calls.toString())
         // Not yet durable: no receipt, so no deposit_result; the status is read instead.
-        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Slot(box, 5), bytes(64))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Slot(box, 7, 5), bytes(64))
         fake.signSlots = false
         world.calls.clear()
         round()
@@ -251,6 +251,91 @@ class SessionDriverTest {
         assertTrue(fake.authorizations.all { it.startsWith("Nostr ") })
     }
 
+    // ---- phases and refusals (review of #165) ----
+
+    @Test fun `a pending join is never given the installation, and still fetches its Welcome`() = runBlocking<Unit> {
+        world.phase = Phase.PendingJoin
+        world.epoch = null
+        val welcome = bytes(32)
+        world.watch += Watched(welcome, Watched.Kind.Welcome, box)
+        fake.put(welcome, bytes(50))
+        assertIs<Round.Done>(round())
+        assertTrue(world.calls.none { it.startsWith("installation") })
+        assertTrue(world.calls.any { it.startsWith("process ${welcome.toHex()}") })
+    }
+
+    @Test fun `removal, expiry and recoveries other than a gap drive nothing, a gap still fetches but deposits no commit`() = runBlocking<Unit> {
+        for (phase in listOf(Phase.Removed, Phase.Expired, Phase.NeedsRecovery("RestoreFenced"), Phase.NeedsRecovery("Fork"))) {
+            world.phase = phase
+            assertEquals(Round.Stopped(phase), round())
+        }
+        world.phase = Phase.NeedsRecovery("Gap")
+        val evidence = bytes(32)
+        world.watch += Watched(evidence, Watched.Kind.Mailbox(false), box)
+        fake.put(evidence, bytes(50))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Slot(box, 7, 1), bytes(64))
+        assertIs<Round.Done>(round())
+        assertTrue(fake.requests.none { it.startsWith("PUT /vmls/v1/slots") })
+        assertEquals(1, world.outbox.size)
+        assertTrue(world.calls.any { it.startsWith("process ${evidence.toHex()}") })
+    }
+
+    @Test fun `an earlier epoch's commit record leaves the outbox without being deposited again`() = runBlocking<Unit> {
+        val stale = Outgoing(bytes(32), bytes(32), Destination.Slot(box, 6, 2), bytes(64))
+        world.outbox += stale
+        assertEquals(1, (round() as Round.Done).delivered)
+        assertTrue(fake.requests.none { it.startsWith("PUT /vmls/v1/slots") })
+        assertTrue(world.outbox.isEmpty())
+    }
+
+    @Test fun `a refused deposit holds only its own record, no answer holds the rest, a gone Welcome leaves`() = runBlocking<Unit> {
+        val refused = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val ok = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val gone = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
+        world.outbox += listOf(refused, ok, gone)
+        fake.refuseDeposit[refused.mailbox.toHex()] = 403 to "authority"
+        fake.refuseDeposit[gone.mailbox.toHex()] = 410 to "expired"
+        val done = round() as Round.Done
+        assertEquals(2, done.delivered)
+        assertEquals(listOf(refused.recordId.toHex()), world.outbox.map { it.recordId.toHex() })
+        // No answer at all: the box may have it, so the rest waits.
+        val silent = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val after = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        world.outbox.clear(); world.outbox += listOf(silent, after)
+        fake.silent += silent.mailbox.toHex()
+        val stalled = round() as Round.Done
+        assertTrue(stalled.stalled)
+        assertEquals(0, stalled.delivered)
+        assertTrue(fake.records[after.mailbox.toHex()] == null)
+    }
+
+    @Test fun `an engine refusal changes nothing and the round goes on`() = runBlocking<Unit> {
+        world.refuse["deposit_result"] = "UnexpectedSlot"
+        val slot = Outgoing(bytes(32), bytes(32), Destination.Slot(box, 7, 3), bytes(64))
+        val leaf = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        world.outbox += listOf(slot, leaf)
+        assertEquals(2, (round() as Round.Done).delivered)
+        world.refuse["process"] = "WrongPhase"
+        val mailbox = bytes(32)
+        world.watch += Watched(mailbox, Watched.Kind.Mailbox(false), box)
+        val env = fake.put(mailbox, bytes(50))
+        assertIs<Round.Done>(round())
+        assertTrue(Digests.sha256(env).toHex() !in fake.acked, "a refused record is left at the box")
+    }
+
+    @Test fun `an OrderingUnconfirmed query is kept until the box can answer it`() = runBlocking<Unit> {
+        val slot = bytes(32)
+        world.unconfirmOnTick = slot to 6L
+        round()
+        assertTrue(world.calls.none { it.startsWith("observe_receipt") })
+        fake.slots[slot.toHex()] = Triple("filled", 6L, bytes(70))
+        round()
+        assertTrue(world.calls.contains("observe_receipt ${slot.toHex()}"))
+        world.calls.clear()
+        round()
+        assertTrue(world.calls.none { it.startsWith("observe_receipt") })
+    }
+
     private fun bytes(n: Int) = ByteArray(n).also(random::nextBytes)
     private fun secret(): ByteArray { while (true) { val k = bytes(32); if (runCatching { Schnorr.publicKey(k) }.isSuccess) return k } }
 }
@@ -262,6 +347,10 @@ internal class World {
     val calls = mutableListOf<String>()
     val acks = mutableMapOf<String, AckRule>()
     var unconfirmOnTick: Pair<ByteArray, Long>? = null
+    var phase: Phase = Phase.Active
+    var epoch: Long? = 7
+    /** Engine calls refused with a code, by the call's first word. */
+    val refuse = mutableMapOf<String, String>()
     /** The witness goes down while this record's step is being witnessed. */
     var downOnProcess: String? = null
     var server: FakeWitnessServer? = null
@@ -278,8 +367,14 @@ internal class ModelDriverSession(private val world: World, val id: ByteArray, p
         return StepSnapshot(id.copyOf(), generation, ByteBuffer.allocate(40).put(id).putLong(generation).array())
     }
 
-    private fun mutate(call: String): EngineStep<Effects> { world.calls += call; return EngineStep(next(), Effects()) }
+    private fun mutate(call: String): EngineStep<Effects> {
+        world.calls += call
+        world.refuse[call.substringBefore(' ')]?.let { return EngineStep(null, Effects(refused = it)) }
+        return EngineStep(next(), Effects())
+    }
 
+    override fun phase() = world.phase
+    override fun epoch() = world.epoch
     override fun outbox() = world.outbox.toList()
     override fun watchList() = world.watch.toList()
     override fun tick(now: Long): EngineStep<Effects> {
@@ -304,6 +399,7 @@ internal class ModelDriverSession(private val world: World, val id: ByteArray, p
         val hash = Digests.sha256(envelope).toHex()
         world.calls += "process ${mailbox.toHex()}" + (if (signedReceipt != null) " receipt" else "") + (installation?.let { " installation ${it.second.toHex()}" } ?: "")
         if (world.downOnProcess == hash) world.server?.mode = FakeWitnessServer.Mode.Down
+        world.refuse["process"]?.let { return EngineStep(null, Processed(Effects(refused = it), AckRule.Keep)) }
         return EngineStep(next(), Processed(Effects(), world.acks[hash] ?: AckRule.AfterStep))
     }
 
@@ -331,6 +427,10 @@ internal class FakeBox(private val node: String, private val installation: ByteA
     var signSlots = true
     var welcomeAcknowledged = false
     var pageSize = 64
+    /** Mailbox hex -> (status, code) the box refuses a deposit there with. */
+    val refuseDeposit = mutableMapOf<String, Pair<Int, String>>()
+    /** Mailbox hex the box gives no answer for. */
+    val silent = mutableSetOf<String>()
     private val path = LinkPathState("direct", null, "1.2.3.4:5", "test")
     private val b64 = Base64.getEncoder()
 
@@ -363,6 +463,8 @@ internal class FakeBox(private val node: String, private val installation: ByteA
         }
         if (downAfterCapabilities) return null
         return when {
+            parts[0] == "mailboxes" && parts[1] in silent -> null
+            parts[0] == "mailboxes" && parts[1] in refuseDeposit -> refuseDeposit.getValue(parts[1]).let { (st, code) -> reply(st, """{"v":1,"code":"$code","server_time":1}""") }
             parts[0] == "mailboxes" -> {
                 val list = records.getOrPut(parts[1]) { mutableListOf() }
                 val duplicate = list.any { it.contentEquals(request.body) }

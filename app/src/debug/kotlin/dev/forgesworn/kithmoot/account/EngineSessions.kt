@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.mls.Destination
 import dev.forgesworn.kithmoot.mls.DriverSession
 import dev.forgesworn.kithmoot.mls.Effects
 import dev.forgesworn.kithmoot.mls.Outgoing
+import dev.forgesworn.kithmoot.mls.Phase
 import dev.forgesworn.kithmoot.mls.Processed
 import dev.forgesworn.kithmoot.mls.SlotOutcome
 import dev.forgesworn.kithmoot.mls.Watched
@@ -14,6 +15,7 @@ import dev.forgesworn.vmls.ffi.VmlsBoxInstallation
 import dev.forgesworn.vmls.ffi.VmlsDestination
 import dev.forgesworn.vmls.ffi.VmlsEvent
 import dev.forgesworn.vmls.ffi.VmlsException
+import dev.forgesworn.vmls.ffi.VmlsPhase
 import dev.forgesworn.vmls.ffi.VmlsSlotStatus
 import dev.forgesworn.vmls.ffi.VmlsWatchKind
 import dev.forgesworn.vmls.ffi.parseCapabilities
@@ -53,10 +55,25 @@ class EngineSession(val inner: VmlsSession) : DriverSession {
 
     // ---- the driver's calls (P3-03b-3a) ----
 
+    override fun phase(): Phase = when (val p = sessionCall { inner.phase() }) {
+        VmlsPhase.PendingJoin -> Phase.PendingJoin
+        VmlsPhase.Active -> Phase.Active
+        is VmlsPhase.NeedsRecovery -> Phase.NeedsRecovery(p.reason)
+        VmlsPhase.Removed -> Phase.Removed
+        VmlsPhase.Expired -> Phase.Expired
+    }
+
+    override fun epoch(): Long? = try {
+        inner.epoch().also { check(it <= Long.MAX_VALUE.toULong()) }.toLong()
+    } catch (_: VmlsException.Engine) {
+        // No group yet (a pending join).
+        null
+    }
+
     override fun outbox(): List<Outgoing> = sessionCall { inner.outbox() }.map { out ->
         Outgoing(out.recordId, out.mailbox, when (val d = out.destination) {
             is VmlsDestination.Leaf -> Destination.Leaf(d.homeBox)
-            is VmlsDestination.CommitSlot -> Destination.Slot(d.homeBox, d.attempt.toLong())
+            is VmlsDestination.CommitSlot -> Destination.Slot(d.homeBox, d.epoch.also { check(it <= Long.MAX_VALUE.toULong()) }.toLong(), d.attempt.toLong())
             is VmlsDestination.Welcome -> Destination.Welcome(d.packageId)
             is VmlsDestination.Introduction -> Destination.Introduction
             is VmlsDestination.ForkEvidence -> Destination.Evidence(d.homeBox)
@@ -88,7 +105,12 @@ class EngineSession(val inner: VmlsSession) : DriverSession {
     override fun confirmMember(packageId: ByteArray) = effects { inner.confirmMember(packageId) }
 
     override fun process(now: Long, mailbox: ByteArray, envelope: ByteArray, signedReceipt: ByteArray?, installation: Pair<ByteArray, ByteArray>?): EngineStep<Processed> {
-        val processed = sessionCall { inner.process(now.u(), mailbox, envelope, signedReceipt, installation?.let { VmlsBoxInstallation(it.first, it.second) }) }
+        val processed = try {
+            inner.process(now.u(), mailbox, envelope, signedReceipt, installation?.let { VmlsBoxInstallation(it.first, it.second) })
+        } catch (refused: VmlsException.Engine) {
+            // A refused call changes nothing: the record stays at the box.
+            return EngineStep(null, Processed(Effects(refused = refused.code), AckRule.Keep))
+        }
         val ack = when (processed.ack) {
             VmlsAck.Now -> AckRule.Now
             is VmlsAck.AfterCommitAck -> AckRule.AfterStep
@@ -98,8 +120,9 @@ class EngineSession(val inner: VmlsSession) : DriverSession {
         return EngineStep(step.snapshot, Processed(effectsOf(processed.step), ack))
     }
 
+    /** An engine refusal changes nothing (the engine restores its state), so it is answered, not thrown. Boundary faults still throw. */
     private inline fun effects(call: () -> VmlsStep): EngineStep<Effects> {
-        val step = sessionCall(call)
+        val step = try { call() } catch (refused: VmlsException.Engine) { return EngineStep(null, Effects(refused = refused.code)) }
         return EngineStep(hostedStep(step).snapshot, effectsOf(step))
     }
 
