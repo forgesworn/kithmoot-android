@@ -43,7 +43,12 @@ sealed class BoxAnswer<out T> {
     data class Refused(val status: Int, val code: String?, val serverTime: Long?) : BoxAnswer<Nothing>()
     /** The vault signed nothing; nothing was sent. */
     data class NotSigned(val refusal: VaultRefusal) : BoxAnswer<Nothing>()
-    /** No answer, or one this client cannot trust: the request may or may not have taken effect. */
+    /**
+     * No answer: the request may or may not have taken effect. A request
+     * given up on here can still reach the box later (the Link call is not
+     * cancelled), which is safe because every route is idempotent and a
+     * retry is a new event.
+     */
     data object Unreachable : BoxAnswer<Nothing>()
     /** An answer that is not the box's documented shape: treated as no answer. */
     data object Malformed : BoxAnswer<Nothing>()
@@ -136,6 +141,8 @@ class VmlsBoxClient(
             // A win or a duplicate is this envelope at this attempt; only `taken` names another.
             if (outcome != SlotDeposited.Outcome.Taken && (winner != attempt || !receipt.contentEquals(Digests.sha256(envelope)))) return@request null
             val signed = answer.signedReceipt() ?: return@request null
+            // The signed receipt must state exactly the facts the answer gives.
+            if (signed.value != null && !receiptStates(signed.value, slot, winner, receipt)) return@request null
             SlotDeposited(outcome, winner, receipt, signed.value) to answer.serverTime
         }
     }
@@ -146,7 +153,8 @@ class VmlsBoxClient(
         val body = """{"v":1}""".toByteArray()
         return request("POST", "/vmls/v1/slots/${slot.toHex()}/$attempt/status", body) { status, raw ->
             if (status != 200) return@request null
-            val answer = answer(raw, setOf("code", "receipt", "signed_receipt", "attempt", "envelope")) ?: return@request null
+            // A filled slot answers its whole envelope: bounded as a fetch page is, not as ordinary JSON.
+            val answer = answer(raw, setOf("code", "receipt", "signed_receipt", "attempt", "envelope"), maxBytes = MAX_FETCH_BYTES) ?: return@request null
             val state = when (answer.code) {
                 "empty" -> return@request if (answer.json.keys == setOf("v", "code", "server_time")) SlotState(SlotState.State.Empty, null, null, null, null) to answer.serverTime else null
                 "filled" -> SlotState.State.Filled
@@ -165,8 +173,10 @@ class VmlsBoxClient(
                 if ("envelope" in answer.json) return@request null
                 null
             }
-            // Filled is only ever at the asked attempt; the signed receipt's label decides the rest (engine §5.1).
-            if (state == SlotState.State.Filled && winner != attempt) return@request null
+            // The box reads at the asked attempt: filled and expired are that attempt, void is always another.
+            // The signed receipt's label still decides for the engine (§5.1); these only refuse a box contradicting itself.
+            if ((state == SlotState.State.Void) == (winner == attempt)) return@request null
+            if (!receiptStates(signed, slot, winner, receipt)) return@request null
             SlotState(state, winner, receipt, signed, envelope) to answer.serverTime
         }
     }
@@ -228,13 +238,8 @@ class VmlsBoxClient(
     // ---- inside ----
 
     private suspend fun <T> request(method: String, path: String, body: ByteArray, parse: (Int, ByteArray) -> Pair<T, Long?>?): BoxAnswer<T> {
-        val signed = try {
-            signer.sign(BoxRequest(box, method, path, Digests.sha256(body).toHex()))
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            return BoxAnswer.NotSigned(VaultRefusal.Busy)
-        }
+        // A signer that throws is a fault, not a refusal: it propagates rather than looking retryable.
+        val signed = signer.sign(BoxRequest(box, method, path, Digests.sha256(body).toHex()))
         val authorization = when (signed) {
             is VaultResult.Refused -> return BoxAnswer.NotSigned(signed.refusal)
             is VaultResult.Ok -> signed.value.authorization
@@ -263,6 +268,20 @@ class VmlsBoxClient(
         val refusal = answer(response.body, setOf("code")) ?: return BoxAnswer.Malformed
         if (!REFUSAL_CODE.matches(refusal.code)) return BoxAnswer.Malformed
         return BoxAnswer.Refused(status, refusal.code, refusal.serverTime)
+    }
+
+    /**
+     * Whether a 197-byte slot receipt (vmls-core `SlotReceipt`: version 1,
+     * node, installation, slot, attempt big-endian, envelope hash, signature)
+     * names this box, [slot], [attempt] and [receipt]. The signature and the
+     * installation are the engine's to check.
+     */
+    private fun receiptStates(signed: ByteArray, slot: ByteArray, attempt: Long, receipt: ByteArray): Boolean {
+        if (signed.size != SIGNED_RECEIPT_BYTES || signed[0] != 1.toByte()) return false
+        val node = box.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val labelled = signed.copyOfRange(97, 101).fold(0L) { acc, b -> (acc shl 8) or (b.toLong() and 0xff) }
+        return signed.copyOfRange(1, 33).contentEquals(node) && signed.copyOfRange(65, 97).contentEquals(slot) &&
+            labelled == attempt && signed.copyOfRange(101, 133).contentEquals(receipt)
     }
 
     /** A box answer: `{v:1, code, server_time, ...}` with only [allowed] keys besides `v` and `server_time`. */

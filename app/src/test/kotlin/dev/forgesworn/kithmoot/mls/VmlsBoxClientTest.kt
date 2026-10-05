@@ -15,6 +15,7 @@ import java.util.Base64
 import java.util.concurrent.CompletableFuture
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -81,51 +82,84 @@ class VmlsBoxClientTest {
         assertEquals(true, dup.welcomeAcknowledged)
     }
 
-    @Test fun `a slot deposit carries the winner's facts and checks a win is this envelope at this attempt`() = runBlocking<Unit> {
-        val env = envelope(); val receipt = Digests.sha256(env).toHex(); val signedReceipt = b64(bytes(197))
-        answer = reply(201, """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"$signedReceipt"}""")
-        val won = assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(bytes(32), 3, env)).value
+    /** A 197-byte slot receipt laid out as vmls-core's `SlotReceipt`, with a placeholder signature. */
+    private fun signedReceipt(slot: ByteArray, attempt: Long, receipt: String, node: String = box): String {
+        val out = ByteArray(197)
+        out[0] = 1
+        node.chunked(2).map { it.toInt(16).toByte() }.toByteArray().copyInto(out, 1)
+        bytes(32).copyInto(out, 33)
+        slot.copyInto(out, 65)
+        for (i in 0 until 4) out[97 + i] = (attempt shr (24 - 8 * i)).toByte()
+        receipt.chunked(2).map { it.toInt(16).toByte() }.toByteArray().copyInto(out, 101)
+        bytes(64).copyInto(out, 133)
+        return b64(out)
+    }
+
+    @Test fun `a slot deposit carries the winner's facts, checked against its own signed receipt`() = runBlocking<Unit> {
+        val slot = bytes(32); val env = envelope(); val receipt = Digests.sha256(env).toHex()
+        answer = reply(201, """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 3, receipt)}"}""")
+        val won = assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(slot, 3, env)).value
         assertEquals(SlotDeposited.Outcome.Won, won.outcome)
         assertEquals(197, won.signedReceipt!!.size)
         // Not yet durable: no signed receipt is attached.
         answer = reply(200, """{"v":1,"code":"duplicate","server_time":5,"attempt":3,"receipt":"$receipt"}""")
-        assertNull(assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(bytes(32), 3, env)).value.signedReceipt)
-        // Taken names another attempt and envelope.
-        answer = reply(409, """{"v":1,"code":"taken","server_time":5,"attempt":1,"receipt":"${bytes(32).toHex()}","signed_receipt":"$signedReceipt"}""")
-        val taken = assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(bytes(32), 3, env)).value
+        assertNull(assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(slot, 3, env)).value.signedReceipt)
+        // Taken names another attempt and envelope, with or without its signed receipt.
+        val other = bytes(32).toHex()
+        answer = reply(409, """{"v":1,"code":"taken","server_time":5,"attempt":1,"receipt":"$other","signed_receipt":"${signedReceipt(slot, 1, other)}"}""")
+        val taken = assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(slot, 3, env)).value
         assertEquals(SlotDeposited.Outcome.Taken, taken.outcome)
         assertEquals(1L, taken.attempt)
-        // A "win" at another attempt, a short signed receipt, a non-canonical one: not trusted.
-        for (body in listOf(
-            """{"v":1,"code":"won","server_time":5,"attempt":4,"receipt":"$receipt"}""",
-            """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${b64(bytes(196))}"}""",
-            """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt.dropLast(1)}"}""",
-            """{"v":1,"code":"won","server_time":5,"attempt":4294967296,"receipt":"$receipt"}""",
+        answer = reply(409, """{"v":1,"code":"taken","server_time":5,"attempt":1,"receipt":"$other"}""")
+        assertIs<BoxAnswer.Ok<SlotDeposited>>(client.depositSlot(slot, 3, env))
+        for ((status, body) in listOf(
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":4,"receipt":"$receipt"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"${bytes(32).toHex()}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${b64(bytes(196))}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 3, receipt).dropLast(1)}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":4294967296,"receipt":"$receipt"}""",
+            // The signed receipt names another slot, attempt, envelope or box than the answer.
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(bytes(32), 3, receipt)}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 2, receipt)}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 3, other)}"}""",
+            201 to """{"v":1,"code":"won","server_time":5,"attempt":3,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 3, receipt, node = bytes(32).toHex())}"}""",
+            409 to """{"v":1,"code":"taken","server_time":5,"attempt":1,"receipt":"$other","signed_receipt":"${signedReceipt(slot, 2, other)}"}""",
         )) {
-            answer = reply(201, body)
-            assertEquals(BoxAnswer.Malformed, client.depositSlot(bytes(32), 3, env), body)
+            answer = reply(status, body)
+            assertEquals(BoxAnswer.Malformed, client.depositSlot(slot, 3, env), body)
         }
         // A 409 that is not `taken` is the box's refusal.
         answer = reply(409, """{"v":1,"code":"conflict","server_time":5}""")
-        assertEquals(BoxAnswer.Refused(409, "conflict", 5), client.depositSlot(bytes(32), 3, env))
+        assertEquals(BoxAnswer.Refused(409, "conflict", 5), client.depositSlot(slot, 3, env))
+        answer = reply(409, """{"v":1,"code":"consumed","server_time":5}""")
+        assertEquals(BoxAnswer.Refused(409, "consumed", 5), client.deposit(bytes(32), env))
     }
 
     @Test fun `a slot status is read at the asked attempt and every state is checked`() = runBlocking<Unit> {
-        val slot = bytes(32); val env = envelope(); val receipt = Digests.sha256(env).toHex(); val sr = b64(bytes(197))
+        val slot = bytes(32); val env = envelope(); val receipt = Digests.sha256(env).toHex()
         answer = reply(200, """{"v":1,"code":"empty","server_time":5}""")
         assertEquals(SlotState.State.Empty, assertIs<BoxAnswer.Ok<SlotState>>(client.slotStatus(slot, 7)).value.state)
         assertEquals("/vmls/v1/slots/${slot.toHex()}/7/status", sent.last().path)
         assertEquals("""{"v":1}""", String(sent.last().body))
-        answer = reply(200, """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"$receipt","signed_receipt":"$sr","envelope":"${b64(env)}"}""")
+        answer = reply(200, """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 7, receipt)}","envelope":"${b64(env)}"}""")
         val filled = assertIs<BoxAnswer.Ok<SlotState>>(client.slotStatus(slot, 7)).value
         assertTrue(filled.envelope!!.contentEquals(env))
-        answer = reply(200, """{"v":1,"code":"void","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"$sr"}""")
+        answer = reply(200, """{"v":1,"code":"void","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 2, receipt)}"}""")
         assertEquals(2L, assertIs<BoxAnswer.Ok<SlotState>>(client.slotStatus(slot, 7)).value.attempt)
+        answer = reply(200, """{"v":1,"code":"expired","server_time":5,"attempt":7,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 7, receipt)}"}""")
+        assertEquals(SlotState.State.Expired, assertIs<BoxAnswer.Ok<SlotState>>(client.slotStatus(slot, 7)).value.state)
+        // A filled 1 MiB-bucket commit answers more than ordinary JSON's bound, and is still read.
+        val big = bytes(1_048_576 + 44); val bigReceipt = Digests.sha256(big).toHex()
+        answer = reply(200, """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"$bigReceipt","signed_receipt":"${signedReceipt(slot, 7, bigReceipt)}","envelope":"${b64(big)}"}""")
+        assertIs<BoxAnswer.Ok<SlotState>>(client.slotStatus(slot, 7))
         for (body in listOf(
-            """{"v":1,"code":"filled","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"$sr","envelope":"${b64(env)}"}""",
-            """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"${bytes(32).toHex()}","signed_receipt":"$sr","envelope":"${b64(env)}"}""",
+            """{"v":1,"code":"filled","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 2, receipt)}","envelope":"${b64(env)}"}""",
+            """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"${bytes(32).toHex()}","signed_receipt":"${signedReceipt(slot, 7, receipt)}","envelope":"${b64(env)}"}""",
+            """{"v":1,"code":"filled","server_time":5,"attempt":7,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 6, receipt)}","envelope":"${b64(env)}"}""",
             """{"v":1,"code":"void","server_time":5,"attempt":2,"receipt":"$receipt"}""",
-            """{"v":1,"code":"void","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"$sr","envelope":"${b64(env)}"}""",
+            """{"v":1,"code":"void","server_time":5,"attempt":7,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 7, receipt)}"}""",
+            """{"v":1,"code":"void","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 2, receipt)}","envelope":"${b64(env)}"}""",
+            """{"v":1,"code":"expired","server_time":5,"attempt":2,"receipt":"$receipt","signed_receipt":"${signedReceipt(slot, 2, receipt)}"}""",
             """{"v":1,"code":"empty","server_time":5,"attempt":2}""",
             """{"v":1,"code":"pending","server_time":5}""",
         )) {
@@ -143,6 +177,13 @@ class VmlsBoxClientTest {
         assertEquals("""{"v":1,"mailboxes":["${a.toHex()}","${b.toHex()}"],"after":"cur"}""", String(sent.last().body))
         answer = reply(200, """{"v":1,"code":"ok","server_time":5,"records":[],"next":null}""")
         assertNull(assertIs<BoxAnswer.Ok<FetchPage>>(client.fetch(listOf(a))).value.next)
+        // The box's real cursor: URL-safe unpadded base64.
+        val cursor = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes(36))
+        answer = reply(200, """{"v":1,"code":"ok","server_time":5,"records":[],"next":"$cursor"}""")
+        assertEquals(cursor, assertIs<BoxAnswer.Ok<FetchPage>>(client.fetch(listOf(a))).value.next)
+        val many = (1..65).joinToString(",") { """{"mailbox":"${a.toHex()}","receipt":"$receipt","envelope":"${b64(env)}"}""" }
+        answer = reply(200, """{"v":1,"code":"ok","server_time":5,"records":[$many],"next":null}""")
+        assertEquals(BoxAnswer.Malformed, client.fetch(listOf(a)))
         for (body in listOf(
             """{"v":1,"code":"ok","server_time":5,"records":[{"mailbox":"${bytes(32).toHex()}","receipt":"$receipt","envelope":"${b64(env)}"}],"next":null}""",
             """{"v":1,"code":"ok","server_time":5,"records":[{"mailbox":"${a.toHex()}","receipt":"${bytes(32).toHex()}","envelope":"${b64(env)}"}],"next":null}""",
@@ -163,8 +204,12 @@ class VmlsBoxClientTest {
         assertEquals(false, acked.deleted)
         assertEquals(2L, acked.acked)
         assertTrue(String(sent.last().body).startsWith("""{"v":1,"records":[{"mailbox":""""))
-        answer = reply(200, """{"v":1,"code":"deleted","server_time":5,"acked":3}""")
-        assertEquals(BoxAnswer.Malformed, client.ack(items))
+        answer = reply(200, """{"v":1,"code":"deleted","server_time":5,"acked":1}""")
+        assertTrue(assertIs<BoxAnswer.Ok<Acked>>(client.ack(items)).value.deleted)
+        for (acked in listOf("3", "-1", "\"2\"", null)) {
+            answer = reply(200, if (acked == null) """{"v":1,"code":"deleted","server_time":5}""" else """{"v":1,"code":"deleted","server_time":5,"acked":$acked}""")
+            assertEquals(BoxAnswer.Malformed, client.ack(items), acked)
+        }
     }
 
     @Test fun `capabilities hand the engine the raw body`() = runBlocking<Unit> {
@@ -186,6 +231,10 @@ class VmlsBoxClientTest {
         assertEquals(BoxAnswer.Refused(404, null, null), client.capabilities())
         answer = reply(403, """{"v":1,"code":"Not A Code","server_time":9}""")
         assertEquals(BoxAnswer.Malformed, client.capabilities())
+        answer = { LinkJsonResponse(204, ByteArray(0), PATH) }
+        assertEquals(BoxAnswer.Malformed, client.capabilities())
+        answer = { LinkJsonResponse(200, ByteArray(0), PATH) }
+        assertEquals(BoxAnswer.Malformed, client.capabilities())
     }
 
     @Test fun `a refused signature sends nothing, and a transport failure or timeout is unreachable`() = runBlocking<Unit> {
@@ -197,6 +246,11 @@ class VmlsBoxClientTest {
         assertEquals(BoxAnswer.Unreachable, client.capabilities())
         val slow = VmlsBoxClient({ CompletableFuture<LinkJsonResponse>() }, "route-1", box, signer, timeoutMillis = 50)
         assertEquals(BoxAnswer.Unreachable, slow.capabilities())
+        // A signer that throws is a fault: it propagates, and nothing is sent.
+        val count = sent.size
+        val faulty = VmlsBoxClient(transport, "route-1", box, { error("vault fault") })
+        assertFailsWith<IllegalStateException> { faulty.capabilities() }
+        assertEquals(count, sent.size)
     }
 
     @Test fun `every retry is signed afresh`() = runBlocking<Unit> {
