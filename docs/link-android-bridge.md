@@ -4,17 +4,19 @@ KithMoot consumes ForgeSworn Link as a reviewed binary hand-off. It does not
 rebuild Link, copy JNI libraries into the repository, or accept an unpinned
 release name.
 
-The current hand-off is Link commit `e3f80d48f34e8e72f1028540d9962b7eb4988577`,
-published as the permanent prerelease `android-ffi-e3f80d4`, with archive SHA-256
-`bb3ba23b2dd030b58e23cb2a499453360167e9a3c0e052d61a20b6b118fdfaed`.
+The current hand-off is Link commit `2cdf5a987db76331d72e31f047fa5b494b92f4b2`,
+published as the permanent prerelease `android-ffi-2cdf5a9`, with archive SHA-256
+`3bcaeadc98dd0959d31603173c30050b6df946b5f1689cfa5402e46a174f6a42`.
 Its manifest pins the two shipped ABIs and the generated UniFFI Kotlin binding
 individually.
 
-This hand-off adds Link's VMLS route table (P3-04) and the witness refusal flag:
-a Link HTTP response's `witnessRefused` is true only for a 403 on a Bothy
-restore-witness route carrying `vmls-witness: refused`, and the app carries it
-as `LinkJsonResponse.witnessRefused`. Cadence requests keep their existing
-rules.
+This hand-off gives a filled VMLS slot's status answer the fetch page's 2 MiB
+bound (forgesworn-link #64), so a commit in the 1 MiB bucket can be read back
+(P3-03b-3a). The earlier hand-off, `android-ffi-e3f80d4`, added Link's VMLS
+route table (P3-04) and the witness refusal flag: a Link HTTP response's
+`witnessRefused` is true only for a 403 on a Bothy restore-witness route
+carrying `vmls-witness: refused`, and the app carries it as
+`LinkJsonResponse.witnessRefused`. Cadence requests keep their existing rules.
 
 To prepare any local or hosted build, download and verify the source-pinned
 public release asset:
