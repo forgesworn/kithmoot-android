@@ -3,8 +3,6 @@ package dev.forgesworn.kithmoot.storage
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.forgesworn.kithmoot.account.ConsentDecision
-import dev.forgesworn.kithmoot.account.ConsentPrompt
 import dev.forgesworn.kithmoot.account.CoordinationStatus
 import dev.forgesworn.kithmoot.account.EngineSession
 import dev.forgesworn.kithmoot.account.EngineSessions
@@ -14,7 +12,6 @@ import dev.forgesworn.kithmoot.account.Hosted
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.MlsVault
 import dev.forgesworn.kithmoot.account.SessionHost
-import dev.forgesworn.kithmoot.account.SignLeafBindingReply
 import dev.forgesworn.kithmoot.account.VaultCoordination
 import dev.forgesworn.kithmoot.account.VaultResult
 import dev.forgesworn.kithmoot.account.WitnessChannels
@@ -23,17 +20,11 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
-import dev.forgesworn.vmls.ffi.VmlsBindingRequest
-import dev.forgesworn.vmls.ffi.VmlsCredential
 import dev.forgesworn.vmls.ffi.VmlsStep
-import dev.forgesworn.vmls.ffi.prepareCreate
 import java.security.KeyStore
 import java.security.SecureRandom
-import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -56,7 +47,6 @@ class SessionHostEngineTest {
     private val random = SecureRandom()
     private val identity = LocalSigner(ByteArray(32).also { random.nextBytes(it) })
     private val now = System.currentTimeMillis() / 1000
-    private val homeBox = bytes(32)
     private var credential: NostrEvent? = null
 
     @Before fun setup() {
@@ -87,32 +77,8 @@ class SessionHostEngineTest {
         return (v.enrol(v.context(principal, identity.pubkey), signer, now + 86_400) as VaultResult.Ok).value
     }
 
-    /** Prepares a group, has the vault sign its leaf binding, and creates it under the host. */
-    private suspend fun create(v: MlsVault, host: SessionHost<EngineSession>, sessions: EngineSessions): Hosted<VmlsStep> {
-        val event = credential!!
-        val request = VmlsBindingRequest(
-            VmlsCredential(event.pubkey.hexToBytes(), event.createdAt.toULong(), event.tags, event.content, event.sig.hexToBytes()),
-            homeBox, (now + 3_600).toULong(),
-        )
-        val pending = prepareCreate(sessions.platform, now.toULong(), request, bytes(32))
-        val sign = pending.request()
-        val reply = v.signLeafBindingV1(
-            v.context(principal, identity.pubkey),
-            buildJsonObject {
-                put("v", 1)
-                put("operation", sign.operation.toHex())
-                put("body", Base64.getEncoder().encodeToString(sign.body))
-                put("digest", sign.digest.toHex())
-                put("expires_at", sign.expiresAt.toLong())
-            },
-            ConsentPrompt { ConsentDecision.Approve },
-        )
-        val signature = ((reply as VaultResult.Ok<SignLeafBindingReply>).value.signature).hexToBytes()
-        return host.create(identity.pubkey) {
-            val created = pending.complete(now.toULong(), sign.operation, signature)
-            EngineSession(created.session) to hostedStep(created.step)
-        }
-    }
+    private suspend fun create(v: MlsVault, host: SessionHost<EngineSession>, sessions: EngineSessions): Hosted<VmlsStep> =
+        createGroup(v, host, sessions, identity.pubkey, credential!!, now, random)
 
     @Test fun a_created_group_and_each_send_are_witnessed_before_release() = runBlocking<Unit> {
         val vault = vault()

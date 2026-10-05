@@ -110,3 +110,8 @@ run_tests session-host 2 -e class dev.forgesworn.kithmoot.storage.SessionHostEng
 run_tests coordinated-kill 1 -e class dev.forgesworn.kithmoot.storage.CoordinatedVaultRestartTest#a_kill
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests coordinated-recover 1 -e class dev.forgesworn.kithmoot.storage.CoordinatedVaultRestartTest#b_recover -e requireRestart true
+# P3-03b-3a: a session step killed after its snapshot write, its stage, the
+# witness's commit and its promotion, recovered in a new process.
+run_tests session-kill 1 -e class dev.forgesworn.kithmoot.storage.SessionRestartTest#a_kill
+adb_device shell am force-stop dev.forgesworn.kithmoot
+run_tests session-recover 1 -e class dev.forgesworn.kithmoot.storage.SessionRestartTest#b_recover -e requireRestart true

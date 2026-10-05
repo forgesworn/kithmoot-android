@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.storage
 import dev.forgesworn.kithmoot.account.CoordinatedVaultStores
 import dev.forgesworn.kithmoot.account.PersonaCoordination
 import dev.forgesworn.kithmoot.account.PersonaFile
+import dev.forgesworn.kithmoot.account.SnapshotFiles
 import dev.forgesworn.kithmoot.account.WitnessAnswer
 import dev.forgesworn.kithmoot.account.WitnessChannel
 import dev.forgesworn.kithmoot.crypto.hexToBytes
@@ -184,6 +185,8 @@ class HookedStores(private val inner: CoordinatedVaultStores) : CoordinatedVault
         AfterPromotion,
         /** The staging write itself fails: the stage is lost. */
         FailStage,
+        /** Just after a session snapshot file is written, before any candidate names it (P3-03b-3a). */
+        AfterSnapshot,
     }
 
     @Volatile private var armed: Point? = null
@@ -214,6 +217,16 @@ class HookedStores(private val inner: CoordinatedVaultStores) : CoordinatedVault
                     Point.AfterPromotion -> if (staged) sawStaged = true else if (sawStaged) { fire(name); throw Killed("after the promotion") }
                     else -> Unit
                 }
+            }
+        }
+    }
+
+    override fun snapshots(name: String): SnapshotFiles {
+        val files = inner.snapshots(name)
+        return object : SnapshotFiles by files {
+            override fun write(session: String, generation: Long, sealed: ByteArray) {
+                files.write(session, generation, sealed)
+                if (armed == Point.AfterSnapshot) { fire(name); throw Killed("after the snapshot write") }
             }
         }
     }
