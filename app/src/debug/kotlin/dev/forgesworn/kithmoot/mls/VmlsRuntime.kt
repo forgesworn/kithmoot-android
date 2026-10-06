@@ -365,6 +365,14 @@ class VmlsRuntime(
     /** [at] is when the guest began waiting; [invite] the link it asked over. */
     private class Asked(val ask: VmlsJoinAsk, val request: VmlsJoinRequest, val at: Long, val invite: String)
 
+    /** Requests opened per link in the current window: a flood is turned away before each is decrypted. */
+    private val opened = HashMap<String, Pair<Long, Int>>()
+
+    private fun admitted(session: String): Boolean = synchronized(this) {
+        val (start, count) = opened[session]?.takeIf { now() - it.first < OPEN_WINDOW_SECONDS } ?: (now() to 0)
+        (count < MAX_OPENED).also { opened[session] = start to count + 1 }
+    }
+
     /** When each pending join, by its request id, was last answered again. */
     private val reanswered = HashMap<String, Long>()
 
@@ -448,15 +456,15 @@ class VmlsRuntime(
     /** A request over [link]: asked of the keeper only if the gate lets it through (decision 18). */
     private suspend fun asked(link: VmlsLink, invitation: RoomInvitation, event: NostrEvent, carrier: VmlsCarrier) {
         if (quiet.get()) return
-        // A request already seen is turned away before it is opened.
-        if (gate.spent(event.id.lowercase())) return
+        // A request already seen, or one over a link asked too often of late, is turned away before it is opened.
+        if (gate.spent(event.id.lowercase()) || !admitted(link.session)) return
         val key = link.key.hexToBytes()
         val request = try { decodeVmlsJoinRequest(event, invitation, key, now()) } finally { key.fill(0) } ?: return
         if (request.device == ownDevice(link.persona)) return
         // Admitted over this link and not added yet, the device asks again when its answer was lost: answered again,
-        // unasked, at most once a minute, and only once the box took its grant. Whoever holds the link and a copy of
-        // the guest's credential learns the room's name, the keeper's rendezvous key and the counter this way, as the
-        // guest did; the introduction still needs the guest's own rendezvous key.
+        // unasked, at most once a minute, and only once the box took its grant. Whoever holds the link, a copy of the
+        // guest's credential and its rendezvous public key learns the room's name, the keeper's rendezvous key and the
+        // counter this way, as the guest did; the introduction still needs the guest's rendezvous secret.
         val current = invites.link(link.persona, link.session) ?: return
         current.joins.firstOrNull { it.device == request.device && it.deadline > now() }?.let { join ->
             gate.spend(request.requestId)
@@ -465,6 +473,7 @@ class VmlsRuntime(
             val granted = ledger.get(room.box, join.device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.persona == join.guest && it.expiration > now() }
             if (granted == null) return
             val due = synchronized(this) {
+                reanswered.values.removeAll { now() - it > JOIN_DEADLINE_SECONDS }
                 val last = reanswered[join.requestId] ?: 0
                 (now() - last >= REANSWER_SECONDS).also { if (it) reanswered[join.requestId] = now() }
             }
@@ -486,8 +495,9 @@ class VmlsRuntime(
             val ask = VmlsJoinAsk(link.persona, link.session, room.name, room.box, boxName, request.persona, request.device, request.requestId)
             synchronized(this) { asks[request.requestId] = Asked(ask, request, request.since, id); _joinAsk.value = asks.values.first().ask }
         } catch (error: Exception) {
-            // Not shown, so the room's prompt is not held open.
+            // Not shown, so the room's prompt is not held open, and the device may be asked about again.
             gate.answered(link.session, request.requestId)
+            runCatching { store.update(link.persona, link.session) { it.copy(asked = it.asked - request.device) } }
             throw error
         }
     }
@@ -641,7 +651,8 @@ class VmlsRuntime(
 
     override fun join(signer: ParticipantSigner, url: String, code: String) {
         if (!joiningLock.tryLock()) { _state.update { it.copy(error = "Already asking to join a room.") }; return }
-        scope.launch {
+        // Started even on a scope being cancelled, so the lock is always released.
+        scope.launch(start = CoroutineStart.ATOMIC) {
             try { joinNow(signer, url, code) } finally { joiningLock.unlock() }
         }
     }
@@ -1100,6 +1111,9 @@ class VmlsRuntime(
         private const val QUIET_CHECK_MILLIS = 2_000L
         /** A lost answer is sent again at most this often per join. */
         private const val REANSWER_SECONDS = 60L
+        /** At most this many requests a link are opened each window: a guest asks every five seconds. */
+        private const val MAX_OPENED = 60
+        private const val OPEN_WINDOW_SECONDS = 60L
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
         private const val MAX_MESSAGES = 200
