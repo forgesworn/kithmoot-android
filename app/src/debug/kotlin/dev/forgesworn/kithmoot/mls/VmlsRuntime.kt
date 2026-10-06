@@ -42,6 +42,7 @@ import dev.forgesworn.vmls.ffi.VmlsCredential
 import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.prepareCreate
+import java.security.SecureRandom
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -84,6 +85,7 @@ class VmlsRuntime(
     /** Answers the vault's consent asks; null puts each ask on [consent] for the dialog. */
     prompt: ConsentPrompt? = null,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    private val random: SecureRandom = SecureRandom(),
 ) : VmlsBoxes {
     private val _state = MutableStateFlow(VmlsBoxesState())
     override val state: StateFlow<VmlsBoxesState> = _state.asStateFlow()
@@ -97,13 +99,24 @@ class VmlsRuntime(
     private val acting = Mutex()
     private val rounding = Mutex()
 
+    /** Scopes the person denied, and until when they are not asked again: the vault keeps no box-request denial. */
+    private val denied = HashMap<ConsentScope, Long>()
+
+    /**
+     * The ask waits for the person, however long the dialog is held back (over
+     * a call, say): no answer is ever made for them. Leaving the foreground
+     * cancels it, which the vault records as nothing. A denial holds for
+     * [DENIED_SECONDS], so the rounds do not ask again at once.
+     */
     private val prompt: ConsentPrompt = prompt ?: ConsentPrompt { scope ->
+        if (synchronized(this) { (denied[scope] ?: 0) > now() }) return@ConsentPrompt ConsentDecision.Deny
         asking.withLock {
             val answer = CompletableDeferred<ConsentDecision>()
             synchronized(this) { waiting = answer; _consent.value = scope }
             try {
-                // Unanswered, the ask is denied: the vault records the denial for that request only.
-                withTimeoutOrNull(CONSENT_MILLIS) { answer.await() } ?: ConsentDecision.Deny
+                answer.await().also { decision ->
+                    if (decision != ConsentDecision.Approve) synchronized(this) { denied[scope] = now() + DENIED_SECONDS }
+                }
             } finally {
                 synchronized(this) { waiting = null; _consent.value = null }
             }
@@ -140,6 +153,13 @@ class VmlsRuntime(
         val persona = signer.pubkey
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
         need(persona)?.let { throw IllegalStateException(it) }
+        pairingNow.set(true)
+        try { pairingWith(signer, code, persona) } finally { pairingNow.set(false) }
+    }
+
+    private val pairingNow = AtomicBoolean(false)
+
+    private suspend fun pairingWith(signer: ParticipantSigner, code: String, persona: String) {
         val pairing = try { BothyPairing.parse(code.trim(), now()) } catch (error: IllegalArgumentException) {
             throw IllegalStateException(error.message ?: "The pairing code is not valid.")
         }
@@ -180,7 +200,7 @@ class VmlsRuntime(
     override fun forget(signer: ParticipantSigner, box: String) = act(signer.pubkey) { forgetting(signer, box) }
 
     /** [forget], awaited: throws what the page shows. */
-    internal suspend fun forgetting(signer: ParticipantSigner, box: String) {
+    internal suspend fun forgetting(signer: ParticipantSigner, box: String): Unit = rounding.withLock {
         val persona = signer.pubkey
         val route = store.route(persona, box) ?: throw IllegalStateException("This box is not paired.")
         check(store.rooms().none { it.persona == persona && it.box == box }) { "A VMLS room still uses this box." }
@@ -196,11 +216,21 @@ class VmlsRuntime(
         refresh(persona)
     }
 
+    /** The Link routes VMLS boxes use, which the app's sweep of unconsented routes must keep. */
+    override fun routeIds(): Set<String> =
+        // Mid-pairing, a route exists before the store names it: keep every route until it does.
+        if (pairingNow.get()) link.routeIds()
+        else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
+
     override suspend fun foregroundRounds(persona: String?) {
-        if (persona == null || quiet.get()) return
         rounding.withLock {
+            // Signed out, or another account: the other personas' sessions are closed (SessionHost.closeAll).
+            retain(persona)
+            if (persona == null || quiet.get()) return
             val engine = engine(persona) ?: return
-            for (room in store.rooms().filter { it.persona == persona && !it.ended }) {
+            // A room stopped by a key compromise or an event this build does not know sends nothing, its outbox included,
+            // until a repair (decision 22); one removed or lapsed is read-only for good.
+            for (room in store.rooms().filter { it.persona == persona && !it.ended && it.stop !is RoomStop.KeyCompromise && it.stop !is RoomStop.Unknown }) {
                 if (quiet.get()) return
                 val route = store.route(persona, room.box) ?: continue
                 try {
@@ -240,9 +270,13 @@ class VmlsRuntime(
                 opened to step
             }
         }
-        // Held: staged, and finished by its first round once the witness confirms it.
-        if (created is Hosted.Fenced || created is Hosted.Unknown) throw IllegalStateException("This account's vault refused the new room.")
-        VmlsRoom(persona, checkNotNull(session), name, box, VmlsRole.KEEPER, joined = true).also { store.put(it) }
+        // Only a witnessed group is a room. Held may have staged it: a later call to the host finishes it, as a
+        // session no room names, which closing rooms (P3-03b-3 PR 4) sweeps.
+        if (created !is Hosted.Released) throw IllegalStateException(
+            if (created is Hosted.Held) "Your box has not confirmed this account's vault yet. Try again shortly." else "This account's vault refused the new room.",
+        )
+        val id = session ?: throw IllegalStateException("The engine made no session.")
+        VmlsRoom(persona, id, name, box, VmlsRole.KEEPER, joined = true).also { store.put(it) }
     }
 
     /** What [persona]'s room [session] received while the app ran, oldest first. */
@@ -254,13 +288,16 @@ class VmlsRuntime(
     /** Sends [text] to [persona]'s room [session]; it leaves at the next round. */
     suspend fun send(persona: String, session: String, text: String): Unit = rounding.withLock {
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
-        val room = room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
         check(room.canSend) { "This room cannot send now." }
         val sent = engine.host.step(persona, session.hexToBytes()) { s ->
             val step = sessionCall { s.inner.send(text.toByteArray()) }
             hostedStep(step).let { EngineStep(it.snapshot, step.events) }
         }
-        if (sent !is Hosted.Released) throw IllegalStateException("The message waits for this account's vault.")
+        // Held: staged, and released with the next step once the witness confirms it. Sending again would send it twice.
+        if (sent is Hosted.Held) return@withLock
+        if (sent !is Hosted.Released) throw IllegalStateException("This account's vault refused the message.")
         apply(room, sent.value)
     }
 
@@ -272,7 +309,16 @@ class VmlsRuntime(
         val driven = driver(engine, route)
         var room = synchronized(this) { live[key(persona, stored.session)] } ?: seed(engine, stored) ?: return
         synchronized(driven.events) { driven.events.clear() }
-        val round = driven.driver.round(persona, session, now())
+        val round = try {
+            driven.driver.round(persona, session, now())
+        } catch (fault: Exception) {
+            // Steps released before the fault raised events the room must still take (a message, a commit's
+            // outcome); the engine is then asked again, since what it holds is no longer known here.
+            val events = synchronized(driven.events) { driven.events.toList().also { driven.events.clear() } }
+            runCatching { apply(room, events) }
+            synchronized(this) { live.remove(key(persona, stored.session)) }
+            throw fault
+        }
         val events = synchronized(driven.events) { driven.events.toList().also { driven.events.clear() } }
         room = apply(room, events)
         when (round) {
@@ -393,9 +439,20 @@ class VmlsRuntime(
 
     private fun client(engine: Engine, route: VmlsBoxRoute) = client(engine.device.persona, route)
 
+    /** Nothing is signed for the box while a Tor-only room is open (C7), so a round under way stops at its next request. */
     private fun client(persona: String, route: VmlsBoxRoute) = VmlsBoxClient(link, route.routeId, route.box, {
-        vault.signBoxRequestV1(vault.context(PRINCIPAL, persona), it, prompt)
+        if (quiet.get()) VaultResult.Refused(VaultRefusal.Busy) else vault.signBoxRequestV1(vault.context(PRINCIPAL, persona), it, prompt)
     })
+
+    /** Closes every engine but [persona]'s: its decrypted sessions go with it. */
+    private fun retain(persona: String?) = synchronized(this) {
+        val gone = engines.keys.filter { it != persona }
+        for (other in gone) {
+            engines.remove(other)?.host?.closeAll()
+            drivers.keys.removeAll { it.startsWith("$other:") }
+            live.keys.removeAll { it.startsWith("$other:") }
+        }
+    }
 
     /** Whether [route]'s box answers with VMLS and its installation for this phone's device; null when unreachable. */
     private suspend fun ask(route: VmlsBoxRoute): Boolean? {
@@ -428,15 +485,22 @@ class VmlsRuntime(
      * left is published again as it is.
      */
     private suspend fun grant(signer: ParticipantSigner, route: VmlsBoxRoute, device: String) {
-        val boxNow = when (val answer = client(route.persona, route).capabilities()) {
-            is BoxAnswer.Ok -> answer.serverTime
-            is BoxAnswer.Refused -> answer.serverTime
-            else -> null
-        } ?: now()
+        val boxNow = boxClock(route) ?: now()
         ledger.prune(boxNow)
         val live = ledger.get(route.box, device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.expiration - boxNow > GRANT_RENEW_SECONDS }
         val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow).also { ledger.record(VmlsGrantRecord(route.box, it)) }
         publish(route, signer, listOf(plan.active))
+    }
+
+    /**
+     * The box's clock. The capabilities answer carries none, so an empty
+     * mailbox no one uses is read: granted, the box answers with its time;
+     * not yet granted, its refusal carries it. Null when it says neither.
+     */
+    private suspend fun boxClock(route: VmlsBoxRoute): Long? = when (val answer = client(route.persona, route).fetch(listOf(ByteArray(32).also(random::nextBytes)))) {
+        is BoxAnswer.Ok -> answer.serverTime
+        is BoxAnswer.Refused -> answer.serverTime
+        else -> null
     }
 
     /** Publishes [events] to the box's sheltered relay over [route], authenticated as [signer]; the same event again is safe. */
@@ -455,6 +519,7 @@ class VmlsRuntime(
             withTimeoutOrNull(RELAY_READY_MILLIS) { relay.connected.first { url in it } }
                 ?: throw IllegalStateException("${route.boxName}'s relay did not become ready.")
             for (event in events) {
+                check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
                 // A grant answered `pending` waits on the box's witness: the identical event again is safe.
                 var confirmed = false
                 for (attempt in 1..PUBLISH_ATTEMPTS) {
@@ -552,8 +617,8 @@ class VmlsRuntime(
         private const val RELAY_READY_MILLIS = 30_000L
         /** The bridge's pairing rendezvous allows 60 s. */
         private const val PAIR_TIMEOUT_MILLIS = 90_000L
-        /** An unanswered consent ask is denied after this. */
-        private const val CONSENT_MILLIS = 120_000L
+        /** A denied scope is not asked about again for this long. */
+        private const val DENIED_SECONDS = 10L * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
         private val DEFERRED = setOf("CommitInFlight", "UpdateRequired")

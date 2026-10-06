@@ -67,6 +67,9 @@ interface VmlsBoxes {
     /** Withdraws the device's grant at [box] and forgets its route; refused while a room uses it. */
     fun forget(signer: ParticipantSigner, box: String)
 
+    /** The Link routes VMLS boxes use: the app's sweep of routes no room consented to keeps them. */
+    fun routeIds(): Set<String>
+
     /** One pass over [persona]'s VMLS rooms while the app is in the foreground. */
     suspend fun foregroundRounds(persona: String?)
 }

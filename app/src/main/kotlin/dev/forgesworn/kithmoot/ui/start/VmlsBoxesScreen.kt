@@ -138,9 +138,9 @@ private fun PairBox(busy: Boolean, onPair: (String) -> Unit) {
 }
 
 /**
- * The vault's consent ask (§6.2), asked once per account, device, box and
- * kind of request, then kept: the vault holds the answer, not this dialog.
- * Dismissing it denies the request it was asked for.
+ * The vault's consent ask (§6.2), once per account, device, box and kind of
+ * request: an approval is kept by the vault. Dismissing it denies the
+ * request it was asked for; the same ask comes back later.
  */
 @Composable
 fun VaultConsentDialog(scope: ConsentScope, onAnswer: (ConsentDecision) -> Unit) {
@@ -150,8 +150,8 @@ fun VaultConsentDialog(scope: ConsentScope, onAnswer: (ConsentDecision) -> Unit)
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (scope.method == MlsVault.SIGN_METHOD) "Let this phone's MLS device sign its place in VMLS rooms on this box. You are asked once."
-                    else "Let this phone's MLS device sign its requests to this box for VMLS rooms. You are asked once.",
+                    if (scope.method == MlsVault.SIGN_METHOD) "Let this phone's MLS device sign its place in VMLS rooms on this box? Allowing is kept."
+                    else "Let this phone's MLS device sign its requests to this box for VMLS rooms? Allowing is kept.",
                 )
                 Text("Box ${short(scope.homeBox)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 Text("Device ${short(scope.device)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)

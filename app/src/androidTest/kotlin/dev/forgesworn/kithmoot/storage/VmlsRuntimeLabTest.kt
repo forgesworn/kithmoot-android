@@ -99,6 +99,8 @@ class VmlsRuntimeLabTest {
         val device = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, keeper.pubkey)) as VaultResult.Ok).value
         assertNotNull(device.credential)
         assertEquals(1, VmlsGrantLedger(grants).all().count { it.box == box && it.device == device.device })
+        // The app's sweep of unconsented Link routes keeps it (it runs at every start).
+        assertTrue(route.routeId in runtime.routeIds())
         // Pairing again keeps the route: one per persona per box.
         runtime.pairing(keeper, lab.pairingCode())
         assertEquals(route, runtime.store.route(keeper.pubkey, box))
