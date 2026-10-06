@@ -16,7 +16,10 @@ import dev.forgesworn.kithmoot.account.VaultResult
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.mls.RoomStatus
+import dev.forgesworn.kithmoot.mls.RoomStop
+import dev.forgesworn.kithmoot.mls.VmlsRoomState
 import dev.forgesworn.kithmoot.mls.VmlsGrantLedger
+import dev.forgesworn.kithmoot.mls.VmlsGrantState
 import dev.forgesworn.kithmoot.mls.VmlsInviteStore
 import dev.forgesworn.kithmoot.mls.VmlsRole
 import dev.forgesworn.kithmoot.mls.VmlsRoomStore
@@ -93,8 +96,9 @@ class VmlsInviteLabTest {
         val vault: MlsVault = runBlocking { VmlsLab.coordinatedVault(context, "$prefix.$name", FakeEd25519Witness(), persona, random) }
         private val rzSecret = secret()
         val rz: String = Schnorr.publicKey(rzSecret).toHex()
+        val grants = MemoryRoomStorage()
         val runtime = VmlsRuntime(
-            vault, app.linkEngine, VmlsRoomStore(MemoryRoomStorage()), VmlsGrantLedger(MemoryRoomStorage()),
+            vault, app.linkEngine, VmlsRoomStore(MemoryRoomStorage()), VmlsGrantLedger(grants),
             VmlsInviteStore(MemoryRoomStorage()), { carriers.open() },
             rendezvous = { p -> if (p != persona) null else StoredRendezvousChild(RendezvousReceipt(p, "b".repeat(64), rz, 1, now + 86_400), rzSecret.copyOf()) },
             quiet = AtomicBoolean(false),
@@ -179,6 +183,43 @@ class VmlsInviteLabTest {
         keeper.runtime.retire(keeper.persona, room.session)
         assertNull(keeper.runtime.joinAsk.value)
         serving.cancelAndJoin()
+
+        // The keeper removes the guest: the guest's room says so and is read-only (decision 22).
+        val guestLeaf = keeperRoom().members.values.single { it.device == guest.device }.leaf
+        keeper.runtime.removing(keeper.persona, room.session, guestLeaf)
+        rounds = 0
+        while ((guestRoom().stop != RoomStop.Removed || keeperRoom().members.isNotEmpty()) && rounds < 10) {
+            keeper.runtime.foregroundRounds(keeper.persona)
+            guest.runtime.foregroundRounds(guest.persona)
+            delay(1_000)
+            rounds++
+        }
+        assertEquals(RoomStop.Removed, guestRoom().stop)
+        assertTrue(keeperRoom().members.isEmpty())
+        assertTrue(guest.runtime.rooms.value.single().state == VmlsRoomState.REMOVED)
+
+        // The removed guest leaves: its session is dropped from the vault's manifest and the room forgotten.
+        guest.runtime.leaving(guest.persona, joined.session)
+        guest.runtime.foregroundRounds(guest.persona)
+        assertNull(guest.runtime.store.room(guest.persona, joined.session))
+        assertTrue(joined.session !in guest.runtime.witnessed(guest.persona)!!)
+
+        // A session the vault witnesses that no room names (a create interrupted before its room was stored) is swept.
+        val orphan = keeper.runtime.create(keeper.persona, box, "Orphan")
+        keeper.runtime.store.forget(keeper.persona, orphan.session)
+        assertTrue(orphan.session in keeper.runtime.witnessed(keeper.persona)!!)
+        keeper.runtime.foregroundRounds(keeper.persona)
+        assertTrue(orphan.session !in keeper.runtime.witnessed(keeper.persona)!!)
+
+        // The keeper closes the room (decision 24): the removed guest's grant, which outlived its leaf, is revoked
+        // and the box takes the revocation; the room ends and is forgotten, its session dropped.
+        assertEquals(VmlsGrantState.ACTIVE, VmlsGrantLedger(keeper.grants).get(box, guest.device)!!.state)
+        keeper.runtime.closing(lab.keeper, room.session)
+        assertEquals(VmlsGrantState.REVOKED, VmlsGrantLedger(keeper.grants).get(box, guest.device)!!.state)
+        assertEquals(VmlsGrantState.ACTIVE, VmlsGrantLedger(keeper.grants).get(box, keeper.device)!!.state)
+        assertNull(keeper.runtime.store.room(keeper.persona, room.session))
+        assertTrue(room.session !in keeper.runtime.witnessed(keeper.persona)!!)
+        assertTrue(keeper.runtime.rooms.value.none { it.session == room.session })
     }
 
     private fun epochSeconds() = System.currentTimeMillis() / 1000

@@ -75,8 +75,11 @@ class VmlsRoomStore(private val storage: RoomStorage) {
      * forgotten meanwhile stays forgotten.
      */
     fun saveDriven(room: VmlsRoom): VmlsRoom? = update(room.persona, room.session) { stored ->
-        room.copy(invite = stored.invite, asked = stored.asked, prompted = stored.prompted)
+        room.copy(invite = stored.invite, asked = stored.asked, prompted = stored.prompted, closing = laterClosing(stored.closing, room.closing))
     }
+
+    /** A page action's closing is never undone by the driver's older copy. */
+    private fun laterClosing(stored: Closing?, driven: Closing?): Closing? = listOfNotNull(stored, driven).maxOrNull()
 
     @Synchronized fun forget(persona: String, session: String) {
         val state = read()
@@ -145,6 +148,7 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         put("prompted", buildJsonArray { room.prompted.forEach { add(JsonPrimitive(it)) } })
         put("grace", buildJsonObject { room.grace.toSortedMap().forEach { (leaf, at) -> put(leaf, at) } })
         put("removing", buildJsonArray { room.removing.sorted().forEach { add(JsonPrimitive(it)) } })
+        room.closing?.let { put("closing", it.name) }
     }
 
     private fun roomOf(o: JsonObject) = VmlsRoom(
@@ -157,6 +161,8 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         prompted = o.getValue("prompted").jsonArray.map { it.jsonPrimitive.long },
         grace = o.getValue("grace").jsonObject.mapValues { it.value.jsonPrimitive.long },
         removing = o.getValue("removing").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        // Absent in rooms stored before closing existed.
+        closing = o["closing"]?.jsonPrimitive?.content?.let(Closing::valueOf),
     )
 
     private fun JsonObject.text(name: String): String = getValue(name).jsonPrimitive.also { require(it.isString) }.content

@@ -3,6 +3,14 @@ package dev.forgesworn.kithmoot.mls
 /** This phone's part in a VMLS room (P3-03b-3 decision 21). */
 enum class VmlsRole { KEEPER, GUEST }
 
+/** How far a room's leaving or closing has gone (decisions 20 and 24). */
+enum class Closing {
+    /** A keeper's close: its guests' grants are being revoked at the box. */
+    REVOKING,
+    /** Its session is being dropped from the vault's witnessed manifest; then the room is forgotten. */
+    DROPPING,
+}
+
 /** The engine's commit kinds, as a room sees them. */
 enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR }
 
@@ -80,6 +88,8 @@ sealed class RoomStop(internal val rank: Int, internal val code: String) {
 /** What a room shows, in order of precedence (decision 22). */
 sealed class RoomStatus {
     data class Stopped(val stop: RoomStop) : RoomStatus()
+    /** Leaving or closing (decision 20). */
+    data object Closing : RoomStatus()
     /** `OrderingUnconfirmed` or `InstallationNeeded`: "checking with the box". */
     data object Checking : RoomStatus()
     /** `CommitLost` or `CommitRedeposited`: "retrying". */
@@ -133,6 +143,12 @@ data class VmlsRoom(
     val prompted: List<Long> = emptyList(),
     val grace: Map<String, Long> = emptyMap(),
     val removing: Set<String> = emptySet(),
+    /**
+     * Left (a guest) or closed (a keeper), decisions 20 and 24: nothing more
+     * is sent, and the room is forgotten once the vault has witnessed its
+     * session's removal; a keeper's, once the box has taken its revocations.
+     */
+    val closing: Closing? = null,
     // ---- rebuilt, never stored ----
     val members: Map<String, VmlsRoomMember> = emptyMap(),
     val epoch: Long? = null,
@@ -155,6 +171,7 @@ data class VmlsRoom(
     }
 
     val status: RoomStatus get() = when {
+        closing != null -> RoomStatus.Closing
         stop != null -> RoomStatus.Stopped(stop)
         checking -> RoomStatus.Checking
         retrying -> RoomStatus.Retrying
@@ -164,7 +181,7 @@ data class VmlsRoom(
     }
 
     /** Messages and commits go out only from a joined room that has not stopped. */
-    val canSend: Boolean get() = joined && stop == null
+    val canSend: Boolean get() = joined && stop == null && closing == null
 
     /** Read-only for good: the room can only be forgotten. */
     val ended: Boolean get() = stop == RoomStop.Removed || stop == RoomStop.JoinLapsed

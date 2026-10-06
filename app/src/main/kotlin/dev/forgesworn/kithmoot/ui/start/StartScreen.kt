@@ -84,6 +84,8 @@ fun StartScreen(
     onOpenProjects: () -> Unit = {},
     onShareInvite: (String) -> Unit = {},
     onSignIn: () -> Unit = {},
+    /** Debug builds' VMLS rooms (P3-03b-3 decision 21), shown beside saved rooms; null in release. */
+    vmlsRooms: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
@@ -178,7 +180,7 @@ fun StartScreen(
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
                 onConferenceLengthChanged = onConferenceLengthChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onAddOfferedCard = onAddOfferedCard,
-                onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
+                onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
             )
 
             else -> ReturningContent(
@@ -198,6 +200,7 @@ fun StartScreen(
                 onConferenceLengthChanged = onConferenceLengthChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
+                vmlsRooms = vmlsRooms,
             )
         }
     }
@@ -341,6 +344,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
+    vmlsRooms: (@Composable () -> Unit)?,
 ) {
     val twoColumn = layout == HomeLayout.SHORT || layout == HomeLayout.EXPANDED
     val maxContentWidth = if (layout == HomeLayout.MEDIUM) 560.dp else Dp.Unspecified
@@ -365,6 +369,7 @@ private fun BoxWithConstraintsScope.ColdContent(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
                 Intro()
+                vmlsRooms?.invoke()
             }
             Column(Modifier.weight(1f).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
@@ -382,6 +387,7 @@ private fun BoxWithConstraintsScope.ColdContent(
         ) {
             Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
             Intro()
+            vmlsRooms?.invoke()
             NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                 enabled, state.busy, state.error, onStartRoom,
                 conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
@@ -403,6 +409,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
+    vmlsRooms: (@Composable () -> Unit)?,
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
@@ -429,6 +436,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
+                    vmlsRooms?.invoke()
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() })
                         if (showSearch) IconButton({ if (searchOpen) onQueryChanged(""); searchOpen = !searchOpen }, Modifier.size(48.dp)) {

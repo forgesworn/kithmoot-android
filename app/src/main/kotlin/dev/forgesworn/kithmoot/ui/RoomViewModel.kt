@@ -1015,6 +1015,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** The signed-in account's signer, for the debug VMLS boxes page's grants (P3-03b-3). */
     fun vmlsSigner(): ParticipantSigner? = accountSigner
 
+    /** Where a debug VMLS room's link points, as today's invitation links do. */
+    fun vmlsJoinBase(): String = selectedWebApp.joinBase
+
     init {
         if (!chatOnly) viewModelScope.launch {
             room.collect { value ->

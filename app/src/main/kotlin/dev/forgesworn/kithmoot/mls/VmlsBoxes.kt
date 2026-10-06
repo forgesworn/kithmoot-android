@@ -39,6 +39,48 @@ data class VmlsJoinAsk(
     val requestId: String,
 )
 
+/** Where a VMLS room stands, as its screen says it (P3-03b-3 decisions 22 and 23). */
+enum class VmlsRoomState {
+    READY,
+    /** A guest waiting for the keeper to add it. */
+    JOINING,
+    SENDING,
+    RETRYING,
+    /** "Checking with the box". */
+    CHECKING,
+    /** Sending stopped: a recovery, an unknown event or a possible key compromise. [VmlsRoomView.reason] says which. */
+    STOPPED,
+    /** "You were removed": read-only for good. */
+    REMOVED,
+    /** "The invitation lapsed": read-only for good. */
+    LAPSED,
+    /** Leaving or closing: forgotten once that is done. */
+    CLOSING,
+}
+
+/** A member as the room shows it; [invited] until its first Update confirms it. */
+data class VmlsMemberView(val leaf: String, val identity: String, val device: String, val invited: Boolean)
+
+/** One message while the app ran: not kept (P3-05 decides history). */
+data class VmlsMessageView(val mine: Boolean, val sender: String, val body: String, val at: Long)
+
+/** A VMLS room as the room list and its screen show it. */
+data class VmlsRoomView(
+    val session: String,
+    val name: String,
+    val box: String,
+    val boxName: String,
+    val keeper: Boolean,
+    val state: VmlsRoomState,
+    /** Words for a stopped room's reason; null otherwise. */
+    val reason: String?,
+    val members: List<VmlsMemberView>,
+    /** The keeper's link is live. */
+    val invite: Boolean,
+    val canSend: Boolean,
+    val messages: List<VmlsMessageView>,
+)
+
 /** The debug VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
 data class VmlsBoxesState(
     val persona: String? = null,
@@ -85,6 +127,37 @@ interface VmlsBoxes {
 
     /** The Link routes VMLS boxes use: the app's sweep of routes no room consented to keeps them. */
     fun routeIds(): Set<String>
+
+    /** The signed-in persona's VMLS rooms, beside its saved rooms (decision 21). */
+    val rooms: StateFlow<List<VmlsRoomView>>
+
+    /** The keeper's new room [name] on [box], which must answer with VMLS. */
+    fun createRoom(persona: String, box: String, name: String)
+
+    fun say(persona: String, session: String, text: String)
+
+    /** A new link for the keeper's room, answered over [relays], to share; an earlier link is retired by it. */
+    suspend fun inviteLink(persona: String, session: String, base: String, relays: List<String>): String
+
+    /** Retires the keeper's link: no more prompts (decision 18). */
+    fun retireInvite(persona: String, session: String)
+
+    /** The keeper removes [leaf] from the room. */
+    fun removeMember(persona: String, session: String, leaf: String)
+
+    /** A guest leaves (decision 20): its session ends on this phone, and the keeper removes its leaf when it lapses. */
+    fun leave(persona: String, session: String)
+
+    /**
+     * The keeper closes the room (decision 24): its link is retired, the
+     * grants of guests in none of its other rooms on the box are revoked by
+     * [signer], and its session ends. Calling it again finishes a close a
+     * revocation held up.
+     */
+    fun close(signer: ParticipantSigner, session: String)
+
+    /** Forgets a room that ended (removed, or its invitation lapsed). */
+    fun forgetRoom(persona: String, session: String)
 
     /** One pass over [persona]'s VMLS rooms while the app is in the foreground. */
     suspend fun foregroundRounds(persona: String?)

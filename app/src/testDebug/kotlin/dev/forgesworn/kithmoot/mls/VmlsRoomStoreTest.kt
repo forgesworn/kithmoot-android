@@ -30,6 +30,24 @@ class VmlsRoomStoreTest {
         assertTrue("Kitchen" in storage.value!!.decodeToString() && "33".repeat(32) !in storage.value!!.decodeToString())
     }
 
+    @Test fun `a room's closing is read back, absent in older rooms, and never undone by the driver`() {
+        val storage = MemoryStorage()
+        val store = VmlsRoomStore(storage)
+        store.put(room)
+        assertEquals(null, store.room(persona, room.session)!!.closing)
+        assertTrue("closing" !in storage.value!!.decodeToString())
+        // The driver read the room before the keeper closed it, and saves its older copy after.
+        val driven = store.room(persona, room.session)!!
+        store.update(persona, room.session) { it.copy(closing = Closing.REVOKING) }
+        assertEquals(Closing.REVOKING, store.saveDriven(driven)!!.closing)
+        store.update(persona, room.session) { it.copy(closing = Closing.DROPPING) }
+        assertEquals(Closing.DROPPING, store.saveDriven(driven.copy(closing = Closing.REVOKING))!!.closing)
+        assertEquals(Closing.DROPPING, VmlsRoomStore(storage).room(persona, room.session)!!.closing)
+        // A closing room sends nothing.
+        assertEquals(false, store.room(persona, room.session)!!.canSend)
+        assertEquals(RoomStatus.Closing, store.room(persona, room.session)!!.status)
+    }
+
     @Test fun `every stop is read back`() {
         val storage = MemoryStorage()
         for (stop in listOf(RoomStop.Recovery("Fork"), RoomStop.Unknown("NewEvent"), RoomStop.KeyCompromise, RoomStop.Removed, RoomStop.JoinLapsed)) {
