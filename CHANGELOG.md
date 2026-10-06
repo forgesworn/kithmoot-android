@@ -3,6 +3,13 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.61] - 2026-10-06
+
+- The app is about a quarter of the size to download: 38 MB instead of 142 MB.
+  It no longer carries a second copy of its native code for Intel processors,
+  which no phone that can install it uses, and its code is compressed inside
+  the download.
+
 ## [0.6.60] - 2026-10-06
 
 - When a room's key changes on its regular schedule, nothing is announced in
