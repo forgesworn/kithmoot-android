@@ -19,6 +19,8 @@ fun vmlsBoxes(context: Context): VmlsBoxes? {
         link = app.linkEngine,
         store = VmlsRoomStore(EncryptedRoomStorage(app, "kithmoot.vmls-rooms.v1", 1024 * 1024)),
         ledger = VmlsGrantLedger(EncryptedRoomStorage(app, "kithmoot.vmls-grants.v1", 1024 * 1024)),
+        invites = VmlsInviteStore(EncryptedRoomStorage(app, "kithmoot.vmls-links.v1", 256 * 1024)),
+        carriers = { relays -> RelayCarrier(relays, core.scope) },
         // The rendezvous child is keyed by the signed-in account's NIP-46 client key.
         rendezvous = { persona ->
             app.accounts.load()?.takeIf { it.pubkey == persona }?.clientSecretKey

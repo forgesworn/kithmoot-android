@@ -128,7 +128,7 @@ fun deriveInvitationId(invitation: RoomInvitation): String =
         32,
     ).toHex()
 
-private fun invitationRequestKey(invitation: RoomInvitation): ByteArray =
+internal fun invitationRequestKey(invitation: RoomInvitation): ByteArray =
     Digests.hkdfSha256(
         invitation.bearer,
         null,

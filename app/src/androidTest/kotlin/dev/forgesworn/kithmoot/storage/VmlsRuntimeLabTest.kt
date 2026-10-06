@@ -16,6 +16,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.mls.RoomStatus
 import dev.forgesworn.kithmoot.mls.VmlsGrantLedger
+import dev.forgesworn.kithmoot.mls.VmlsInviteStore
 import dev.forgesworn.kithmoot.mls.VmlsRole
 import dev.forgesworn.kithmoot.mls.VmlsRoomStore
 import dev.forgesworn.kithmoot.mls.VmlsRuntime
@@ -81,8 +82,9 @@ class VmlsRuntimeLabTest {
         val asked = mutableListOf<ConsentScope>()
         val rooms = MemoryRoomStorage()
         val grants = MemoryRoomStorage()
+        val carriers = MemoryCarriers()
         fun runtime() = VmlsRuntime(
-            vault, app.linkEngine, VmlsRoomStore(rooms), VmlsGrantLedger(grants),
+            vault, app.linkEngine, VmlsRoomStore(rooms), VmlsGrantLedger(grants), VmlsInviteStore(MemoryRoomStorage()), { carriers.open() },
             rendezvous = { persona ->
                 if (persona != keeper.pubkey) null
                 else StoredRendezvousChild(RendezvousReceipt(persona, "b".repeat(64), rz, 1, now + 86_400), rzSecret.copyOf())
