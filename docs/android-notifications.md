@@ -1,5 +1,15 @@
 # Android notifications, 16 September 2026
 
+## Through a rekey, 5 October 2026
+
+The background service read a room only under the epoch the journal held, and nothing outside an open room followed a rekey (kind 1462). So the first rekey of a room nobody had opened silenced it: no message notifications, no call rings, until somebody opened the room. Weekly scheduled rekeys (KithMoot phase 2a) would have made that every room nobody opens in a week.
+
+- **Followed in the background.** Each watched room, ringing or receiving, also subscribes to its authority's rekeys. The service opens this device's own copy with the saved device key (Android holds no seal keys), commits the new epoch to the epoch journal as an open room does, and rebuilds the room's subscriptions under it. The epoch just left is still read for thirty days, so a message that lands late on it is not lost (`service/BackgroundRekey.kt`).
+- **Only what an open room would follow by itself.** A rekey that gives this device no copy is left as it was: a removed device finds none and the service stays at the epoch it holds until the room is opened and says so, as before. Likewise a close, a gap the authority would have to fill, a room open in the app, and a quiet room or one with a Bothy lease, whose old schedule only the open room can retire.
+- **No race with an open room.** The commit is one step under the journal's lock and does nothing unless the journal is exactly one epoch short; an open room committing the same rekey afterwards finds it done.
+
+Not checked on a phone: a ring and a notification arriving for a room after a rekey with KithMoot closed throughout.
+
 ## Messages as they are sent, 1 October 2026
 
 Message notifications now work like a phone's own messages:

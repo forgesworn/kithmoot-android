@@ -57,6 +57,24 @@ class EpochVaultTest {
         assertEquals(1, EpochVault(storage).initialise(room, authority, initial.copyOf(), 106).currentEpoch)
     }
 
+    @Test fun `when a granted epoch was left survives a restart`() {
+        val storage = MemoryStorage()
+        val history = MemoryStorage()
+        val vault = EpochVault(storage, history)
+        vault.initialise(room, authority, initial, 100)
+        val handed = listOf(dev.forgesworn.kithmoot.protocol.RoomEpoch(2, ByteArray(32) { 2 }), dev.forgesworn.kithmoot.protocol.RoomEpoch(3, ByteArray(32) { 3 }))
+        vault.remember(room, handed, emptyList(), mapOf(2 to 1_000L, 3 to 2_000L))
+
+        val restarted = EpochVault(storage, history)
+        assertEquals(1_000L, restarted.leftAt(room, 2))
+        assertEquals(2_000L, restarted.leftAt(room, 3))
+        assertNull(restarted.leftAt(room, 1))
+        assertArrayEquals(ByteArray(32) { 2 }, restarted.secretAt(room, 2))
+        // Remembering the secret again without a time keeps the time it had.
+        restarted.remember(room, handed.take(1), emptyList())
+        assertEquals(1_000L, EpochVault(storage, history).leftAt(room, 2))
+    }
+
     @Test fun `epoch zero conflicts rollbacks and terminal states fail closed`() {
         val storage = MemoryStorage()
         val vault = EpochVault(storage)

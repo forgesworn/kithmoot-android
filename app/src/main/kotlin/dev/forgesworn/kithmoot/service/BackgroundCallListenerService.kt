@@ -90,6 +90,11 @@ import java.time.ZoneOffset
  * to Android's notification, only when previews are on, and is otherwise held
  * in this process's memory and nowhere else.
  *
+ * For both it follows the room's rekeys (kind 1462 from its authority), opening
+ * this device's own copy with the saved device key and moving to the new epoch
+ * (`BackgroundRekey.kt`), so a room nobody opens does not go quiet at its next
+ * rekey. A rekey that gives this device no copy is left for the open room.
+ *
  * The only thing it ever publishes is a room's retained pending message: the
  * exact event the person already signed, on the epoch it was sealed for,
  * cleared only when a relay confirms it. No presence, roster entry, read
@@ -278,7 +283,9 @@ class BackgroundCallListenerService : Service() {
         /** Everybody the room's rekeys removed, lower case: refused on [past]. */
         val removed: Set<String> = emptySet(),
         /** No relay of the room's is a Link relay: it can go on a [SharedRelayPools] pool. */
-        val shareable: Boolean = false)
+        val shareable: Boolean = false,
+        /** The epoch journal holds this room, so a rekey can be followed here (see [BackgroundRekeyFollower]). */
+        val followsRekeys: Boolean = false)
 
     /** The current keys for a saved room, following any rekey recorded in
      *  [KithMootApplication.roomEpochs] via the shared, tested [activeEpochFor]
@@ -306,10 +313,10 @@ class BackgroundCallListenerService : Service() {
                 needsBunker = usesLink && saved.viaAccount && application.accounts.load()?.method == "bunker",
             ), ActiveRoomRegistry::isOpen)
             val past = pastEpochsFor(saved.secret, stored,
-                { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.rekeyAt(roomId, it) }, now())
+                { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.leftAt(roomId, it) }, now())
             Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
                 epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet(),
-                canShareBackgroundPool(saved.relays, linkRoute))
+                canShareBackgroundPool(saved.relays, linkRoute), followsRekeys = stored != null)
         } catch (_: Exception) {
             null
         }
@@ -366,8 +373,38 @@ class BackgroundCallListenerService : Service() {
                 }
             }
         } else jobs += scope.launch { pool.connected.collect { report() } }
+        // Ringing and delivery alike follow the room's rekeys, so neither goes quiet at the
+        // next one for a room nobody opens. A move reconciles, which rebuilds this room's
+        // subscriptions under the new epoch (its id is part of the handle's key).
+        val authority = candidate.saved.authority
+        if (authority != null && candidate.followsRekeys) {
+            val follower = BackgroundRekeyFollower(
+                application.roomEpochs, watch.stableRoomId, authority, watch.selfParticipant,
+                deviceSecretKey = candidate.saved::deviceSecretKey,
+                mayFollow = { !ActiveRoomRegistry.isOpen(watch.stableRoomId) && !holdsCadence(application, candidate.saved) },
+                now = ::now,
+            )
+            jobs += scope.launch {
+                pool.subscribe({ listOf(backgroundRekeyFilter(watch.stableRoomId, authority)) }).collect { event ->
+                    if (follower.offer(event)) {
+                        Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} followed a rekey")
+                        scope.launch { reconcileNow() }
+                    }
+                }
+            }
+        }
         return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner)
     }
+
+    /**
+     * A quiet room, or one with a Bothy lease still running: its rekey must retire the old
+     * schedule first, which only the open room does (`RoomViewModel.commitRoomEpoch`), so the
+     * background leaves it to that.
+     */
+    private fun holdsCadence(application: KithMootApplication, saved: dev.forgesworn.kithmoot.storage.SavedRoom): Boolean =
+        saved.policy?.quiet == true || saved.quietState != null || runCatching {
+            application.cadenceLeases.all(saved.id, saved.devicePubkey).any { it.ownership != dev.forgesworn.kithmoot.cadence.CadenceOwnership.ENDED }
+        }.getOrDefault(true)
 
     private fun close(handle: RoomHandle?) {
         handle ?: return

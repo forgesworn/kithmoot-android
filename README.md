@@ -252,6 +252,13 @@ nonce. The original 95-vector file remains unchanged.
 `@forgesworn/fold-kit` 0.4.0: a group invitation whose body carries the
 room's own relays after `ends`, with and without an end, reproduced
 byte for byte from its plaintext and nonce.
+`schedule-vectors.json` is a verbatim copy of `@forgesworn/fold-kit` 0.8.0's:
+a scheduled rekey (`"scheduled": true` in its body) and the same rekey
+without the marker, rebuilt byte for byte; the marker beside a removal and
+beside a close, read as not scheduled; an authority grant carrying sixteen
+passed epochs, three malformed ones that read as the grant without them;
+and the history window's thirty days and sixteen epochs. `ScheduleVectorsTest`
+runs every one.
 
 One guard is worth its own paragraph, because it caught something. A roster
 vector used to be checked by parsing the expected entry through the same

@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
 import dev.forgesworn.kithmoot.protocol.KIND_MEMBER_EPOCH_REQUEST
+import dev.forgesworn.kithmoot.protocol.LeftEpoch
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
@@ -42,7 +43,7 @@ class LeftEpochTest {
     private val authority = Schnorr.publicKeyHex(authoritySecret)
     private val stable = Fixtures.room()
     private val me = Fixtures.primary(stable, 1, 2)
-    private val epochs = (0..6).map { RoomEpoch(it, ByteArray(32) { b -> (if (it == 0) 7 else 70 + it + b % 2).toByte() }) }
+    private val epochs = (0..MAX_PAST_EPOCHS + 2).map { RoomEpoch(it, ByteArray(32) { b -> (if (it == 0) 7 else 70 + it + b % 2).toByte() }) }
 
     private fun keys(epoch: Int): EpochKeys = deriveEpoch(epochs[epoch])
 
@@ -186,7 +187,7 @@ class LeftEpochTest {
         assertEquals(emptyList(), live.chat.value.map { it.body })
     }
 
-    @Test fun `only the last few epochs left are read`() = runTest {
+    @Test fun `only the last sixteen epochs left are read`() = runTest {
         val relay = FakeRelay()
         val other = Fixtures.primary(stable, 3, 4)
         val live = following(relay)
@@ -199,10 +200,10 @@ class LeftEpochTest {
         assertEquals(MAX_PAST_EPOCHS + 1, live.epochKeys().epoch)
 
         relay.publish(chat("too far back", other, 0))
-        relay.publish(chat("four epochs back", other, 1))
+        relay.publish(chat("sixteen epochs back", other, 1))
         runCurrent()
 
-        assertEquals(listOf("four epochs back"), live.chat.value.map { it.body })
+        assertEquals(listOf("sixteen epochs back"), live.chat.value.map { it.body })
     }
 
     @Test fun `of two rekeys for one epoch the first is followed and the second is said`() = runTest {
@@ -271,6 +272,35 @@ class LeftEpochTest {
         assertEquals(2, live.epochKeys().epoch)
         assertEquals(listOf("said at epoch 1"), live.chat.value.map { it.body })
         assertEquals(emptyList(), live.epochGaps.value)
+    }
+
+    @Test fun `an authority grant's passed epochs are read, and kept with when each was left`() = runTest {
+        val relay = FakeRelay().apply { replays = true }
+        val other = Fixtures.primary(stable, 3, 4)
+        relay.publish(chat("said at epoch 2", other, 2))
+        relay.publish(chat("said at epoch 4", other, 4))
+        val passed = (1..4).map { LeftEpoch(it, epochs[it].secret, 100L * it) }
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            relay.transport().subscribe(listOf(Filter(kinds = listOf(KIND_EPOCH_REQUEST), tags = mapOf("#d" to listOf(stable.roomId)))))
+                .collect { event ->
+                    val request = decodeEpochRequest(event, stable.roomId, authoritySecret, stable.roomKey, currentTime / 1000) ?: return@collect
+                    relay.publish(encodeEpochGrant(stable.roomId, authoritySecret, request.device, request.request, currentTime / 1000, epoch = epochs[5], passed = passed))
+                }
+        }
+        val history = mutableListOf<Pair<List<Int>, Map<Int, Long>>>()
+        val live = session(
+            stable, me, relay, authority = authority, expectedEpoch = 5,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED },
+            onEpochHistory = { secrets, _, leftAt -> if (secrets.isNotEmpty()) history += secrets.map { it.epoch } to leftAt },
+        )
+        live.join()
+        runCurrent()
+
+        assertEquals(5, live.epochKeys().epoch)
+        assertEquals(setOf("said at epoch 2", "said at epoch 4"), live.chat.value.map { it.body }.toSet())
+        // Every epoch between was handed over, so nothing was skipped.
+        assertEquals(emptyList(), live.epochGaps.value)
+        assertEquals(listOf(listOf(1, 2, 3, 4) to mapOf(1 to 100L, 2 to 200L, 3 to 300L, 4 to 400L)), history)
     }
 
     @Test fun `a newcomer's first jump from epoch 0 is not said as a gap, but a conflict always is`() {

@@ -90,7 +90,7 @@ class MemberEpochCatchUpTest {
             stable, identity, relay, authority = authority,
             epochGate = { event, notice -> commit(vault, event, notice, committed) },
             memberEpochDesk = desk,
-            onEpochHistory = { secrets, rekeys -> vault.remember(stable.roomId, secrets, rekeys) },
+            onEpochHistory = { secrets, rekeys, leftAt -> vault.remember(stable.roomId, secrets, rekeys, leftAt) },
         )
     }
 
@@ -129,7 +129,7 @@ class MemberEpochCatchUpTest {
         val live = session(
             stable, behind, relay, authority = authority, expectedEpoch = 1,
             epochGate = { event, notice -> commit(behindVault, event, notice, committed) },
-            onEpochHistory = { secrets, rekeys -> behindVault.remember(stable.roomId, secrets, rekeys) },
+            onEpochHistory = { secrets, rekeys, leftAt -> behindVault.remember(stable.roomId, secrets, rekeys, leftAt) },
         )
         live.join()
         runCurrent()

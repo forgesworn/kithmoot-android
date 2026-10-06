@@ -130,10 +130,16 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         val index = records.indexOfFirst { it.stableRoom == stableRoom }
         require(index >= 0) { "room epoch was not initialised" }
         val current = records[index]
-        require(current.phase == EpochPhase.ACTIVE || current.phase == EpochPhase.PENDING_CADENCE_RETIREMENT)
-        require(current.currentEpoch == expectedCurrentEpoch) { "room epoch moved before transition" }
         val removed = (current.removed + notice.removed.map(String::lowercase)).distinct().sorted()
         val pending = PendingRoomEpoch(notice.epoch, successorSecret, removed, cause, notice.at, cadence)
+        // Already entered, with this very secret: the background listener followed the rekey
+        // (see [follow]) between this device reading the journal and committing. Nothing to do,
+        // and nothing to retire, since the background never follows a room with a cadence.
+        if (current.phase == EpochPhase.ACTIVE && current.currentEpoch == notice.epoch && current.currentSecret.contentEquals(successorSecret)) {
+            return current.copyOut()
+        }
+        require(current.phase == EpochPhase.ACTIVE || current.phase == EpochPhase.PENDING_CADENCE_RETIREMENT)
+        require(current.currentEpoch == expectedCurrentEpoch) { "room epoch moved before transition" }
         if (current.pending != null) {
             require(samePending(current.pending, pending)) { "room epoch transition conflicts with durable state" }
             return current.copyOut()
@@ -145,6 +151,22 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         records[index] = next
         write(records)
         return next.copyOut()
+    }
+
+    /**
+     * Follow the authority's rekey into the next epoch from outside an open room: the
+     * background listener's commit (`BackgroundRekeyFollower`), the same transition and
+     * activation an open room makes, as one step under this vault's lock. Null, and nothing
+     * written, unless the room is ACTIVE exactly one epoch short of [notice]: an open room, or
+     * an earlier pass, that got there first leaves it to them. Never for a room with a cadence
+     * to retire, whose open room alone can retire it.
+     */
+    @Synchronized fun follow(stableRoom: String, notice: RekeyNotice, cause: String, now: Long): StoredRoomEpoch? {
+        val current = get(stableRoom) ?: return null
+        if (current.phase != EpochPhase.ACTIVE || current.currentEpoch + 1 != notice.epoch) return null
+        if (notice.secret == null || notice.closed || notice.catchUp) return null
+        beginTransition(stableRoom, current.currentEpoch, notice, cause, null, now)
+        return activate(stableRoom, notice.epoch, now)
     }
 
     @Synchronized fun activate(stableRoom: String, epoch: Int, now: Long): StoredRoomEpoch {
@@ -232,10 +254,10 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
      * [MAX_MEMBER_EPOCH_CHAIN] epochs are kept. Never throws: what cannot be
      * kept is simply not offered to anybody later.
      */
-    @Synchronized fun remember(stableRoom: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>) {
+    @Synchronized fun remember(stableRoom: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>, leftAt: Map<Int, Long> = emptyMap()) {
         val record = runCatching { get(stableRoom) }.getOrNull() ?: return
         if (record.phase == EpochPhase.REMOVED || record.phase == EpochPhase.CLOSED) return
-        rememberChecked(stableRoom, record.authority, secrets, rekeys)
+        rememberChecked(stableRoom, record.authority, secrets, rekeys, leftAt)
     }
 
     /** The secret of [epoch] this device still holds: the current one, or one kept in history. */
@@ -250,7 +272,16 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
     /** The authority's rekey into [epoch], as this device kept it. */
     @Synchronized fun rekeyAt(stableRoom: String, epoch: Int): NostrEvent? = readHistory()[stableRoom]?.get(epoch)?.rekey
 
-    private fun rememberChecked(stableRoom: String, authority: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>) {
+    /**
+     * When the room left [epoch], unix seconds: the `created_at` of the kept rekey out of it,
+     * or else the time an authority's grant gave for it (`passed`), which comes with no rekey.
+     */
+    @Synchronized fun leftAt(stableRoom: String, epoch: Int): Long? {
+        val epochs = readHistory()[stableRoom] ?: return null
+        return epochs[epoch + 1]?.rekey?.createdAt ?: epochs[epoch]?.left
+    }
+
+    private fun rememberChecked(stableRoom: String, authority: String, secrets: List<RoomEpoch>, rekeys: List<NostrEvent>, leftAt: Map<Int, Long> = emptyMap()) {
         val store = history ?: return
         try {
             val all = readHistory().toMutableMap()
@@ -259,15 +290,16 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
             for (value in secrets) {
                 if (value.epoch < 1) continue
                 val old = entries[value.epoch]
-                if (old?.secret?.contentEquals(value.secret) == true) continue
-                entries[value.epoch] = HistoryEntry(value.secret, old?.rekey)
+                val left = leftAt[value.epoch]?.takeIf { it >= 0 } ?: old?.left
+                if (old?.secret?.contentEquals(value.secret) == true && old.left == left) continue
+                entries[value.epoch] = HistoryEntry(value.secret, old?.rekey, left)
                 changed = true
             }
             for (event in rekeys) {
                 val epoch = peekRekeyEpoch(event, stableRoom, authority) ?: continue
                 val old = entries[epoch]
                 if (old?.rekey?.id == event.id) continue
-                entries[epoch] = HistoryEntry(old?.secret, event)
+                entries[epoch] = HistoryEntry(old?.secret, event, old?.left)
                 changed = true
             }
             if (!changed) return
@@ -295,7 +327,8 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         }
     }
 
-    private class HistoryEntry(secret: ByteArray?, val rekey: NostrEvent?) {
+    /** [left]: when the room left this epoch, where an authority's grant said so and no rekey out of it was kept. */
+    private class HistoryEntry(secret: ByteArray?, val rekey: NostrEvent?, val left: Long? = null) {
         val secret = secret?.copyOf()
     }
 
@@ -319,6 +352,8 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
                         epoch to HistoryEntry(
                             entry["secret"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let(::decodeSecret),
                             entry["rekey"]?.takeUnless { it == JsonNull }?.let(NostrEvent::fromJson),
+                            // Absent in history an older build wrote; an older build ignores it.
+                            entry["left"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.long?.takeIf { it >= 0 },
                         )
                     }
                 }
@@ -343,6 +378,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
                                 put("epoch", epoch)
                                 put("secret", entry.secret?.let { JsonPrimitive(encodeSecret(it)) } ?: JsonNull)
                                 put("rekey", entry.rekey?.toJson() ?: JsonNull)
+                                entry.left?.let { put("left", it) }
                             }
                         }))
                     }

@@ -10,6 +10,8 @@ import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.EpochGrant
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.LeftEpoch
+import dev.forgesworn.kithmoot.protocol.MAX_HISTORY_EPOCHS
 import dev.forgesworn.kithmoot.protocol.decodeRekeyEvent
 import dev.forgesworn.kithmoot.protocol.decodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
@@ -126,8 +128,13 @@ data class RemoteAnnotation(val participant: String, val device: String, val ann
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
-/** How many epochs a session has left it still reads chat on: the web client's `MAX_PAST_EPOCHS`. */
-const val MAX_PAST_EPOCHS = 4
+/**
+ * How many epochs a session has left it still reads chat on: fold-kit's `MAX_HISTORY_EPOCHS`,
+ * as the web client's `MAX_PAST_EPOCHS` is. Sixteen, so a weekly scheduled rekey and the odd
+ * removal still leave the last month readable; [keepPastLocked] also drops any left longer ago
+ * than chat is kept, which is the history window's other half.
+ */
+const val MAX_PAST_EPOCHS = MAX_HISTORY_EPOCHS
 
 /**
  * This session moved from epoch [from] straight to [to] without the keys of
@@ -148,8 +155,10 @@ data class EpochConflict(val epoch: Int, val kept: String, val other: String)
 class PastEpoch(val keys: EpochKeys, val leftAt: Long)
 
 sealed interface RoomEpochState {
-    data class Active(val epoch: Int, val trafficRoom: String) : RoomEpochState
-    data class Updating(val epoch: Int) : RoomEpochState
+    /** [scheduled]: entered by a scheduled turn of the key (`RekeyNotice.scheduled`), which is not announced. */
+    data class Active(val epoch: Int, val trafficRoom: String, val scheduled: Boolean = false) : RoomEpochState
+    /** [scheduled]: as on [Active]; a catch-up after a gap never is. */
+    data class Updating(val epoch: Int, val scheduled: Boolean = false) : RoomEpochState
     /** [waitingToBeLetIn]: the authority answered that the room does not know this participant
      *  yet (kithmoot#207). Not a refusal; a member lets them in, and asking again then works. */
     data class RecoveryNeeded(val expectedEpoch: Int, val reason: String, val waitingToBeLetIn: Boolean = false) : RoomEpochState
@@ -211,10 +220,12 @@ class RoomSession(
     private val memberEpochDesk: MemberEpochDesk? = null,
     /**
      * Epoch secrets and authority rekeys this session has learnt, for the member desk to hand
-     * on later: every authority-signed rekey the relays show, and every epoch a member grant
-     * proved. Advisory; see `EpochVault.remember`.
+     * on later: every authority-signed rekey the relays show, every epoch a member grant
+     * proved, and every left epoch an authority grant handed over (`passed`). The third
+     * argument says when each such epoch was left, where no kept rekey out of it will.
+     * Advisory; see `EpochVault.remember`.
      */
-    private val onEpochHistory: suspend (List<RoomEpoch>, List<NostrEvent>) -> Unit = { _, _ -> },
+    private val onEpochHistory: suspend (List<RoomEpoch>, List<NostrEvent>, Map<Int, Long>) -> Unit = { _, _, _ -> },
     /**
      * The epoch the responder that admitted this device said the room is at
      * (`RoomAdmission.epoch`), or one this device was told earlier and has not
@@ -1167,7 +1178,7 @@ class RoomSession(
         val epoch = peekRekeyEpoch(event, room.roomId, trusted) ?: return
         // Before the lock: an epoch question in progress holds it, and must see the floor rise.
         rekeyFloor.accumulateAndGet(epoch, ::maxOf)
-        runCatching { onEpochHistory(emptyList(), listOf(event)) }.onFailure { if (it is CancellationException) throw it }
+        runCatching { onEpochHistory(emptyList(), listOf(event), emptyMap()) }.onFailure { if (it is CancellationException) throw it }
         epochMutex.withLock { onAuthorityRekey(event, epoch) }
     }
 
@@ -1210,7 +1221,7 @@ class RoomSession(
                 return
             }
             blockForRekey()
-            _epochState.value = RoomEpochState.Updating(notice.epoch)
+            _epochState.value = RoomEpochState.Updating(notice.epoch, notice.scheduled)
             val outcome = try {
                 requireNotNull(epochGate).invoke(nextEvent, notice)
             } catch (cancelled: CancellationException) {
@@ -1459,13 +1470,22 @@ class RoomSession(
                     return
                 }
                 if (outcome == EpochGateResult.PENDING) return
+                // The window the authority handed over (`passed`): each is read as an epoch left,
+                // at the time it was left, so a newcomer or a device back after several rekeys
+                // reads the last month and not only the current epoch.
+                val passed = grant.passed.map(LeftEpoch::roomEpoch)
+                val leftAt = grant.passed.associate { it.epoch to it.leftAt }
                 try {
-                    applyEpoch(notice)
+                    applyEpoch(notice, crossed = passed, leftAt = leftAt)
                     pendingRekeys.keys.removeAll { it <= notice.epoch }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     requireRecovery(notice.epoch, error.message ?: "The recovered room update could not move every local subsystem")
+                    return
+                }
+                if (passed.isNotEmpty()) {
+                    runCatching { onEpochHistory(passed, emptyList(), leftAt) }.onFailure { if (it is CancellationException) throw it }
                 }
             }
         }
@@ -1505,7 +1525,7 @@ class RoomSession(
             requireRecovery(notice.epoch, error.message ?: "The recovered room update could not move every local subsystem")
             return
         }
-        runCatching { onEpochHistory(grant.chain, grant.rekeys) }.onFailure { if (it is CancellationException) throw it }
+        runCatching { onEpochHistory(grant.chain, grant.rekeys, emptyMap()) }.onFailure { if (it is CancellationException) throw it }
     }
 
     /** The epoch this session is in step at, above 0, for the member desk; null when it is not. */
@@ -1554,7 +1574,8 @@ class RoomSession(
         }
     }
 
-    private suspend fun applyEpoch(notice: RekeyNotice, crossed: List<RoomEpoch> = emptyList()) {
+    /** [leftAt]: when each of [crossed], or the epoch being left, was left, where the answer said; otherwise the notice's time. */
+    private suspend fun applyEpoch(notice: RekeyNotice, crossed: List<RoomEpoch> = emptyList(), leftAt: Map<Int, Long> = emptyMap()) {
         val secret = requireNotNull(notice.secret)
         val next = deriveEpoch(RoomEpoch(notice.epoch, secret))
         stopTraffic()
@@ -1563,7 +1584,7 @@ class RoomSession(
         val gap = synchronized(lock) {
             val from = activeEpoch
             val between = crossed.filter { it.epoch > from.epoch && it.epoch < next.epoch }.distinctBy { it.epoch }
-            keepPastLocked(listOf(from) + between.map(::deriveEpoch), notice.at)
+            for (left in listOf(from) + between.map(::deriveEpoch)) keepPastLocked(listOf(left), leftAt[left.epoch] ?: notice.at)
             notice.removed.forEach { removedParticipants += it.lowercase() }
             activeEpoch = next
             notice.removed.forEach { removed ->
@@ -1575,7 +1596,7 @@ class RoomSession(
         }
         handPastToTransport()
         if (gap != null) _epochGaps.value = _epochGaps.value + gap
-        _epochState.value = RoomEpochState.Active(next.epoch, next.id)
+        _epochState.value = RoomEpochState.Active(next.epoch, next.id, notice.scheduled)
         _movedOn.value = null
         recompute()
         if (settled && joined) {

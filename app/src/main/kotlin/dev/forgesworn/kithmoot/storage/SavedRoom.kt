@@ -89,6 +89,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      *  Used to keep the background call listener from ringing for its own
      *  other rooms' bells. */
     val devicePubkey: String get() = Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
+    /** This device's own device secret key in this room, readable without a signer like
+     *  [devicePubkey]: what opens the copy a rekey seals to this device while the room is
+     *  closed (`BackgroundRekeyFollower`). A fresh copy; the caller wipes it. */
+    fun deviceSecretKey(): ByteArray = identityJson.text("deviceKey").keyBytes()
     val openedAt: Long get() = json.getValue("openedAt").jsonPrimitive.long
     /** The project this room is filed under on this device, if any. A label
      *  and nothing more: it changes nothing about the room or who is in it. */
