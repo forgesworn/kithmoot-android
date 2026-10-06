@@ -11693,6 +11693,714 @@
         }
       }
     ],
+    "chatHistory": [
+      {
+        "name": "streams-with-removals",
+        "kind": "positive",
+        "note": "A room in epoch 10 that has turned its key every three days (removals, say), and left epoch 0 forty days ago. `epochsInWindow` keeps epochs 9 to 1, newest first; epoch 0 is outside the window. A log asks for the current epoch and the four most recently left in a filter each, so each has its own `limit`, and folds the rest into one filter with several `#d` values: six filters at most, however many epochs it reads, since relays cap the filters a request may carry. Each `#d` is the main chat's stream in that epoch: the epoch id, or the room id in epoch 0.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "current": {
+            "epoch": 10,
+            "secretHex": "1511625e3f2bbf6eff97aaf58924f8ed5d97edecfb08e5db894f142c9149bcda"
+          },
+          "left": [
+            {
+              "epoch": 0,
+              "leftAt": 1796544000
+            },
+            {
+              "epoch": 1,
+              "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c",
+              "leftAt": 1797667200
+            },
+            {
+              "epoch": 2,
+              "secretHex": "9a6594b98a1810acde1c6ae91463f138710ade341468c180bb079135375ef8e2",
+              "leftAt": 1797926400
+            },
+            {
+              "epoch": 3,
+              "secretHex": "87be1bb6b82e76254bc5eeb16358cb9aed3abb3e997e483635f6916d28c97de6",
+              "leftAt": 1798185600
+            },
+            {
+              "epoch": 4,
+              "secretHex": "8c232952386ab0ba536072d4730012d3addf819d934e74243a6b5b2daf985d55",
+              "leftAt": 1798444800
+            },
+            {
+              "epoch": 5,
+              "secretHex": "71d48c82dc634f068464f272d66279dec4e636b0bd81df60ab33f0b3043dcd2f",
+              "leftAt": 1798704000
+            },
+            {
+              "epoch": 6,
+              "secretHex": "8372879cbd499861664a4099889b3614857d9d45f75868cebd5d04f02c4d8aba",
+              "leftAt": 1798963200
+            },
+            {
+              "epoch": 7,
+              "secretHex": "57e72005dd9bfecf59ec33cb2ca9c97f6de3b947b6ca63460b310f450b0b5a07",
+              "leftAt": 1799222400
+            },
+            {
+              "epoch": 8,
+              "secretHex": "b65ca6acf19b5e25bf427b1613fe219376ad8b29eb38ee513bda95d1ba9005c9",
+              "leftAt": 1799481600
+            },
+            {
+              "epoch": 9,
+              "secretHex": "c084112a24337bcc30fc1510aea9ec45bfded1fcb816d956510aebd9ee383dd9",
+              "leftAt": 1799740800
+            }
+          ],
+          "now": 1800000000,
+          "windowSeconds": 2592000
+        },
+        "output": {
+          "kept": [
+            9,
+            8,
+            7,
+            6,
+            5,
+            4,
+            3,
+            2,
+            1
+          ],
+          "streams": {
+            "0": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "1": "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd",
+            "2": "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9",
+            "3": "90923463f3c8a0307893733e03a6302477789400879fa39f56f797f53cd1a77d",
+            "4": "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7",
+            "5": "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60",
+            "6": "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f",
+            "7": "4b4776550b470c717b2a4157e9657d242dac8f7fd88d996aebbf4f889ca0b6ad",
+            "8": "33d52c3364b29e569e652639d8c5bbfd1797fe4efa0073ec857df1ff028c47f6",
+            "9": "fade5f88929d664badb012fae93731e6ffac8309a0eff6c139d439e902ba8330",
+            "10": "4e1de547e672759e9ae46484cf5512a8251a19c30b7571cc2e89b65fd769c1ec"
+          },
+          "filters": [
+            [
+              "4e1de547e672759e9ae46484cf5512a8251a19c30b7571cc2e89b65fd769c1ec"
+            ],
+            [
+              "fade5f88929d664badb012fae93731e6ffac8309a0eff6c139d439e902ba8330"
+            ],
+            [
+              "33d52c3364b29e569e652639d8c5bbfd1797fe4efa0073ec857df1ff028c47f6"
+            ],
+            [
+              "4b4776550b470c717b2a4157e9657d242dac8f7fd88d996aebbf4f889ca0b6ad"
+            ],
+            [
+              "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f"
+            ],
+            [
+              "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60",
+              "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7",
+              "90923463f3c8a0307893733e03a6302477789400879fa39f56f797f53cd1a77d",
+              "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9",
+              "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd"
+            ]
+          ]
+        }
+      },
+      {
+        "name": "streams-weekly",
+        "kind": "positive",
+        "note": "A room on a weekly schedule, in epoch 6: epochs 5 to 2 were left within 30 days and each gets a filter of its own; epoch 1, left 32 days ago, and epoch 0 are not read. Nothing is folded.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "current": {
+            "epoch": 6,
+            "secretHex": "8372879cbd499861664a4099889b3614857d9d45f75868cebd5d04f02c4d8aba"
+          },
+          "left": [
+            {
+              "epoch": 0,
+              "leftAt": 1796630400
+            },
+            {
+              "epoch": 1,
+              "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c",
+              "leftAt": 1797235200
+            },
+            {
+              "epoch": 2,
+              "secretHex": "9a6594b98a1810acde1c6ae91463f138710ade341468c180bb079135375ef8e2",
+              "leftAt": 1797840000
+            },
+            {
+              "epoch": 3,
+              "secretHex": "87be1bb6b82e76254bc5eeb16358cb9aed3abb3e997e483635f6916d28c97de6",
+              "leftAt": 1798444800
+            },
+            {
+              "epoch": 4,
+              "secretHex": "8c232952386ab0ba536072d4730012d3addf819d934e74243a6b5b2daf985d55",
+              "leftAt": 1799049600
+            },
+            {
+              "epoch": 5,
+              "secretHex": "71d48c82dc634f068464f272d66279dec4e636b0bd81df60ab33f0b3043dcd2f",
+              "leftAt": 1799654400
+            }
+          ],
+          "now": 1800000000,
+          "windowSeconds": 2592000
+        },
+        "output": {
+          "kept": [
+            5,
+            4,
+            3,
+            2
+          ],
+          "streams": {
+            "0": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "1": "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd",
+            "2": "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9",
+            "3": "90923463f3c8a0307893733e03a6302477789400879fa39f56f797f53cd1a77d",
+            "4": "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7",
+            "5": "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60",
+            "6": "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f"
+          },
+          "filters": [
+            [
+              "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f"
+            ],
+            [
+              "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60"
+            ],
+            [
+              "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7"
+            ],
+            [
+              "90923463f3c8a0307893733e03a6302477789400879fa39f56f797f53cd1a77d"
+            ],
+            [
+              "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9"
+            ]
+          ]
+        }
+      },
+      {
+        "name": "streams-at-the-cap",
+        "kind": "positive",
+        "note": "Twenty epochs left within the window, one a day: sixteen (`MAX_HISTORY_EPOCHS`) are read, the most recently left, and still in six filters.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "current": {
+            "epoch": 20,
+            "secretHex": "3864805f3f984c6e6535d2604ad7785d3df9439d341a878557220af62b469500"
+          },
+          "left": [
+            {
+              "epoch": 0,
+              "leftAt": 1798272000
+            },
+            {
+              "epoch": 1,
+              "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c",
+              "leftAt": 1798358400
+            },
+            {
+              "epoch": 2,
+              "secretHex": "9a6594b98a1810acde1c6ae91463f138710ade341468c180bb079135375ef8e2",
+              "leftAt": 1798444800
+            },
+            {
+              "epoch": 3,
+              "secretHex": "87be1bb6b82e76254bc5eeb16358cb9aed3abb3e997e483635f6916d28c97de6",
+              "leftAt": 1798531200
+            },
+            {
+              "epoch": 4,
+              "secretHex": "8c232952386ab0ba536072d4730012d3addf819d934e74243a6b5b2daf985d55",
+              "leftAt": 1798617600
+            },
+            {
+              "epoch": 5,
+              "secretHex": "71d48c82dc634f068464f272d66279dec4e636b0bd81df60ab33f0b3043dcd2f",
+              "leftAt": 1798704000
+            },
+            {
+              "epoch": 6,
+              "secretHex": "8372879cbd499861664a4099889b3614857d9d45f75868cebd5d04f02c4d8aba",
+              "leftAt": 1798790400
+            },
+            {
+              "epoch": 7,
+              "secretHex": "57e72005dd9bfecf59ec33cb2ca9c97f6de3b947b6ca63460b310f450b0b5a07",
+              "leftAt": 1798876800
+            },
+            {
+              "epoch": 8,
+              "secretHex": "b65ca6acf19b5e25bf427b1613fe219376ad8b29eb38ee513bda95d1ba9005c9",
+              "leftAt": 1798963200
+            },
+            {
+              "epoch": 9,
+              "secretHex": "c084112a24337bcc30fc1510aea9ec45bfded1fcb816d956510aebd9ee383dd9",
+              "leftAt": 1799049600
+            },
+            {
+              "epoch": 10,
+              "secretHex": "1511625e3f2bbf6eff97aaf58924f8ed5d97edecfb08e5db894f142c9149bcda",
+              "leftAt": 1799136000
+            },
+            {
+              "epoch": 11,
+              "secretHex": "5857c8633d13d44b2963759dd8ab1004b8221b74c00ae1b2bf71803e0bd3cc03",
+              "leftAt": 1799222400
+            },
+            {
+              "epoch": 12,
+              "secretHex": "24d1e57b08f871dda902f84a4f7707c395ff8acafa39ab2e78ba5161d3595da6",
+              "leftAt": 1799308800
+            },
+            {
+              "epoch": 13,
+              "secretHex": "ef348093dde5bf61aaf5bd0252a77bcb2df1111af7d969a88895b291da878e70",
+              "leftAt": 1799395200
+            },
+            {
+              "epoch": 14,
+              "secretHex": "71f3a1f0475948a565e32fa26845b7d08ebcd47b454a98da77b6f324bd2f72ad",
+              "leftAt": 1799481600
+            },
+            {
+              "epoch": 15,
+              "secretHex": "3fd8b016d5a8aa0ecf67f7df8f2c12ead367cac722ac06fabd57a9fd6b83b139",
+              "leftAt": 1799568000
+            },
+            {
+              "epoch": 16,
+              "secretHex": "6420c28294326f6ac0a11fbb6a2990be4014b92682863731e8281946387f8a52",
+              "leftAt": 1799654400
+            },
+            {
+              "epoch": 17,
+              "secretHex": "629ee0c230e608dcebd4791d1b0ffd059476beabf70fa179ac948bec90edaef4",
+              "leftAt": 1799740800
+            },
+            {
+              "epoch": 18,
+              "secretHex": "a2dd9cf31a2f0d22e5aa945c6b599c5e3f093bfc3a09f81ced67dc611592b3d0",
+              "leftAt": 1799827200
+            },
+            {
+              "epoch": 19,
+              "secretHex": "21ce27076474fb18dd6fcc838b6a235b5570bfc702113479c162e9f30eeea6fa",
+              "leftAt": 1799913600
+            }
+          ],
+          "now": 1800000000,
+          "windowSeconds": 2592000
+        },
+        "output": {
+          "kept": [
+            19,
+            18,
+            17,
+            16,
+            15,
+            14,
+            13,
+            12,
+            11,
+            10,
+            9,
+            8,
+            7,
+            6,
+            5,
+            4
+          ],
+          "streams": {
+            "0": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "1": "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd",
+            "2": "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9",
+            "3": "90923463f3c8a0307893733e03a6302477789400879fa39f56f797f53cd1a77d",
+            "4": "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7",
+            "5": "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60",
+            "6": "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f",
+            "7": "4b4776550b470c717b2a4157e9657d242dac8f7fd88d996aebbf4f889ca0b6ad",
+            "8": "33d52c3364b29e569e652639d8c5bbfd1797fe4efa0073ec857df1ff028c47f6",
+            "9": "fade5f88929d664badb012fae93731e6ffac8309a0eff6c139d439e902ba8330",
+            "10": "4e1de547e672759e9ae46484cf5512a8251a19c30b7571cc2e89b65fd769c1ec",
+            "11": "6379a37426aec87f700b37cb67274d6b7812e3c120006bc5a7550ad555a2ac9e",
+            "12": "658dd2f8aa5a544ca9ed1a667da1bedd09177f5abb87ff952df194bfae268c8e",
+            "13": "07a3a954c2567ecaa9896bfe48444ccbc99422d215e5a519e8db8ec8adde3390",
+            "14": "fb936154a31ed5bc8d537cf7c49551d3fb5ecad1d2af41cf4f89c3edea0b8749",
+            "15": "48ae6ea56aaef1d5c7bb7d3b9e5b127279da621b304f92d76b60fe71ed1706ec",
+            "16": "1edcfbc3720b904bd0ed403381a3e89364a9daa8a1b137279dc745cf94d10866",
+            "17": "bf9f13ab248b7c58c84b66a835b7debbd0105f9add53c7fbcfd8937fbb535d7f",
+            "18": "affb0b55e5ee521d9c0d88b444dcc24ddc94a8ce0b204d02b74130921263919a",
+            "19": "8ad92f528117838e298886dc1229710647659789126f412a6e30c0e97fe8c7c7",
+            "20": "3cbc8c9f819cc28d2393553dcae0fe44ca3436c75654ac64a379d3b31ad1e568"
+          },
+          "filters": [
+            [
+              "3cbc8c9f819cc28d2393553dcae0fe44ca3436c75654ac64a379d3b31ad1e568"
+            ],
+            [
+              "8ad92f528117838e298886dc1229710647659789126f412a6e30c0e97fe8c7c7"
+            ],
+            [
+              "affb0b55e5ee521d9c0d88b444dcc24ddc94a8ce0b204d02b74130921263919a"
+            ],
+            [
+              "bf9f13ab248b7c58c84b66a835b7debbd0105f9add53c7fbcfd8937fbb535d7f"
+            ],
+            [
+              "1edcfbc3720b904bd0ed403381a3e89364a9daa8a1b137279dc745cf94d10866"
+            ],
+            [
+              "48ae6ea56aaef1d5c7bb7d3b9e5b127279da621b304f92d76b60fe71ed1706ec",
+              "fb936154a31ed5bc8d537cf7c49551d3fb5ecad1d2af41cf4f89c3edea0b8749",
+              "07a3a954c2567ecaa9896bfe48444ccbc99422d215e5a519e8db8ec8adde3390",
+              "658dd2f8aa5a544ca9ed1a667da1bedd09177f5abb87ff952df194bfae268c8e",
+              "6379a37426aec87f700b37cb67274d6b7812e3c120006bc5a7550ad555a2ac9e",
+              "4e1de547e672759e9ae46484cf5512a8251a19c30b7571cc2e89b65fd769c1ec",
+              "fade5f88929d664badb012fae93731e6ffac8309a0eff6c139d439e902ba8330",
+              "33d52c3364b29e569e652639d8c5bbfd1797fe4efa0073ec857df1ff028c47f6",
+              "4b4776550b470c717b2a4157e9657d242dac8f7fd88d996aebbf4f889ca0b6ad",
+              "30da13aa4a37dad23f01050114ea3e0465ec2aec5fce55bc31c2b7de8f2a552f",
+              "15eeec77e9587b597231eefa754805850064a35bf4c0e8d74bdcfaedbe845b60",
+              "443531e472a261b76dd0e7876c47fdb319759f459b1d301598129226da23bab7"
+            ]
+          ]
+        }
+      },
+      {
+        "name": "across-a-scheduled-rekey",
+        "kind": "positive",
+        "note": "A member in epoch 1 reads a scheduled rekey (marked, nobody removed) and moves to epoch 2, the secret it carries. A log in epoch 2 that left epoch 1 when the rekey was signed (`leftAt` = its created_at) reads both streams, so a message from before the turn and one from after are both there, in order. A client lets the turn pass without a word: the notice is marked `scheduled`.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "epoch1": {
+            "epoch": 1,
+            "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c"
+          },
+          "rekey": {
+            "event": {
+              "kind": 1462,
+              "created_at": 1799999400,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "epoch",
+                  "2"
+                ]
+              ],
+              "content": "AtmiEQn5pNXQ9ce9AwJUjMJQEUfyI/QxnsZArdYgbpFQmU6hz72ON4IWjBVO9GeoqAxwpEmt2Vjm3BFbL24SpBTCstpm6NGX0rY54SuCb1LIheBIH+wG/ZkG9J0tPikA8OJ3zCpOs7XdGqRAGceNVWe5/nvILaPIRsvw2WfpiaLSyM/WM8ytpxtXCOj1E0uXA2L1sVYjJjXDj3T2xKpMbssxwi5qBnjG4PvM8lmJmcry0vcs9iBMe32CTZ++CVIxVyX+StYQtpHJ3oSfhB5+g1Bn61n1VbOkQmSONn7OMg/CLA3ZC/x7UknwkZMhriey4Z7W1BIKHeGjE8REf0ApQdZ4BICZg5pecQiOGLrp/aGxiCKY3nA5o2i6aYvHRyqWc70y+aIhPas9+m+GI++wQyTR+8zpw5ntQ1N1xp7Tvkt+vDQfMK0D2MYJYFAzsn8R1qfzxL9S7J7hZRuJxl9Rk4tEJA+iOgueAb4i5u5LEfPhfs2PdnAzgjo+s/C/gZx0d7sxUE88tMpNw+dPpZzxnLg9yxJUdmmLnTXXpZUk8TdmBPp8+O9vK5W//MWW8efqh6DKP8ZSsbIXhrvBWYd7nE8IoWI62x4b5i7tDPpVBeRcPGx8rRwehi7203ESZlbVO2X48I5ZY4vuunGusLfhG028hpYhFeigIB3job3nL4cs+0cB5iO6LcaNklvK+O2xmMOk+FEaAXmNafxzkGErMify8VpPV3N7c01iXe5ISIIuZCmkxD5OfRsI4CowqTbDxFLe",
+              "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+              "id": "8e975ff49c97fe2c5c85287be8dffc357032411c18628523f3b02b4749146eba",
+              "sig": "763e59e059d5d672856a37b292cfadb415f87451467839c096fffaa4daf783919dd23bfcdae267ea0d3d93e86a8e48dc1cd04a68c401aca7d3fe3f30420fd5a9"
+            },
+            "randomHex": [
+              "092d2942d408aed76009ed549f7c7437f42161af4e87a8dd289a24fac3291e0b",
+              "d9a21109f9a4d5d0f5c7bd0302548cc2501147f223f4319ec640add6206e9150",
+              "1461ccee88d9f2cc256fd6a35be72ed08fc35b1bf489d9bc3bf815e73697d878"
+            ]
+          },
+          "messages": [
+            {
+              "message": {
+                "id": "before-the-turn",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "credential": {
+                  "kind": 20460,
+                  "created_at": 1799990000,
+                  "tags": [
+                    [
+                      "d",
+                      "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                    ],
+                    [
+                      "device",
+                      "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                    ],
+                    [
+                      "expiration",
+                      "1800003600"
+                    ]
+                  ],
+                  "content": "",
+                  "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                  "sig": "a2568061001061953fca7ae9a6ff91f3764044696a39e077e488ca5625c4c38164f6009560de4f1e606aa81d380a55850bfa35afaa208cc94547f4d934bae717"
+                },
+                "text": "Said in epoch 1.",
+                "sentAt": 1799999340
+              },
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999340,
+                "tags": [
+                  [
+                    "d",
+                    "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd"
+                  ]
+                ],
+                "content": "AkdpW1P7UTwA/zaduPKnCRQN8v1Jg//g3ixFhGlBgDv521W+tfxk6DSJgjv/oEwNLRHwZwcnsLiZDk3mf/I84qPo3ASgqboUEhckqwqOlPwm5Pfj4LE2lN9YDwivSqMUR9HxFbryKcESHe74ivQpAddyCdCRjB2xLme/GS1dEd60ybF7LgSJGknoPtQtB3+9WxXyuJsPm2NsnOrPJHh0Tu2E7qAt1GKXBEATsOowYZPPLvdkhc+xSBhMUYVlO7u2pD3Kzmu4bAPdqw6pc7JSI8QXRLohBg7mlS9LG9dFLvVIEm1VFTf3vJH4QJeq/y2rEIFYexFba5Lij/hJ9zZMnE3oJ3YIClauEYJu+j3Dw4qv+qLkh2cQU0gGv50feZLNqRix/VN1NRtCgcPrr3S6wAu6sqNNXNJoKZoGbev4/Nc4EWKB5Do0QQ+c1lB+5RSNHfuCnaFprQHYcUTkjXz5Kn30xymB/6/k1obwr1vIqaz3zts10nCZFzvx7S9R1k7y3wGIxb7wkdYaynJeBDaf+W7J3hh1TcYtG/B6CGDvpYpKV2NySh9anmoyHxvzzIrgx7wXy5HN/8Kl7BFDyPrRUE5UFNEsgELdjHe4esUv5AjLQS5jMf3VmfJwZReKnUVuijs3vttLgTNY58zUhWnJ8X+NlUkICJKmWBb3T8RIR9LcbhIuv5o47bEQOHHDjcxSZw9Qt9xjMfWpJSmrNxBxDlgYZdNWB7a2uyrk7V2GjiE5bAkyGgwzlzmZti23gyq8lAwy88Qkkx/tMMf/ybj69q3IIAYw6Xy17F/o02x4da6bVKHCZkECwrx2qFijl5RGsjJ6STfMPxGN3eLEqrOkor+BNpmMTQhleJnd+MqHZPQO/CtZhhG/s7oPNaJ6UdQ5ah3Hv9Ax0gzAeKYMfZ7+euPDfyp50Dj+AzEPQkfYNWRfGnmM2axdexs4CR8aXIop549JE9WXDeADwe1kKSg+znqw+meC1mHWSJXGeC/u19JXq+kvF/vv22UjIqxZwV6lXMTNNubm78eqfsTT+HWXYlDgPyv0P3Wp80IvoTCwDWxVLQ/OVDI9GW1c24LEUAWVI2KVD+NN3x+zk96vHhYm5zTu2g==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5a4d27fadb989a78caa022a3b3b5162da1644cc5409984fb6ced63f8c621458b",
+                "sig": "35c048cef97726066dad9073cfb5f88bbaaa7d2c25eeef4a7e11fe2517daacdff16abdb98a9986ddfdc3118888f8075831b19c9d0455eebdb23ab2a0ec2a0fe3"
+              },
+              "nonceHex": "47695b53fb513c00ff369db8f2a709140df2fd4983ffe0de2c45846941803bf9",
+              "auxRandHex": "9ee881242d21457f4db275655f8e113a438b754b26d2218626aaea5516640ce3"
+            },
+            {
+              "message": {
+                "id": "after-the-turn",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "credential": {
+                  "kind": 20460,
+                  "created_at": 1799990000,
+                  "tags": [
+                    [
+                      "d",
+                      "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                    ],
+                    [
+                      "device",
+                      "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                    ],
+                    [
+                      "expiration",
+                      "1800003600"
+                    ]
+                  ],
+                  "content": "",
+                  "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                  "sig": "a2568061001061953fca7ae9a6ff91f3764044696a39e077e488ca5625c4c38164f6009560de4f1e606aa81d380a55850bfa35afaa208cc94547f4d934bae717"
+                },
+                "text": "Said in epoch 2.",
+                "sentAt": 1799999970
+              },
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999970,
+                "tags": [
+                  [
+                    "d",
+                    "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9"
+                  ]
+                ],
+                "content": "ArYJPNsDoPHe/nUQA5Lq/sWhqMH23oTa3SJwFKA0/V5XNy4coShSFQlXoHe94FoqRAg/sk32t33AB80H9gwkgr7Rsld4oi86mxYQkkCNeR9AOBruoOJAvR5E7pzccNdAdD2L/Pcky9Yo25AxLg7xvckd+DG6LTt6LCk4i+HU4dnqNgifnx+9WSwwfBOrdhv8d/lxwImMqdSDqlUJxe58cD1wnBAdzzdKnmLiYRTvRDWFpqlkw+KPTCE1qBKfUAgzcq6SBUq3AzQjBHDng7A+2M9YLPBKTd/vQ4HbFtZd6J+T431u1VABKsy8zYq+x5Zx2akdNGCRdvKFs8OHXFceMaSVjGIcAm1yJmkEowafs5uY1u8ctjVroGskRToB/rM9oCJuLZBbHbpxQ1UpPUMofWvI+YF2e2xkTswM2T7RP1N+AykvcQNJsHArD70WAyHCaiBIXO6mwY7dpBss8JAWioSgtD99xQXdMz5PbPXsBml4ipV3Gbhe55qR4bC+Jyuc4tmND2TmPjVrfMYz5t0uCOE+4HGnRHfCvOGrK2bNN7z/TYlje3ZYKtmn8Ft0dy9n/2zb1GKoEcic5nbrt2FCefBDFaX6MbIcM50yivdNLE2htpxHO5CqLEsZg+5TD4MxOzyPFKuj/d/Q5SPz65otcPtMc7aCN6LOI5gAILyfH6grRDYuTCic1QwLXdgpieEr8iH3ufOavhwmPHN3nsSP0iO8ouS6ZnVIlQrr0UXG52+RboU4emYoE6GmETuRQNbFN87qOIujg3dsDsk5uISPfjcANoMj6udIFsdJSNu/wMhBerwPUZi4C9ENeMgY3gL2mb2PSnosFBV0Sr43UB51G/gfvrqdgoyCgJn8rbJHkLJYHz4EA3tDzcJA+EhkKaX7+UnMLjmHQKLCNNZ8ttAcMZIVb1AeapMs12yF/ISKZof08LG4FpOCQzyH4Nso6LuoesSPEkpeWztEp94wmjgqACvNuhNAhf3AM3FBY+M38ElJKmDtSi+SaIyNoKSgqE2hrLmn9k9HVBUoRe0f7s0C9czEbevSzzqKlN0BM5tNzzGaKB5g3NKzNPN9t4bTvl5hiPGEMqwtggmOKEfC/kd3VgSJjQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "31f3b597b433045dbe933bd5ace499e7afe558beaa67e5eccb90435a27e1af66",
+                "sig": "b681f4d0c185c69c1ae12b32f7466804092acb01e1c1429e7a6431e2fc9f75cb092ee06305705a1a87043102c22964d4003d028f39375515816fa25d3008cad0"
+              },
+              "nonceHex": "b6093cdb03a0f1defe75100392eafec5a1a8c1f6de84dadd227014a034fd5e57",
+              "auxRandHex": "86e6e9f78b635e4fb3ff9ab7c521cff0ccff85c9e6fa6f10a28ef500b3cecf1f"
+            }
+          ],
+          "left": [
+            {
+              "epoch": 1,
+              "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c",
+              "leftAt": 1799999400
+            }
+          ],
+          "now": 1800000000
+        },
+        "output": {
+          "notice": {
+            "epoch": 2,
+            "removed": [],
+            "closed": false,
+            "scheduled": true,
+            "secretHex": "9a6594b98a1810acde1c6ae91463f138710ade341468c180bb079135375ef8e2",
+            "at": 1799999400
+          },
+          "filters": [
+            [
+              "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9"
+            ],
+            [
+              "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd"
+            ]
+          ],
+          "read": [
+            "Said in epoch 1.",
+            "Said in epoch 2."
+          ]
+        }
+      },
+      {
+        "name": "left-before-the-window",
+        "kind": "negative",
+        "note": "The same two messages, read by a log told it left epoch 1 a second more than 30 days ago: epoch 1 is outside the window, so it is not asked for at all and only what was said in epoch 2 is read.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "epoch1": {
+            "epoch": 1,
+            "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c"
+          },
+          "rekey": {
+            "event": {
+              "kind": 1462,
+              "created_at": 1799999400,
+              "tags": [
+                [
+                  "d",
+                  "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                ],
+                [
+                  "epoch",
+                  "2"
+                ]
+              ],
+              "content": "AtmiEQn5pNXQ9ce9AwJUjMJQEUfyI/QxnsZArdYgbpFQmU6hz72ON4IWjBVO9GeoqAxwpEmt2Vjm3BFbL24SpBTCstpm6NGX0rY54SuCb1LIheBIH+wG/ZkG9J0tPikA8OJ3zCpOs7XdGqRAGceNVWe5/nvILaPIRsvw2WfpiaLSyM/WM8ytpxtXCOj1E0uXA2L1sVYjJjXDj3T2xKpMbssxwi5qBnjG4PvM8lmJmcry0vcs9iBMe32CTZ++CVIxVyX+StYQtpHJ3oSfhB5+g1Bn61n1VbOkQmSONn7OMg/CLA3ZC/x7UknwkZMhriey4Z7W1BIKHeGjE8REf0ApQdZ4BICZg5pecQiOGLrp/aGxiCKY3nA5o2i6aYvHRyqWc70y+aIhPas9+m+GI++wQyTR+8zpw5ntQ1N1xp7Tvkt+vDQfMK0D2MYJYFAzsn8R1qfzxL9S7J7hZRuJxl9Rk4tEJA+iOgueAb4i5u5LEfPhfs2PdnAzgjo+s/C/gZx0d7sxUE88tMpNw+dPpZzxnLg9yxJUdmmLnTXXpZUk8TdmBPp8+O9vK5W//MWW8efqh6DKP8ZSsbIXhrvBWYd7nE8IoWI62x4b5i7tDPpVBeRcPGx8rRwehi7203ESZlbVO2X48I5ZY4vuunGusLfhG028hpYhFeigIB3job3nL4cs+0cB5iO6LcaNklvK+O2xmMOk+FEaAXmNafxzkGErMify8VpPV3N7c01iXe5ISIIuZCmkxD5OfRsI4CowqTbDxFLe",
+              "pubkey": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86",
+              "id": "8e975ff49c97fe2c5c85287be8dffc357032411c18628523f3b02b4749146eba",
+              "sig": "763e59e059d5d672856a37b292cfadb415f87451467839c096fffaa4daf783919dd23bfcdae267ea0d3d93e86a8e48dc1cd04a68c401aca7d3fe3f30420fd5a9"
+            },
+            "randomHex": [
+              "092d2942d408aed76009ed549f7c7437f42161af4e87a8dd289a24fac3291e0b",
+              "d9a21109f9a4d5d0f5c7bd0302548cc2501147f223f4319ec640add6206e9150",
+              "1461ccee88d9f2cc256fd6a35be72ed08fc35b1bf489d9bc3bf815e73697d878"
+            ]
+          },
+          "messages": [
+            {
+              "message": {
+                "id": "before-the-turn",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "credential": {
+                  "kind": 20460,
+                  "created_at": 1799990000,
+                  "tags": [
+                    [
+                      "d",
+                      "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                    ],
+                    [
+                      "device",
+                      "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                    ],
+                    [
+                      "expiration",
+                      "1800003600"
+                    ]
+                  ],
+                  "content": "",
+                  "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                  "sig": "a2568061001061953fca7ae9a6ff91f3764044696a39e077e488ca5625c4c38164f6009560de4f1e606aa81d380a55850bfa35afaa208cc94547f4d934bae717"
+                },
+                "text": "Said in epoch 1.",
+                "sentAt": 1799999340
+              },
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999340,
+                "tags": [
+                  [
+                    "d",
+                    "3753cbb15e96c7c506a1fb0bb29c4cb66532414f1b0aac259f4903f4707252cd"
+                  ]
+                ],
+                "content": "AkdpW1P7UTwA/zaduPKnCRQN8v1Jg//g3ixFhGlBgDv521W+tfxk6DSJgjv/oEwNLRHwZwcnsLiZDk3mf/I84qPo3ASgqboUEhckqwqOlPwm5Pfj4LE2lN9YDwivSqMUR9HxFbryKcESHe74ivQpAddyCdCRjB2xLme/GS1dEd60ybF7LgSJGknoPtQtB3+9WxXyuJsPm2NsnOrPJHh0Tu2E7qAt1GKXBEATsOowYZPPLvdkhc+xSBhMUYVlO7u2pD3Kzmu4bAPdqw6pc7JSI8QXRLohBg7mlS9LG9dFLvVIEm1VFTf3vJH4QJeq/y2rEIFYexFba5Lij/hJ9zZMnE3oJ3YIClauEYJu+j3Dw4qv+qLkh2cQU0gGv50feZLNqRix/VN1NRtCgcPrr3S6wAu6sqNNXNJoKZoGbev4/Nc4EWKB5Do0QQ+c1lB+5RSNHfuCnaFprQHYcUTkjXz5Kn30xymB/6/k1obwr1vIqaz3zts10nCZFzvx7S9R1k7y3wGIxb7wkdYaynJeBDaf+W7J3hh1TcYtG/B6CGDvpYpKV2NySh9anmoyHxvzzIrgx7wXy5HN/8Kl7BFDyPrRUE5UFNEsgELdjHe4esUv5AjLQS5jMf3VmfJwZReKnUVuijs3vttLgTNY58zUhWnJ8X+NlUkICJKmWBb3T8RIR9LcbhIuv5o47bEQOHHDjcxSZw9Qt9xjMfWpJSmrNxBxDlgYZdNWB7a2uyrk7V2GjiE5bAkyGgwzlzmZti23gyq8lAwy88Qkkx/tMMf/ybj69q3IIAYw6Xy17F/o02x4da6bVKHCZkECwrx2qFijl5RGsjJ6STfMPxGN3eLEqrOkor+BNpmMTQhleJnd+MqHZPQO/CtZhhG/s7oPNaJ6UdQ5ah3Hv9Ax0gzAeKYMfZ7+euPDfyp50Dj+AzEPQkfYNWRfGnmM2axdexs4CR8aXIop549JE9WXDeADwe1kKSg+znqw+meC1mHWSJXGeC/u19JXq+kvF/vv22UjIqxZwV6lXMTNNubm78eqfsTT+HWXYlDgPyv0P3Wp80IvoTCwDWxVLQ/OVDI9GW1c24LEUAWVI2KVD+NN3x+zk96vHhYm5zTu2g==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5a4d27fadb989a78caa022a3b3b5162da1644cc5409984fb6ced63f8c621458b",
+                "sig": "35c048cef97726066dad9073cfb5f88bbaaa7d2c25eeef4a7e11fe2517daacdff16abdb98a9986ddfdc3118888f8075831b19c9d0455eebdb23ab2a0ec2a0fe3"
+              },
+              "nonceHex": "47695b53fb513c00ff369db8f2a709140df2fd4983ffe0de2c45846941803bf9",
+              "auxRandHex": "9ee881242d21457f4db275655f8e113a438b754b26d2218626aaea5516640ce3"
+            },
+            {
+              "message": {
+                "id": "after-the-turn",
+                "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "credential": {
+                  "kind": 20460,
+                  "created_at": 1799990000,
+                  "tags": [
+                    [
+                      "d",
+                      "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                    ],
+                    [
+                      "device",
+                      "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                    ],
+                    [
+                      "expiration",
+                      "1800003600"
+                    ]
+                  ],
+                  "content": "",
+                  "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                  "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                  "sig": "a2568061001061953fca7ae9a6ff91f3764044696a39e077e488ca5625c4c38164f6009560de4f1e606aa81d380a55850bfa35afaa208cc94547f4d934bae717"
+                },
+                "text": "Said in epoch 2.",
+                "sentAt": 1799999970
+              },
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999970,
+                "tags": [
+                  [
+                    "d",
+                    "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9"
+                  ]
+                ],
+                "content": "ArYJPNsDoPHe/nUQA5Lq/sWhqMH23oTa3SJwFKA0/V5XNy4coShSFQlXoHe94FoqRAg/sk32t33AB80H9gwkgr7Rsld4oi86mxYQkkCNeR9AOBruoOJAvR5E7pzccNdAdD2L/Pcky9Yo25AxLg7xvckd+DG6LTt6LCk4i+HU4dnqNgifnx+9WSwwfBOrdhv8d/lxwImMqdSDqlUJxe58cD1wnBAdzzdKnmLiYRTvRDWFpqlkw+KPTCE1qBKfUAgzcq6SBUq3AzQjBHDng7A+2M9YLPBKTd/vQ4HbFtZd6J+T431u1VABKsy8zYq+x5Zx2akdNGCRdvKFs8OHXFceMaSVjGIcAm1yJmkEowafs5uY1u8ctjVroGskRToB/rM9oCJuLZBbHbpxQ1UpPUMofWvI+YF2e2xkTswM2T7RP1N+AykvcQNJsHArD70WAyHCaiBIXO6mwY7dpBss8JAWioSgtD99xQXdMz5PbPXsBml4ipV3Gbhe55qR4bC+Jyuc4tmND2TmPjVrfMYz5t0uCOE+4HGnRHfCvOGrK2bNN7z/TYlje3ZYKtmn8Ft0dy9n/2zb1GKoEcic5nbrt2FCefBDFaX6MbIcM50yivdNLE2htpxHO5CqLEsZg+5TD4MxOzyPFKuj/d/Q5SPz65otcPtMc7aCN6LOI5gAILyfH6grRDYuTCic1QwLXdgpieEr8iH3ufOavhwmPHN3nsSP0iO8ouS6ZnVIlQrr0UXG52+RboU4emYoE6GmETuRQNbFN87qOIujg3dsDsk5uISPfjcANoMj6udIFsdJSNu/wMhBerwPUZi4C9ENeMgY3gL2mb2PSnosFBV0Sr43UB51G/gfvrqdgoyCgJn8rbJHkLJYHz4EA3tDzcJA+EhkKaX7+UnMLjmHQKLCNNZ8ttAcMZIVb1AeapMs12yF/ISKZof08LG4FpOCQzyH4Nso6LuoesSPEkpeWztEp94wmjgqACvNuhNAhf3AM3FBY+M38ElJKmDtSi+SaIyNoKSgqE2hrLmn9k9HVBUoRe0f7s0C9czEbevSzzqKlN0BM5tNzzGaKB5g3NKzNPN9t4bTvl5hiPGEMqwtggmOKEfC/kd3VgSJjQ==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "31f3b597b433045dbe933bd5ace499e7afe558beaa67e5eccb90435a27e1af66",
+                "sig": "b681f4d0c185c69c1ae12b32f7466804092acb01e1c1429e7a6431e2fc9f75cb092ee06305705a1a87043102c22964d4003d028f39375515816fa25d3008cad0"
+              },
+              "nonceHex": "b6093cdb03a0f1defe75100392eafec5a1a8c1f6de84dadd227014a034fd5e57",
+              "auxRandHex": "86e6e9f78b635e4fb3ff9ab7c521cff0ccff85c9e6fa6f10a28ef500b3cecf1f"
+            }
+          ],
+          "left": [
+            {
+              "epoch": 1,
+              "secretHex": "72acb5c4e8da7b52d811cc35a2b1520df3476234e960551a277965bc3f9b235c",
+              "leftAt": 1797407999
+            }
+          ],
+          "now": 1800000000
+        },
+        "output": {
+          "filters": [
+            [
+              "35a11bef6969dcb24d144f0b8986b324241c99ec6062a39df1b425e7af70c1e9"
+            ]
+          ],
+          "read": [
+            "Said in epoch 2."
+          ]
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",
