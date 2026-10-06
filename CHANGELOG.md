@@ -3,6 +3,16 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.60] - 2026-10-06
+
+- When a room's key changes on its regular schedule, nothing is announced in
+  the chat. A key change that removes someone is still announced.
+- Notifications and call rings keep arriving for rooms you have not opened
+  after a room's key changes: the phone follows the change in the
+  background, using the copy sealed to it.
+- A phone that joins a room, or comes back to one after a while, reads the
+  room's last month, up to 16 key changes back, where it used to read 4.
+
 ## [0.6.59] - 2026-10-06
 
 - A call no longer starts by itself. After a call ended, a phone could start
