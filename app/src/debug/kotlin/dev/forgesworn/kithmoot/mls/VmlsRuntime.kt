@@ -464,9 +464,9 @@ class VmlsRuntime(
         check(room.role == VmlsRole.KEEPER) { "Only the room's keeper removes members." }
         check(room.canSend && !room.sending) { "This room cannot change now. Try again shortly." }
         check(leaf in room.members && leaf !in room.removing) { "That member is not in the room." }
-        // Its grace counted as run: a Remove deferred or lost is offered again by the rounds, as decision 19's are.
-        val marked = room.copy(grace = room.grace + (leaf to minOf(room.grace[leaf] ?: Long.MAX_VALUE, now() - VmlsRoom.GRACE_SECONDS)), removing = room.removing + leaf)
-        save(removeLeaves(engine, marked, listOf(leaf)))
+        // Kept as the keeper's choice: a Remove deferred or lost is offered again by the rounds until the leaf is gone.
+        val (marked, due) = room.evicted(leaf).dueRemovals(now())
+        save(removeLeaves(engine, marked, due))
     }
 
     override fun leave(persona: String, session: String) = act(persona) { p -> leaving(p, session) }

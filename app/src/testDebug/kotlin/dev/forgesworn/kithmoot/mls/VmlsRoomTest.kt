@@ -209,4 +209,22 @@ class VmlsRoomTest {
         val stop = keeper().on(now, RoomSignal.NeedsRecovery("Gap:\nx")).stop!!
         assertEquals(stop, RoomStop.parse(stop.code))
     }
+
+    @Test fun `a keeper's removal outlasts the member's Update, a deferral and a restart`() {
+        val leaf = "11".repeat(32)
+        val member = VmlsRoomMember(leaf, "33".repeat(32), "44".repeat(32), false)
+        var room = VmlsRoom("aa".repeat(32), "bb".repeat(32), "Kitchen", "cc".repeat(32), VmlsRole.KEEPER, joined = true, members = mapOf(leaf to member))
+        val (marked, due) = room.evicted(leaf).dueRemovals(1_000)
+        assertEquals(listOf(leaf), due)
+        // Deferred, then the member updates before the retry: still due.
+        room = marked.removalDeferred(due).apply(listOf(RoomSignal.MemberUpdated(leaf)), 1_001).room
+        assertEquals(listOf(leaf), room.dueRemovals(1_002).second)
+        // Seeded again after a restart, while the member is still in the group: still due.
+        room = room.seed(Phase.Active, 3, listOf(member))
+        assertEquals(listOf(leaf), room.dueRemovals(1_003).second)
+        // Gone: nothing left to remove.
+        room = room.apply(listOf(RoomSignal.MemberRemoved(leaf)), 1_004).room
+        assertEquals(emptyList<String>(), room.dueRemovals(1_005).second)
+        assertTrue(room.evicting.isEmpty())
+    }
 }

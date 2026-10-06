@@ -149,6 +149,7 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         put("grace", buildJsonObject { room.grace.toSortedMap().forEach { (leaf, at) -> put(leaf, at) } })
         put("removing", buildJsonArray { room.removing.sorted().forEach { add(JsonPrimitive(it)) } })
         room.closing?.let { put("closing", it.name) }
+        if (room.evicting.isNotEmpty()) put("evicting", buildJsonArray { room.evicting.sorted().forEach { add(JsonPrimitive(it)) } })
     }
 
     private fun roomOf(o: JsonObject) = VmlsRoom(
@@ -163,6 +164,7 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         removing = o.getValue("removing").jsonArray.map { it.jsonPrimitive.content }.toSet(),
         // Absent in rooms stored before closing existed.
         closing = o["closing"]?.jsonPrimitive?.content?.let(Closing::valueOf),
+        evicting = o["evicting"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet().orEmpty(),
     )
 
     private fun JsonObject.text(name: String): String = getValue(name).jsonPrimitive.also { require(it.isString) }.content

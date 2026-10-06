@@ -188,7 +188,7 @@ fun VmlsRoomScreen(
             "Close", { confirming = null }) { confirming = null; onClose(false) }
         Confirm.Force -> ConfirmDialog(
             "Finish without the box?",
-            "The room ends on this phone. A guest whose revocation the box did not confirm keeps its place on the box until its grant lapses.",
+            "The room ends on this phone. A guest whose revocation the box did not confirm keeps its place on the box until its grant lapses, and cannot be let into another of your rooms there until then.",
             "Finish", { confirming = null }) { confirming = null; onClose(true) }
         is Confirm.Remove -> ConfirmDialog(
             "Remove this member?",
