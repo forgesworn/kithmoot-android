@@ -69,7 +69,10 @@ private const val RETIRING_DUTY_INTERVAL_MILLIS = 15 * 60 * 1000L
 /** How often VMLS rooms are driven while the app is in the foreground (P3-03b-3; the room screens tighten it). */
 private const val VMLS_ROUND_INTERVAL_MILLIS = 20 * 1000L
 
-enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES }
+/** While a VMLS room is on screen its rounds run this often instead. */
+private const val VMLS_ROOM_ROUND_INTERVAL_MILLIS = 3 * 1000L
+
+enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES, VMLS_ROOM }
 
 /**
  * The whole application: two screens, two sheets, and the permission asks.
@@ -168,12 +171,15 @@ fun KithMootApp(
     // VMLS rooms (P3-03b-3): debug builds only. Driven while the app is in the foreground and paused,
     // as witness traffic is, while a Tor-only room is open (the shared quiet flag, C7).
     val vmlsBoxes = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.vmlsBoxes }
+    // The open VMLS room (P3-03b-3), by session.
+    var vmlsSession by rememberSaveable { mutableStateOf<String?>(null) }
+    val vmlsRoomOnScreen by androidx.compose.runtime.rememberUpdatedState(homePage == HomePage.VMLS_ROOM)
     if (vmlsBoxes != null) {
         LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle) {
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 while (true) {
                     try { vmlsBoxes.foregroundRounds(witnessPersona) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { }
-                    kotlinx.coroutines.delay(VMLS_ROUND_INTERVAL_MILLIS)
+                    kotlinx.coroutines.delay(if (vmlsRoomOnScreen) VMLS_ROOM_ROUND_INTERVAL_MILLIS else VMLS_ROUND_INTERVAL_MILLIS)
                 }
             }
         }
@@ -547,6 +553,17 @@ fun KithMootApp(
                                 model.inviteLinkFor(id)?.let { link -> share(context, link, "Send invite link") }
                             }
                         },
+                        vmlsRooms = vmlsBoxes?.let { boxes -> {
+                            val vmlsRooms by boxes.rooms.collectAsState()
+                            val vmlsState by boxes.state.collectAsState()
+                            LaunchedEffect(witnessPersona) { boxes.open(witnessPersona) }
+                            val persona = witnessPersona
+                            if (persona != null) dev.forgesworn.kithmoot.ui.start.VmlsRoomsSection(
+                                vmlsRooms, vmlsState.boxes, vmlsState.busy,
+                                onOpen = { vmlsSession = it; homePage = HomePage.VMLS_ROOM },
+                                onCreate = { box, name -> boxes.createRoom(persona, box, name) },
+                            )
+                        } },
                       )
                     }
                     HomePage.SETTINGS -> SettingsScreen(
@@ -572,6 +589,29 @@ fun KithMootApp(
                     }
                     HomePage.VMLS_BOXES -> vmlsBoxes?.let {
                         dev.forgesworn.kithmoot.ui.start.VmlsBoxesScreen(it, witnessPersona, signer = accountModel::vmlsSigner, onBack = { homePage = HomePage.SETTINGS })
+                    }
+                    HomePage.VMLS_ROOM -> vmlsBoxes?.let { boxes ->
+                        val vmlsRooms by boxes.rooms.collectAsState()
+                        val vmlsState by boxes.state.collectAsState()
+                        val persona = witnessPersona
+                        val session = vmlsSession
+                        val room = vmlsRooms.firstOrNull { it.session == session }
+                        dev.forgesworn.kithmoot.ui.start.VmlsRoomScreen(
+                            room = room, error = vmlsState.error, quiet = restoreWitness?.quiet?.get() == true,
+                            onBack = { homePage = HomePage.ROOMS },
+                            onSay = { text -> if (persona != null && session != null) boxes.say(persona, session, text) },
+                            onInvite = {
+                                if (persona != null && session != null) homeCoroutines.launch {
+                                    runCatching { boxes.inviteLink(persona, session, accountModel.vmlsJoinBase(), DEFAULT_RELAYS) }
+                                        .onSuccess { link -> share(context, link, "Send invite link") }
+                                }
+                            },
+                            onRetire = { if (persona != null && session != null) boxes.retireInvite(persona, session) },
+                            onRemove = { leaf -> if (persona != null && session != null) boxes.removeMember(persona, session, leaf) },
+                            onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
+                            onClose = { force -> val signer = accountModel.vmlsSigner(); if (signer != null && session != null) boxes.close(signer, session, force) },
+                            onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },
+                        )
                     }
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
                 }

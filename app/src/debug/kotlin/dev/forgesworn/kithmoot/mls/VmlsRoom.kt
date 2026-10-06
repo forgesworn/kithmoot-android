@@ -3,6 +3,14 @@ package dev.forgesworn.kithmoot.mls
 /** This phone's part in a VMLS room (P3-03b-3 decision 21). */
 enum class VmlsRole { KEEPER, GUEST }
 
+/** How far a room's leaving or closing has gone (decisions 20 and 24). */
+enum class Closing {
+    /** A keeper's close: its guests' grants are being revoked at the box. */
+    REVOKING,
+    /** Its session is being dropped from the vault's witnessed manifest; then the room is forgotten. */
+    DROPPING,
+}
+
 /** The engine's commit kinds, as a room sees them. */
 enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR }
 
@@ -80,6 +88,8 @@ sealed class RoomStop(internal val rank: Int, internal val code: String) {
 /** What a room shows, in order of precedence (decision 22). */
 sealed class RoomStatus {
     data class Stopped(val stop: RoomStop) : RoomStatus()
+    /** Leaving or closing (decision 20). */
+    data object Closing : RoomStatus()
     /** `OrderingUnconfirmed` or `InstallationNeeded`: "checking with the box". */
     data object Checking : RoomStatus()
     /** `CommitLost` or `CommitRedeposited`: "retrying". */
@@ -133,6 +143,17 @@ data class VmlsRoom(
     val prompted: List<Long> = emptyList(),
     val grace: Map<String, Long> = emptyMap(),
     val removing: Set<String> = emptySet(),
+    /**
+     * Leaves the keeper chose to remove: due until removed, however recently
+     * they updated (an Update ends a grace, never a keeper's choice).
+     */
+    val evicting: Set<String> = emptySet(),
+    /**
+     * Left (a guest) or closed (a keeper), decisions 20 and 24: nothing more
+     * is sent, and the room is forgotten once the vault has witnessed its
+     * session's removal; a keeper's, once the box has taken its revocations.
+     */
+    val closing: Closing? = null,
     // ---- rebuilt, never stored ----
     val members: Map<String, VmlsRoomMember> = emptyMap(),
     val epoch: Long? = null,
@@ -143,7 +164,7 @@ data class VmlsRoom(
     init {
         require(ROOM_HEX64.matches(persona) && ROOM_HEX64.matches(session) && ROOM_HEX64.matches(box))
         require(name.isNotBlank() && name.length <= MAX_NAME && name.none { it.isISOControl() })
-        require(role == VmlsRole.KEEPER || (grace.isEmpty() && removing.isEmpty() && invite == null && asked.isEmpty() && prompted.isEmpty())) {
+        require(role == VmlsRole.KEEPER || (grace.isEmpty() && removing.isEmpty() && evicting.isEmpty() && invite == null && asked.isEmpty() && prompted.isEmpty())) {
             "Only a keeper invites and removes members."
         }
         require(invite == null || ROOM_HEX64.matches(invite))
@@ -152,9 +173,11 @@ data class VmlsRoom(
         require(prompted.size <= VmlsConsentGate.MAX_PER_HOUR && prompted.zipWithNext().all { (a, b) -> a <= b } && prompted.all { it >= 0 })
         require(grace.size <= MAX_GRACE && grace.keys.all(ROOM_HEX_ID::matches) && grace.values.all { it >= 0 })
         require(removing.size <= MAX_GRACE && removing.all(ROOM_HEX_ID::matches))
+        require(evicting.size <= MAX_GRACE && evicting.all(ROOM_HEX_ID::matches))
     }
 
     val status: RoomStatus get() = when {
+        closing != null -> RoomStatus.Closing
         stop != null -> RoomStatus.Stopped(stop)
         checking -> RoomStatus.Checking
         retrying -> RoomStatus.Retrying
@@ -164,7 +187,7 @@ data class VmlsRoom(
     }
 
     /** Messages and commits go out only from a joined room that has not stopped. */
-    val canSend: Boolean get() = joined && stop == null
+    val canSend: Boolean get() = joined && stop == null && closing == null
 
     /** Read-only for good: the room can only be forgotten. */
     val ended: Boolean get() = stop == RoomStop.Removed || stop == RoomStop.JoinLapsed
@@ -198,6 +221,7 @@ data class VmlsRoom(
             epoch = epoch,
             grace = grace.filterKeys(roster::containsKey),
             removing = emptySet(),
+            evicting = evicting.filterTo(HashSet(), roster::containsKey),
             sending = false, retrying = false, checking = false,
         )
     }
@@ -225,6 +249,7 @@ data class VmlsRoom(
                 is RoomSignal.MemberUpdated -> { room.grace[signal.leaf]?.let { updated[signal.leaf] = it }; room.confirmed(signal.leaf) }
                 is RoomSignal.MemberRemoved -> room.copy(
                     members = room.members - signal.leaf, grace = room.grace - signal.leaf, removing = room.removing - signal.leaf,
+                    evicting = room.evicting - signal.leaf,
                 )
                 // The commit merged; a Remove's leaves leave by MemberRemoved.
                 is RoomSignal.CommitAccepted -> room.copy(sending = false, retrying = false, epoch = signal.epoch)
@@ -265,7 +290,8 @@ data class VmlsRoom(
      */
     fun dueRemovals(now: Long): Pair<VmlsRoom, List<String>> {
         if (role != VmlsRole.KEEPER || !canSend || sending) return this to emptyList()
-        val due = grace.filter { (leaf, first) -> leaf !in removing && now - first >= GRACE_SECONDS }.keys.sorted()
+        val lapsed = grace.filter { (_, first) -> now - first >= GRACE_SECONDS }.keys
+        val due = (lapsed + evicting).filterNot { it in removing }.distinct().sorted()
         return copy(removing = removing + due) to due
     }
 
@@ -277,7 +303,11 @@ data class VmlsRoom(
     fun removalDeferred(leaves: Collection<String>): VmlsRoom = copy(removing = removing - leaves.toSet())
 
     /** The engine refused the Remove for [leaves] (gone already, or never ours to remove): their grace ends. */
-    fun removalAbandoned(leaves: Collection<String>): VmlsRoom = copy(grace = grace - leaves.toSet(), removing = removing - leaves.toSet())
+    fun removalAbandoned(leaves: Collection<String>): VmlsRoom =
+        copy(grace = grace - leaves.toSet(), removing = removing - leaves.toSet(), evicting = evicting - leaves.toSet())
+
+    /** The keeper chose to remove [leaf]: due at once, and again until it is gone. */
+    fun evicted(leaf: String): VmlsRoom = copy(evicting = evicting + leaf)
 
     /**
      * A repair finished with the engine [phase] active: the stop the phase
