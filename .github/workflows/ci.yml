@@ -63,7 +63,17 @@ jobs:
           for variant in debug release; do
             apk="$(find "app/build/outputs/apk/$variant" -maxdepth 1 -name 'app-*.apk' -print -quit)"
             test -n "$apk"
-            for abi in arm64-v8a x86_64; do
+            # Release ships arm64 only; x86_64 is for emulators.
+            if [ "$variant" = release ]; then
+              abis=arm64-v8a
+              if unzip -Z1 "$apk" | grep -q '^lib/x86_64/'; then
+                echo "error: the release APK carries x86_64 libraries" >&2
+                exit 1
+              fi
+            else
+              abis="arm64-v8a x86_64"
+            fi
+            for abi in $abis; do
               unzip -Z1 "$apk" | grep -Fx "lib/$abi/liblink_ffi.so"
               # The VMLS engine is debug-only until its independent review
               # (vennel decision D1): present in debug, absent from release.
@@ -75,6 +85,11 @@ jobs:
               fi
             done
           done
+
+      - name: Rebuild the release with the emulator ABI for the lineage check
+        # The signing-lineage job installs this APK on an x86_64 emulator. Only
+        # packaging differs from the shipped arm64-only release.
+        run: ./gradlew :app:assembleRelease -Pkithmoot.releaseEmulatorAbi=true --no-daemon --stacktrace
 
       - name: Keep exact signing-lineage APK inputs
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

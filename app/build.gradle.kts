@@ -62,8 +62,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // The WebRTC and libsecp256k1 natives are the bulk of the APK. Two
-            // ABIs cover every device worth caring about and every emulator.
+            // The native libraries are the bulk of the APK. arm64 is every
+            // phone that can run Android 13; x86_64 is only for emulators, so
+            // release builds drop it (see androidComponents below).
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
@@ -115,6 +116,13 @@ android {
     sourceSets.getByName("debug").jniLibs.srcDir(layout.buildDirectory.dir("vmls-ffi/jniLibs"))
 
     packaging {
+        // Compress dex and native libraries inside the APK. With minSdk 33 AGP
+        // stores both uncompressed, which suits Play (it compresses the
+        // download) but not a sideloaded or Zapstore APK, where the file is
+        // the download: 0.6.60 was 142 MB, almost all of it dex and native
+        // code stored raw.
+        dex { useLegacyPackaging = true }
+        jniLibs { useLegacyPackaging = true }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             // BouncyCastle ships signature files that collide once the jar is
@@ -206,6 +214,14 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
 
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
+        // Only emulators and Intel Chromebooks run x86_64 Android, and
+        // Chromebook users have the web app, so the release APK carries arm64
+        // only and saves ~43 MB. CI's signing
+        // lineage check installs the release APK on an x86_64 emulator and
+        // passes -Pkithmoot.releaseEmulatorAbi=true to keep it.
+        if (providers.gradleProperty("kithmoot.releaseEmulatorAbi").orNull != "true") {
+            variant.packaging.jniLibs.excludes.add("lib/x86_64/**")
+        }
         val verifyNoDatatransportTelemetry = tasks.register<VerifyNoDatatransportTelemetryTask>(
             "verifyNoDatatransportTelemetry",
         ) {
