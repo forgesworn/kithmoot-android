@@ -70,10 +70,16 @@ count=0
 step() {
   local serial="$1" role="$2" name="$3"; shift 3
   local extra=()
-  while [[ $# -gt 0 ]]; do extra+=(-e "$1" "'$2'"); shift 2; done
+  local shown=()
+  while [[ $# -gt 0 ]]; do
+    extra+=(-e "$1" "'$2'")
+    # The link's fragment is the invitation's secret: not printed.
+    if [[ "$1" == link ]]; then shown+=(-e link '<link>'); else shown+=(-e "$1" "'$2'"); fi
+    shift 2
+  done
   local out
   out="$reports/$(printf "%02d" "$count")-$role-$name.txt"
-  echo "==> $role: $name ${extra[*]:-}"
+  echo "==> $role: $name ${shown[*]:-}"
   adb_on "$serial" shell am instrument -w -e fixture_control "http://127.0.0.1:$port" -e persona alice \
     -e role "$role" -e step "$name" -e relay "$nostr" ${extra[@]+"${extra[@]}"} \
     -e class dev.forgesworn.kithmoot.storage.VmlsTwoDeviceLabTest \

@@ -236,7 +236,8 @@ class VmlsTwoDeviceLabTest {
         val before = File(dir, "epoch$number").readText().toLong()
         var lost = live().retrying
         roundsUntil("the guest removed", 60) { room().also { lost = lost || it.retrying }.members.isEmpty() }
-        assertTrue("the Remove was lost once and offered again", lost)
+        assertTrue("the Remove offered again", lost)
+        // The proof of the loss: a Remove made for epoch E is accepted at E + 2, the guest's Update having taken E + 1.
         assertEquals("the guest's Update, then the Remove", before + 2, room().epoch)
     }
 
