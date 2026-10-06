@@ -71,6 +71,9 @@ adb_device reverse "tcp:$port" "tcp:$port"
 adb_device install -r app/build/outputs/apk/debug/app-debug.apk
 adb_device install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
+# Each run pairs afresh and no test removes its routes: start from empty app data, so earlier
+# runs' routes never fill the Link vault (32 routes). The emulator is disposable (checked above).
+adb_device shell pm clear dev.forgesworn.kithmoot >/dev/null
 adb_device logcat -c
 adb_device shell am instrument -w -e fixture_control "http://127.0.0.1:$port" -e persona alice \
   -e class dev.forgesworn.kithmoot.storage.VmlsBoxLabTest,dev.forgesworn.kithmoot.storage.VmlsJoinLabTest,dev.forgesworn.kithmoot.storage.VmlsRuntimeLabTest,dev.forgesworn.kithmoot.storage.VmlsInviteLabTest \
