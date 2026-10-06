@@ -52,10 +52,10 @@ class CircleGrantTest {
             listOf("grant", vmls.grantId),
             listOf("read", "1460"),
             listOf("expiration", "1900000000"),
-            listOf("status", "active"),
             listOf("vmls", "67108864"),
+            listOf("status", "active"),
         ), vmls.tags(CircleGrantStatus.ACTIVE))
-        assertEquals(listOf("status", "revoked"), vmls.tags(CircleGrantStatus.REVOKED)[8])
+        assertEquals(listOf("status", "revoked"), vmls.tags(CircleGrantStatus.REVOKED).last())
     }
 
     @Test fun `a VMLS grant's room is derived from its device alone`() {
@@ -69,7 +69,7 @@ class CircleGrantTest {
         assertThrows(IllegalArgumentException::class.java) { vmls.copy(ceiling = 0) }
         assertThrows(IllegalArgumentException::class.java) { vmls.copy(ceiling = (1L shl 30) + 1) }
         assertThrows(IllegalArgumentException::class.java) { vmls.copy(device = "A".repeat(64)) }
-        assertEquals(listOf("vmls", "1073741824"), vmls.copy(ceiling = 1L shl 30).tags(CircleGrantStatus.ACTIVE).last())
+        assertEquals(listOf("vmls", "1073741824"), vmls.copy(ceiling = 1L shl 30).tags(CircleGrantStatus.ACTIVE)[8])
     }
 
     private companion object {

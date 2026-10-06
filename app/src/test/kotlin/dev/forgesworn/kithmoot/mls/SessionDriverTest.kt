@@ -136,18 +136,21 @@ class SessionDriverTest {
         assertTrue(world.calls.none { it.startsWith("deposit_result") })
     }
 
-    @Test fun `a Welcome stays in the outbox until the box shows it acknowledged, then the member is confirmed`() = runBlocking<Unit> {
-        val pkg = bytes(32)
-        val welcome = Outgoing(bytes(32), bytes(32), Destination.Welcome(pkg), bytes(64))
-        world.outbox += welcome
+    @Test fun `a Welcome is delivered once stored, and a keeper's acknowledgement also confirms the member`() = runBlocking<Unit> {
+        // A hosted guest's acknowledgement never shows (D5): stored is delivered, nothing confirmed.
+        val guest = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
+        world.outbox += guest
         round()
-        assertEquals(1, world.outbox.size)
+        assertTrue(world.outbox.isEmpty())
         assertTrue(world.calls.none { it.startsWith("confirm") })
+        assertEquals(1, fake.records[guest.mailbox.toHex()]!!.size)
+        // A keeper joiner's acknowledgement shows in the answer: confirmed as it is delivered.
+        val pkg = bytes(32)
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Welcome(pkg), bytes(64))
         fake.welcomeAcknowledged = true
         round()
         assertTrue(world.calls.contains("confirm ${pkg.toHex()}"))
         assertTrue(world.outbox.isEmpty())
-        assertEquals(2, fake.records[welcome.mailbox.toHex()]!!.size + fake.duplicates)
     }
 
     @Test fun `a record for another box is held and counted, never sent`() = runBlocking<Unit> {

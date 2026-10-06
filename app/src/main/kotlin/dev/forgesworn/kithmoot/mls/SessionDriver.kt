@@ -125,8 +125,8 @@ sealed class Round {
  * 1. reads the box's capabilities and gives the engine its installation; no
  *    reply holds the round;
  * 2. runs the engine's `tick`;
- * 3. deposits the outbox, then records what was delivered, each commit
- *    slot's receipt, and each acknowledged Welcome;
+ * 3. deposits the outbox, then records what was delivered (a Welcome once
+ *    stored), each commit slot's receipt, and each acknowledged Welcome;
  * 4. fetches every watched mailbox and processes each record, acknowledging
  *    it at the box only as the engine's `Ack` allows; reads each watched
  *    commit slot through its status; reports a drained departed epoch;
@@ -231,12 +231,13 @@ class SessionDriver<S : DriverSession>(
                 }
                 is Deposited -> when (d) {
                     is Destination.Welcome -> {
-                        // Kept in the outbox, and deposited again each round, until the joiner's
-                        // acknowledgement shows: the deposit's answer is the only way the adder learns it.
+                        // Delivered once stored (P3-03b-3 decision 12). A keeper joiner's acknowledgement
+                        // confirms the member here; a hosted guest's never shows (D5), and its first
+                        // Update, which the engine requires before it sends, confirms it instead.
                         if (value.welcomeAcknowledged == true) {
                             stepped(persona, session) { it.confirmMember(d.packageId) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
-                            sent += out.recordId
                         }
+                        sent += out.recordId
                     }
                     else -> sent += out.recordId
                 }
