@@ -121,4 +121,20 @@ class VmlsConsentGateTest {
         assertEquals(Verdict.Drop(Reason.RETIRED), VmlsConsentGate().offer(store, room.persona, room.session, link, "r2", device(2), now))
         assertEquals(emptyList(), store.rooms())
     }
+
+    @Test fun `a dropped request never writes the store`() {
+        val storage = MemoryStorage()
+        val store = VmlsRoomStore(storage)
+        store.put(room)
+        val gate = VmlsConsentGate()
+        assertEquals(Verdict.Ask, gate.offer(store, room.persona, room.session, link, "r1", device(1), now))
+        // Any write now fails: every drop below is decided without one.
+        storage.failWrites = true
+        assertEquals(Verdict.Drop(Reason.MALFORMED), gate.offer(store, room.persona, room.session, link, "r.2", device(2), now))
+        assertEquals(Verdict.Drop(Reason.DUPLICATE), gate.offer(store, room.persona, room.session, link, "r1", device(2), now))
+        assertEquals(Verdict.Drop(Reason.BUSY), gate.offer(store, room.persona, room.session, link, "r3", device(3), now + 1))
+        gate.answered(room.session, "r1")
+        assertEquals(Verdict.Drop(Reason.ASKED), gate.offer(store, room.persona, room.session, link, "r4", device(1), now + 2))
+        assertEquals(Verdict.Drop(Reason.RETIRED), gate.offer(store, room.persona, room.session, "ee".repeat(32), "r5", device(5), now + 2))
+    }
 }

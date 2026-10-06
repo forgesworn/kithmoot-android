@@ -35,7 +35,7 @@ class VmlsConsentGate {
      * an [Verdict.Ask] is shown. Every id is remembered, so a repeat is a
      * duplicate whatever the first one's verdict.
      */
-    @Synchronized fun offer(room: VmlsRoom, link: String, requestId: String, device: String, now: Long): Pair<Verdict, VmlsRoom> {
+    @Synchronized internal fun offer(room: VmlsRoom, link: String, requestId: String, device: String, now: Long): Pair<Verdict, VmlsRoom> {
         fun drop(reason: Reason) = Verdict.Drop(reason) to room
         // Only a keeper's room has a live invite to answer.
         if (room.role != VmlsRole.KEEPER) return drop(Reason.RETIRED)
@@ -63,11 +63,23 @@ class VmlsConsentGate {
      * longer stored asks nobody.
      */
     @Synchronized fun offer(store: VmlsRoomStore, persona: String, session: String, link: String, requestId: String, device: String, now: Long): Verdict {
+        // Drops that need no stored state are decided before the store is read or written.
+        if (!ROOM_HEX64.matches(link) || !ROOM_HEX_ID.matches(device) || !REQUEST_ID.matches(requestId)) return Verdict.Drop(Reason.MALFORMED)
+        if (requestId in seen) return Verdict.Drop(Reason.DUPLICATE)
+        open[session]?.let { (_, opened) ->
+            if (now - opened < PROMPT_SECONDS) { seen += requestId; bound(seen, MAX_SEEN); return Verdict.Drop(Reason.BUSY) }
+        }
         var verdict: Verdict = Verdict.Drop(Reason.RETIRED)
-        store.update(persona, session) { room ->
-            val (decided, next) = offer(room, link, requestId, device, now)
-            verdict = decided
-            room.copy(asked = next.asked, prompted = next.prompted)
+        try {
+            store.update(persona, session) { room ->
+                val (decided, next) = offer(room, link, requestId, device, now)
+                verdict = decided
+                room.copy(asked = next.asked, prompted = next.prompted)
+            }
+        } catch (failure: Exception) {
+            // Not stored, so not shown: the room's prompt stays closed.
+            if (open[session]?.first == requestId) open -= session
+            throw failure
         }
         return verdict
     }

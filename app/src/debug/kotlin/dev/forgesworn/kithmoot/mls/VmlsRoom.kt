@@ -269,7 +269,11 @@ data class VmlsRoom(
         return copy(removing = removing + due) to due
     }
 
-    /** The engine could not take the Remove for [leaves] yet (another commit in flight): due again, their grace kept. */
+    /**
+     * The engine could not take the Remove for [leaves] yet (`CommitInFlight`,
+     * or `UpdateRequired` before this phone may commit): due again, their
+     * grace kept.
+     */
     fun removalDeferred(leaves: Collection<String>): VmlsRoom = copy(removing = removing - leaves.toSet())
 
     /** The engine refused the Remove for [leaves] (gone already, or never ours to remove): their grace ends. */

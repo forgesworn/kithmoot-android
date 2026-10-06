@@ -63,6 +63,7 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         val stored = state.rooms.singleOrNull { it.persona == persona && it.session == session } ?: return null
         val next = change(stored)
         require(next.persona == persona && next.session == session && next.box == stored.box && next.role == stored.role)
+        if (next == stored) return next
         write(state.copy(rooms = state.rooms.map { if (it === stored) next else it }))
         return next
     }
