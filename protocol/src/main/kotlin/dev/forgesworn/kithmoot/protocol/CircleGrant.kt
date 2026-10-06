@@ -91,8 +91,9 @@ data class VmlsGrantTerms(
         listOf("grant", grantId),
         listOf("read", "1460"),
         listOf("expiration", expiration.toString()),
-        listOf("status", status.wire),
         listOf("vmls", ceiling.toString()),
+        // Last, as in room grants: a revocation differs from its grant only here.
+        listOf("status", status.wire),
     )
 
     private companion object {

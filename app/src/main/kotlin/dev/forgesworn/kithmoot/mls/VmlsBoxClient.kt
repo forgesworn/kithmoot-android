@@ -369,6 +369,17 @@ class VmlsBoxClient(
         private val CURSOR = Regex("[A-Za-z0-9+/=_-]+")
         private val REFUSAL_CODE = Regex("[a-z][a-z0-9-]{0,63}")
 
+        /**
+         * The opaque ciphertext a keeper registers with a package (P3-03b-3
+         * decision 13): `SHA-256("VMLS/1 package" || package_id ||
+         * welcome_mailbox)`. The box only compares it, so it is the same on
+         * every retry and links the package to nothing the box lacks.
+         */
+        fun packageCiphertext(packageId: ByteArray, welcomeMailbox: ByteArray): ByteArray {
+            require(packageId.size == 32 && welcomeMailbox.size == 32)
+            return Digests.sha256("VMLS/1 package".toByteArray() + packageId + welcomeMailbox)
+        }
+
         /** Bothy's package expiry horizon, without its 600 s allowance: the phone's clock may lead the box's. */
         const val MAX_PACKAGE_LIFETIME_SECONDS = 7L * 24 * 60 * 60
 

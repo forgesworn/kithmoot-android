@@ -45,10 +45,10 @@ suspend fun createGroup(
     }
 }
 
-/** The binding request for this persona's enrolled device credential at [homeBox]. */
-fun bindingRequest(credential: NostrEvent, homeBox: ByteArray, now: Long) = VmlsBindingRequest(
+/** The binding request for this persona's enrolled device credential at [homeBox], lasting [lifetime] seconds. */
+fun bindingRequest(credential: NostrEvent, homeBox: ByteArray, now: Long, lifetime: Long = 3_600) = VmlsBindingRequest(
     VmlsCredential(credential.pubkey.hexToBytes(), credential.createdAt.toULong(), credential.tags, credential.content, credential.sig.hexToBytes()),
-    homeBox, (now + 3_600).toULong(),
+    homeBox, (now + lifetime).toULong(),
 )
 
 /** The vault's leaf binding signature for an engine sign request. */
