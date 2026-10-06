@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,7 +39,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
     LaunchedEffect(persona) { boxes.open(persona) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("VMLS boxes") },
+            title = { Text("VMLS boxes", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }) { padding ->

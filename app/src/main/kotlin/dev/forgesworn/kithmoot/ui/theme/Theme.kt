@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -59,6 +60,8 @@ private val DarkScheme = darkColorScheme(
     onSurface = Parchment,
     surfaceVariant = InkSunken,
     onSurfaceVariant = ParchmentDim,
+    surfaceContainerLowest = Ink,
+    surfaceContainerLow = Color(0xFF0D131A),
     surfaceContainer = InkRaised,
     surfaceContainerHigh = InkSunken,
     surfaceContainerHighest = Color(0xFF25313E),
@@ -87,6 +90,8 @@ private val LightScheme = lightColorScheme(
     onSurface = Ink,
     surfaceVariant = Color(0xFFE3EAF0),
     onSurfaceVariant = Color(0xFF2A3540),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF2F6F9),
     surfaceContainer = Color(0xFFEDF2F6),
     surfaceContainerHigh = Color(0xFFE3EAF0),
     surfaceContainerHighest = Color(0xFFD8E1E9),
@@ -115,12 +120,27 @@ fun KithMootTheme(
         }
     }
     // The text size choice rides on the font scale, so every sp in the app
-    // grows with it and nothing laid out in dp moves.
+    // grows with it and nothing laid out in dp moves. The product is capped at
+    // Android's own ceiling (see effectiveFontScale).
     val density = LocalDensity.current
     MaterialTheme(
         colorScheme = scheme,
         typography = KithMootTypography,
     ) {
-        CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * textScale), content = content)
+        CompositionLocalProvider(LocalDensity provides Density(density.density, effectiveFontScale(density.fontScale, textScale)), content = content)
     }
 }
+
+/**
+ * The title style for a top bar, held to 1.5 times the standard size however
+ * large the text is set, so the title never clips inside the bar (F2, F13).
+ * Body text keeps scaling; only bar titles are capped.
+ */
+@Composable
+fun cappedTitleStyle(): TextStyle {
+    val base = MaterialTheme.typography.titleLarge
+    val fontScale = LocalDensity.current.fontScale
+    return base.copy(fontSize = base.fontSize * (minOf(fontScale, TITLE_SCALE_CAP) / fontScale))
+}
+
+private const val TITLE_SCALE_CAP = 1.5f
