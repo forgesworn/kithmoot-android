@@ -122,6 +122,16 @@ class VmlsConsentGateTest {
         assertEquals(emptyList(), store.rooms())
     }
 
+    @Test fun `checking a request id spends nothing, and one spent is a duplicate`() {
+        val gate = VmlsConsentGate()
+        assertEquals(false, gate.spent("r1"))
+        assertEquals(Verdict.Ask, gate.ask("r1", device(1), now))
+        assertEquals(true, gate.spent("r1"))
+        gate.spend("r2")
+        assertEquals(true, gate.spent("r2"))
+        assertEquals(Verdict.Drop(Reason.DUPLICATE), gate.ask("r2", device(2), now + 1))
+    }
+
     @Test fun `a dropped request never writes the store`() {
         val storage = MemoryStorage()
         val store = VmlsRoomStore(storage)

@@ -20,6 +20,7 @@ import dev.forgesworn.kithmoot.account.MlsVault
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.mls.VmlsBoxView
 import dev.forgesworn.kithmoot.mls.VmlsBoxes
+import dev.forgesworn.kithmoot.mls.VmlsJoinAsk
 import dev.forgesworn.kithmoot.mls.VmlsNeed
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 
@@ -85,6 +86,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
                 }) }
             }
             PairBox(busy) { code -> signer()?.let { boxes.pair(it, code) } }
+            JoinRoom(busy) { link, code -> signer()?.let { boxes.join(it, link, code) } }
         }
     }
 }
@@ -135,6 +137,44 @@ private fun PairBox(busy: Boolean, onPair: (String) -> Unit) {
     }
     OutlinedTextField(code, { code = it }, Modifier.fillMaxWidth(), label = { Text("Or paste the code") }, singleLine = true)
     Button({ onPair(code); code = "" }, enabled = !busy && code.isNotBlank()) { Text("Pair") }
+}
+
+@Composable
+private fun JoinRoom(busy: Boolean, onJoin: (String, String) -> Unit) {
+    var link by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    Heading("Join a VMLS room")
+    Text(
+        "Paste the room's link. If this phone has not paired with the room's box yet, its keeper shows you a pairing code from the box: " +
+            "paste that too. The keeper is asked, and you wait up to ten minutes for their answer.",
+    )
+    OutlinedTextField(link, { link = it }, Modifier.fillMaxWidth(), label = { Text("Room link") }, singleLine = true)
+    OutlinedTextField(code, { code = it }, Modifier.fillMaxWidth(), label = { Text("Box pairing code, if asked") }, singleLine = true)
+    Button({ onJoin(link, code); link = ""; code = "" }, enabled = !busy && link.isNotBlank()) { Text("Ask to join") }
+}
+
+/**
+ * A guest's request to join the keeper's room (P3-03b-3 decision 18), naming
+ * the box that will hold its messages and the device asking. 64 MiB is
+ * Bothy's default share for one granted device (`max_grant_bytes`).
+ */
+@Composable
+fun VmlsJoinDialog(ask: VmlsJoinAsk, onAnswer: (Boolean) -> Unit) {
+    AlertDialog(
+        // Answered only by a choice: the guest is waiting for it.
+        onDismissRequest = { },
+        title = { Text("Let this device join ${ask.room}?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("It may hold up to 64 MiB on ${ask.boxName}.")
+                Text("Box ${short(ask.box)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                Text("Account ${short(ask.guest)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                Text("Device ${short(ask.device)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton({ onAnswer(true) }) { Text("Let in") } },
+        dismissButton = { TextButton({ onAnswer(false) }) { Text("Decline") } },
+    )
 }
 
 /**

@@ -84,6 +84,15 @@ class VmlsConsentGate {
         return verdict
     }
 
+    /** Whether [requestId] was seen already: a repeat is turned away before it is decrypted and checked. */
+    @Synchronized fun spent(requestId: String): Boolean = requestId in seen
+
+    /** Marks [requestId] seen without asking anyone: a request answered another way. */
+    @Synchronized fun spend(requestId: String) {
+        seen += requestId
+        bound(seen, MAX_SEEN)
+    }
+
     /** The keeper answered [requestId], either way, or its prompt was dismissed: the room's prompt closes. */
     @Synchronized fun answered(session: String, requestId: String) {
         if (open[session]?.first == requestId) open -= session

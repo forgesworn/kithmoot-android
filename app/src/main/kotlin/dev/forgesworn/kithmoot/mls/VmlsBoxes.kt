@@ -23,6 +23,22 @@ enum class VmlsNeed {
  */
 data class VmlsBoxView(val box: String, val name: String, val vmls: Boolean?, val rooms: Int)
 
+/**
+ * A guest's request to join a keeper's room, as its prompt shows it
+ * (P3-03b-3 decision 18): the room, the box it lives on, and the guest's
+ * persona and MLS device. Answer it with [VmlsBoxes.admit].
+ */
+data class VmlsJoinAsk(
+    val persona: String,
+    val session: String,
+    val room: String,
+    val box: String,
+    val boxName: String,
+    val guest: String,
+    val device: String,
+    val requestId: String,
+)
+
 /** The debug VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
 data class VmlsBoxesState(
     val persona: String? = null,
@@ -72,4 +88,30 @@ interface VmlsBoxes {
 
     /** One pass over [persona]'s VMLS rooms while the app is in the foreground. */
     suspend fun foregroundRounds(persona: String?)
+
+    /**
+     * A join request waiting on the keeper (decision 18): one at a time per
+     * room, at most five an hour, a device asked about once per link.
+     */
+    val joinAsk: StateFlow<VmlsJoinAsk?>
+
+    /**
+     * The keeper's answer to [ask]. Approved, [signer] grants the guest's
+     * device at the box and the guest is answered; refused, it is told so.
+     */
+    fun admit(signer: ParticipantSigner, ask: VmlsJoinAsk, approve: Boolean)
+
+    /**
+     * Asks to join the VMLS room behind [url] as [signer]'s persona: this
+     * phone pairs with the link's box by the [code] it shows (unless already
+     * paired there), and waits up to ten minutes for the keeper's answer.
+     */
+    fun join(signer: ParticipantSigner, url: String, code: String)
+
+    /**
+     * Listens for join requests over [persona]'s live links until cancelled,
+     * while the app is in the foreground: both phones are online for the
+     * exchange (decision 17). Nothing is answered without the keeper.
+     */
+    suspend fun serveInvites(persona: String?)
 }

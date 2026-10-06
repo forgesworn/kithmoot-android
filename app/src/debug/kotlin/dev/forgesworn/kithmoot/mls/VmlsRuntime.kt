@@ -23,6 +23,32 @@ import dev.forgesworn.kithmoot.account.VaultResult
 import dev.forgesworn.kithmoot.account.hostedStep
 import dev.forgesworn.kithmoot.account.sessionCall
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.account.admissible
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.JoinUrlException
+import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
+import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
+import dev.forgesworn.kithmoot.protocol.RoomInvitation
+import dev.forgesworn.kithmoot.protocol.VMLS_JOIN_WAIT_SECONDS
+import dev.forgesworn.kithmoot.protocol.VmlsJoinAnswer
+import dev.forgesworn.kithmoot.protocol.VmlsJoinRequest
+import dev.forgesworn.kithmoot.protocol.createRoomInvitation
+import dev.forgesworn.kithmoot.protocol.decodeVmlsInvitationUrl
+import dev.forgesworn.kithmoot.protocol.decodeVmlsJoinAnswer
+import dev.forgesworn.kithmoot.protocol.decodeVmlsJoinRequest
+import dev.forgesworn.kithmoot.protocol.deriveInvitationId
+import dev.forgesworn.kithmoot.protocol.encodeVmlsInvitationUrl
+import dev.forgesworn.kithmoot.protocol.encodeVmlsJoinAnswer
+import dev.forgesworn.kithmoot.protocol.encodeVmlsJoinRequest
+import dev.forgesworn.kithmoot.relay.Filter
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.BothyPairing
 import dev.forgesworn.kithmoot.protocol.KIND_CIRCLE_EVENT_GRANT
@@ -45,6 +71,7 @@ import dev.forgesworn.vmls.ffi.prepareCreate
 import java.security.SecureRandom
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -78,6 +105,10 @@ class VmlsRuntime(
     private val link: LinkTransportManager,
     val store: VmlsRoomStore,
     private val ledger: VmlsGrantLedger,
+    /** The keepers' links, with their keys. */
+    private val invites: VmlsInviteStore,
+    /** Where invitations travel: Nostr relays in the app, memory in the lab. */
+    private val carriers: (List<String>) -> VmlsCarrier,
     /** The persona's rendezvous child, read afresh for each use; null when it has none. The caller's copy is wiped here. */
     private val rendezvous: suspend (String) -> StoredRendezvousChild?,
     private val quiet: AtomicBoolean,
@@ -161,11 +192,29 @@ class VmlsRuntime(
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
         need(persona)?.let { throw IllegalStateException(it) }
         forgiven(persona)
-        pairingNow.set(true)
-        try { pairingWith(signer, code, persona) } finally { pairingNow.set(false) }
+        pairingWith(signer, code, persona)
     }
 
-    private val pairingNow = AtomicBoolean(false)
+    /** Pairings under way: the app's route sweep keeps every route while any is. */
+    private val pairingNow = AtomicInteger(0)
+
+    /** [persona]'s route to [pairing]'s box: the one kept, or a new ordinary pairing by its code (decision 15). */
+    private suspend fun pairedRoute(persona: String, pairing: BothyPairing): VmlsBoxRoute {
+        val box = pairing.linkNodeId
+        store.route(persona, box)?.takeIf { it.routeId in link.routeIds() }?.let { return it }
+        // Mid-pairing, the route exists before the store names it: the app's route sweep keeps every route meanwhile.
+        pairingNow.incrementAndGet()
+        try {
+            val paired = withTimeoutOrNull(PAIR_TIMEOUT_MILLIS) {
+                try { link.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).await() } catch (error: ExecutionException) { throw error.cause ?: error }
+            } ?: throw IllegalStateException("Your box did not answer. Show a fresh pairing code and try again.")
+            val route = VmlsBoxRoute(persona, box, paired.routeId, boxName(pairing.name))
+            try { store.putRoute(route) } catch (error: Exception) { runCatching { link.remove(route.routeId) }; throw error }
+            return route
+        } finally {
+            pairingNow.decrementAndGet()
+        }
+    }
 
     private suspend fun pairingWith(signer: ParticipantSigner, code: String, persona: String) {
         val pairing = try { BothyPairing.parse(code.trim(), now()) } catch (error: IllegalArgumentException) {
@@ -174,15 +223,7 @@ class VmlsRuntime(
         try {
             (signer as? Nip55Signer)?.requestPermissions(listOf(AUTH_KIND, KIND_CIRCLE_EVENT_GRANT, LeafBinding.DEVICE_CREDENTIAL_KIND))
             val device = enrolled(persona, signer)
-            val box = pairing.linkNodeId
-            val route = store.route(persona, box)?.takeIf { it.routeId in link.routeIds() } ?: run {
-                val paired = withTimeoutOrNull(PAIR_TIMEOUT_MILLIS) {
-                    try { link.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).await() } catch (error: ExecutionException) { throw error.cause ?: error }
-                } ?: throw IllegalStateException("Your box did not answer. Show a fresh pairing code and try again.")
-                val route = VmlsBoxRoute(persona, box, paired.routeId, boxName(pairing.name))
-                try { store.putRoute(route) } catch (error: Exception) { runCatching { link.remove(route.routeId) }; throw error }
-                route
-            }
+            val route = pairedRoute(persona, pairing)
             grant(signer, route, device.device)
             // The box takes a grant once its witness confirms it: ask until it answers with VMLS.
             var vmls: Boolean? = null
@@ -228,7 +269,7 @@ class VmlsRuntime(
     /** The Link routes VMLS boxes use, which the app's sweep of unconsented routes must keep. */
     override fun routeIds(): Set<String> =
         // Mid-pairing, a route exists before the store names it: keep every route until it does.
-        if (pairingNow.get()) link.routeIds()
+        if (pairingNow.get() > 0) link.routeIds()
         else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
 
     override suspend fun foregroundRounds(persona: String?) {
@@ -314,6 +355,425 @@ class VmlsRuntime(
         apply(room, sent.value)
     }
 
+    // ---- invitations (decisions 17 and 18) ----
+
+    private val gate = VmlsConsentGate()
+    private val _joinAsk = MutableStateFlow<VmlsJoinAsk?>(null)
+    override val joinAsk: StateFlow<VmlsJoinAsk?> = _joinAsk.asStateFlow()
+
+    /** Requests waiting on the keeper, oldest first, by request id, with when each was asked. */
+    /** [at] is when the guest began waiting; [invite] the link it asked over. */
+    private class Asked(val ask: VmlsJoinAsk, val request: VmlsJoinRequest, val at: Long, val invite: String)
+
+    /** Requests opened per link in the current window: a flood is turned away before each is decrypted. */
+    private val opened = HashMap<String, Pair<Long, Int>>()
+
+    private fun admitted(session: String): Boolean = synchronized(this) {
+        val (start, count) = opened[session]?.takeIf { now() - it.first < OPEN_WINDOW_SECONDS } ?: (now() to 0)
+        (count < MAX_OPENED).also { opened[session] = start to count + 1 }
+    }
+
+    /** When each pending join, by its request id, was last answered again. */
+    private val reanswered = HashMap<String, Long>()
+
+    /** Each persona's own MLS device, read once: a request from it is never asked about. */
+    private val ownDevices = HashMap<String, String>()
+
+    /** Closes [session]'s prompts: its link was replaced or retired (decision 18). */
+    private fun closePrompts(session: String) {
+        val closed = synchronized(this) {
+            asks.values.filter { it.ask.session == session }.also { gone ->
+                gone.forEach { asks.remove(it.ask.requestId) }
+                _joinAsk.value = asks.values.firstOrNull()?.ask
+            }
+        }
+        closed.forEach { gate.answered(session, it.ask.requestId) }
+    }
+    private val asks = LinkedHashMap<String, Asked>()
+    private val linksChanged = MutableStateFlow(0)
+
+    /**
+     * The keeper's new link for [persona]'s room [session], answered over
+     * [relays]: the URL to share, at [base]. An earlier link is retired by it
+     * (a new link asks every device afresh).
+     */
+    suspend fun invite(persona: String, session: String, base: String, relays: List<String>): String = rounding.withLock {
+        val room = room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        check(room.role == VmlsRole.KEEPER && room.canSend) { "Only the room's keeper invites, while the room is working." }
+        val host = createRoomInvitation()
+        try {
+            val id = deriveInvitationId(host.invitation)
+            val earlier = invites.link(persona, session)
+            // Joins admitted over the earlier link are still awaited.
+            invites.put(VmlsLink(persona, session, host.invitation.bearer.toHex(), host.inviterSecretKey.toHex(), relays, earlier?.joins.orEmpty()))
+            store.update(persona, session) { it.invited(id) } ?: throw IllegalStateException("This room is no longer kept on this phone.")
+            synchronized(this) { live[key(persona, session)]?.let { live[key(persona, session)] = it.invited(id) } }
+            closePrompts(session)
+            linksChanged.update { it + 1 }
+            encodeVmlsInvitationUrl(base, host.invitation, room.box, relays)
+        } finally {
+            host.inviterSecretKey.fill(0)
+        }
+    }
+
+    /** Retires [persona]'s room [session]'s link: no more prompts. Joins it admitted are still added. */
+    suspend fun retire(persona: String, session: String): Unit = rounding.withLock {
+        store.update(persona, session) { it.invited(null) }
+        synchronized(this) { live[key(persona, session)]?.let { live[key(persona, session)] = it.invited(null) } }
+        invites.link(persona, session)?.takeIf { it.joins.isEmpty() }?.let { invites.forget(persona, session) }
+        closePrompts(session)
+        linksChanged.update { it + 1 }
+    }
+
+    override suspend fun serveInvites(persona: String?) {
+        if (persona == null) return
+        // No relay is kept open while a Tor-only room is (C7): the subscriptions close and reopen after it.
+        val quietNow = flow { while (true) { emit(quiet.get()); delay(QUIET_CHECK_MILLIS) } }.distinctUntilChanged()
+        combine(linksChanged, quietNow) { _, isQuiet -> isQuiet }.collectLatest { isQuiet ->
+            if (isQuiet) return@collectLatest
+            val serving = invites.links().filter { link ->
+                link.persona == persona && store.room(persona, link.session)?.invite == idOf(link)
+            }
+            if (serving.isEmpty()) return@collectLatest
+            coroutineScope {
+                for (link in serving) launch {
+                    val invitation = invitationOf(link)
+                    carriers(link.relays).use { carrier ->
+                        carrier.subscribe(listOf(Filter(
+                            kinds = listOf(KIND_INVITATION_REQUEST),
+                            tags = mapOf("#d" to listOf(deriveInvitationId(invitation)), "#p" to listOf(invitation.canonicalInviter)),
+                        ))).collect { event ->
+                            try { asked(link, invitation, event, carrier) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
+                        }
+                    }
+                }
+                // A prompt left unanswered lapses with the guest's wait.
+                launch { while (true) { delay(LAPSE_CHECK_MILLIS); lapse() } }
+            }
+        }
+    }
+
+    /** A request over [link]: asked of the keeper only if the gate lets it through (decision 18). */
+    private suspend fun asked(link: VmlsLink, invitation: RoomInvitation, event: NostrEvent, carrier: VmlsCarrier) {
+        if (quiet.get()) return
+        // A request already seen, or one over a link asked too often of late, is turned away before it is opened.
+        if (gate.spent(event.id.lowercase()) || !admitted(link.session)) return
+        val key = link.key.hexToBytes()
+        val request = try { decodeVmlsJoinRequest(event, invitation, key, now()) } finally { key.fill(0) } ?: return
+        if (request.device == ownDevice(link.persona)) return
+        // Admitted over this link and not added yet, the device asks again when its answer was lost: answered again,
+        // unasked, at most once a minute, and only once the box took its grant. Whoever holds the link, a copy of the
+        // guest's credential and its rendezvous public key learns the room's name, the keeper's rendezvous key and the
+        // counter this way, as the guest did; the introduction still needs the guest's rendezvous secret.
+        val current = invites.link(link.persona, link.session) ?: return
+        current.joins.firstOrNull { it.device == request.device && it.deadline > now() }?.let { join ->
+            gate.spend(request.requestId)
+            if (join.guest != request.persona || join.rendezvous != request.rendezvous) return
+            val room = store.room(link.persona, link.session)?.takeIf { it.invite == deriveInvitationId(invitation) } ?: return
+            val granted = ledger.get(room.box, join.device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.persona == join.guest && it.expiration > now() }
+            if (granted == null) return
+            val due = synchronized(this) {
+                reanswered.values.removeAll { now() - it > JOIN_DEADLINE_SECONDS }
+                val last = reanswered[join.requestId] ?: 0
+                (now() - last >= REANSWER_SECONDS).also { if (it) reanswered[join.requestId] = now() }
+            }
+            if (!due) return
+            val rz = rendezvousKey(link.persona) ?: return
+            val again = VmlsJoinAnswer.Admitted(request.requestId, link.persona, rz, join.counter, room.box, room.name)
+            val linkKey = current.key.hexToBytes()
+            try { carrier.publish(encodeVmlsJoinAnswer(invitation, linkKey, request.requester, again, now())) } finally { linkKey.fill(0) }
+            return
+        }
+        // The guest stopped waiting: no prompt for a request no one awaits.
+        if (now() - request.since >= VMLS_JOIN_WAIT_SECONDS) return
+        val id = deriveInvitationId(invitation)
+        val verdict = gate.offer(store, link.persona, link.session, id, request.requestId, request.device, now())
+        if (verdict != VmlsConsentGate.Verdict.Ask) return
+        try {
+            val room = store.room(link.persona, link.session) ?: return gate.answered(link.session, request.requestId)
+            val boxName = store.route(link.persona, room.box)?.boxName ?: "your box"
+            val ask = VmlsJoinAsk(link.persona, link.session, room.name, room.box, boxName, request.persona, request.device, request.requestId)
+            synchronized(this) { asks[request.requestId] = Asked(ask, request, request.since, id); _joinAsk.value = asks.values.first().ask }
+        } catch (error: Exception) {
+            // Not shown, so the room's prompt is not held open, and the device may be asked about again.
+            gate.answered(link.session, request.requestId)
+            runCatching { store.update(link.persona, link.session) { it.copy(asked = it.asked - request.device) } }
+            throw error
+        }
+    }
+
+    private suspend fun ownDevice(persona: String): String? = synchronized(this) { ownDevices[persona] }
+        ?: (vault.device(vault.context(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device?.also { synchronized(this) { ownDevices[persona] = it } }
+
+    private fun lapse() {
+        val lapsed = synchronized(this) {
+            val gone = asks.values.filter { now() - it.at >= VMLS_JOIN_WAIT_SECONDS }
+            gone.forEach { asks.remove(it.ask.requestId) }
+            _joinAsk.value = asks.values.firstOrNull()?.ask
+            gone
+        }
+        lapsed.forEach { gate.answered(it.ask.session, it.ask.requestId) }
+    }
+
+    override fun admit(signer: ParticipantSigner, ask: VmlsJoinAsk, approve: Boolean) = act(ask.persona) { admitting(signer, ask, approve) }
+
+    /**
+     * [admit], awaited. Approved: the guest's device is granted at the box,
+     * dated by its clock, before the guest is answered with the keeper's
+     * rendezvous key and a fresh counter; its capability is then awaited by
+     * the rounds, which add it.
+     */
+    internal suspend fun admitting(signer: ParticipantSigner, ask: VmlsJoinAsk, approve: Boolean) {
+        val asked = synchronized(this) { asks.remove(ask.requestId).also { _joinAsk.value = asks.values.firstOrNull()?.ask } }
+            ?: throw IllegalStateException("This request has lapsed.")
+        try {
+            check(now() - asked.at < VMLS_JOIN_WAIT_SECONDS) { "This request has lapsed." }
+            check(signer.pubkey == ask.persona) { "Sign in as the room's keeper to answer." }
+            check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
+            val link = invites.link(ask.persona, ask.session) ?: throw IllegalStateException("This room's link was retired.")
+            val invitation = invitationOf(link)
+            // Answered over the link it was asked over, or not at all: a replaced link's guest listens on the old one.
+            check(deriveInvitationId(invitation) == asked.invite) { "This request came over a link since replaced." }
+            val room = store.room(ask.persona, ask.session)?.takeIf { it.invite == asked.invite }
+                ?: throw IllegalStateException("This room's link was retired.")
+            val request = asked.request
+            val key = link.key.hexToBytes()
+            try {
+                carriers(link.relays).use { carrier ->
+                    if (!approve) {
+                        carrier.publish(encodeVmlsJoinAnswer(invitation, key, request.requester, VmlsJoinAnswer.Declined(request.requestId), now()))
+                        return
+                    }
+                    check(room.canSend) { "This room cannot add anyone now." }
+                    val route = store.route(ask.persona, room.box) ?: throw IllegalStateException("This room's box is not paired.")
+                    val rz = rendezvousKey(ask.persona) ?: throw IllegalStateException("This account has no rendezvous key.")
+                    val counter = random.nextLong() ushr 11
+                    val answer = VmlsJoinAnswer.Admitted(request.requestId, ask.persona, rz, counter, room.box, room.name)
+                    // The pending join is kept first, so a guest granted is always one the rounds wait for, and one
+                    // whose answer is lost is answered again when it asks again (the gate asks no device twice).
+                    val at = now()
+                    val pending = VmlsPendingJoin(request.requestId, request.persona, request.device, request.rendezvous, counter, at + JOIN_DEADLINE_SECONDS)
+                    var earlier: VmlsPendingJoin? = null
+                    invites.update(ask.persona, ask.session) { stored ->
+                        earlier = stored.joins.firstOrNull { it.device == request.device }
+                        val kept = stored.joins.filter { it.deadline > at && it.device != request.device }
+                        check(kept.size < VmlsLink.MAX_JOINS) { "Too many guests are still joining this room. Try again once they have." }
+                        stored.with(kept + pending)
+                    } ?: throw IllegalStateException("This room's link was retired.")
+                    // The guest's device is granted before it is answered: its capability goes to the box at once.
+                    try {
+                        val boxNow = boxClock(route) ?: now()
+                        ledger.prune(boxNow)
+                        val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow)
+                        ledger.record(VmlsGrantRecord(room.box, plan))
+                        publish(route, signer, listOf(plan.active))
+                    } catch (failure: Exception) {
+                        // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
+                        runCatching {
+                            invites.update(ask.persona, ask.session) { stored ->
+                                stored.with(stored.joins.filterNot { it.requestId == pending.requestId } + listOfNotNull(earlier))
+                            }
+                        }
+                        runCatching { store.update(ask.persona, ask.session) { it.copy(asked = it.asked - request.device) } }
+                        throw failure
+                    }
+                    check(carrier.publish(encodeVmlsJoinAnswer(invitation, key, request.requester, answer, now()))) {
+                        "The guest could not be answered: no relay took the answer. It is answered again when it asks again."
+                    }
+                }
+            } finally {
+                key.fill(0)
+            }
+        } finally {
+            gate.answered(ask.session, ask.requestId)
+        }
+    }
+
+    /**
+     * The keeper's rounds: each admitted guest's capability, fetched from its
+     * introduction mailbox, checked, its package registered, and added
+     * (decisions 12 and 13). One commit at a time; the Welcome follows.
+     */
+    private suspend fun addJoins(engine: Engine, route: VmlsBoxRoute, room: VmlsRoom): VmlsRoom {
+        val link = invites.link(room.persona, room.session) ?: return room
+        val at = now()
+        if (link.joins.any { it.deadline <= at }) invites.update(room.persona, room.session) { it.with(it.joins.filter { j -> j.deadline > at }) }
+        forgetSpent(room)
+        var current = room
+        for (join in link.joins.filter { it.deadline > at }) {
+            if (!current.canSend || current.sending) break
+            val introduction = try {
+                engine.join.introduction(room.persona, join.rendezvous.hexToBytes(), join.counter, at)
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { continue }
+            introduction.use { intro ->
+                val client = client(engine, route)
+                val page = (client.fetch(listOf(intro.mailbox())) as? BoxAnswer.Ok) ?: return@use
+                val boxNow = page.serverTime ?: at
+                for (record in page.value.records) {
+                    val item = AckItem(record.mailbox, record.receipt)
+                    // One that does not open, or another device's: dropped. One the box would not keep by its clock
+                    // (or the phone's, when the box gave none) is left there: the clocks may agree later, and it lapses.
+                    val opened = try { intro.openCapability(now().toULong(), record.envelope) } catch (_: VmlsException) { null }
+                    if (opened == null || !opened.info().device.contentEquals(join.device.hexToBytes())) {
+                        opened?.close(); client.ack(listOf(item)); continue
+                    }
+                    opened.close()
+                    val capability = admissible(intro, record.envelope, join.device.hexToBytes(), boxNow, now()) ?: continue
+                    capability.use { cap ->
+                        val info = cap.info()
+                        val registered = client.registerPackage(info.packageId, info.welcomeMailbox, info.expiresAt.toLong(), VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox))
+                        if (registered !is BoxAnswer.Ok) return@use
+                        val added = engine.host.step(room.persona, room.session.hexToBytes()) { s ->
+                            try {
+                                val step = s.inner.add(now().toULong(), listOf(cap))
+                                hostedStep(step).let { EngineStep(it.snapshot, Removal(step.events, null)) }
+                            } catch (refused: VmlsException.Engine) {
+                                EngineStep(null, Removal(emptyList(), refused.code))
+                            }
+                        }
+                        val outcome = (added as? Hosted.Released)?.value ?: return@use
+                        if (outcome.refused in DEFERRED) return@use
+                        // Added, or refused for good: the capability is spent either way.
+                        client.ack(listOf(item))
+                        invites.update(room.persona, room.session) { it.with(it.joins.filterNot { j -> j.requestId == join.requestId }) }
+                        forgetSpent(room)
+                        if (outcome.refused == null) current = apply(current.committing(), outcome.events)
+                    }
+                    break
+                }
+            }
+        }
+        return current
+    }
+
+    /** One join at a time, apart from the page's actions: its wait of up to ten minutes holds none of them. */
+    private val joiningLock = Mutex()
+
+    override fun join(signer: ParticipantSigner, url: String, code: String) {
+        if (!joiningLock.tryLock()) { _state.update { it.copy(error = "Already asking to join a room.") }; return }
+        // Started even on a scope being cancelled, so the lock is always released.
+        scope.launch(start = CoroutineStart.ATOMIC) {
+            try { joinNow(signer, url, code) } finally { joiningLock.unlock() }
+        }
+    }
+
+    private suspend fun joinNow(signer: ParticipantSigner, url: String, code: String) {
+        _state.update { it.copy(error = null, notice = "Asked to join. Waiting up to ten minutes for the keeper…") }
+        try {
+            val room = joining(signer, url, code)
+            _state.update { it.copy(notice = "${room.name}'s keeper let you in: the room joins at the next rounds.") }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _state.update { it.copy(error = describe(error), notice = null) }
+        }
+    }
+
+    /** The route to [box], paired by [code] when none is kept, under the page's actions' lock (pairing and forgetting take it too). */
+    private suspend fun guestRoute(persona: String, box: String, code: String): VmlsBoxRoute = acting.withLock {
+        store.route(persona, box)?.takeIf { it.routeId in link.routeIds() } ?: run {
+            val pairing = try { BothyPairing.parse(code.trim(), now()) } catch (error: IllegalArgumentException) {
+                throw IllegalStateException("Pair with the room's box first: ask its keeper's box for a pairing code.")
+            }
+            try {
+                // Decision 15: the invite names the box, and the pairing must reach that box.
+                check(pairing.linkNodeId == box) { "This pairing code is from another box than the room's." }
+                pairedRoute(persona, pairing)
+            } finally {
+                pairing.pairingSecret.fill(0)
+            }
+        }
+    }
+
+    /**
+     * The guest's side of a VMLS link (decisions 15 and 17): this phone's
+     * route to the link's box (by the [code] the box shows, unless one is
+     * kept), the request, the keeper's answer within ten minutes, and the
+     * pending join, whose capability the rounds deposit. The room is stored
+     * as joining.
+     */
+    internal suspend fun joining(signer: ParticipantSigner, url: String, code: String): VmlsRoom {
+        val persona = signer.pubkey
+        check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
+        need(persona)?.let { throw IllegalStateException(it) }
+        val payload = try { decodeVmlsInvitationUrl(url.trim()) } catch (error: JoinUrlException) {
+            throw IllegalStateException(error.message ?: "The link is not valid.")
+        } ?: throw IllegalStateException("This is not a VMLS room's link.")
+        (signer as? Nip55Signer)?.requestPermissions(listOf(AUTH_KIND, LeafBinding.DEVICE_CREDENTIAL_KIND))
+        val device = enrolled(persona, signer)
+        val credential = device.credential ?: throw IllegalStateException("This phone's MLS device has no credential.")
+        val route = guestRoute(persona, payload.box, code)
+        val rz = rendezvousKey(persona) ?: throw IllegalStateException("This account has no rendezvous key.")
+        val requester = secretKey()
+        val sent = HashSet<String>()
+        val since = now()
+        val answer = try {
+            carriers(payload.relays).use { carrier ->
+                withTimeoutOrNull(VMLS_JOIN_WAIT_SECONDS * 1000) {
+                    coroutineScope {
+                        // Listening before the first request: the answer is ephemeral.
+                        val answered = async(start = CoroutineStart.UNDISPATCHED) {
+                            carrier.subscribe(listOf(Filter(
+                                kinds = listOf(KIND_INVITATION_GRANT),
+                                tags = mapOf("#d" to listOf(deriveInvitationId(payload.invitation)), "#p" to listOf(Schnorr.publicKeyHex(requester))),
+                            ))).mapNotNull { event ->
+                                decodeVmlsJoinAnswer(event, payload.invitation, requester, synchronized(sent) { sent.toSet() }, now())
+                            }.first()
+                        }
+                        // Asked again until answered: a request is fresh for 90 s, and both phones must be online.
+                        val asking = launch {
+                            while (true) {
+                                check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
+                                val request = encodeVmlsJoinRequest(payload.invitation, requester, credential, rz, now(), since = minOf(since, now()))
+                                synchronized(sent) { sent += request.id }
+                                carrier.publish(request)
+                                delay(REQUEST_REPEAT_MILLIS)
+                            }
+                        }
+                        answered.await().also { asking.cancel() }
+                    }
+                }
+            }
+        } finally {
+            requester.fill(0)
+        } ?: throw IllegalStateException("The keeper did not answer within ten minutes. Ask them to look, then try again.")
+        val admitted = answer as? VmlsJoinAnswer.Admitted ?: throw IllegalStateException("The keeper did not let this device in.")
+        check(admitted.box == payload.box) { "The keeper's answer names another box than the link." }
+        return rounding.withLock {
+            // Forgotten while the keeper answered: the join would reach no box.
+            check(store.route(persona, payload.box)?.routeId == route.routeId) { "This phone's pairing with the room's box was removed. Pair again and ask again." }
+            val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
+            val at = now()
+            val binding = binding(engine.device, payload.box, at)
+            // Bothy keeps a package at most seven days by its own clock, and the keeper opens it only inside its binding.
+            val boxNow = boxClock(route) ?: at
+            val expiresAt = minOf(boxNow + CAPABILITY_SECONDS, binding.expiresAt.toLong() - CAPABILITY_MARGIN_SECONDS)
+            val hosted = engine.join.requestJoin(engine.host, persona, binding, admitted.rendezvous.hexToBytes(), admitted.counter, expiresAt, at)
+            if (hosted !is Hosted.Released) throw IllegalStateException(
+                if (hosted is Hosted.Held) "Your box has not confirmed this account's vault yet. Ask to join again shortly." else "This account's vault refused the join.",
+            )
+            val session = hosted.value.snapshot?.session ?: throw IllegalStateException("The engine made no session.")
+            VmlsRoom(persona, session.toHex(), admitted.name, payload.box, VmlsRole.GUEST, joined = false).also { store.put(it) }
+        }
+    }
+
+    private fun idOf(link: VmlsLink) = deriveInvitationId(invitationOf(link))
+
+    /** A retired link with no join left to add: its keys are kept no longer. */
+    private fun forgetSpent(room: VmlsRoom) {
+        val link = invites.link(room.persona, room.session) ?: return
+        if (link.joins.isEmpty() && store.room(room.persona, room.session)?.invite != idOf(link)) invites.forget(room.persona, room.session)
+    }
+
+    private fun invitationOf(link: VmlsLink): RoomInvitation {
+        val key = link.key.hexToBytes()
+        try { return RoomInvitation(link.bearer.hexToBytes(), Schnorr.publicKeyHex(key)) } finally { key.fill(0) }
+    }
+
+    private fun secretKey(): ByteArray {
+        while (true) { val k = ByteArray(32).also(random::nextBytes); if (runCatching { Schnorr.publicKey(k) }.isSuccess) return k; k.fill(0) }
+    }
+
     // ---- driving ----
 
     private suspend fun drive(engine: Engine, route: VmlsBoxRoute, stored: VmlsRoom) {
@@ -343,7 +803,10 @@ class VmlsRuntime(
             is Round.Stopped, is Round.Fenced -> room = seed(engine, room) ?: room
             else -> Unit
         }
-        if (room.canSend && round is Round.Done && room.role == VmlsRole.KEEPER) room = removeDue(engine, room)
+        if (room.canSend && round is Round.Done && room.role == VmlsRole.KEEPER) {
+            room = removeDue(engine, room)
+            room = addJoins(engine, route, room)
+        }
         save(room)
     }
 
@@ -437,6 +900,7 @@ class VmlsRuntime(
             engines[persona]?.let { kept ->
                 if (kept.device == device && kept.rz == rz) return kept
                 kept.host.closeAll()
+                ownDevices.remove(persona)
                 drivers.keys.removeAll { it.startsWith("$persona:") }
                 live.keys.removeAll { it.startsWith("$persona:") }
             }
@@ -637,6 +1101,19 @@ class VmlsRuntime(
         private const val RELAY_READY_MILLIS = 30_000L
         /** The bridge's pairing rendezvous allows 60 s. */
         private const val PAIR_TIMEOUT_MILLIS = 90_000L
+        /** How long an admitted guest's capability is awaited. */
+        private const val JOIN_DEADLINE_SECONDS = 86_400L
+        /** A guest's capability lasts six days: inside Bothy's seven, by the box's clock. */
+        private const val CAPABILITY_SECONDS = 6L * 86_400
+        private const val CAPABILITY_MARGIN_SECONDS = 3_600L
+        private const val REQUEST_REPEAT_MILLIS = 5_000L
+        private const val LAPSE_CHECK_MILLIS = 15_000L
+        private const val QUIET_CHECK_MILLIS = 2_000L
+        /** A lost answer is sent again at most this often per join. */
+        private const val REANSWER_SECONDS = 60L
+        /** At most this many requests a link are opened each window: a guest asks every five seconds. */
+        private const val MAX_OPENED = 60
+        private const val OPEN_WINDOW_SECONDS = 60L
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
         private const val MAX_MESSAGES = 200
