@@ -1008,6 +1008,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** The person's signer, when signed in. What every new room is joined as. */
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
+    /** The signed-in account's signer, for the debug VMLS boxes page's grants (P3-03b-3). */
+    fun vmlsSigner(): ParticipantSigner? = accountSigner
+
     init {
         if (!chatOnly) viewModelScope.launch {
             room.collect { value ->
@@ -1775,8 +1778,12 @@ class RoomViewModel @JvmOverloads constructor(
                 LinkConsentState.PENDING -> if (consent.grants.isEmpty()) discardLinkConsent(consent)
             }
         }
+        // The routes are read first: one paired after this read is never swept, whoever names it.
+        val routes = linkEngine.routeIds()
         val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
-        linkEngine.routeIds().filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
+        // Debug builds' VMLS boxes keep their own routes (P3-03b-3 decision 16); release builds have none.
+        consentedRoutes += getApplication<KithMootApplication>().vmlsBoxes?.routeIds().orEmpty()
+        routes.filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
     }
 
     private fun discardLinkConsent(consent: LinkConsent) {

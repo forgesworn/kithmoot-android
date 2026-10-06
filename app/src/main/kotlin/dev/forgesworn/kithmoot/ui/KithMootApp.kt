@@ -66,7 +66,10 @@ import kotlinx.coroutines.launch
 /** How often the restore witness's retiring duty runs while the app is in the foreground. */
 private const val RETIRING_DUTY_INTERVAL_MILLIS = 15 * 60 * 1000L
 
-enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS }
+/** How often VMLS rooms are driven while the app is in the foreground (P3-03b-3; the room screens tighten it). */
+private const val VMLS_ROUND_INTERVAL_MILLIS = 20 * 1000L
+
+enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES }
 
 /**
  * The whole application: two screens, two sheets, and the permission asks.
@@ -120,7 +123,11 @@ fun KithMootApp(
     // Restore witness opens from Settings or from its banner; back returns there.
     var witnessFrom by rememberSaveable { mutableStateOf(HomePage.SETTINGS) }
     androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) {
-        homePage = if (homePage == HomePage.RESTORE_WITNESS) witnessFrom else HomePage.ROOMS
+        homePage = when (homePage) {
+            HomePage.RESTORE_WITNESS -> witnessFrom
+            HomePage.VMLS_BOXES -> HomePage.SETTINGS
+            else -> HomePage.ROOMS
+        }
     }
     var signInSheetOpen by remember { mutableStateOf(false) }
     val homeCoroutines = rememberCoroutineScope()
@@ -156,6 +163,24 @@ fun KithMootApp(
                     kotlinx.coroutines.delay(RETIRING_DUTY_INTERVAL_MILLIS)
                 }
             }
+        }
+    }
+    // VMLS rooms (P3-03b-3): debug builds only. Driven while the app is in the foreground and paused,
+    // as witness traffic is, while a Tor-only room is open (the shared quiet flag, C7).
+    val vmlsBoxes = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.vmlsBoxes }
+    if (vmlsBoxes != null) {
+        LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle) {
+            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                while (true) {
+                    try { vmlsBoxes.foregroundRounds(witnessPersona) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { }
+                    kotlinx.coroutines.delay(VMLS_ROUND_INTERVAL_MILLIS)
+                }
+            }
+        }
+        // The vault's consent ask: no prompt may cover an answered call or the lock screen's call.
+        val asking = vmlsBoxes.consent.collectAsState().value
+        if (asking != null && !lockedCallOnly && !callAnswering) {
+            dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking) { vmlsBoxes.answer(asking, it) }
         }
     }
     val snackbars = remember { SnackbarHostState() }
@@ -524,10 +549,14 @@ fun KithMootApp(
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
                         onBack = { homePage = HomePage.ROOMS },
                         onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
+                        onVmlsBoxes = vmlsBoxes?.let { { homePage = HomePage.VMLS_BOXES } },
                         updateSettings = { dev.forgesworn.kithmoot.update.UpdateSettings(updates) },
                     )
                     HomePage.RESTORE_WITNESS -> restoreWitness?.let {
                         dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = witnessFrom })
+                    }
+                    HomePage.VMLS_BOXES -> vmlsBoxes?.let {
+                        dev.forgesworn.kithmoot.ui.start.VmlsBoxesScreen(it, witnessPersona, signer = accountModel::vmlsSigner, onBack = { homePage = HomePage.SETTINGS })
                     }
                     HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
                 }

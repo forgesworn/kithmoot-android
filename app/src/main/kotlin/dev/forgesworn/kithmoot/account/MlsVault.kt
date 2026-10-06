@@ -188,7 +188,7 @@ class MlsVault(
                 if (!replace && record.device != null) return@change Change.Keep(refuse(VaultRefusal.Unauthorised))
                 record.device?.wipe()
                 record.device = DeviceRecord(scalar.copyOf(), device, event, credential.id, credential.expiresAt)
-                Change.Write(record, VaultResult.Ok(EnrolledDevice(ctx.persona, device, credential.id, credential.expiresAt)))
+                Change.Write(record, VaultResult.Ok(EnrolledDevice(ctx.persona, device, credential.id, credential.expiresAt, event)))
             }
         } finally {
             scalar.fill(0)
@@ -219,7 +219,7 @@ class MlsVault(
         val record = open(ctx.persona)
         try {
             val device = record?.device ?: return@locked refuse(VaultRefusal.Unauthorised)
-            VaultResult.Ok(EnrolledDevice(ctx.persona, device.device, device.credentialId, device.credentialExpiresAt))
+            VaultResult.Ok(EnrolledDevice(ctx.persona, device.device, device.credentialId, device.credentialExpiresAt, device.credential))
         } finally {
             record?.device?.wipe()
         }
@@ -710,7 +710,7 @@ class MlsVault(
                 plain?.let { bytes ->
                     val record = guarded { PersonaRecord.decode(bytes, persona) }
                     try {
-                        record.device?.let { EnrolledDevice(persona, it.device, it.credentialId, it.credentialExpiresAt) }
+                        record.device?.let { EnrolledDevice(persona, it.device, it.credentialId, it.credentialExpiresAt, it.credential) }
                     } finally {
                         record.device?.wipe()
                     }
@@ -1058,7 +1058,8 @@ enum class ConsentDecision { Approve, Deny }
 /** Asks the person about a new scope. Suspends, because it is a prompt. */
 fun interface ConsentPrompt { suspend fun ask(scope: ConsentScope): ConsentDecision }
 
-data class EnrolledDevice(val persona: String, val device: String, val credentialId: String, val credentialExpiresAt: Long)
+/** [credential] is the signed person credential naming [device] (public): a leaf binding carries it. */
+data class EnrolledDevice(val persona: String, val device: String, val credentialId: String, val credentialExpiresAt: Long, val credential: NostrEvent? = null)
 
 /** `{v:1, operation, digest, device, signature}`. Only this vault makes one; equality is identity. */
 class SignLeafBindingReply internal constructor(val operation: String, val digest: String, val device: String, val signature: String) {

@@ -69,6 +69,8 @@ class MlsVaultTest {
         val shown = vault.device(ctx) as VaultResult.Ok
         assertEquals(device, shown.value.device)
         assertEquals(alice.pubkey, shown.value.persona)
+        // The signed credential is handed back for the engine's leaf bindings; it is public.
+        assertEquals(credential, shown.value.credential)
     }
 
     @Test fun `replaces an enrolled device only when asked to`() = runBlocking {
