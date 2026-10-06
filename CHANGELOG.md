@@ -3,6 +3,19 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.62] - 2026-10-06
+
+- On a bad connection you can keep writing. Messages that cannot send yet
+  wait at the end of the chat as your own, saying whether they are pending,
+  sending, turned down or not yet confirmed, and go by themselves, oldest
+  first, once a relay answers. Before, a second message was refused until
+  the first had gone.
+- A message that has not left your phone can be edited or deleted, and
+  nobody ever sees the first version. One that may already have arrived can
+  only be taken off the list, and says so.
+- Rooms saved to your account reach your other devices even when a relay
+  has lost them: the phone puts back what the relays dropped.
+
 ## [0.6.61] - 2026-10-06
 
 - The app is about a quarter of the size to download: 38 MB instead of 142 MB.
