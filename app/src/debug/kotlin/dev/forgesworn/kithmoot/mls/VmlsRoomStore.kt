@@ -42,12 +42,39 @@ class VmlsRoomStore(private val storage: RoomStorage) {
     @Synchronized fun room(persona: String, session: String): VmlsRoom? =
         read().rooms.singleOrNull { it.persona == persona && it.session == session }
 
-    /** Stores [room]'s stored fields, replacing the room with its persona and session. */
+    /**
+     * Stores [room]'s stored fields, replacing the room with its persona and
+     * session: for a new room. A room already stored changes by [update] or
+     * [saveDriven].
+     */
     @Synchronized fun put(room: VmlsRoom) {
         val state = read()
         val others = state.rooms.filterNot { it.persona == room.persona && it.session == room.session }
         require(others.size < MAX_ROOMS) { "Too many VMLS rooms." }
         write(state.copy(rooms = others + room))
+    }
+
+    /**
+     * The room as [change] leaves it, read and written under the store's
+     * lock, or null when the room is not stored (nothing is written).
+     */
+    @Synchronized fun update(persona: String, session: String, change: (VmlsRoom) -> VmlsRoom): VmlsRoom? {
+        val state = read()
+        val stored = state.rooms.singleOrNull { it.persona == persona && it.session == session } ?: return null
+        val next = change(stored)
+        require(next.persona == persona && next.session == session && next.box == stored.box && next.role == stored.role)
+        write(state.copy(rooms = state.rooms.map { if (it === stored) next else it }))
+        return next
+    }
+
+    /**
+     * Stores the driver's fields of [room] (its name, whether joined, its
+     * stop and its removal grace), keeping the invite and consent counts
+     * the consent gate stores, so neither writer undoes the other. A room
+     * forgotten meanwhile stays forgotten.
+     */
+    fun saveDriven(room: VmlsRoom): VmlsRoom? = update(room.persona, room.session) { stored ->
+        room.copy(invite = stored.invite, asked = stored.asked, prompted = stored.prompted)
     }
 
     @Synchronized fun forget(persona: String, session: String) {

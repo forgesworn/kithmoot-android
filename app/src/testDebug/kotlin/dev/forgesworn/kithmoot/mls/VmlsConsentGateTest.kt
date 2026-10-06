@@ -5,7 +5,6 @@ import dev.forgesworn.kithmoot.mls.VmlsConsentGate.Verdict
 import dev.forgesworn.kithmoot.storage.MemoryStorage
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 /** Which join requests reach the keeper (P3-03b-3 decision 18). */
 class VmlsConsentGateTest {
@@ -86,11 +85,40 @@ class VmlsConsentGateTest {
         assertEquals(Verdict.Drop(Reason.RATE), second.ask("s3", device(9), now - 600))
     }
 
-    @Test fun `malformed requests and guests are refused`() {
+    @Test fun `a malformed request is dropped, and a guest's room asks nobody`() {
         val gate = VmlsConsentGate()
-        assertFailsWith<IllegalArgumentException> { gate.ask("r1", "a/b", now) }
-        assertFailsWith<IllegalArgumentException> { gate.ask("r/1", device(1), now) }
+        assertEquals(Verdict.Drop(Reason.MALFORMED), gate.ask("r1", "a/b", now))
+        assertEquals(Verdict.Drop(Reason.MALFORMED), gate.ask("r2", "AB".repeat(32), now))
+        assertEquals(Verdict.Drop(Reason.MALFORMED), gate.ask("r.3", device(1), now))
+        assertEquals(Verdict.Drop(Reason.MALFORMED), gate.ask("r4", device(1), now, over = "link"))
         room = room.copy(role = VmlsRole.GUEST, invite = null, asked = emptySet(), prompted = emptyList())
-        assertFailsWith<IllegalArgumentException> { gate.ask("r2", device(1), now) }
+        assertEquals(Verdict.Drop(Reason.RETIRED), gate.ask("r5", device(1), now))
+    }
+
+    @Test fun `offering the same link again keeps the devices asked`() {
+        val gate = VmlsConsentGate()
+        assertEquals(Verdict.Ask, gate.ask("r1", device(1), now))
+        gate.answered(room.session, "r1")
+        room = room.invited(link)
+        assertEquals(Verdict.Drop(Reason.ASKED), gate.ask("r2", device(1), now + 1))
+    }
+
+    @Test fun `the gate and the driver write the stored room without undoing each other`() {
+        val store = VmlsRoomStore(MemoryStorage())
+        store.put(room)
+        val leaf = "11".repeat(32)
+        // The driver read the room before the request came in.
+        val driven = store.room(room.persona, room.session)!!
+        assertEquals(Verdict.Ask, VmlsConsentGate().offer(store, room.persona, room.session, link, "r1", device(1), now))
+        // The driver then records a once-only proposal and saves its copy.
+        store.saveDriven(driven.apply(listOf(RoomSignal.PendingMemberExpired(leaf)), now).room)
+        val stored = store.room(room.persona, room.session)!!
+        assertEquals(setOf(device(1)), stored.asked)
+        assertEquals(mapOf(leaf to now), stored.grace)
+        // A room forgotten meanwhile is not brought back by either.
+        store.forget(room.persona, room.session)
+        assertEquals(null, store.saveDriven(stored))
+        assertEquals(Verdict.Drop(Reason.RETIRED), VmlsConsentGate().offer(store, room.persona, room.session, link, "r2", device(2), now))
+        assertEquals(emptyList(), store.rooms())
     }
 }

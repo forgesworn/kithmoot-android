@@ -173,6 +173,18 @@ class VmlsRoomTest {
         assertEquals(listOf(leaf), reopened.dueRemovals(now + VmlsRoom.GRACE_SECONDS + 1).second)
     }
 
+    @Test fun `no Remove is due while another commit is on its way, and a deferred one keeps its grace`() {
+        val proposed = keeper().on(now, RoomSignal.ProposeRemoval(leaf, "BindingExpired"))
+        val due = now + VmlsRoom.GRACE_SECONDS
+        assertTrue(proposed.committing().dueRemovals(due).second.isEmpty())
+        assertTrue(proposed.on(now, RoomSignal.CommitRedeposited).dueRemovals(due).second.isEmpty())
+        // The engine was busy after all (CommitInFlight): the leaf is due again later, its grace unchanged.
+        val (removing, leaves) = proposed.dueRemovals(due)
+        val deferred = removing.removalDeferred(leaves)
+        assertEquals(now, deferred.grace.getValue(leaf))
+        assertEquals(listOf(leaf), deferred.dueRemovals(due + 1).second)
+    }
+
     @Test fun `a reopen keeps the grace of leaves the group still holds`() {
         val proposed = keeper().on(now, RoomSignal.ProposeRemoval(leaf, "CapabilityExpired"), RoomSignal.ProposeRemoval(other, "CapabilityExpired"))
         val reopened = proposed.seed(Phase.Active, 4, listOf(member))

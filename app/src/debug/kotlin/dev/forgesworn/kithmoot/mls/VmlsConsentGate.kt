@@ -23,7 +23,7 @@ class VmlsConsentGate {
         data class Drop(val reason: Reason) : Verdict()
     }
 
-    enum class Reason { DUPLICATE, RETIRED, ASKED, BUSY, RATE }
+    enum class Reason { MALFORMED, DUPLICATE, RETIRED, ASKED, BUSY, RATE }
 
     /** The open prompt per room session: its request id and when it opened. */
     private val open = LinkedHashMap<String, Pair<String, Long>>()
@@ -36,8 +36,11 @@ class VmlsConsentGate {
      * duplicate whatever the first one's verdict.
      */
     @Synchronized fun offer(room: VmlsRoom, link: String, requestId: String, device: String, now: Long): Pair<Verdict, VmlsRoom> {
-        require(room.role == VmlsRole.KEEPER && ROOM_HEX64.matches(link) && ROOM_HEX_ID.matches(device) && REQUEST_ID.matches(requestId))
         fun drop(reason: Reason) = Verdict.Drop(reason) to room
+        // Only a keeper's room has a live invite to answer.
+        if (room.role != VmlsRole.KEEPER) return drop(Reason.RETIRED)
+        // The request is the guest's: a malformed one is dropped, never thrown.
+        if (!ROOM_HEX64.matches(link) || !ROOM_HEX_ID.matches(device) || !REQUEST_ID.matches(requestId)) return drop(Reason.MALFORMED)
         if (!seen.add(requestId)) return drop(Reason.DUPLICATE)
         bound(seen, MAX_SEEN)
         if (room.invite != link || !room.canSend) return drop(Reason.RETIRED)
@@ -51,6 +54,22 @@ class VmlsConsentGate {
         open[room.session] = requestId to now
         bound(open.keys, MAX_ROOMS, except = room.session)
         return Verdict.Ask to room.copy(asked = room.asked + device, prompted = (recent + now).sorted())
+    }
+
+    /**
+     * [offer] against the stored room, under the store's lock, so the
+     * driver's writes and this one never undo each other: the consent
+     * counts are stored before an [Verdict.Ask] is returned. A room no
+     * longer stored asks nobody.
+     */
+    @Synchronized fun offer(store: VmlsRoomStore, persona: String, session: String, link: String, requestId: String, device: String, now: Long): Verdict {
+        var verdict: Verdict = Verdict.Drop(Reason.RETIRED)
+        store.update(persona, session) { room ->
+            val (decided, next) = offer(room, link, requestId, device, now)
+            verdict = decided
+            room.copy(asked = next.asked, prompted = next.prompted)
+        }
+        return verdict
     }
 
     /** The keeper answered [requestId], either way, or its prompt was dismissed: the room's prompt closes. */

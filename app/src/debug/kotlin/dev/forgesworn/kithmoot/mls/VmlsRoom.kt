@@ -202,7 +202,11 @@ data class VmlsRoom(
         )
     }
 
-    /** One step's events, in order, at [now] (seconds). */
+    /**
+     * One engine step's events, in order, at [now] (seconds). A step's
+     * events are applied in one call: an update and a removal proposal for
+     * the same leaf are read together.
+     */
     fun apply(signals: List<RoomSignal>, now: Long): Applied {
         var room = this
         // Grace ended by an update in this step: a proposal in the same step for that leaf means the engine
@@ -224,9 +228,12 @@ data class VmlsRoom(
                 )
                 // The commit merged; a Remove's leaves leave by MemberRemoved.
                 is RoomSignal.CommitAccepted -> room.copy(sending = false, retrying = false, epoch = signal.epoch)
-                // The driver proposes it again; a lost Remove is offered again by [dueRemovals], its grace unchanged.
-                is RoomSignal.CommitLost -> room.copy(retrying = true, removing = if (signal.kind == CommitKind.REMOVE) emptySet() else room.removing)
-                RoomSignal.CommitRedeposited -> room.copy(retrying = true)
+                // Gone: the platform proposes it again. A lost Remove is offered again by [dueRemovals], its grace unchanged.
+                is RoomSignal.CommitLost -> room.copy(
+                    sending = false, retrying = true, removing = if (signal.kind == CommitKind.REMOVE) emptySet() else room.removing,
+                )
+                // Still the engine's, at a later attempt.
+                RoomSignal.CommitRedeposited -> room.copy(sending = true, retrying = true)
                 is RoomSignal.ProposeRemoval -> room.proposed(signal.leaf, updated[signal.leaf] ?: now)
                 is RoomSignal.PendingMemberExpired -> room.proposed(signal.leaf, updated[signal.leaf] ?: now)
                 RoomSignal.UpdateDue -> { if (room.canSend && RoomAction.StartUpdate !in actions) actions += RoomAction.StartUpdate; room }
@@ -241,8 +248,8 @@ data class VmlsRoom(
         return Applied(room, messages, actions)
     }
 
-    /** The keeper offers [link] as the room's live invite, or retires it with null: devices are asked afresh. */
-    fun invited(link: String?): VmlsRoom = copy(invite = link, asked = emptySet())
+    /** The keeper offers [link] as the room's live invite, or retires it with null: a new link asks devices afresh. */
+    fun invited(link: String?): VmlsRoom = if (link == invite) this else copy(invite = link, asked = emptySet())
 
     /** The driver's round ended with nothing left to check: "checking with the box" ends. */
     fun settled(): VmlsRoom = copy(checking = false)
@@ -253,13 +260,17 @@ data class VmlsRoom(
     /**
      * Leaves whose grace has run at [now], not already being removed, and
      * the room with them marked as [removing]: the keeper commits one
-     * Remove for them. Nothing is due once the room has stopped.
+     * Remove for them. Nothing is due once the room has stopped, or while
+     * a commit is on its way (the engine holds one at a time).
      */
     fun dueRemovals(now: Long): Pair<VmlsRoom, List<String>> {
-        if (role != VmlsRole.KEEPER || !canSend) return this to emptyList()
+        if (role != VmlsRole.KEEPER || !canSend || sending) return this to emptyList()
         val due = grace.filter { (leaf, first) -> leaf !in removing && now - first >= GRACE_SECONDS }.keys.sorted()
         return copy(removing = removing + due) to due
     }
+
+    /** The engine could not take the Remove for [leaves] yet (another commit in flight): due again, their grace kept. */
+    fun removalDeferred(leaves: Collection<String>): VmlsRoom = copy(removing = removing - leaves.toSet())
 
     /** The engine refused the Remove for [leaves] (gone already, or never ours to remove): their grace ends. */
     fun removalAbandoned(leaves: Collection<String>): VmlsRoom = copy(grace = grace - leaves.toSet(), removing = removing - leaves.toSet())
