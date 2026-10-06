@@ -16,6 +16,7 @@ import dev.forgesworn.kithmoot.session.PastEpoch
 import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
+import dev.forgesworn.kithmoot.session.PendingChatState
 import dev.forgesworn.kithmoot.session.SENDER_CLOCK_ALLOWANCE_SECONDS
 
 /**
@@ -158,9 +159,16 @@ enum class FlushOutcome { NOTHING, SENT, NOT_CONFIRMED, EPOCH_CHANGED }
  */
 suspend fun flushPending(outbox: PendingChatOutbox, activeEpochId: String, transport: RoomTransport,
     timeoutMs: Long = 15_000): FlushOutcome {
-    val pending = outbox.pending() ?: return FlushOutcome.NOTHING
-    if (pending.epochId != activeEpochId) return FlushOutcome.EPOCH_CHANGED
-    if (!transport.publishConfirmed(pending.event, timeoutMs)) return FlushOutcome.NOT_CONFIRMED
-    outbox.confirm(pending.event.id)
-    return FlushOutcome.SENT
+    val items = outbox.items()
+    if (items.isEmpty()) return FlushOutcome.NOTHING
+    // Oldest first, and one that cannot go holds the rest, as the open room's queue does.
+    var sent = false
+    for (pending in items) {
+        if (pending.state == PendingChatState.MOVED) continue
+        if (pending.epochId != activeEpochId) return FlushOutcome.EPOCH_CHANGED
+        if (!transport.publishConfirmed(pending.event, timeoutMs)) return FlushOutcome.NOT_CONFIRMED
+        outbox.confirm(pending.event.id)
+        sent = true
+    }
+    return if (sent) FlushOutcome.SENT else FlushOutcome.NOTHING
 }

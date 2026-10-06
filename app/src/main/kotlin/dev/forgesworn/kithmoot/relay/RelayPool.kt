@@ -47,6 +47,10 @@ interface RoomTransport {
     suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean =
         throw UnsupportedOperationException("This transport cannot confirm durable publication")
 
+    /** Whether a write relay is connected now, so a durable send knows if offering
+     *  it is worth a try. Cheap and in memory; a transport that cannot say answers yes. */
+    fun reachable(): Boolean = true
+
     /** Token must be captured before reading the room epoch for a durable retry. */
     fun publicationGeneration(): Long = 0
 
@@ -153,6 +157,8 @@ class RelayPool(
     private val rekeyGeneration = MutableStateFlow(0L)
 
     override fun publicationGeneration(): Long = synchronized(lock) { rekeyGeneration.value }
+
+    override fun reachable(): Boolean = connected.value.any { it in writeRelays }
 
     private val _connected = MutableStateFlow<Set<String>>(emptySet())
     private val _health = MutableStateFlow(urls.associateWith { RelayHealth() })

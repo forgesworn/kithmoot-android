@@ -9,6 +9,6 @@ import dev.forgesworn.kithmoot.session.PendingChatOutbox
 class PendingChatVault(context: Context, roomId: String, participant: String, device: String) {
     private val storage = EncryptedRoomStorage(context,
         "kithmoot.pending-chat." + Digests.sha256("$roomId:$participant:$device".toByteArray(Charsets.UTF_8)).toHex(),
-        64 * 1024)
+        PendingChatOutbox.MAX_FILE_BYTES)
     val outbox = PendingChatOutbox(storage, roomId, participant, device)
 }
