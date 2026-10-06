@@ -9,7 +9,8 @@
 # capabilities, a package registered and withdrawn, and a lone group's Update
 # commit through the driver. Then VmlsJoinLabTest: the guest's grant, its
 # capability, the package, the add, the Welcome, the guest's first Update,
-# and a message each way.
+# and a message each way. Then VmlsRuntimeLabTest: the app's own VMLS
+# runtime pairs by the box's code, grants, creates a room and drives it.
 #
 # Usage: ANDROID_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node [LAB_RELAY=wss://…] scripts/lab-vmls-box.sh
 # Build the debug app and instrumentation APKs first.
@@ -70,9 +71,9 @@ adb_device install -r app/build/outputs/apk/androidTest/debug/app-debug-androidT
 
 adb_device logcat -c
 adb_device shell am instrument -w -e fixture_control "http://127.0.0.1:$port" -e persona alice \
-  -e class dev.forgesworn.kithmoot.storage.VmlsBoxLabTest,dev.forgesworn.kithmoot.storage.VmlsJoinLabTest \
+  -e class dev.forgesworn.kithmoot.storage.VmlsBoxLabTest,dev.forgesworn.kithmoot.storage.VmlsJoinLabTest,dev.forgesworn.kithmoot.storage.VmlsRuntimeLabTest \
   dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$reports/lab.txt"
-if ! grep -Eq '^OK \(2 tests\)$' "$reports/lab.txt"; then
+if ! grep -Eq '^OK \(3 tests\)$' "$reports/lab.txt"; then
   adb_device logcat -d -t 20000 > "$reports/lab-logcat.txt"
   echo 'The lab did not pass.' >&2
   exit 1

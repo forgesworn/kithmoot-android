@@ -53,6 +53,18 @@ class VmlsLab(private val app: KithMootApplication, private val control: String,
     lateinit var installation: String; private set
     val server: String get() = "ws://$node32/events"
 
+    /** A fresh pairing code from the box, as it shows one to a person: single use, ten minutes. */
+    fun pairingCode(): String = post("pairing").getValue("uri").jsonPrimitive.content
+
+    /** Reads the box's node and VMLS installation without pairing. */
+    fun ready() {
+        val ready = get("ready")
+        assertEquals("true", ready.getValue("vmls").jsonPrimitive.content)
+        node32 = ready.getValue("link_node_id").jsonPrimitive.content
+        node = base32Decode(node32)
+        installation = ready.getValue("vmls_installation").jsonPrimitive.content
+    }
+
     /** Pairs this app's Link engine with the box and reads its VMLS installation. */
     fun pair(now: Long) {
         val pairing = BothyPairing.parse(post("pairing").getValue("uri").jsonPrimitive.content, now)

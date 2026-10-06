@@ -79,6 +79,9 @@ class KithMootApplication : Application() {
     /** The restore-witness enrolment (P3-03b-2): debug builds only; null in release. */
     val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
 
+    /** VMLS rooms' runtime (P3-03b-3): debug builds only; null in release. */
+    val vmlsBoxes: dev.forgesworn.kithmoot.mls.VmlsBoxes? by lazy { dev.forgesworn.kithmoot.mls.vmlsBoxes(this) }
+
     /** In-app updates, checked against the signed release manifest. */
     val updates: dev.forgesworn.kithmoot.update.AppUpdates by lazy { dev.forgesworn.kithmoot.update.AppUpdates(this) }
 

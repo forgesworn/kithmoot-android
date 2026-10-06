@@ -82,7 +82,8 @@ class EngineJoin(
         }
     }
 
-    private suspend fun sign(persona: String, request: VmlsSignRequest): ByteArray {
+    /** The vault's leaf binding signature for an engine sign request, asked under the persona's consent. */
+    suspend fun sign(persona: String, request: VmlsSignRequest): ByteArray {
         val reply = vault.signLeafBindingV1(
             vault.context(principal, persona),
             buildJsonObject {

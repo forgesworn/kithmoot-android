@@ -82,6 +82,8 @@ class CoordinatedMlsVaultTest {
         val device = enrolDevice()
         assertEquals(1L, server.subjects.getValue(genesis.subject).seq)
         assertEquals(device, (vault.device(ctx) as VaultResult.Ok).value)
+        // The promoted snapshot carries the signed credential, as the enrolment returned it.
+        assertEquals(device.device, (vault.device(ctx) as VaultResult.Ok).value.credential?.tags?.single { it[0] == "device" }?.get(1))
         // No persona in any store name; the persona's installation is its own.
         assertTrue(stores.names().none { alice.pubkey in it })
         assertTrue(genesis.installation != vault.installationId())

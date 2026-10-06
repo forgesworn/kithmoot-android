@@ -1008,6 +1008,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** The person's signer, when signed in. What every new room is joined as. */
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
+    /** The signed-in account's signer, for the debug VMLS boxes page's grants (P3-03b-3). */
+    fun vmlsSigner(): ParticipantSigner? = accountSigner
+
     init {
         if (!chatOnly) viewModelScope.launch {
             room.collect { value ->
