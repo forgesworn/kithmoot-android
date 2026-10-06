@@ -77,6 +77,9 @@ class Acked(val deleted: Boolean, val acked: Long)
 
 class AckItem(val mailbox: ByteArray, val receipt: ByteArray)
 
+/** A package registration: [fresh] for `registered`, false for the same registration again (`unchanged`). */
+class Registered(val fresh: Boolean)
+
 /**
  * The home box's `/vmls/v1/` routes over the persona's Link route (P3-03b-3a,
  * bothy-link `vmls.rs`). Every request is authenticated by the vault's
@@ -235,6 +238,40 @@ class VmlsBoxClient(
         }
     }
 
+    /**
+     * `PUT /vmls/v1/packages/{id}`: the box's single-use Welcome slot for a
+     * joiner's package (keeper devices only, D5). [Registered.fresh] is false
+     * for the same registration again (`unchanged`). The expiry and
+     * ciphertext come from a joiner, so a caller checks them with
+     * [packageAcceptable] first: anything else is a programming error.
+     */
+    suspend fun registerPackage(packageId: ByteArray, welcomeMailbox: ByteArray, expiresAt: Long, ciphertext: ByteArray): BoxAnswer<Registered> {
+        require(packageId.size == 32 && welcomeMailbox.size == 32 && expiresAt > 0 && ciphertext.size in 1..MAX_PACKAGE_CIPHERTEXT_BYTES)
+        val body = buildJsonObject {
+            put("v", 1)
+            put("welcome_mailbox", welcomeMailbox.toHex())
+            put("expires_at", expiresAt)
+            put("ciphertext", Base64.getEncoder().encodeToString(ciphertext))
+        }.toString().toByteArray()
+        return request("PUT", "/vmls/v1/packages/${packageId.toHex()}", body) { status, raw ->
+            val answer = answer(raw, setOf("code")) ?: return@request null
+            when {
+                status == 201 && answer.code == "registered" -> Registered(true) to answer.serverTime
+                status == 200 && answer.code == "unchanged" -> Registered(false) to answer.serverTime
+                else -> null
+            }
+        }
+    }
+
+    /** `DELETE /vmls/v1/packages/{id}`, with an empty body (keeper devices only). */
+    suspend fun withdrawPackage(packageId: ByteArray): BoxAnswer<Unit> {
+        require(packageId.size == 32)
+        return request("DELETE", "/vmls/v1/packages/${packageId.toHex()}", ByteArray(0)) { status, raw ->
+            val answer = answer(raw, setOf("code")) ?: return@request null
+            if (status == 200 && answer.code == "withdrawn") Unit to answer.serverTime else null
+        }
+    }
+
     // ---- inside ----
 
     private suspend fun <T> request(method: String, path: String, body: ByteArray, parse: (Int, ByteArray) -> Pair<T, Long?>?): BoxAnswer<T> {
@@ -322,6 +359,8 @@ class VmlsBoxClient(
         const val MAX_FETCH_MAILBOXES = 16
         const val MAX_FETCH_RECORDS = 64
         const val MAX_ACKS = 64
+        /** Bothy's `MAX_PACKAGE_CIPHERTEXT_BYTES`. */
+        const val MAX_PACKAGE_CIPHERTEXT_BYTES = 64 * 1024
         const val SIGNED_RECEIPT_BYTES = 197
         const val U32_MAX = 0xFFFF_FFFFL
         private const val MAX_CURSOR_CHARS = 1024
@@ -329,6 +368,17 @@ class VmlsBoxClient(
         private val ATTEMPT = Regex("0|[1-9][0-9]{0,9}")
         private val CURSOR = Regex("[A-Za-z0-9+/=_-]+")
         private val REFUSAL_CODE = Regex("[a-z][a-z0-9-]{0,63}")
+
+        /** Bothy's package expiry horizon, without its 600 s allowance: the phone's clock may lead the box's. */
+        const val MAX_PACKAGE_LIFETIME_SECONDS = 7L * 24 * 60 * 60
+
+        /**
+         * Whether a package's [expiresAt] and [ciphertext], which a joiner
+         * chose, are inside Bothy's bounds at [now]: an expiry in the future
+         * and at most seven days on, and a ciphertext of 1 byte to 64 KiB.
+         */
+        fun packageAcceptable(now: Long, expiresAt: Long, ciphertext: ByteArray): Boolean =
+            expiresAt > now && expiresAt <= now + MAX_PACKAGE_LIFETIME_SECONDS && ciphertext.size in 1..MAX_PACKAGE_CIPHERTEXT_BYTES
 
         private fun hex32(element: Any?): ByteArray? {
             val text = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null

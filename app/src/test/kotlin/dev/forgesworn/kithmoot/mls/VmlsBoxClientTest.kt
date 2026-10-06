@@ -220,6 +220,46 @@ class VmlsBoxClientTest {
         assertEquals(0, sent.last().body.size)
     }
 
+    @Test fun `a package is registered with Bothy's exact body, and withdrawn with an empty one`() = runBlocking<Unit> {
+        val id = bytes(32); val welcome = bytes(32); val sealed = envelope()
+        answer = reply(201, """{"v":1,"code":"registered","server_time":5}""")
+        assertEquals(true, assertIs<BoxAnswer.Ok<Registered>>(client.registerPackage(id, welcome, 1_900_000_000, sealed)).value.fresh)
+        val body = """{"v":1,"welcome_mailbox":"${welcome.toHex()}","expires_at":1900000000,"ciphertext":"${b64(sealed)}"}"""
+        assertEquals(body, String(sent.last().body))
+        assertEquals(BoxRequest(box, "PUT", "/vmls/v1/packages/${id.toHex()}", Digests.sha256(body.toByteArray()).toHex()), signed.last())
+        answer = reply(200, """{"v":1,"code":"unchanged","server_time":5}""")
+        assertEquals(false, assertIs<BoxAnswer.Ok<Registered>>(client.registerPackage(id, welcome, 1_900_000_000, sealed)).value.fresh)
+        // A code at the wrong status, or an extra field, is not the box's answer.
+        for ((status, raw) in listOf(200 to "registered", 201 to "unchanged")) {
+            answer = reply(status, """{"v":1,"code":"$raw","server_time":5}""")
+            assertEquals(BoxAnswer.Malformed, client.registerPackage(id, welcome, 1_900_000_000, sealed))
+        }
+        answer = reply(201, """{"v":1,"code":"registered","server_time":5,"package":"x"}""")
+        assertEquals(BoxAnswer.Malformed, client.registerPackage(id, welcome, 1_900_000_000, sealed))
+        answer = reply(403, """{"v":1,"code":"authority","server_time":5}""")
+        assertEquals(BoxAnswer.Refused(403, "authority", 5), client.registerPackage(id, welcome, 1_900_000_000, sealed))
+        assertFailsWith<IllegalArgumentException> { client.registerPackage(id, welcome, 1, ByteArray(64 * 1024 + 1)) }
+        assertFailsWith<IllegalArgumentException> { client.registerPackage(id, welcome, 1, ByteArray(0)) }
+
+        answer = reply(200, """{"v":1,"code":"withdrawn","server_time":6}""")
+        assertEquals(BoxAnswer.Ok(Unit, 6L), client.withdrawPackage(id))
+        assertEquals(BoxRequest(box, "DELETE", "/vmls/v1/packages/${id.toHex()}", Digests.sha256(ByteArray(0)).toHex()), signed.last())
+        assertEquals(0, sent.last().body.size)
+        answer = reply(201, """{"v":1,"code":"withdrawn","server_time":6}""")
+        assertEquals(BoxAnswer.Malformed, client.withdrawPackage(id))
+    }
+
+    @Test fun `a joiner's package is checked against Bothy's bounds before it is registered`() {
+        val now = 1_900_000_000L
+        val week = VmlsBoxClient.MAX_PACKAGE_LIFETIME_SECONDS
+        assertTrue(VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(1)))
+        assertTrue(VmlsBoxClient.packageAcceptable(now, now + week, ByteArray(64 * 1024)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now, ByteArray(1)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + week + 1, ByteArray(1)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(0)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(64 * 1024 + 1)))
+    }
+
     // ---- refusals and failures ----
 
     @Test fun `refusals keep the box's code, a body-less refusal is its status alone`() = runBlocking<Unit> {
