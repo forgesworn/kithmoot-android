@@ -2,10 +2,12 @@ package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.mls.VmlsBoxClient
 import dev.forgesworn.vmls.ffi.VmlsBindingRequest
 import dev.forgesworn.vmls.ffi.VmlsCapability
 import dev.forgesworn.vmls.ffi.VmlsCapabilityRequest
 import dev.forgesworn.vmls.ffi.VmlsEcdhRequest
+import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsIntroduction
 import dev.forgesworn.vmls.ffi.VmlsSignRequest
 import dev.forgesworn.vmls.ffi.VmlsStep
@@ -48,8 +50,11 @@ class EngineJoin(
             val shared = ecdh(persona, pending.ecdhRequest())
             try {
                 return host.create(persona) {
-                    val created = pending.complete(now.toULong(), sign.operation, signature, shared)
-                    EngineSession(created.session) to hostedStep(created.step)
+                    val created = sessionCall { pending.complete(now.toULong(), sign.operation, signature, shared) }
+                    val session = EngineSession(created.session)
+                    // A step the host cannot take closes the session it never received.
+                    val step = try { hostedStep(created.step) } catch (fault: Throwable) { session.close(); throw fault }
+                    session to step
                 }
             } finally {
                 shared.fill(0)
@@ -111,6 +116,23 @@ class EngineJoin(
             is VaultResult.Refused -> throw JoinRefusedException("rendezvous", reply.refusal)
         }
     }
+}
+
+/**
+ * A guest's capability the keeper may add: opened from [envelope] (fetched
+ * at [introduction]'s mailbox), for the device the keeper granted, with an
+ * expiry the box takes at [boxNow] (the box's clock, P3-03b-3 decision 13).
+ * Null for anything else: the guest chose every field, so nothing here
+ * throws on them. Register its package, then add it.
+ */
+fun admissible(introduction: VmlsIntroduction, envelope: ByteArray, grantedDevice: ByteArray, boxNow: Long, now: Long): VmlsCapability? {
+    val capability = try { introduction.openCapability(now.toULong(), envelope) } catch (_: VmlsException) { return null }
+    val info = capability.info()
+    val expiresAt = info.expiresAt.takeIf { it <= Long.MAX_VALUE.toULong() }?.toLong()
+    val fits = expiresAt != null && info.device.contentEquals(grantedDevice) && info.packageId.size == 32 && info.welcomeMailbox.size == 32 &&
+        VmlsBoxClient.packageAcceptable(boxNow, expiresAt, VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox))
+    if (!fits) { capability.close(); return null }
+    return capability
 }
 
 /** The keeper's Add of an opened capability, as a host step. Register its package at the box first (D5). */

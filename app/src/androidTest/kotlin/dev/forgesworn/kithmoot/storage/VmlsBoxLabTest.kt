@@ -130,6 +130,19 @@ class VmlsBoxLabTest {
             rounds++
         }
         assertEquals("the commit applied after $rounds rounds", start + 1u, epoch())
+
+        // The ledger against the box's own rules: a renewal under the same id is taken and still
+        // authorises the device; its retained revocation is taken, after which the device is refused.
+        val box = lab.node.toHex()
+        val renewal = ledger.plan(keeper, keeper.pubkey, box, device, epochSeconds())
+        ledger.record(VmlsGrantRecord(box, renewal))
+        lab.publish(keeper, renewal.active)
+        assertTrue(client.capabilities() is BoxAnswer.Ok)
+        val revocation = ledger.revoke(box, device)!!
+        lab.publish(keeper, revocation)
+        ledger.revoked(box, device, revocation)
+        val refused: BoxAnswer<ByteArray> = VmlsLab.eventually { client.capabilities().takeIf { it is BoxAnswer.Refused && it.status == 403 && it.code == "authority" } }
+        assertTrue(refused is BoxAnswer.Refused)
     }
 
     private fun epochSeconds() = System.currentTimeMillis() / 1000

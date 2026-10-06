@@ -21,6 +21,7 @@ import dev.forgesworn.kithmoot.account.SessionHost
 import dev.forgesworn.kithmoot.account.StoredRendezvousChild
 import dev.forgesworn.kithmoot.account.VaultResult
 import dev.forgesworn.kithmoot.account.addStep
+import dev.forgesworn.kithmoot.account.admissible
 import dev.forgesworn.kithmoot.account.hostedStep
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
@@ -164,11 +165,12 @@ class VmlsJoinLabTest {
         val introduction = keeper.join.introduction(lab.keeper.pubkey, guest.rz, counter, epochSeconds())
         val fetched = keeper.client.fetch(listOf(introduction.mailbox())) as BoxAnswer.Ok<FetchPage>
         val record = fetched.value.records.single()
-        val capability = introduction.openCapability(epochSeconds().toULong(), record.envelope)
+        val boxNow = fetched.serverTime!!
+        // Another device's capability is not admissible; the granted guest's is.
+        assertEquals(null, admissible(introduction, record.envelope, keeper.device.hexToBytes(), boxNow, epochSeconds()))
+        val capability = admissible(introduction, record.envelope, guest.device.hexToBytes(), boxNow, epochSeconds())!!
         val info = capability.info()
         assertArrayEquals(guest.device.hexToBytes(), info.device)
-        val boxNow = fetched.serverTime!!
-        assertTrue(VmlsBoxClient.packageAcceptable(boxNow, info.expiresAt.toLong(), VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox)))
         val registered = keeper.client.registerPackage(info.packageId, info.welcomeMailbox, info.expiresAt.toLong(), VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox))
         assertEquals(true, (registered as BoxAnswer.Ok<Registered>).value.fresh)
         assertTrue(keeper.client.ack(listOf(AckItem(record.mailbox, record.receipt))) is BoxAnswer.Ok)

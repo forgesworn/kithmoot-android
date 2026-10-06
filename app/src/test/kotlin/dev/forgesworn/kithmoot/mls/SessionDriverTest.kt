@@ -136,14 +136,20 @@ class SessionDriverTest {
         assertTrue(world.calls.none { it.startsWith("deposit_result") })
     }
 
-    @Test fun `a Welcome is delivered once stored, and a keeper's acknowledgement also confirms the member`() = runBlocking<Unit> {
-        // A hosted guest's acknowledgement never shows (D5): stored is delivered, nothing confirmed.
+    @Test fun `a Welcome a package took is delivered, and a keeper's acknowledgement also confirms the member`() = runBlocking<Unit> {
+        // No package took it (none registered): stored as a plain record, so it waits.
+        val unregistered = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
+        world.outbox += unregistered
+        round()
+        assertEquals(1, world.outbox.size)
+        world.outbox.clear()
+        // A hosted guest's acknowledgement never shows (D5): taken by its package is delivered, nothing confirmed.
+        fake.welcomeAcknowledged = false
         val guest = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
         world.outbox += guest
         round()
         assertTrue(world.outbox.isEmpty())
         assertTrue(world.calls.none { it.startsWith("confirm") })
-        assertEquals(1, fake.records[guest.mailbox.toHex()]!!.size)
         // A keeper joiner's acknowledgement shows in the answer: confirmed as it is delivered.
         val pkg = bytes(32)
         world.outbox += Outgoing(bytes(32), bytes(32), Destination.Welcome(pkg), bytes(64))
@@ -428,7 +434,8 @@ internal class FakeBox(private val node: String, private val installation: ByteA
     var capabilities: Int? = 200
     var downAfterCapabilities = false
     var signSlots = true
-    var welcomeAcknowledged = false
+    /** The package's state in a deposit answer: null when no package took the record. */
+    var welcomeAcknowledged: Boolean? = null
     var pageSize = 64
     /** Mailbox hex -> (status, code) the box refuses a deposit there with. */
     val refuseDeposit = mutableMapOf<String, Pair<Int, String>>()
@@ -472,7 +479,7 @@ internal class FakeBox(private val node: String, private val installation: ByteA
                 val list = records.getOrPut(parts[1]) { mutableListOf() }
                 val duplicate = list.any { it.contentEquals(request.body) }
                 if (duplicate) duplicates++ else list += request.body
-                val welcome = if (welcomeAcknowledged) ""","welcome":{"acknowledged":true}""" else ""
+                val welcome = welcomeAcknowledged?.let { ""","welcome":{"acknowledged":$it}""" } ?: ""
                 reply(if (duplicate) 200 else 201, """{"v":1,"code":"${if (duplicate) "duplicate" else "stored"}","server_time":1,"receipt":"${Digests.sha256(request.body).toHex()}"$welcome}""")
             }
             parts[0] == "slots" && parts.size == 3 -> {
