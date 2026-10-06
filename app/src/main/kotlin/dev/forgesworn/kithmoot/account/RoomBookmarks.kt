@@ -47,6 +47,11 @@ class RoomBookmarks(
     private val sendGate = Mutex()
     private var records = linkedMapOf<String, Record>()
     private var pending = linkedMapOf<String, Record>()
+    /** Records this lookup found still on a relay, sent again quietly after
+     *  [pending] in case another relay has dropped them. */
+    private val resend = ArrayDeque<NostrEvent>()
+    /** Records already put back by this instance, by `d`. */
+    private val repaired = mutableSetOf<String>()
     private var collector: Job? = null
     private var acquired = false
     private var loaded = false
@@ -160,13 +165,44 @@ class RoomBookmarks(
                     gate.withLock { ready = false; error = "Room sync stopped. Check your signer and relays, then retry."; emit() }
                 }
             }
-            for (event in transport.queryAvailable(filters)) receive(event)
-            gate.withLock { live(); ready = collector?.isActive == true; syncing = false; emit() }
+            val found = transport.queryAvailable(filters)
+            for (event in found) receive(event)
+            gate.withLock { live(); repair(found); ready = collector?.isActive == true; syncing = false; emit() }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             gate.withLock { syncing = false; ready = false
                 error = "Room lookup could not finish. Check your signer's decryption permissions and Relay settings, then retry."; emit() }
         }
+    }
+
+    /**
+     * Puts back this account's records the relays have lost. Relays drop
+     * events, and devices read different relays: a room left on one relay
+     * never reaches a device that does not read it, and nothing else would
+     * send it again, because the device holding it counts it published. A
+     * record no relay returned at its latest goes back into [pending]; every
+     * other one is sent again quietly by [retry], since the lookup merges
+     * relays and cannot say which still hold it. Each goes back as its exact
+     * signed event, so a tombstone and the room it removed keep their order.
+     * A lookup that found nothing may only mean no relay answered, so it
+     * repairs nothing. Same as `#repair` in app/src/room-bookmarks.ts.
+     */
+    private suspend fun repair(found: List<NostrEvent>) {
+        val seen = HashMap<String, Long>()
+        for (event in found) if (isRecord(event)) {
+            val d = event.tags.first { it.firstOrNull() == "d" }[1]
+            seen[d] = maxOf(seen[d] ?: -1, event.createdAt)
+        }
+        if (seen.isEmpty()) return
+        val lost = linkedMapOf<String, Record>()
+        for ((roomId, record) in records) {
+            if (roomId in pending || !repaired.add(record.d)) continue
+            if ((seen[record.d] ?: -1) >= record.event.createdAt) resend.addLast(record.event)
+            else lost[roomId] = record
+        }
+        if (lost.isEmpty()) return
+        val out = LinkedHashMap(pending).apply { putAll(lost) }
+        persist(out = out); pending = out
     }
 
     private suspend fun receive(event: NostrEvent) = gate.withLock {
@@ -238,6 +274,18 @@ class RoomBookmarks(
                     val out = LinkedHashMap(pending).apply { if (get(record.roomId)?.event?.id == record.event.id) remove(record.roomId) }
                     persist(next, out); records = next; pending = out; error = null; emit()
                 }
+            }
+            while (true) {
+                beforePublish()
+                val event = gate.withLock {
+                    live()
+                    // A record changed since the lookup has its newer copy sent already.
+                    generateSequence { resend.removeFirstOrNull() }.firstOrNull { old ->
+                        records.values.any { it.event.id == old.id } && pending.values.none { it.d == old.tags.first { t -> t.firstOrNull() == "d" }[1] }
+                    }
+                } ?: break
+                // Best effort: the relay that dropped it, or the next lookup.
+                try { transport.publishConfirmed(event) } catch (e: Exception) { if (e is CancellationException) throw e }
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
