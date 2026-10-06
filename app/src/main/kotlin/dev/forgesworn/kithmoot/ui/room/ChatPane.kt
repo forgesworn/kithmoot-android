@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
+import dev.forgesworn.kithmoot.session.PendingChat
+import dev.forgesworn.kithmoot.session.PendingChatState
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.account.npubOf
 import androidx.compose.ui.text.input.ImeAction
@@ -68,9 +71,13 @@ fun ChatPane(
     /** False while a room key transition is incomplete or terminal. */
     canSend: Boolean = true,
     sending: Boolean = false,
-    pending: Boolean = false,
+    /** Messages kept on this phone and not yet in the log: shown after the last message, as the sender's own. */
+    pendingChats: List<PendingChat> = emptyList(),
     onRetryPending: () -> Unit = {},
-    onDiscardPending: () -> Unit = {},
+    /** Puts the message's text back in the composer through the callback, dropping the kept message. */
+    onEditPending: (String, (String) -> Unit) -> Unit = { _, _ -> },
+    onDeletePending: (String) -> Unit = {},
+    onRemovePending: (String) -> Unit = {},
     sendError: String? = null,
     showTitle: Boolean = true,
     searchOpen: Boolean = false,
@@ -83,7 +90,9 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
-    var discardPendingOpen by remember { mutableStateOf(false) }
+    var deletePendingId by remember { mutableStateOf<String?>(null) }
+    var removePendingId by remember { mutableStateOf<String?>(null) }
+    var editPendingId by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
@@ -122,6 +131,9 @@ fun ChatPane(
                 .any { it.contains(query.trim(), ignoreCase = true) }
         }
     }
+    // A kept message leaves the end of the chat once the log itself shows it, not on a relay's say-so.
+    val shownPending = pendingChats.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
+    val lastIndex = visible.lastIndex + shownPending.size
     // A note follows the last conversation (a message and its replies) that
     // began no later than it; notes from before the first message lead.
     // Hidden while searching, which looks for what people said.
@@ -158,22 +170,22 @@ fun ChatPane(
         }
     }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(visible.size, conversation.lastOrNull()?.id, query) {
+    LaunchedEffect(visible.size, shownPending.size, conversation.lastOrNull()?.id, query) {
         val latest = conversation.lastOrNull()
         if (query.isBlank() && latest != null && visible.isNotEmpty()) {
             if (latest.id != lastMessageId && latest.participant == selfParticipant && lastMessageId != null) following = true
-            if (following) listState.scrollToItem(visible.lastIndex)
+            if (following) listState.scrollToItem(lastIndex)
             lastMessageId = latest.id
-        }
+        } else if (query.isBlank() && shownPending.isNotEmpty() && following) listState.scrollToItem(lastIndex)
     }
     LaunchedEffect(latestRequest) {
-        if (latestRequest > 0 && query.isBlank() && visible.isNotEmpty()) {
+        if (latestRequest > 0 && query.isBlank() && (visible.isNotEmpty() || shownPending.isNotEmpty())) {
             following = true
-            listState.scrollToItem(visible.lastIndex)
+            listState.scrollToItem(lastIndex)
         }
     }
     fun send() {
-        if (canSend && !sending && !pending && draft.text.isNotBlank()) {
+        if (canSend && !sending && draft.text.isNotBlank()) {
             val submitted = draft.text
             onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
         }
@@ -290,14 +302,19 @@ fun ChatPane(
                     }
                     notesAfter[index]?.forEach { NoteLine(it) }
                 }
+                items(shownPending, key = { "pending-" + it.id }) { kept ->
+                    PendingRow(kept, canSend, onRetryPending,
+                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
+                        onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
+                }
             }
             // Drawn after the list, so it sits above it. Under the empty list
             // filling the box, the text was missing from the accessibility
             // tree that UI Automator reads.
-            if (visible.isEmpty() && shownNotes.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
+            if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
             if (!following && query.isBlank() && visible.isNotEmpty()) {
                 SmallFloatingActionButton(
-                    onClick = { following = true; scope.launch { listState.scrollToItem(visible.lastIndex) } },
+                    onClick = { following = true; scope.launch { listState.scrollToItem(lastIndex) } },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowDown, "Jump to the latest message") }
             }
@@ -308,23 +325,31 @@ fun ChatPane(
                 shape = RoundedCornerShape(24.dp),
                 leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
-            IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending && !pending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
-        }
-        if (sending) Text("Waiting for relay confirmation…", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (pending) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("One message is saved on this phone, waiting for relay confirmation.", Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = onRetryPending, enabled = canSend && !sending) { Text("Retry") }
-            TextButton(onClick = { discardPendingOpen = true }, enabled = !sending) { Text("Discard") }
+            IconButton(onClick = { send() }, enabled = canSend && draft.text.isNotBlank() && !sending, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
-    if (discardPendingOpen) AlertDialog(onDismissRequest = { discardPendingOpen = false },
-        title = { Text("Discard local retry?") },
-        text = { Text("This removes the saved message from this phone. A relay may already have received it.") },
-        confirmButton = { TextButton(onClick = { discardPendingOpen = false; onDiscardPending() }) { Text("Discard") } },
-        dismissButton = { TextButton(onClick = { discardPendingOpen = false }) { Text("Keep") } })
+    deletePendingId?.let { id ->
+        AlertDialog(onDismissRequest = { deletePendingId = null },
+            title = { Text("Delete this message?") },
+            text = { Text("It has not left this phone. Nobody will see it.") },
+            confirmButton = { TextButton(onClick = { deletePendingId = null; onDeletePending(id) }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { deletePendingId = null }) { Text("Keep") } })
+    }
+    removePendingId?.let { id ->
+        AlertDialog(onDismissRequest = { removePendingId = null },
+            title = { Text("Remove from the list?") },
+            text = { Text("A relay may have received this message, and people may still see it. Removing it here does not unsend it.") },
+            confirmButton = { TextButton(onClick = { removePendingId = null; onRemovePending(id) }) { Text("Remove from list") } },
+            dismissButton = { TextButton(onClick = { removePendingId = null }) { Text("Keep") } })
+    }
+    editPendingId?.let { id ->
+        AlertDialog(onDismissRequest = { editPendingId = null },
+            title = { Text("Replace what you have typed?") },
+            text = { Text("Editing this message puts it in the box below, in place of your unsent text.") },
+            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
+            dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
+    }
     expandedImage?.let { attachment ->
         if (messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
             AttachmentViewer(attachment, onClose = { expandedImage = null })
@@ -412,4 +437,41 @@ internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String =
     query.isNotBlank() -> "No matching messages."
     torOnly && relaysUp == 0 -> "This Tor-only room keeps no messages on this phone. Earlier messages come from its relays and show once one answers."
     else -> "Nothing said yet."
+}
+
+
+/** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone. */
+internal fun pendingStatus(state: PendingChatState): String = when (state) {
+    PendingChatState.WAITING -> "Pending: will send when you are connected."
+    PendingChatState.SENDING -> "Sending…"
+    PendingChatState.REFUSED -> "Not sent: the relays turned it down. Trying again shortly."
+    PendingChatState.UNKNOWN -> "Not confirmed: no relay answered in time. Trying again shortly."
+    PendingChatState.MOVED -> "Not sent: this conversation changed its key before it went. Copy it into the conversation to send it."
+}
+
+/** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
+@Composable
+private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+    val sending = kept.state == PendingChatState.SENDING
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        Surface(shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+            modifier = Modifier.widthIn(max = 320.dp)) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(kept.text.ifEmpty { "Message kept on this phone" }, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(messageClock(kept.sentAt), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Text(pendingStatus(kept.state), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend) { Text("Retry") }
+            // Nothing has left the phone: it can be taken back or dropped, and dropping it means nobody sees it.
+            if (kept.state.clean && kept.editable) TextButton(onClick = onEdit) { Text("Edit") }
+            if (kept.state.clean) TextButton(onClick = onDelete) { Text("Delete") }
+            else TextButton(onClick = onRemove) { Text("Remove from list") }
+        }
+    }
 }

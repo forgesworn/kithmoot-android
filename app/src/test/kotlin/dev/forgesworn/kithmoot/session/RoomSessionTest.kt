@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -350,12 +351,11 @@ class RoomSessionTest {
         assertFalse(mine.sendChatDurable("Held"))
         advanceTimeBy(10_001_000)
         relay.confirmsPublications = true
-        var refused = false
-        try { mine.retryPendingChat() } catch (_: IllegalStateException) { refused = true }
-        assertTrue(refused)
-        assertTrue(mine.pendingChat())
+        assertFalse(mine.retryPendingChat())
+        assertEquals(PendingChatState.MOVED, mine.pendingChats.value.single().state)
         assertEquals(0, relay.countOfKind(KIND_CHAT))
-        mine.discardPendingChat()
+        // Never sent as it stands, so it may be deleted, and nobody sees it.
+        assertTrue(mine.deletePendingChat(mine.pendingChats.value.single().id))
         assertFalse(mine.pendingChat())
     }
 
@@ -376,11 +376,107 @@ class RoomSessionTest {
         outbox.retain("old-epoch", stale)
         val mine = session(room, owner, relay, chatOutbox = outbox)
         mine.join(); advanceTimeBy(1_000); runCurrent()
-        var refused = false
-        try { mine.retryPendingChat() } catch (_: IllegalStateException) { refused = true }
-        assertTrue(refused)
+        assertFalse(mine.retryPendingChat())
         assertTrue(mine.pendingChat())
+        assertEquals(PendingChatState.MOVED, outbox.pending()!!.state)
         assertEquals(0, relay.countOfKind(KIND_CHAT))
+    }
+
+    private fun kotlinx.coroutines.test.TestScope.queueSession(room: dev.forgesworn.kithmoot.protocol.Room, owner: RoomIdentity, relay: FakeRelay): Pair<RoomSession, PendingChatOutbox> {
+        val store = object : RoomStorage {
+            var value: ByteArray? = null
+            override fun read() = value?.clone()
+            override fun write(value: ByteArray) { this.value = value.clone() }
+            override fun reset() { value = null }
+        }
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        return session(room, owner, relay, chatOutbox = outbox) to outbox
+    }
+
+    @Test
+    fun `two sends while offline are both kept and go in order as the same events`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val (mine, outbox) = queueSession(room, owner, relay)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.reachable = false
+        assertFalse(mine.sendChatDurable("first"))
+        assertFalse(mine.sendChatDurable("second"))
+        val kept = outbox.items()
+        assertEquals(listOf("first", "second"), kept.map { it.text })
+        assertTrue(kept.all { it.state == PendingChatState.WAITING })
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
+        relay.reachable = true
+        assertTrue(mine.retryPendingChat())
+        assertEquals(kept.map { it.event.id }, relay.published.filter { it.kind == KIND_CHAT }.map { it.id })
+        assertEquals(kept.map { it.event }, relay.published.filter { it.kind == KIND_CHAT })
+        assertFalse(mine.pendingChat())
+        assertEquals(listOf("first", "second"), mine.chat.value.map { it.body })
+    }
+
+    @Test
+    fun `a refused send can be edited and the original is never published`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val (mine, outbox) = queueSession(room, owner, relay)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.confirmsPublications = false
+        assertFalse(mine.sendChatDurable("Helo"))
+        val refused = mine.pendingChats.value.single()
+        assertEquals(PendingChatState.REFUSED, refused.state)
+        assertEquals("Helo", mine.editPendingChat(refused.id))
+        assertFalse(mine.pendingChat())
+        relay.confirmsPublications = true
+        assertTrue(mine.sendChatDurable("Hello"))
+        val sent = relay.published.filter { it.kind == KIND_CHAT }
+        assertEquals(1, sent.size)
+        assertTrue(sent.single().id != refused.id)
+        assertEquals(listOf("Hello"), mine.chat.value.map { it.body })
+        assertNull(outbox.pending())
+    }
+
+    @Test
+    fun `a send no relay answered cannot be edited or deleted only removed from the list`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val (mine, _) = queueSession(room, owner, relay)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.timesOut = true
+        assertFalse(mine.sendChatDurable("Maybe"))
+        val unknown = mine.pendingChats.value.single()
+        assertEquals(PendingChatState.UNKNOWN, unknown.state)
+        assertNull(mine.editPendingChat(unknown.id))
+        assertFalse(mine.deletePendingChat(unknown.id))
+        assertTrue(mine.pendingChat())
+        // A later refusal does not turn a possibly-sent message into one never sent.
+        relay.timesOut = false; relay.confirmsPublications = false
+        assertFalse(mine.retryPendingChat())
+        assertEquals(PendingChatState.UNKNOWN, mine.pendingChats.value.single().state)
+        assertTrue(mine.removePendingChat(unknown.id))
+        assertFalse(mine.pendingChat())
+    }
+
+    @Test
+    fun `a message the room already shows leaves the pending list`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val (mine, outbox) = queueSession(room, owner, relay)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.timesOut = true
+        assertFalse(mine.sendChatDurable("It got there"))
+        val id = mine.pendingChats.value.single().messageId
+        assertTrue(id.isNotEmpty())
+        relay.timesOut = false
+        // The echo of the very event, as a relay that had it after all would send.
+        relay.publish(outbox.items().single().event)
+        runCurrent()
+        mine.reconcilePendingChats()
+        assertTrue(mine.chat.value.any { it.id == id })
+        assertTrue(mine.pendingChats.value.isEmpty())
     }
 
     @Test

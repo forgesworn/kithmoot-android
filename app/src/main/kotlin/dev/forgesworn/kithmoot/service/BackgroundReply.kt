@@ -95,7 +95,11 @@ suspend fun sendReplyInBackground(context: Context, roomId: String, text: String
     decodeChatEvent(event, epoch.id, epoch.key, now, saved.policy, credentialRoomId = saved.id) ?: return ReplyOutcome.FAILED
     val outbox = PendingChatVault(application, saved.id, saved.participant, saved.devicePubkey).outbox
     // Refused when another message already waits for a relay: one at a time, as in the room.
-    try { outbox.retain(epoch.id, event) } catch (_: Exception) { return ReplyOutcome.FAILED }
+    // A reply from a notification does not queue behind others; the open room's composer does.
+    try {
+        if (outbox.items().isNotEmpty()) return ReplyOutcome.FAILED
+        outbox.retain(epoch.id, event, editable = true, text = text)
+    } catch (_: Exception) { return ReplyOutcome.FAILED }
     // Replying means the room was read.
     runCatching { BackgroundInboxVault(application, saved.id, saved.participant, saved.devicePubkey).inbox.markRead(now) }
     val outcome = BackgroundCallListenerService.flushWatched(saved.id, epoch.id, outbox, REPLY_CONFIRM_MS)

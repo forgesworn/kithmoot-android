@@ -57,6 +57,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -72,6 +77,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.TreeMap
 import kotlin.random.Random
+
+/** One message kept on this phone and not yet in the room's log, as the chat lists it. */
+data class PendingChat(val id: String, val text: String, val messageId: String, val state: PendingChatState, val editable: Boolean, val sentAt: Long)
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
 private const val DEFAULT_EPOCH_SETTLE_MS = 1_500L
@@ -363,6 +371,8 @@ class RoomSession(
     private val annotationGuard = SignalGuard(480)
     private val chatSeen = mutableSetOf<String>()
     private val chatSendGate = Mutex()
+    private val inFlight = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val _pendingChats = MutableStateFlow<List<PendingChat>>(emptyList())
     private val chatLog = mutableListOf<ChatMessage>()
     private val chatSenderTimes = linkedMapOf<String, MutableList<Long>>()
 
@@ -843,67 +853,145 @@ class RoomSession(
         return true
     }
 
-    /** Persist the exact ciphertext before first publication, then reuse it on every retry. */
+    /**
+     * Persist the exact ciphertext before first publication, then reuse it on every
+     * retry. Messages queue: each is kept as soon as it is signed and they go
+     * oldest first, one at a time, so a second send never waits on the first
+     * and never overtakes it. True when this message was confirmed.
+     */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
-        onRetained: suspend () -> Unit = {}): Boolean = chatSendGate.withLock {
+        onRetained: suspend () -> Unit = {}): Boolean {
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
-        check(outbox.pending() == null) { "A message is waiting for relay confirmation. Retry it before sending another." }
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
-        if (text.isEmpty()) return@withLock false
+        if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
-        val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
             sentAtMs = millisWithin(at))
-        decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event)
+        val own = decodeOwnChat(event, at, epoch)
+        outbox.retain(epoch.id, event, editable = reaction == null, text = text, messageId = own.id)
+        refreshPendingChats()
         onRetained()
-        publishPendingChat(outbox, epoch.id, event, generation)
+        drainPendingChats(outbox)
+        return outbox.items().none { it.event.id == event.id }
     }
 
-    suspend fun pendingChat(): Boolean = chatOutbox?.pending() != null
+    /** Everything kept on this phone for the room, oldest first, with what became of each. */
+    val pendingChats: StateFlow<List<PendingChat>> = _pendingChats.asStateFlow()
 
-    suspend fun retryPendingChat(): Boolean = chatSendGate.withLock {
-        val outbox = chatOutbox ?: return@withLock false
-        val pending = outbox.pending() ?: return@withLock false
-        val generation = transport.publicationGeneration()
-        publishPendingChat(outbox, pending.epochId, pending.event, generation)
+    suspend fun pendingChat(): Boolean = chatOutbox?.items()?.isNotEmpty() == true
+
+    /** Reads the journal into [pendingChats]; call when a room opens. */
+    suspend fun refreshPendingChats() {
+        val outbox = chatOutbox ?: return
+        val items = outbox.items()
+        _pendingChats.value = items.map {
+            PendingChat(it.event.id, it.text, it.messageId, if (it.event.id in inFlight) PendingChatState.SENDING else it.state, it.editable, it.event.createdAt)
+        }
     }
 
-    /** Explicitly abandon the local retry. The relay may already have accepted this event. */
-    suspend fun discardPendingChat() = chatSendGate.withLock { chatOutbox?.clear() }
-
-    private suspend fun publishPendingChat(outbox: PendingChatOutbox, epochId: String, event: NostrEvent,
-        generation: Long): Boolean {
-        check(publicationAllowed) { "Room publication is blocked during a secure update. The message remains on this phone." }
+    /** A message that has reached the room's own log no longer needs its row, however it got there. */
+    suspend fun reconcilePendingChats() {
+        val outbox = chatOutbox ?: return
+        val shown = _chat.value.mapTo(HashSet()) { it.id }
         val epoch = epochKeys()
-        check(epoch.id == epochId) { "The room keys changed. This message remains on this phone and cannot be replayed." }
-        check(verifyDeviceCredential(identity.credential, room.roomId, now()) is CredentialCheck.Valid) {
-            "This device's room credential expired. The message remains on this phone."
+        // A message kept by the one-slot journal has no message id on file: read it, while its key is current.
+        fun idOf(item: PendingChatOutbox.Pending): String = item.messageId.ifEmpty {
+            if (item.epochId != epoch.id) "" else runCatching { decodeOwnChat(item.event, item.event.createdAt, epoch).id }.getOrDefault("")
         }
-        policy?.let {
-            check(evaluateAccess(it, identity.participant, proof, now(), room.roomId).admitted) {
-                "Room access is no longer valid. This message remains on this phone and cannot be replayed."
-            }
+        val arrived = outbox.items().filter { (it.event.id in shown || idOf(it) in shown) && it.event.id !in inFlight }
+        if (arrived.isEmpty()) return
+        arrived.forEach { outbox.confirm(it.event.id) }
+        refreshPendingChats()
+    }
+
+    /** Offers what waits, oldest first. True when nothing that can still go remains. */
+    suspend fun retryPendingChat(): Boolean {
+        val outbox = chatOutbox ?: return false
+        val before = outbox.items().filter { it.state != PendingChatState.MOVED }.map { it.event.id }
+        if (before.isEmpty()) return false
+        drainPendingChats(outbox)
+        val after = outbox.items()
+        return before.any { id -> after.none { it.event.id == id } } && after.none { it.state != PendingChatState.MOVED }
+    }
+
+    /** Edit: hands back the text of a plain message that has not left this phone, and drops it. */
+    suspend fun editPendingChat(id: String): String? =
+        chatOutbox?.take(id, editableOnly = true)?.text.also { refreshPendingChats() }
+
+    /** Delete: drops a message that has not left this phone. */
+    suspend fun deletePendingChat(id: String): Boolean =
+        (chatOutbox?.take(id) != null).also { refreshPendingChats() }
+
+    /** For a message that may already have arrived: stops listing it, which unsends nothing. */
+    suspend fun removePendingChat(id: String): Boolean {
+        if (id in inFlight) return false
+        return (chatOutbox?.remove(id) != null).also { refreshPendingChats() }
+    }
+
+    private suspend fun drainPendingChats(outbox: PendingChatOutbox) = chatSendGate.withLock {
+        for (item in outbox.items()) {
+            if (item.state == PendingChatState.MOVED) continue
+            // A message that fails, or cannot be tried yet, holds the ones behind it.
+            if (!publishPendingChat(outbox, item)) break
         }
-        check(event.createdAt >= now() - CHAT_RETENTION_SECONDS) {
-            "This message is too old to replay. It remains on this phone."
-        }
-        check(ends == null || now() < ends) { "This conference room has ended. The message remains on this phone." }
-        val message = decodeOwnChat(event, event.createdAt, epoch)
+    }
+
+    /** True when this message is done with (sent, or can never go) and the next may be tried. */
+    private suspend fun publishPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending): Boolean {
+        val event = item.event
+        // Only a message that never left may be called never sent; see PendingChatOutbox.setState.
+        suspend fun moved(): Boolean { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return true }
+        if (!publicationAllowed) return false
+        val generation = transport.publicationGeneration()
+        val epoch = epochKeys()
+        if (epoch.id != item.epochId) return moved()
+        if (verifyDeviceCredential(identity.credential, room.roomId, now()) !is CredentialCheck.Valid) return moved()
+        policy?.let { if (!evaluateAccess(it, identity.participant, proof, now(), room.roomId).admitted) return moved() }
+        if (event.createdAt < now() - CHAT_RETENTION_SECONDS) return moved()
+        if (ends != null && now() >= ends) return moved()
+        val message = try { decodeOwnChat(event, event.createdAt, epoch) } catch (_: IllegalStateException) { return moved() }
+        // Not offered while no relay is connected: it stays cleanly unsent.
+        if (!transport.reachable()) return false
+        val before = outbox.begin(event.id) ?: return true
+        inFlight += event.id
+        refreshPendingChats()
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
-        if (!transport.publishConfirmedGuarded(event, generation, {
+        try {
+            val confirmed = transport.publishConfirmedGuarded(event, generation, {
                 publicationAllowed && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
-            }, CHAT_CONFIRM_TIMEOUT_MS)) return false
-        if (ingestChat(message)) retainOwnOuterEvent(event, message)
-        outbox.confirm(event.id)
-        return true
+            }, CHAT_CONFIRM_TIMEOUT_MS)
+            if (confirmed) {
+                if (ingestChat(message)) retainOwnOuterEvent(event, message)
+                outbox.confirm(event.id)
+                return true
+            }
+            // Every relay said no. A rekey also ends an attempt that way, and that one was on the wire.
+            if (transport.publicationGeneration() == generation) withContext(NonCancellable) {
+                outbox.setState(event.id, PendingChatState.REFUSED, force = before.state != PendingChatState.UNKNOWN)
+            }
+            return false
+        } catch (timeout: TimeoutCancellationException) {
+            // No relay answered in time: it may have arrived, and stays UNKNOWN. When it was
+            // the caller's own deadline that ran out, that is cancellation, and passes on.
+            if (!currentCoroutineContext().isActive) throw timeout
+            return false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // Refused before anything was offered (no relay after all, a secure update).
+            withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
+            throw error
+        } finally {
+            inFlight -= event.id
+            withContext(NonCancellable) { refreshPendingChats() }
+        }
     }
 
     /** A room capability is exposed only after at least one relay confirms its durable event. */

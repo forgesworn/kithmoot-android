@@ -605,6 +605,8 @@ data class RoomState(
     val chatSending: Boolean = false,
     val chatSendError: String? = null,
     val chatPending: Boolean = false,
+    /** Messages kept on this phone and not yet in the room's log, oldest first; shown at the end of the chat. */
+    val pendingChats: List<dev.forgesworn.kithmoot.session.PendingChat> = emptyList(),
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -684,6 +686,8 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 /** How long a reply from a notification waits for a relay: a receiver has ten seconds in all. */
 private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
+/** Seconds before each automatic retry of a kept message, the last repeating. */
+private val PENDING_RETRY_SECONDS = listOf(5, 15, 30, 60)
 /** One at a time, in order, so an open room's inbox writes never land after its close's read-through. */
 private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
@@ -3644,16 +3648,26 @@ class RoomViewModel @JvmOverloads constructor(
         readRoomRelaysOnce(scope, transport, record)
         record.ends?.let { ends -> endConferenceAt(live, scope, ends) }
         live.join()
-        if (pendingChat != null) scope.launch(Dispatchers.IO) {
-            try {
-                if (live.pendingChat()) {
-                    _room.update { if (session === live) it.copy(chatPending = true) else it }
-                    retryPendingChat()
+        if (pendingChat != null) {
+            // The list follows the journal; a message leaves it when it shows in the chat.
+            scope.launch {
+                live.pendingChats.collect { list ->
+                    _room.update { if (session === live) it.copy(pendingChats = list, chatPending = list.isNotEmpty()) else it }
                 }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                _room.update { if (session === live) it.copy(chatPending = true,
-                    chatSendError = error.message ?: "A message remains on this phone. Retry when connected.") else it }
+            }
+            scope.launch(Dispatchers.IO) {
+                live.chat.collectLatest { if (live.pendingChats.value.isNotEmpty()) live.reconcilePendingChats() }
+            }
+            scope.launch(Dispatchers.IO) {
+                try {
+                    live.refreshPendingChats()
+                    live.reconcilePendingChats()
+                    if (live.pendingChat()) retryPendingChat()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    _room.update { if (session === live) it.copy(
+                        chatSendError = error.message ?: "A message remains on this phone. Retry when connected.") else it }
+                }
             }
         }
         Log.i(
@@ -3786,7 +3800,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // durable retirements on reconnect, including rotations made
                         // during this session, so a long outage cannot drop them.
                         if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
-                        if (up.isNotEmpty() && _room.value.chatPending && pendingChat != null && !_room.value.chatSending) {
+                        if (up.isNotEmpty() && _room.value.chatPending && pendingChat != null) {
                             scope.launch { retryPendingChat() }
                         }
                     }
@@ -5174,7 +5188,7 @@ class RoomViewModel @JvmOverloads constructor(
             refreshCadence(record, who, secondary)
             return@cadenceAction
         }
-        require(!_room.value.chatSending) {
+        require(!_room.value.chatSending && _room.value.pendingChats.none { it.state == dev.forgesworn.kithmoot.session.PendingChatState.SENDING }) {
             "Wait for this phone's current quiet message to finish before scheduling Bothy."
         }
         require(quietTransport?.pending == 0) {
@@ -5504,13 +5518,12 @@ class RoomViewModel @JvmOverloads constructor(
             note("Finish the quiet schedule change before sending.")
             return
         }
-        if (_room.value.chatSending) return
-        if (_room.value.chatPending) {
-            note("A message is waiting on this phone. Retry it before sending another.")
-            return
-        }
         val durable = !_room.value.anonymous && !_room.value.quiet
-        _room.update { it.copy(chatSending = true, chatSendError = null) }
+        // A durable message queues behind any already kept; the others go one at a time as before.
+        if (!durable) {
+            if (_room.value.chatSending) return
+            _room.update { it.copy(chatSending = true, chatSendError = null) }
+        } else _room.update { it.copy(chatSendError = null) }
         scope.launch(Dispatchers.IO) {
             try {
                 val retainedOnMain: suspend () -> Unit = {
@@ -5518,14 +5531,10 @@ class RoomViewModel @JvmOverloads constructor(
                 }
                 val confirmed = if (durable) live.sendChatDurable(body, reaction, retainedOnMain)
                     else live.sendChatConfirmed(body, reaction).also { if (it) retainedOnMain() }
-                check(confirmed) { if (durable) "No relay confirmed this message. It remains on this phone."
-                    else "No relay confirmed this message." }
+                // A durable message that did not go is on the chat as pending, saying why.
+                if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }
             } catch (_: TimeoutCancellationException) {
-                if (session === live) {
-                    val message = if (durable) "No relay confirmed this message. It remains on this phone."
-                        else "No relay confirmed this message."
-                    _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
-                }
+                if (session === live && !durable) _room.update { it.copy(chatSendError = "No relay confirmed this message.", notice = "No relay confirmed this message. Try again.") }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -5534,8 +5543,8 @@ class RoomViewModel @JvmOverloads constructor(
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } finally {
-                val pending = runCatching { live.pendingChat() }.getOrDefault(false)
-                if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+                if (!durable && session === live) _room.update { it.copy(chatSending = false) }
+                if (durable && session === live) scheduleBackoff(live)
             }
         }
     }
@@ -5552,7 +5561,7 @@ class RoomViewModel @JvmOverloads constructor(
         val failed = dev.forgesworn.kithmoot.notifications.ReplyOutcome.FAILED
         val began = withContext(Dispatchers.Main.immediate) {
             val state = _room.value
-            if (session !== live || state.chatSending || state.chatPending || state.cadence?.busy == true ||
+            if (session !== live || state.chatSending || state.cadence?.busy == true ||
                 state.anonymous || state.quiet) false
             else { _room.update { it.copy(chatSending = true, chatSendError = null) }; true }
         }
@@ -5569,8 +5578,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The message could not be confirmed.") }
             if (retained) kept else failed
         } finally {
-            val pending = runCatching { live.pendingChat() }.getOrDefault(retained)
-            if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+            if (session === live) _room.update { it.copy(chatSending = false) }
             if (!chatOnly) notifications.replied()
         }
     }
@@ -5592,38 +5600,85 @@ class RoomViewModel @JvmOverloads constructor(
             .inbox.state().seen
     }.getOrDefault(emptyList())
 
-    fun retryPendingChat() {
+    private var pendingAttempts = 0
+    private var pendingBackoff: Job? = null
+    private var pendingRetry: Job? = null
+
+    /** Offers what waits, oldest first. [auto] is the back-off's own call, which keeps its place in the sequence. */
+    fun retryPendingChat(auto: Boolean = false) {
         val live = session ?: return
         val scope = sessionScope ?: return
-        if (_room.value.chatSending) return
-        _room.update { it.copy(chatSending = true, chatSendError = null) }
-        scope.launch(Dispatchers.IO) {
+        if (pendingRetry?.isActive == true) return
+        if (!auto) { pendingAttempts = 0; pendingBackoff?.cancel() }
+        _room.update { it.copy(chatSendError = null) }
+        pendingRetry = scope.launch(Dispatchers.IO) {
             try {
-                check(live.retryPendingChat()) { "No relay confirmed this message. It remains on this phone." }
+                live.retryPendingChat()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (session === live) _room.update { it.copy(chatSendError =
                     error.message ?: "A message remains on this phone. Retry when connected.") }
             } finally {
-                val pending = runCatching { live.pendingChat() }.getOrDefault(true)
-                if (session === live) _room.update { it.copy(chatSending = false, chatPending = pending) }
+                if (session === live) scheduleBackoff(live)
             }
         }
     }
 
-    fun discardPendingChat() {
+    /** Try again after 5, 15, 30, then every 60 seconds, while something that can still go is waiting. */
+    private fun scheduleBackoff(live: RoomSession) {
+        val scope = sessionScope ?: return
+        pendingBackoff?.cancel()
+        val goes = live.pendingChats.value.any { it.state != dev.forgesworn.kithmoot.session.PendingChatState.MOVED }
+        if (!goes) { pendingAttempts = 0; return }
+        val seconds = PENDING_RETRY_SECONDS[minOf(pendingAttempts, PENDING_RETRY_SECONDS.lastIndex)]
+        pendingAttempts++
+        pendingBackoff = scope.launch {
+            delay(seconds * 1000L)
+            if (session === live) retryPendingChat(auto = true)
+        }
+    }
+
+    /** Edit: the message goes back to the composer as text. [onText] runs on the main thread, or not at all. */
+    fun editPendingChat(id: String, onText: (String) -> Unit) {
         val live = session ?: return
         val scope = sessionScope ?: return
-        if (_room.value.chatSending) return
         scope.launch(Dispatchers.IO) {
             try {
-                live.discardPendingChat()
-                if (session === live) _room.update { it.copy(chatPending = false, chatSendError = null,
-                    notice = "Local retry discarded. A relay may already have received the message.") }
+                val text = live.editPendingChat(id)
+                if (text == null) note("That message has already gone out, or is on its way. It can no longer be edited.")
+                else withContext(Dispatchers.Main.immediate) { if (session === live) onText(text) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (session === live) _room.update { it.copy(chatSendError =
-                    error.message ?: "The pending message could not be discarded.") }
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The pending message could not be edited.") }
+            }
+        }
+    }
+
+    /** Delete: for a message that never left this phone. */
+    fun deletePendingChat(id: String) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (live.deletePendingChat(id)) note("Deleted. Nobody will see that message.")
+                else note("That message has already gone out, or is on its way. It cannot be deleted.")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The pending message could not be deleted.") }
+            }
+        }
+    }
+
+    /** For a message a relay may already hold: it leaves the list and nothing is unsent. */
+    fun removePendingChat(id: String) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (live.removePendingChat(id)) note("Removed from this list. A relay may already have received it, and people may still see it.")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The pending message could not be removed.") }
             }
         }
     }

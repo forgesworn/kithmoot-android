@@ -34,6 +34,12 @@ class FakeRelay {
 
     /** Whether the relay confirms a durable publication. */
     var confirmsPublications: Boolean = true
+
+    /** Whether a write relay is connected; off, a durable send is not offered at all. */
+    var reachable: Boolean = true
+
+    /** Whether a confirmed publication runs out of time with no relay answering, as a real pool's does. */
+    var timesOut: Boolean = false
     var publicationBlocked: Boolean = false
         private set
     private var publicationGeneration = 0L
@@ -57,7 +63,10 @@ class FakeRelay {
             this@FakeRelay.publish(event)
         }
 
+        override fun reachable(): Boolean = this@FakeRelay.reachable
+
         override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+            if (timesOut) kotlinx.coroutines.withTimeout(1) { kotlinx.coroutines.awaitCancellation() }
             if (confirmsPublications) this@FakeRelay.publish(event)
             return confirmsPublications
         }
