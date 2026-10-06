@@ -57,6 +57,41 @@ class RoomBookmarksTest {
         log.close()
     }
 
+    @Test fun putsBackRecordsTheRelaysLostAsTheirExactEvents() = runTest {
+        val store = Store(); val net = Network()
+        val first = log(store, net); first.open()
+        first.save(room); first.save(room.copy(roomId = "b".repeat(64), name = "Kept")); runCurrent(); first.close()
+        val (lost, kept) = net.sent.toList()
+        // The relay still has one room's record and has dropped the other's.
+        net.history.clear(); net.history.add(kept); net.sent.clear()
+        val second = log(store, net); second.open()
+        assertEquals(1, second.state.value.pending)
+        second.retry(); runCurrent()
+        assertEquals(listOf(lost.id, kept.id), net.sent.map { it.id })
+        assertEquals(0, second.state.value.pending)
+        second.close()
+    }
+
+    @Test fun sendsRecordsStillOnARelayAgainQuietly() = runTest {
+        val store = Store(); val net = Network()
+        val first = log(store, net); first.open(); first.save(room); runCurrent(); first.close()
+        val event = net.sent.single(); net.sent.clear()
+        val second = log(store, net); second.open(); second.retry(); runCurrent()
+        assertEquals(listOf(event.id), net.sent.map { it.id })
+        second.retry(); runCurrent()
+        assertEquals(1, net.sent.size)
+        second.close()
+    }
+
+    @Test fun repairsNothingAfterALookupThatFoundNothing() = runTest {
+        val store = Store(); val net = Network()
+        val first = log(store, net); first.open(); first.save(room); runCurrent(); first.close()
+        net.history.clear(); net.sent.clear()
+        val second = log(store, net); second.open(); second.retry(); runCurrent()
+        assertTrue(net.sent.isEmpty())
+        second.close()
+    }
+
     @Test fun restoresConversationsOnFreshDeviceAndPublishesOnlyEncryptedBookmarks() = runTest {
         val net = Network(); val first = log(Store(), net); first.open(); first.save(room); runCurrent()
         val event = net.sent.single()
