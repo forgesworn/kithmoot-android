@@ -18,7 +18,7 @@ class VmlsRoomStoreTest {
     @Test fun `a room keeps its stored fields and never its members, epoch or commit flags`() {
         val storage = MemoryStorage()
         val stored = room.copy(
-            stop = RoomStop.Recovery("Gap"), invite = "dd".repeat(32),
+            stop = RoomStop.Recovery("Gap"), invite = "dd".repeat(32), asked = setOf("44".repeat(32)), prompted = listOf(1_899_999_000L, 1_899_999_500L),
             grace = mapOf(leaf to 1_900_000_000L), removing = setOf(leaf),
             members = mapOf(leaf to VmlsRoomMember(leaf, "33".repeat(32), "44".repeat(32), true)),
             epoch = 9, sending = true, retrying = true, checking = true,
@@ -66,7 +66,7 @@ class VmlsRoomStoreTest {
 
     @Test fun `a damaged or foreign store is refused, not read past`() {
         for (bad in listOf("{", """{"version":"2","rooms":[],"routes":[]}""",
-            """{"version":"1","rooms":[{"persona":"${persona}","session":"${room.session}","name":"K","box":"$box","role":"GUEST","joined":true,"grace":{"$leaf":1},"removing":[]}],"routes":[]}""",
+            """{"version":"1","rooms":[{"persona":"${persona}","session":"${room.session}","name":"K","box":"$box","role":"GUEST","joined":true,"asked":[],"prompted":[],"grace":{"$leaf":1},"removing":[]}],"routes":[]}""",
             """{"version":"1","rooms":[{"persona":"${persona}","session":"${room.session}","name":"K","box":"$box","role":"KEEPER","joined":true,"stop":"other","grace":{},"removing":[]}],"routes":[]}""")) {
             val storage = MemoryStorage().apply { value = bad.encodeToByteArray() }
             assertFailsWith<RoomStorageException> { VmlsRoomStore(storage).rooms() }

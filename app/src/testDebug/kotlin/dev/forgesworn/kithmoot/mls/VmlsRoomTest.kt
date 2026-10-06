@@ -92,6 +92,14 @@ class VmlsRoomTest {
         assertEquals(RoomStop.KeyCompromise, keeper().on(now, RoomSignal.PossibleOwnKeyCompromise, RoomSignal.NeedsRecovery("Gap")).stop)
     }
 
+    @Test fun `a recovery never hides an unknown event, so leaving it does not resume sending`() {
+        val room = keeper().on(now, RoomSignal.Unknown("NewEvent"), RoomSignal.NeedsRecovery("Gap"))
+        assertEquals(RoomStop.Unknown("NewEvent"), room.stop)
+        val reopened = room.seed(Phase.Active, 4, listOf(member))
+        assertFalse(reopened.canSend)
+        assertEquals(RoomStop.Unknown("NewEvent"), reopened.seed(Phase.NeedsRecovery("Gap"), 4, listOf(member)).stop)
+    }
+
     @Test fun `removed and lapsed rooms end for good`() {
         val removed = keeper().on(now, RoomSignal.SelfRemoved, RoomSignal.NeedsRecovery("Gap"))
         assertEquals(RoomStop.Removed, removed.stop)
@@ -145,6 +153,24 @@ class VmlsRoomTest {
         assertEquals(setOf(leaf), abandoned.grace.keys)
         assertEquals(setOf(leaf), abandoned.removing)
         assertTrue(proposed.on(now, RoomSignal.NeedsRecovery("Fork")).dueRemovals(now + VmlsRoom.GRACE_SECONDS).second.isEmpty())
+    }
+
+    @Test fun `an update the engine still finds lapsed keeps the first proposal's time`() {
+        var room = keeper().on(now, RoomSignal.ProposeRemoval(leaf, "BindingExpired"))
+        // Commits an Update every fourteen minutes that swaps one lapsed binding for another.
+        for (step in 1..4) {
+            room = room.on(now + step * 840L, RoomSignal.MemberUpdated(leaf), RoomSignal.ProposeRemoval(leaf, "BindingExpired"))
+            assertEquals(now, room.grace.getValue(leaf))
+        }
+        assertEquals(listOf(leaf), room.dueRemovals(now + VmlsRoom.GRACE_SECONDS).second)
+    }
+
+    @Test fun `a Remove handed out before the app stopped is due again at reopen`() {
+        val (removing, _) = keeper().on(now, RoomSignal.ProposeRemoval(leaf, "BindingExpired")).dueRemovals(now + VmlsRoom.GRACE_SECONDS)
+        assertEquals(setOf(leaf), removing.removing)
+        val reopened = removing.seed(Phase.Active, 3, listOf(member))
+        assertEquals(now, reopened.grace.getValue(leaf))
+        assertEquals(listOf(leaf), reopened.dueRemovals(now + VmlsRoom.GRACE_SECONDS + 1).second)
     }
 
     @Test fun `a reopen keeps the grace of leaves the group still holds`() {

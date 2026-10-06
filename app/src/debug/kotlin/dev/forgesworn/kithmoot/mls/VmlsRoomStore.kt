@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -112,8 +113,10 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         put("role", room.role.name); put("joined", room.joined)
         room.stop?.let { put("stop", it.code) }
         room.invite?.let { put("invite", it) }
+        put("asked", buildJsonArray { room.asked.sorted().forEach { add(JsonPrimitive(it)) } })
+        put("prompted", buildJsonArray { room.prompted.forEach { add(JsonPrimitive(it)) } })
         put("grace", buildJsonObject { room.grace.toSortedMap().forEach { (leaf, at) -> put(leaf, at) } })
-        put("removing", buildJsonArray { room.removing.sorted().forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } })
+        put("removing", buildJsonArray { room.removing.sorted().forEach { add(JsonPrimitive(it)) } })
     }
 
     private fun roomOf(o: JsonObject) = VmlsRoom(
@@ -122,6 +125,8 @@ class VmlsRoomStore(private val storage: RoomStorage) {
         joined = o.getValue("joined").jsonPrimitive.content.toBooleanStrict(),
         stop = o["stop"]?.jsonPrimitive?.content?.let(RoomStop::parse),
         invite = o["invite"]?.jsonPrimitive?.content,
+        asked = o.getValue("asked").jsonArray.map { it.jsonPrimitive.content }.toSet(),
+        prompted = o.getValue("prompted").jsonArray.map { it.jsonPrimitive.long },
         grace = o.getValue("grace").jsonObject.mapValues { it.value.jsonPrimitive.long },
         removing = o.getValue("removing").jsonArray.map { it.jsonPrimitive.content }.toSet(),
     )

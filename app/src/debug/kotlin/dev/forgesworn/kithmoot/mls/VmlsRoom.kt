@@ -50,7 +50,7 @@ data class VmlsRoomMember(val leaf: String, val identity: String, val device: St
  */
 sealed class RoomStop(internal val rank: Int, internal val code: String) {
     /** `NeedsRecovery`: "Repair", with its [reason]. A `Gap` is still driven (P2-R-05). */
-    data class Recovery(val reason: String) : RoomStop(1, "recovery:$reason")
+    data class Recovery(val reason: String) : RoomStop(0, "recovery:$reason")
     /** An event the app does not know. */
     data class Unknown(val event: String) : RoomStop(1, "unknown:$event")
     /** `PossibleOwnKeyCompromise`: a warning naming the device, and "Repair". */
@@ -127,6 +127,10 @@ data class VmlsRoom(
      * (decision 18).
      */
     val invite: String? = null,
+    /** The devices (hex) asked about over [invite]: each is asked once per link (decision 18). */
+    val asked: Set<String> = emptySet(),
+    /** When the room's last prompts were shown, oldest first: at most five in any hour (decision 18). */
+    val prompted: List<Long> = emptyList(),
     val grace: Map<String, Long> = emptyMap(),
     val removing: Set<String> = emptySet(),
     // ---- rebuilt, never stored ----
@@ -139,8 +143,13 @@ data class VmlsRoom(
     init {
         require(ROOM_HEX64.matches(persona) && ROOM_HEX64.matches(session) && ROOM_HEX64.matches(box))
         require(name.isNotBlank() && name.length <= MAX_NAME && name.none { it.isISOControl() })
-        require(role == VmlsRole.KEEPER || (grace.isEmpty() && removing.isEmpty() && invite == null)) { "Only a keeper invites and removes members." }
+        require(role == VmlsRole.KEEPER || (grace.isEmpty() && removing.isEmpty() && invite == null && asked.isEmpty() && prompted.isEmpty())) {
+            "Only a keeper invites and removes members."
+        }
         require(invite == null || ROOM_HEX64.matches(invite))
+        require(invite != null || asked.isEmpty())
+        require(asked.size <= MAX_ASKED && asked.all(ROOM_HEX_ID::matches))
+        require(prompted.size <= VmlsConsentGate.MAX_PER_HOUR && prompted.zipWithNext().all { (a, b) -> a <= b } && prompted.all { it >= 0 })
         require(grace.size <= MAX_GRACE && grace.keys.all(ROOM_HEX_ID::matches) && grace.values.all { it >= 0 })
         require(removing.size <= MAX_GRACE && removing.all(ROOM_HEX_ID::matches))
     }
@@ -178,7 +187,9 @@ data class VmlsRoom(
         // An active engine has left its recovery; a stop it cannot show is kept.
         val kept = this.stop?.takeIf { it !is RoomStop.Recovery }
         val roster = members.associateBy { it.leaf }
-        // A leaf the group no longer holds has nothing left to remove.
+        // A leaf the group no longer holds has nothing left to remove. A Remove handed out before the
+        // app stopped may never have reached the engine: its leaves are due again, their grace kept,
+        // and one the engine still carries ends in MemberRemoved or CommitLost either way.
         return copy(
             joined = phase != Phase.PendingJoin,
             // Of equal rank, the stop kept from before wins: a repair clears it.
@@ -186,7 +197,7 @@ data class VmlsRoom(
             members = roster,
             epoch = epoch,
             grace = grace.filterKeys(roster::containsKey),
-            removing = removing.filter(roster::containsKey).toSet(),
+            removing = emptySet(),
             sending = false, retrying = false, checking = false,
         )
     }
@@ -194,6 +205,9 @@ data class VmlsRoom(
     /** One step's events, in order, at [now] (seconds). */
     fun apply(signals: List<RoomSignal>, now: Long): Applied {
         var room = this
+        // Grace ended by an update in this step: a proposal in the same step for that leaf means the engine
+        // applied the update and still finds the leaf lapsed, so its first proposal's time holds.
+        val updated = HashMap<String, Long>()
         val messages = mutableListOf<RoomSignal.Message>()
         val actions = mutableListOf<RoomAction>()
         for (signal in signals) {
@@ -203,8 +217,8 @@ data class VmlsRoom(
                 is RoomSignal.EpochChanged -> room.copy(epoch = signal.epoch)
                 is RoomSignal.MemberAdded -> room.copy(members = room.members + (signal.member.leaf to signal.member))
                 // A pending member's first Update confirms it (decision 12), and only the adder sees MemberConfirmed.
-                is RoomSignal.MemberConfirmed -> room.confirmed(signal.leaf)
-                is RoomSignal.MemberUpdated -> room.confirmed(signal.leaf)
+                is RoomSignal.MemberConfirmed -> { room.grace[signal.leaf]?.let { updated[signal.leaf] = it }; room.confirmed(signal.leaf) }
+                is RoomSignal.MemberUpdated -> { room.grace[signal.leaf]?.let { updated[signal.leaf] = it }; room.confirmed(signal.leaf) }
                 is RoomSignal.MemberRemoved -> room.copy(
                     members = room.members - signal.leaf, grace = room.grace - signal.leaf, removing = room.removing - signal.leaf,
                 )
@@ -213,8 +227,8 @@ data class VmlsRoom(
                 // The driver proposes it again; a lost Remove is offered again by [dueRemovals], its grace unchanged.
                 is RoomSignal.CommitLost -> room.copy(retrying = true, removing = if (signal.kind == CommitKind.REMOVE) emptySet() else room.removing)
                 RoomSignal.CommitRedeposited -> room.copy(retrying = true)
-                is RoomSignal.ProposeRemoval -> room.proposed(signal.leaf, now)
-                is RoomSignal.PendingMemberExpired -> room.proposed(signal.leaf, now)
+                is RoomSignal.ProposeRemoval -> room.proposed(signal.leaf, updated[signal.leaf] ?: now)
+                is RoomSignal.PendingMemberExpired -> room.proposed(signal.leaf, updated[signal.leaf] ?: now)
                 RoomSignal.UpdateDue -> { if (room.canSend && RoomAction.StartUpdate !in actions) actions += RoomAction.StartUpdate; room }
                 RoomSignal.OrderingUnconfirmed, RoomSignal.InstallationNeeded -> room.copy(checking = true)
                 is RoomSignal.NeedsRecovery -> room.stopped(RoomStop.Recovery(RoomStop.clean(signal.reason)))
@@ -226,6 +240,9 @@ data class VmlsRoom(
         }
         return Applied(room, messages, actions)
     }
+
+    /** The keeper offers [link] as the room's live invite, or retires it with null: devices are asked afresh. */
+    fun invited(link: String?): VmlsRoom = copy(invite = link, asked = emptySet())
 
     /** The driver's round ended with nothing left to check: "checking with the box" ends. */
     fun settled(): VmlsRoom = copy(checking = false)
@@ -263,10 +280,10 @@ data class VmlsRoom(
     private fun member(leaf: String, change: (VmlsRoomMember) -> VmlsRoomMember) =
         members[leaf]?.let { members + (leaf to change(it)) } ?: members
 
-    private fun proposed(leaf: String, now: Long): VmlsRoom {
+    private fun proposed(leaf: String, since: Long): VmlsRoom {
         // Only the keeper acts (decision 19); repeated proposals fold into the first.
         if (role != VmlsRole.KEEPER || leaf in grace || !ROOM_HEX_ID.matches(leaf) || grace.size >= MAX_GRACE) return this
-        return copy(grace = grace + (leaf to now))
+        return copy(grace = grace + (leaf to since))
     }
 
     private fun stopped(next: RoomStop) = copy(stop = higher(stop, next))
@@ -276,8 +293,13 @@ data class VmlsRoom(
         const val GRACE_SECONDS = 15 * 60L
         const val MAX_NAME = 80
         const val MAX_GRACE = 1024
+        const val MAX_ASKED = 256
 
-        /** A later stop replaces one of no higher rank; an ended room stays ended. */
+        /**
+         * A later stop replaces one of no higher rank; an ended room stays
+         * ended. A recovery ranks lowest, so the engine's leaving it never
+         * clears a stop it cannot show.
+         */
         private fun higher(current: RoomStop?, next: RoomStop?): RoomStop? = when {
             current == null -> next
             next == null -> current
