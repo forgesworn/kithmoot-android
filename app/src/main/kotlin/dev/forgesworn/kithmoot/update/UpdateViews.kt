@@ -27,6 +27,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.ui.settings.SettingsNote
+import dev.forgesworn.kithmoot.ui.settings.SettingsSwitchRow
 import dev.forgesworn.kithmoot.update.AppUpdates.State
 
 /**
@@ -58,33 +60,34 @@ fun UpdateNotice(updates: AppUpdates, modifier: Modifier = Modifier) {
 fun UpdateSettings(updates: AppUpdates) {
     val state by updates.state.collectAsState()
     val automatic by updates.automatic.collectAsState()
-    Text("This is KithMoot ${updates.versionName}.")
+    Text("Version ${updates.versionName}", style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp))
     if (updates.installedFrom == InstalledFrom.ZAPSTORE) {
-        Text("Zapstore installed this copy, so updates come through Zapstore.", style = MaterialTheme.typography.bodySmall)
+        SettingsNote("Zapstore installed this copy, so updates come through Zapstore.")
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text("Check for updates automatically", Modifier.weight(1f))
-        Switch(automatic, { updates.setAutomatic(it) }, Modifier.semantics { contentDescription = "Check for updates automatically" })
-    }
-    Text(
-        (if (updates.automaticByDefault) "On by default. " else "Off by default in this build. ") +
-            "Asks kithmoot.forgesworn.dev for the signed release list while KithMoot is open, at most every six hours. " +
+    SettingsSwitchRow(
+        "Check for updates automatically",
+        (if (updates.automaticByDefault) "" else "Off by default in this build. ") +
+            "At most every six hours while KithMoot is open, asks ${UpdateFlow.ORIGIN.removePrefix("https://")} for the signed list of releases. " +
             "An update installs only if its signature and checksum match the keys built into the app.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    when (val s = state) {
-        State.Checking -> Text("Checking for updates…")
-        State.Current -> Text("KithMoot is up to date.")
-        is State.Failed -> if (s.versionName == null) Text(s.message)
-        else -> Unit
+        checked = automatic,
+    ) { updates.setAutomatic(it) }
+    val live = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        when (val s = state) {
+            State.Checking -> Text("Checking for updates…", modifier = live)
+            State.Current -> Text("KithMoot is up to date.", modifier = live)
+            is State.Failed -> if (s.versionName == null) Text(s.message, modifier = live)
+            else -> Unit
+        }
+        when (state) {
+            is State.Available, is State.Downloading, is State.Ready, is State.Installing -> UpdateProgress(updates, state, later = null)
+            is State.Failed -> if ((state as State.Failed).versionName != null) UpdateProgress(updates, state, later = null)
+            else -> Unit
+        }
+        val busy = state is State.Checking || state is State.Downloading || state is State.Installing
+        OutlinedButton({ updates.checkNow() }, Modifier.heightIn(min = 48.dp), enabled = !busy) { Text("Check now") }
     }
-    when (state) {
-        is State.Available, is State.Downloading, is State.Ready, is State.Installing -> UpdateProgress(updates, state, later = null)
-        is State.Failed -> if ((state as State.Failed).versionName != null) UpdateProgress(updates, state, later = null)
-        else -> Unit
-    }
-    val busy = state is State.Checking || state is State.Downloading || state is State.Installing
-    OutlinedButton({ updates.checkNow() }, enabled = !busy) { Text("Check for updates") }
 }
 
 @Composable
