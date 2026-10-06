@@ -47,7 +47,7 @@ class VmlsInvitationTest {
 
     @Test fun `a request names the guest by its person credential, and today's decoder ignores it`() {
         val event = encodeVmlsJoinRequest(link.invitation, requesterKey, credential, rendezvous, now)
-        val request = decodeVmlsJoinRequest(event, link.invitation, now)!!
+        val request = decodeVmlsJoinRequest(event, link.invitation, link.inviterSecretKey, now)!!
         assertEquals(persona, request.persona)
         assertEquals(device, request.device)
         assertEquals(rendezvous, request.rendezvous)
@@ -55,23 +55,28 @@ class VmlsInvitationTest {
         assertEquals(Schnorr.publicKeyHex(requesterKey), request.requester)
         assertNull(decodeInvitationRequest(event, link.invitation, now))
         // Today's request is no VMLS request.
-        assertNull(decodeVmlsJoinRequest(encodeInvitationRequest(link.invitation, requesterKey, now), link.invitation, now))
+        assertNull(decodeVmlsJoinRequest(encodeInvitationRequest(link.invitation, requesterKey, now), link.invitation, link.inviterSecretKey, now))
     }
 
     @Test fun `a request is refused stale, for another link, or with a credential that does not hold`() {
         val event = encodeVmlsJoinRequest(link.invitation, requesterKey, credential, rendezvous, now)
-        assertNull(decodeVmlsJoinRequest(event, link.invitation, now + INVITATION_MAX_AGE_SECONDS + 1))
-        assertNull(decodeVmlsJoinRequest(event, createRoomInvitation().invitation, now))
+        assertNull(decodeVmlsJoinRequest(event, link.invitation, link.inviterSecretKey, now + INVITATION_MAX_AGE_SECONDS + 1))
+        assertNull(decodeVmlsJoinRequest(event, createRoomInvitation().invitation, link.inviterSecretKey, now))
         val lapsed = createPersonCredential(personaKey, device, expiresAt = now - 1, createdAt = now - 3600)
-        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, lapsed, rendezvous, now), link.invitation, now))
+        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, lapsed, rendezvous, now), link.invitation, link.inviterSecretKey, now))
         val forged = credential.copy(tags = credential.tags.map { if (it[0] == "device") listOf("device", rendezvous) else it })
-        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, forged, rendezvous, now), link.invitation, now))
+        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, forged, rendezvous, now), link.invitation, link.inviterSecretKey, now))
+        // Another holder of the link cannot read a guest's request: only the link's key opens it.
+        assertNull(decodeVmlsJoinRequest(event, link.invitation, ByteArray(32) { 9 }, now))
+        // A wait said to begin later than now began now.
+        val since = decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, credential, rendezvous, now, since = now - 60), link.invitation, link.inviterSecretKey, now + 5)!!
+        assertEquals(now - 60, since.since)
         val notAPoint = "f".repeat(64)
-        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, credential, notAPoint, now), link.invitation, now))
+        assertNull(decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, credential, notAPoint, now), link.invitation, link.inviterSecretKey, now))
     }
 
     @Test fun `an answer comes from the link's key to one request, and today's decoder ignores it`() {
-        val request = decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, credential, rendezvous, now), link.invitation, now)!!
+        val request = decodeVmlsJoinRequest(encodeVmlsJoinRequest(link.invitation, requesterKey, credential, rendezvous, now), link.invitation, link.inviterSecretKey, now)!!
         val admitted = VmlsJoinAnswer.Admitted(request.requestId, "a".repeat(64), rendezvous, 42, box, "Kitchen")
         val event = encodeVmlsJoinAnswer(link.invitation, link.inviterSecretKey, request.requester, admitted, now)
         assertEquals(admitted, decodeVmlsJoinAnswer(event, link.invitation, requesterKey, setOf(request.requestId), now))

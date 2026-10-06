@@ -97,6 +97,12 @@ fun decodeVmlsInvitationUrl(url: String): VmlsInvitationPayload? {
  * credential (signed by its persona, naming its MLS device: the only proof
  * of whose device it is) and its rendezvous key. [requestId] is the event
  * id and [requester] the request's throwaway key, which the answer goes to.
+ * [since] is when the guest began waiting, so the keeper's prompt lapses
+ * with the guest's wait rather than from when the keeper heard it.
+ *
+ * The body is encrypted to the link's own key, not to the bearer: another
+ * holder of the link reads no one else's request, so cannot copy a guest's
+ * credential into a request of its own.
  */
 class VmlsJoinRequest(
     val requestId: String,
@@ -105,6 +111,7 @@ class VmlsJoinRequest(
     val persona: String,
     val device: String,
     val rendezvous: String,
+    val since: Long,
 )
 
 fun encodeVmlsJoinRequest(
@@ -113,16 +120,20 @@ fun encodeVmlsJoinRequest(
     credential: NostrEvent,
     rendezvous: String,
     now: Long,
+    since: Long = now,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
 ): NostrEvent {
     require(HEX64.matches(rendezvous)) { "a rendezvous key is 32-byte hex" }
+    require(since in 0..now) { "the wait began before the request" }
     val body = buildJsonObject {
         put("v", VMLS_JOIN_REQUEST_VERSION)
         put("m", MARKER)
         put("credential", credential.toJson())
         put("rz", rendezvous)
+        put("since", since)
     }
+    val key = Nip44.conversationKey(requesterSecretKey, invitation.canonicalInviter.hexToBytes())
     return Events.sign(
         secretKey = requesterSecretKey,
         kind = KIND_INVITATION_REQUEST,
@@ -131,15 +142,19 @@ fun encodeVmlsJoinRequest(
             listOf("d", deriveInvitationId(invitation)),
             listOf("p", invitation.canonicalInviter),
         ),
-        content = Nip44.encrypt(body.toString(), invitationRequestKey(invitation), nonce),
+        content = Nip44.encrypt(body.toString(), key, nonce),
         auxRand = auxRand,
     )
 }
 
-/** Null for anything but a fresh, well-formed VMLS request over [invitation] with a valid person credential. */
+/**
+ * Null for anything but a fresh, well-formed VMLS request over [invitation]
+ * with a valid person credential. Only the link's key, [linkSecretKey], opens it.
+ */
 fun decodeVmlsJoinRequest(
     event: NostrEvent,
     invitation: RoomInvitation,
+    linkSecretKey: ByteArray,
     now: Long,
     maxAgeSeconds: Long = INVITATION_MAX_AGE_SECONDS,
 ): VmlsJoinRequest? = try {
@@ -148,15 +163,19 @@ fun decodeVmlsJoinRequest(
     else if (event.tagValue("d") != deriveInvitationId(invitation)) null
     else if (!event.tagValue("p").equals(invitation.canonicalInviter, ignoreCase = true)) null
     else {
-        val body = Json.parseToJsonElement(Nip44.decrypt(event.content, invitationRequestKey(invitation))).jsonObject
+        require(Schnorr.publicKeyHex(linkSecretKey) == invitation.canonicalInviter)
+        val key = Nip44.conversationKey(linkSecretKey, event.pubkey.hexToBytes())
+        val body = Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject
         val version = (body["v"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
         val rendezvous = body.getValue("rz").jsonPrimitive.content
-        if (version != VMLS_JOIN_REQUEST_VERSION || body.getValue("m").jsonPrimitive.content != MARKER || !HEX64.matches(rendezvous)) null
+        val since = (body.getValue("since") as JsonPrimitive).takeUnless { it.isString }?.longOrNull
+        if (version != VMLS_JOIN_REQUEST_VERSION || body.getValue("m").jsonPrimitive.content != MARKER || !HEX64.matches(rendezvous) || since == null || since < 0) null
         else {
             val credential = NostrEvent.fromJson(body.getValue("credential"))
             val checked = LeafBinding.verifyPersonCredential(credential, now)
             Schnorr.publicKey(rendezvous.hexToBytes())
-            VmlsJoinRequest(event.id.lowercase(), event.pubkey.lowercase(), credential, checked.identity, checked.device, rendezvous)
+            // A wait said to begin later than now began now.
+            VmlsJoinRequest(event.id.lowercase(), event.pubkey.lowercase(), credential, checked.identity, checked.device, rendezvous, minOf(since, now))
         }
     }
 } catch (_: Exception) {

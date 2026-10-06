@@ -179,7 +179,13 @@ fun KithMootApp(
         }
         // Join requests over the keeper's live links, heard only while the app is in the foreground (decision 17).
         LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle) {
-            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) { vmlsBoxes.serveInvites(witnessPersona) }
+            lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                // A failure (an unreadable store, a relay) is tried again, never brought down on the app.
+                while (true) {
+                    try { vmlsBoxes.serveInvites(witnessPersona) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { }
+                    kotlinx.coroutines.delay(VMLS_ROUND_INTERVAL_MILLIS)
+                }
+            }
         }
         // The vault's consent ask, then a join request: no prompt may cover an answered call or the lock screen's call.
         val asking = vmlsBoxes.consent.collectAsState().value

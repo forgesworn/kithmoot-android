@@ -22,6 +22,7 @@ import dev.forgesworn.kithmoot.mls.VmlsRole
 import dev.forgesworn.kithmoot.mls.VmlsRoomStore
 import dev.forgesworn.kithmoot.mls.VmlsRuntime
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
+import dev.forgesworn.kithmoot.protocol.createPersonCredential
 import dev.forgesworn.kithmoot.protocol.decodeVmlsInvitationUrl
 import dev.forgesworn.kithmoot.protocol.encodeVmlsJoinRequest
 import java.security.KeyStore
@@ -161,13 +162,22 @@ class VmlsInviteLabTest {
         assertEquals(listOf("hello from the keeper"), guest.runtime.messages(guest.persona, joined.session).map { String(it.body) })
         assertEquals(listOf("hello from the guest"), keeper.runtime.messages(keeper.persona, room.session).map { String(it.body) })
 
-        // The same device asking again over the same link is dropped unseen (decision 18).
+        // The same device asking again over the same link is dropped unseen (decision 18), while a new device is asked.
         val credential = (guest.vault.device(guest.vault.context(VmlsRuntime.PRINCIPAL, guest.persona)) as VaultResult.Ok).value.credential!!
         val again = encodeVmlsJoinRequest(link.invitation, secret(), credential, guest.rz, epochSeconds())
         assertEquals(KIND_INVITATION_REQUEST, again.kind)
         carriers.open().publish(again)
         delay(2_000)
         assertNull("asked once per device per link", keeper.runtime.joinAsk.value)
+        val strangerKey = secret()
+        val strangerDevice = Schnorr.publicKeyHex(secret())
+        val strangerCredential = createPersonCredential(strangerKey, strangerDevice, expiresAt = epochSeconds() + 86_400, createdAt = epochSeconds())
+        carriers.open().publish(encodeVmlsJoinRequest(link.invitation, secret(), strangerCredential, guest.rz, epochSeconds()))
+        val strangerAsk = withTimeout(10_000) { keeper.runtime.joinAsk.filterNotNull().first() }
+        assertEquals(strangerDevice, strangerAsk.device)
+        // Retiring the link closes its prompt.
+        keeper.runtime.retire(keeper.persona, room.session)
+        assertNull(keeper.runtime.joinAsk.value)
         serving.cancelAndJoin()
     }
 

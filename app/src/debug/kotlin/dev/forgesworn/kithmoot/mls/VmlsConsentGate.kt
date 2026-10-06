@@ -84,6 +84,14 @@ class VmlsConsentGate {
         return verdict
     }
 
+    /**
+     * Whether [requestId] for [session] would be dropped before anything of
+     * it is read: seen already, or the room's prompt is open. Lets a flood of
+     * requests be turned away before each is decrypted and checked.
+     */
+    @Synchronized fun spent(session: String, requestId: String, now: Long): Boolean =
+        requestId in seen || open[session]?.let { (_, opened) -> now - opened < PROMPT_SECONDS } == true
+
     /** The keeper answered [requestId], either way, or its prompt was dismissed: the room's prompt closes. */
     @Synchronized fun answered(session: String, requestId: String) {
         if (open[session]?.first == requestId) open -= session
