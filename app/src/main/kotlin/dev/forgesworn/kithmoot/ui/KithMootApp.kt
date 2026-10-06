@@ -597,7 +597,7 @@ fun KithMootApp(
                         val session = vmlsSession
                         val room = vmlsRooms.firstOrNull { it.session == session }
                         dev.forgesworn.kithmoot.ui.start.VmlsRoomScreen(
-                            room = room, error = vmlsState.error, quiet = stage == Stage.ROOM && roomState.anonymous,
+                            room = room, error = vmlsState.error, quiet = restoreWitness?.quiet?.get() == true,
                             onBack = { homePage = HomePage.ROOMS },
                             onSay = { text -> if (persona != null && session != null) boxes.say(persona, session, text) },
                             onInvite = {
@@ -609,7 +609,7 @@ fun KithMootApp(
                             onRetire = { if (persona != null && session != null) boxes.retireInvite(persona, session) },
                             onRemove = { leaf -> if (persona != null && session != null) boxes.removeMember(persona, session, leaf) },
                             onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
-                            onClose = { val signer = accountModel.vmlsSigner(); if (signer != null && session != null) boxes.close(signer, session) },
+                            onClose = { force -> val signer = accountModel.vmlsSigner(); if (signer != null && session != null) boxes.close(signer, session, force) },
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },
                         )
                     }

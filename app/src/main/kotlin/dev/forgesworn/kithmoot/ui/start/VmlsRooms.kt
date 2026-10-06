@@ -10,7 +10,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -53,7 +52,7 @@ fun VmlsRoomsSection(
             )
         }
     }
-    if (creating) NewVmlsRoomDialog(hosts, onDismiss = { creating = false }, onCreate = { box, name -> creating = false; onCreate(box, name) })
+    if (creating && hosts.isNotEmpty()) NewVmlsRoomDialog(hosts, onDismiss = { creating = false }, onCreate = { box, name -> creating = false; onCreate(box, name) })
 }
 
 @Composable
@@ -97,7 +96,7 @@ fun VmlsRoomScreen(
     onRetire: () -> Unit,
     onRemove: (String) -> Unit,
     onLeave: () -> Unit,
-    onClose: () -> Unit,
+    onClose: (force: Boolean) -> Unit,
     onForget: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -107,7 +106,14 @@ fun VmlsRoomScreen(
             title = { Text(room?.name ?: "VMLS room") },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = {
-                if (room != null && room.state != VmlsRoomState.CLOSING) Box {
+                if (room != null && room.state == VmlsRoomState.CLOSING && room.keeper) Box {
+                    // A close a revocation held up: retried, or finished without it (decision 24).
+                    IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem(text = { Text("Finish closing") }, onClick = { menu = false; onClose(false) })
+                        DropdownMenuItem(text = { Text("Finish without the box's confirmation") }, onClick = { menu = false; confirming = Confirm.Force })
+                    }
+                } else if (room != null && room.state != VmlsRoomState.CLOSING) Box {
                     IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                     DropdownMenu(menu, { menu = false }) {
                         val ended = room.state == VmlsRoomState.REMOVED || room.state == VmlsRoomState.LAPSED
@@ -159,7 +165,8 @@ fun VmlsRoomScreen(
                     }
                 }
             }
-            var draft by rememberSaveable { mutableStateOf("") }
+            // Not saved to instance state: a draft is message plaintext, and belongs to its room.
+            var draft by remember(room.session) { mutableStateOf("") }
             Row(Modifier.fillMaxWidth().imePadding().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     draft, { draft = it }, Modifier.weight(1f), enabled = room.canSend,
@@ -178,10 +185,14 @@ fun VmlsRoomScreen(
         Confirm.Close -> ConfirmDialog(
             "Close ${room?.name}?",
             "The invite link is retired, guests in none of your other rooms on this box lose their place there, and the room ends on this phone.",
-            "Close", { confirming = null }) { confirming = null; onClose() }
+            "Close", { confirming = null }) { confirming = null; onClose(false) }
+        Confirm.Force -> ConfirmDialog(
+            "Finish without the box?",
+            "The room ends on this phone. A guest whose revocation the box did not confirm keeps its place on the box until its grant lapses.",
+            "Finish", { confirming = null }) { confirming = null; onClose(true) }
         is Confirm.Remove -> ConfirmDialog(
             "Remove this member?",
-            "Device ${short(ask.member.device)} leaves the room at the next change the box accepts.",
+            "Device ${short(ask.member.device)} is removed at the next change the box accepts; the room tries again until it is.",
             "Remove", { confirming = null }) { confirming = null; onRemove(ask.member.leaf) }
     }
 }
@@ -189,6 +200,7 @@ fun VmlsRoomScreen(
 private sealed class Confirm {
     data object Leave : Confirm()
     data object Close : Confirm()
+    data object Force : Confirm()
     data class Remove(val member: VmlsMemberView) : Confirm()
 }
 

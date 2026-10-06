@@ -151,10 +151,10 @@ interface VmlsBoxes {
     /**
      * The keeper closes the room (decision 24): its link is retired, the
      * grants of guests in none of its other rooms on the box are revoked by
-     * [signer], and its session ends. Calling it again finishes a close a
-     * revocation held up.
+     * [signer], and its session ends. Calling it again retries a close a
+     * revocation held up; with [force], it finishes without that revocation.
      */
-    fun close(signer: ParticipantSigner, session: String)
+    fun close(signer: ParticipantSigner, session: String, force: Boolean = false)
 
     /** Forgets a room that ended (removed, or its invitation lapsed). */
     fun forgetRoom(persona: String, session: String)

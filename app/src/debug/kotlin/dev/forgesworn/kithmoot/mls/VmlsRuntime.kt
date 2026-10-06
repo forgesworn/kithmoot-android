@@ -285,7 +285,7 @@ class VmlsRuntime(
             for (room in mine.filter { it.closing == Closing.DROPPING }) {
                 try { dropped(engine, room) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
             }
-            sweep(engine, persona)
+            try { sweep(engine, persona) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
             // A room stopped by a key compromise or an event this build does not know sends nothing, its outbox included
             // (decisions 22 and 23); one removed or lapsed is read-only for good.
             for (room in mine.filter { it.closing == null && !it.ended && it.stop !is RoomStop.KeyCompromise && it.stop !is RoomStop.Unknown }) {
@@ -347,6 +347,7 @@ class VmlsRuntime(
     suspend fun send(persona: String, session: String, text: String): Unit = rounding.withLock {
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        check(stored.closing == null) { "This room is closing." }
         val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
         check(room.canSend) { "This room cannot send now." }
         var ran = false
@@ -357,7 +358,7 @@ class VmlsRuntime(
         }
         // Held after the engine took it: staged, and released with a later step once the witness confirms it,
         // so sending again would send it twice. Held before that: nothing was sent.
-        if (sent is Hosted.Held && ran) { said(persona, session, VmlsMessageView(true, persona, text, now())); publishRooms(); return@withLock }
+        if (sent is Hosted.Held && ran) { synchronized(this) { said(persona, session, VmlsMessageView(true, persona, text, now())) }; publishRooms(); return@withLock }
         if (sent is Hosted.Held) throw IllegalStateException("This room waits for your box to confirm this account's vault. Send it again shortly.")
         if (sent !is Hosted.Released) throw IllegalStateException("This account's vault refused the message.")
         synchronized(this) { said(persona, session, VmlsMessageView(true, persona, text, now())) }
@@ -440,8 +441,15 @@ class VmlsRuntime(
         }
     }
 
-    override suspend fun inviteLink(persona: String, session: String, base: String, relays: List<String>): String =
+    override suspend fun inviteLink(persona: String, session: String, base: String, relays: List<String>): String = try {
+        check(store.room(persona, session)?.closing == null) { "This room is closing." }
         invite(persona, session, base, relays).also { publishRooms() }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        _state.update { it.copy(error = describe(error)) }
+        throw error
+    }
 
     override fun retireInvite(persona: String, session: String) = act(persona) { p -> retire(p, session); publishRooms() }
 
@@ -451,11 +459,14 @@ class VmlsRuntime(
     internal suspend fun removing(persona: String, session: String, leaf: String): Unit = rounding.withLock {
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        check(stored.closing == null) { "This room is closing." }
         val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
         check(room.role == VmlsRole.KEEPER) { "Only the room's keeper removes members." }
         check(room.canSend && !room.sending) { "This room cannot change now. Try again shortly." }
         check(leaf in room.members && leaf !in room.removing) { "That member is not in the room." }
-        save(removeLeaves(engine, room.copy(removing = room.removing + leaf), listOf(leaf)))
+        // Its grace counted as run: a Remove deferred or lost is offered again by the rounds, as decision 19's are.
+        val marked = room.copy(grace = room.grace + (leaf to minOf(room.grace[leaf] ?: Long.MAX_VALUE, now() - VmlsRoom.GRACE_SECONDS)), removing = room.removing + leaf)
+        save(removeLeaves(engine, marked, listOf(leaf)))
     }
 
     override fun leave(persona: String, session: String) = act(persona) { p -> leaving(p, session) }
@@ -465,6 +476,7 @@ class VmlsRuntime(
         val stored = store.room(persona, session) ?: return@withLock
         check(stored.role == VmlsRole.GUEST) { "The keeper closes the room instead." }
         store.update(persona, session) { it.copy(closing = Closing.DROPPING) }
+        synchronized(this) { live.remove(key(persona, session)) }
         engine(persona)?.let { dropped(it, store.room(persona, session) ?: return@withLock) }
         publishRooms()
     }
@@ -479,17 +491,18 @@ class VmlsRuntime(
         }
     }
 
-    override fun close(signer: ParticipantSigner, session: String) = act(signer.pubkey) { closing(signer, session) }
+    override fun close(signer: ParticipantSigner, session: String, force: Boolean) = act(signer.pubkey) { closing(signer, session, force) }
 
     /**
      * [close], awaited (decision 24): the link is retired and its pending
      * joins forgotten; each guest grant the keeper holds at this box, for a
-     * device in none of its other open rooms there, is revoked, the box
-     * confirming each; then
-     * the session is dropped and the room forgotten. A failure leaves the
-     * room closing, and closing again finishes it.
+     * device in none of the keeper's other rooms there, is revoked, the box
+     * confirming each; then the session is dropped and the room forgotten.
+     * A revocation the box does not confirm leaves the room closing: closing
+     * again retries it, and [force] finishes without it (its grant then
+     * lapses at the box on its own).
      */
-    internal suspend fun closing(signer: ParticipantSigner, session: String): Unit = rounding.withLock {
+    internal suspend fun closing(signer: ParticipantSigner, session: String, force: Boolean = false): Unit = rounding.withLock {
         val persona = signer.pubkey
         val stored = store.room(persona, session) ?: return@withLock
         check(stored.role == VmlsRole.KEEPER) { "A guest leaves instead." }
@@ -497,33 +510,45 @@ class VmlsRuntime(
         if (stored.closing != Closing.DROPPING) {
             check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
             val route = store.route(persona, stored.box) ?: throw IllegalStateException("This room's box is not paired.")
-            // Its members as the engine has them, read before anything changes.
-            val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: stored
-            store.update(persona, session) { it.invited(null).copy(closing = Closing.REVOKING) }
-            synchronized(this) { live.remove(key(persona, session)) }
-            closePrompts(session)
-            val pending = invites.link(persona, session)?.joins.orEmpty().map { it.device }
-            invites.forget(persona, session)
-            linksChanged.update { it + 1 }
-            publishRooms()
-            val own = ownDevice(persona)
+            // The devices the persona's other rooms on this box still need, read before anything changes: a room whose
+            // members cannot be read now stops the close, rather than have its guests revoked.
             val elsewhere = HashSet<String>()
-            for (other in store.rooms().filter { it.persona == persona && it.box == stored.box && it.session != session && it.closing == null && it.role == VmlsRole.KEEPER }) {
-                val members = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
-                members?.members?.values?.forEach { elsewhere += it.device }
+            for (other in store.rooms().filter { it.persona == persona && it.box == stored.box && it.session != session && it.closing == null && !it.ended }) {
+                val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
+                    ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
+                read.members.values.forEach { elsewhere += it.device }
                 invites.link(persona, other.session)?.joins?.forEach { elsewhere += it.device }
             }
-            // Every guest's grant this keeper holds at the box, its members' and pending joins' among them and any it
-            // removed earlier (a removed member's grant outlives its leaf), but for those its other rooms still need.
-            val granted = ledger.all().filter { it.box == stored.box && it.state != VmlsGrantState.REVOKED && it.issuer == persona && it.persona != persona }
-                .map { it.device }
-            val revoke = (granted + room.members.values.map { it.device } + pending).toSet() - elsewhere - setOfNotNull(own)
+            if (stored.closing == null) {
+                store.update(persona, session) { it.invited(null).copy(closing = Closing.REVOKING) }
+                synchronized(this) { live.remove(key(persona, session)) }
+                closePrompts(session)
+                invites.forget(persona, session)
+                linksChanged.update { it + 1 }
+                publishRooms()
+            }
+            // Every guest grant this keeper issued at the box that has not lapsed by the box's clock: its members', its
+            // pending joins' and any it removed earlier (a removed member's grant outlives its leaf).
+            val boxNow = boxClock(route) ?: now()
+            ledger.prune(boxNow)
+            val revoke = ledger.all()
+                .filter { it.box == stored.box && it.state != VmlsGrantState.REVOKED && it.issuer == persona && it.persona != persona }
+                .map { it.device }.toSet() - elsewhere - setOfNotNull(ownDevice(persona))
+            var unconfirmed = 0
             for (device in revoke) {
-                ledger.revoke(stored.box, device)?.let { revocation ->
+                val revocation = ledger.revoke(stored.box, device) ?: continue
+                try {
                     publish(route, signer, listOf(revocation))
                     ledger.revoked(stored.box, device, revocation)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    unconfirmed++
                 }
             }
+            if (unconfirmed > 0 && !force) throw IllegalStateException(
+                "${route.boxName} did not confirm $unconfirmed revocation${if (unconfirmed == 1) "" else "s"}. Close again to retry, or finish without them.",
+            )
             store.update(persona, session) { it.copy(closing = Closing.DROPPING) }
         }
         dropped(engine, store.room(persona, session) ?: return@withLock)
@@ -536,8 +561,9 @@ class VmlsRuntime(
      */
     private suspend fun dropped(engine: Engine, room: VmlsRoom) {
         when (engine.host.drop(room.persona, room.session.hexToBytes())) {
-            is Hosted.Released, Hosted.Unknown -> forgotten(room.persona, room.session)
-            Hosted.Held, is Hosted.Fenced -> Unit
+            // Fenced: this installation's vault is superseded, and the session with it.
+            is Hosted.Released, Hosted.Unknown, is Hosted.Fenced -> forgotten(room.persona, room.session)
+            Hosted.Held -> Unit
         }
     }
 
@@ -1155,6 +1181,7 @@ class VmlsRuntime(
             drivers.keys.removeAll { it.startsWith("$other:") }
             live.keys.removeAll { it.startsWith("$other:") }
             received.keys.removeAll { it.startsWith("$other:") }
+            chat.keys.removeAll { it.startsWith("$other:") }
             answered.keys.removeAll { it.startsWith("$other:") }
         }
     }
