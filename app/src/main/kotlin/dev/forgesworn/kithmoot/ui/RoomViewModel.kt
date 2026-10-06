@@ -1778,10 +1778,12 @@ class RoomViewModel @JvmOverloads constructor(
                 LinkConsentState.PENDING -> if (consent.grants.isEmpty()) discardLinkConsent(consent)
             }
         }
+        // The routes are read first: one paired after this read is never swept, whoever names it.
+        val routes = linkEngine.routeIds()
         val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
         // Debug builds' VMLS boxes keep their own routes (P3-03b-3 decision 16); release builds have none.
         consentedRoutes += getApplication<KithMootApplication>().vmlsBoxes?.routeIds().orEmpty()
-        linkEngine.routeIds().filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
+        routes.filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
     }
 
     private fun discardLinkConsent(consent: LinkConsent) {

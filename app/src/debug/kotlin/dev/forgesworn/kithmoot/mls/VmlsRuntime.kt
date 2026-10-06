@@ -109,8 +109,10 @@ class VmlsRuntime(
      * [DENIED_SECONDS], so the rounds do not ask again at once.
      */
     private val prompt: ConsentPrompt = prompt ?: ConsentPrompt { scope ->
-        if (synchronized(this) { (denied[scope] ?: 0) > now() }) return@ConsentPrompt ConsentDecision.Deny
+        if (cooling(scope)) return@ConsentPrompt ConsentDecision.Deny
         asking.withLock {
+            // Another ask may have been denied while this one queued.
+            if (cooling(scope)) return@withLock ConsentDecision.Deny
             val answer = CompletableDeferred<ConsentDecision>()
             synchronized(this) { waiting = answer; _consent.value = scope }
             try {
@@ -140,6 +142,11 @@ class VmlsRuntime(
     /** Messages received while the app ran, by persona and session: not stored (P3-05 decides history). */
     private val received = HashMap<String, ArrayDeque<RoomSignal.Message>>()
 
+    private fun cooling(scope: ConsentScope): Boolean = synchronized(this) { (denied[scope] ?: 0) > now() }
+
+    /** The person asked for something again (pair, check): their earlier denials are asked about afresh. */
+    private fun forgiven(persona: String) = synchronized(this) { denied.keys.removeAll { it.persona == persona } }
+
     override fun answer(scope: ConsentScope, decision: ConsentDecision) {
         synchronized(this) { if (_consent.value == scope) waiting?.complete(decision) }
     }
@@ -153,6 +160,7 @@ class VmlsRuntime(
         val persona = signer.pubkey
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
         need(persona)?.let { throw IllegalStateException(it) }
+        forgiven(persona)
         pairingNow.set(true)
         try { pairingWith(signer, code, persona) } finally { pairingNow.set(false) }
     }
@@ -192,6 +200,7 @@ class VmlsRuntime(
     }
 
     override fun check(persona: String, box: String) = act(persona) { p ->
+        forgiven(p)
         val route = store.route(p, box) ?: throw IllegalStateException("This box is not paired.")
         ask(route)
         refresh(p)
@@ -291,12 +300,16 @@ class VmlsRuntime(
         val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
         val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
         check(room.canSend) { "This room cannot send now." }
+        var ran = false
         val sent = engine.host.step(persona, session.hexToBytes()) { s ->
+            ran = true
             val step = sessionCall { s.inner.send(text.toByteArray()) }
             hostedStep(step).let { EngineStep(it.snapshot, step.events) }
         }
-        // Held: staged, and released with the next step once the witness confirms it. Sending again would send it twice.
-        if (sent is Hosted.Held) return@withLock
+        // Held after the engine took it: staged, and released with a later step once the witness confirms it,
+        // so sending again would send it twice. Held before that: nothing was sent.
+        if (sent is Hosted.Held && ran) return@withLock
+        if (sent is Hosted.Held) throw IllegalStateException("This room waits for your box to confirm this account's vault. Send it again shortly.")
         if (sent !is Hosted.Released) throw IllegalStateException("This account's vault refused the message.")
         apply(room, sent.value)
     }
@@ -311,6 +324,9 @@ class VmlsRuntime(
         synchronized(driven.events) { driven.events.clear() }
         val round = try {
             driven.driver.round(persona, session, now())
+        } catch (cancelled: CancellationException) {
+            synchronized(this) { live.remove(key(persona, stored.session)) }
+            throw cancelled
         } catch (fault: Exception) {
             // Steps released before the fault raised events the room must still take (a message, a commit's
             // outcome); the engine is then asked again, since what it holds is no longer known here.
@@ -349,6 +365,8 @@ class VmlsRuntime(
         val engine = engine(room.persona) ?: return room
         val session = room.session.hexToBytes()
         val at = now()
+        // Denied lately: not asked again (each Update is a new operation, and a denial is journalled by the vault).
+        if (cooling(ConsentScope(PRINCIPAL, room.persona, engine.device.device, room.box, MlsVault.SIGN_METHOD))) return room
         val request = try { binding(engine.device, room.box, at) } catch (_: IllegalStateException) { return room }
         val sign = (engine.host.step(room.persona, session) { s ->
             EngineStep(null, try { s.inner.prepareUpdate(at.toULong(), request) } catch (_: VmlsException.Engine) { null })
@@ -451,6 +469,8 @@ class VmlsRuntime(
             engines.remove(other)?.host?.closeAll()
             drivers.keys.removeAll { it.startsWith("$other:") }
             live.keys.removeAll { it.startsWith("$other:") }
+            received.keys.removeAll { it.startsWith("$other:") }
+            answered.keys.removeAll { it.startsWith("$other:") }
         }
     }
 
