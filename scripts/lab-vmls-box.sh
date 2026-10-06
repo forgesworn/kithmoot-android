@@ -31,6 +31,7 @@ mkdir -p "$reports"
 fixture_pid=""
 port=""
 cleanup() {
+  trap - EXIT INT TERM
   if [[ -n "$port" ]]; then
     curl -fsS -X POST "http://127.0.0.1:$port/stop" >/dev/null 2>&1 || true
     adb_device reverse --remove "tcp:$port" >/dev/null 2>&1 || true
@@ -42,8 +43,13 @@ trap cleanup EXIT INT TERM
 echo "==> Link relay $relay_url"
 echo "==> the claimed VMLS fixture"
 : > "$reports/fixture.log"
-(cd "$BOTHY_NODE" && G5_LINK_RELAY="$relay_url" G5_OWNER_PERSONA=alice G5_VMLS=1 \
-  exec cargo test -q -p bothy-runtime --test g5_fixture -- --ignored --nocapture) >> "$reports/fixture.log" 2>&1 &
+# Built first and run directly, so the pid is the fixture's own and cleanup
+# stops it even when it never became ready.
+fixture_bin="$(cd "$BOTHY_NODE" && cargo test -p bothy-runtime --test g5_fixture --no-run 2>&1 \
+  | sed -n 's/.*Executable tests\/g5_fixture\.rs (\(.*\))$/\1/p' | tail -1)"
+[[ -n "$fixture_bin" ]] || { echo 'The fixture did not build.' >&2; exit 1; }
+(cd "$BOTHY_NODE/crates/bothy-runtime" && G5_LINK_RELAY="$relay_url" G5_OWNER_PERSONA=alice G5_VMLS=1 \
+  exec "$BOTHY_NODE/$fixture_bin" --ignored --nocapture) >> "$reports/fixture.log" 2>&1 &
 fixture_pid=$!
 for _ in $(seq 1 900); do
   port="$(grep -Eo 'G5_FIXTURE_READY http://127\.0\.0\.1:[0-9]+' "$reports/fixture.log" | head -1 | sed 's/.*://')" || true

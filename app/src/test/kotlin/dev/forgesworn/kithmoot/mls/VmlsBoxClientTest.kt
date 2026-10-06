@@ -239,6 +239,7 @@ class VmlsBoxClientTest {
         answer = reply(403, """{"v":1,"code":"authority","server_time":5}""")
         assertEquals(BoxAnswer.Refused(403, "authority", 5), client.registerPackage(id, welcome, 1_900_000_000, sealed))
         assertFailsWith<IllegalArgumentException> { client.registerPackage(id, welcome, 1, ByteArray(64 * 1024 + 1)) }
+        assertFailsWith<IllegalArgumentException> { client.registerPackage(id, welcome, 1, ByteArray(0)) }
 
         answer = reply(200, """{"v":1,"code":"withdrawn","server_time":6}""")
         assertEquals(BoxAnswer.Ok(Unit, 6L), client.withdrawPackage(id))
@@ -246,6 +247,17 @@ class VmlsBoxClientTest {
         assertEquals(0, sent.last().body.size)
         answer = reply(201, """{"v":1,"code":"withdrawn","server_time":6}""")
         assertEquals(BoxAnswer.Malformed, client.withdrawPackage(id))
+    }
+
+    @Test fun `a joiner's package is checked against Bothy's bounds before it is registered`() {
+        val now = 1_900_000_000L
+        val week = VmlsBoxClient.MAX_PACKAGE_LIFETIME_SECONDS
+        assertTrue(VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(1)))
+        assertTrue(VmlsBoxClient.packageAcceptable(now, now + week, ByteArray(64 * 1024)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now, ByteArray(1)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + week + 1, ByteArray(1)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(0)))
+        assertEquals(false, VmlsBoxClient.packageAcceptable(now, now + 1, ByteArray(64 * 1024 + 1)))
     }
 
     // ---- refusals and failures ----

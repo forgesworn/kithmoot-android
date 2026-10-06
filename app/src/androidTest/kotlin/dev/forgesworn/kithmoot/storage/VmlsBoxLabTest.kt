@@ -35,6 +35,7 @@ import dev.forgesworn.kithmoot.protocol.BoxCadence
 import dev.forgesworn.kithmoot.protocol.CircleGrantStatus
 import dev.forgesworn.kithmoot.protocol.KIND_CIRCLE_EVENT_GRANT
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.VMLS_GRANT_LIFETIME_SECONDS
 import dev.forgesworn.kithmoot.protocol.VmlsGrantTerms
 import dev.forgesworn.kithmoot.relay.ActiveLinkRoute
 import dev.forgesworn.kithmoot.relay.HybridRelaySockets
@@ -133,10 +134,10 @@ class VmlsBoxLabTest {
             vault.signBoxRequestV1(vault.context(PRINCIPAL, keeper.pubkey), it, ConsentPrompt { ConsentDecision.Approve })
         })
         val before = client.capabilities()
-        assertTrue("an ungranted device is refused: $before", before is BoxAnswer.Refused)
+        assertEquals(BoxAnswer.Refused(403, "authority", (before as? BoxAnswer.Refused)?.serverTime), before)
 
         // The keeper grants its MLS device the VMLS scope, through the sheltered relay as the keeper.
-        val terms = VmlsGrantTerms(BoxCadence.server(node32), keeper.pubkey, device, bytes(16).toHex(), now + 86_400)
+        val terms = VmlsGrantTerms(BoxCadence.server(node32), keeper.pubkey, device, bytes(16).toHex(), now + VMLS_GRANT_LIFETIME_SECONDS)
         publish(BoxCadence.server(node32), route.routeId, keeper, keeper.sign(KIND_CIRCLE_EVENT_GRANT, now, terms.tags(CircleGrantStatus.ACTIVE), ""))
 
         // Capabilities name the box's installation.

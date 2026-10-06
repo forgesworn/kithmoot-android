@@ -241,10 +241,12 @@ class VmlsBoxClient(
     /**
      * `PUT /vmls/v1/packages/{id}`: the box's single-use Welcome slot for a
      * joiner's package (keeper devices only, D5). [Registered.fresh] is false
-     * for the same registration again (`unchanged`).
+     * for the same registration again (`unchanged`). The expiry and
+     * ciphertext come from a joiner, so a caller checks them with
+     * [packageAcceptable] first: anything else is a programming error.
      */
     suspend fun registerPackage(packageId: ByteArray, welcomeMailbox: ByteArray, expiresAt: Long, ciphertext: ByteArray): BoxAnswer<Registered> {
-        require(packageId.size == 32 && welcomeMailbox.size == 32 && expiresAt >= 0 && ciphertext.size <= MAX_PACKAGE_CIPHERTEXT_BYTES)
+        require(packageId.size == 32 && welcomeMailbox.size == 32 && expiresAt > 0 && ciphertext.size in 1..MAX_PACKAGE_CIPHERTEXT_BYTES)
         val body = buildJsonObject {
             put("v", 1)
             put("welcome_mailbox", welcomeMailbox.toHex())
@@ -366,6 +368,17 @@ class VmlsBoxClient(
         private val ATTEMPT = Regex("0|[1-9][0-9]{0,9}")
         private val CURSOR = Regex("[A-Za-z0-9+/=_-]+")
         private val REFUSAL_CODE = Regex("[a-z][a-z0-9-]{0,63}")
+
+        /** Bothy's package expiry horizon, without its 600 s allowance: the phone's clock may lead the box's. */
+        const val MAX_PACKAGE_LIFETIME_SECONDS = 7L * 24 * 60 * 60
+
+        /**
+         * Whether a package's [expiresAt] and [ciphertext], which a joiner
+         * chose, are inside Bothy's bounds at [now]: an expiry in the future
+         * and at most seven days on, and a ciphertext of 1 byte to 64 KiB.
+         */
+        fun packageAcceptable(now: Long, expiresAt: Long, ciphertext: ByteArray): Boolean =
+            expiresAt > now && expiresAt <= now + MAX_PACKAGE_LIFETIME_SECONDS && ciphertext.size in 1..MAX_PACKAGE_CIPHERTEXT_BYTES
 
         private fun hex32(element: Any?): ByteArray? {
             val text = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null

@@ -51,13 +51,18 @@ data class CircleGrantTerms(
 /** The VMLS/1 deposit scope's byte ceiling (D5), 64 MiB per device (P3-03b-3 decision 9). */
 const val VMLS_GRANT_CEILING_BYTES: Long = 64L * 1024 * 1024
 const val MAX_VMLS_GRANT_CEILING_BYTES: Long = 1L shl 30
+/** A VMLS grant's term (P3-03b-3 decision 9), renewed as room grants are. */
+const val VMLS_GRANT_LIFETIME_SECONDS: Long = 30L * 24 * 60 * 60
 
 /**
  * A box's VMLS/1 grant to one MLS device (P3-03b-3 decision 9): one per
  * device per box, not per room, so its `d` is derived from the device and
  * names no room. It reads kind 1460 only, since a grant must read one kind,
  * writes nothing, and carries the `vmls` byte ceiling. Bothy keeps one
- * active grant id per scope, so a renewal reuses [grantId].
+ * active grant id per scope (its rule 18), and a revocation must carry that
+ * id and an expiration no earlier than the latest it granted (rule 17), so
+ * an issuer keeps [grantId] and that expiration for as long as the grant may
+ * be active: a renewal and the revocation reuse them.
  */
 data class VmlsGrantTerms(
     val server: String,
