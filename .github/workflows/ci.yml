@@ -80,6 +80,15 @@ jobs:
               # docs/gate/2026-10-07-d1-review.md), so both variants carry it.
               unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvmls_ffi.so"
             done
+            # The engine's Kotlin bindings too, not only its library (D1 R4).
+            found=no
+            for dex in $(unzip -Z1 "$apk" | grep '^classes[0-9]*\.dex$'); do
+              if unzip -p "$apk" "$dex" | grep -aq 'Ldev/forgesworn/vmls/ffi/'; then found=yes; break; fi
+            done
+            if [ "$found" != yes ]; then
+              echo "error: the $variant APK carries no VMLS engine bindings" >&2
+              exit 1
+            fi
           done
 
       - name: Rebuild the release with the emulator ABI for the lineage check
