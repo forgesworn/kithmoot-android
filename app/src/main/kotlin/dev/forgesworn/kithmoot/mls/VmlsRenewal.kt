@@ -11,8 +11,15 @@ object VmlsRenewal {
     /** A refused or denied renewal is not asked again for this long. */
     const val CREDENTIAL_RETRY_SECONDS = 86_400L
 
-    /** Whether a credential expiring at [expiresAt] is due for renewal at [now]. */
-    fun credentialDue(expiresAt: Long, now: Long): Boolean = expiresAt - now <= CREDENTIAL_RENEW_SECONDS
+    /** Whether a credential expiring at [expiresAt] is due for renewal at [now], [window] ahead. */
+    fun credentialDue(expiresAt: Long, now: Long, window: Long = CREDENTIAL_RENEW_SECONDS): Boolean = expiresAt - now <= window
+
+    /** Renewals [persona] stored at [box] for a device in [inUse] that the box has not yet taken: published again. */
+    fun unconfirmed(records: List<VmlsGrantRecord>, persona: String, box: String, inUse: Set<String>): List<VmlsGrantRecord> =
+        records.filter {
+            it.box == box && it.issuer == persona && it.device in inUse && it.state == VmlsGrantState.ACTIVE &&
+                it.removedAt == null && it.unconfirmed
+        }
 
     /**
      * The grants [persona] issued at [box] to a device in [inUse] that expire

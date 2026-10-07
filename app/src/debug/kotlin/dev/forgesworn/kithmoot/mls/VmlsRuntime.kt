@@ -121,6 +121,10 @@ class VmlsRuntime(
     /** Answers the vault's consent asks; null puts each ask on [consent] for the dialog. */
     prompt: ConsentPrompt? = null,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** How far ahead of its expiry the device credential is renewed (P3-03b-3d); a lab widens it to renew at once. */
+    private val credentialRenewSeconds: Long = VmlsRenewal.CREDENTIAL_RENEW_SECONDS,
+    /** How far ahead a grant in use is renewed (P3-03b-3d). */
+    private val grantRenewSeconds: Long = GRANT_RENEW_SECONDS,
     /** How long a removed device keeps its grant, to fetch its own removal (D1 R2). */
     private val removedGraceSeconds: Long = REMOVED_GRACE_SECONDS,
     private val random: SecureRandom = SecureRandom(),
@@ -319,7 +323,7 @@ class VmlsRuntime(
         if (synchronized(this) { (credentialRetry[persona] ?: 0) > at }) return@withLock
         val ctx = vault.sessionContext(PRINCIPAL, persona)
         val device = (vault.device(ctx) as? VaultResult.Ok)?.value ?: return@withLock
-        if (!VmlsRenewal.credentialDue(device.credentialExpiresAt, at)) return@withLock
+        if (!VmlsRenewal.credentialDue(device.credentialExpiresAt, at, credentialRenewSeconds)) return@withLock
         val renewed = try {
             vault.renewCredential(ctx, signer, at + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS - CLOCK_MARGIN_SECONDS)
         } catch (cancelled: CancellationException) {
@@ -362,23 +366,20 @@ class VmlsRuntime(
                 val inUse = devicesOn(engine, persona, box, except = null) + setOfNotNull(own)
                 val at = now()
                 // The phone's clock first, with a day to spare for the box's: the box is asked only when something may be due.
-                val (waiting, retries) = synchronized(this) {
-                    val mine = grantRetry.filterKeys { it.first == box }
-                    mine.filterValues { it > at }.keys.map { it.second }.toSet() to mine.filterValues { it <= at }.keys.map { it.second }.toSet()
-                }
+                val waiting = synchronized(this) { grantRetry.filter { it.key.first == box && it.value > at }.keys.map { it.second }.toSet() }
                 val records = ledger.all()
-                if (VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, at, GRANT_RENEW_SECONDS + CLOCK_SLACK_SECONDS).isEmpty() &&
-                    records.none { it.device in retries && it.device in inUse }) continue
+                // Renewals stored but not taken by the box (kept in the ledger, so across restarts) are published again.
+                val pending = VmlsRenewal.unconfirmed(records, persona, box, inUse - waiting)
+                if (pending.isEmpty() && VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, at, grantRenewSeconds + CLOCK_SLACK_SECONDS).isEmpty()) continue
                 val boxNow = boxClock(route) ?: at
-                val due = VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, boxNow, GRANT_RENEW_SECONDS)
-                // A grant planned and stored but not confirmed is published again as it is.
-                val pending = records.filter { it.box == box && it.device in retries && it.device in inUse && it.issuer == persona && it.state == VmlsGrantState.ACTIVE && it.removedAt == null && it !in due }
+                val due = VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, boxNow, grantRenewSeconds) - pending.toSet()
                 val events = ArrayList<NostrEvent>()
                 val devices = ArrayList<String>()
                 for (record in due) {
                     try {
                         val plan = ledger.plan(signer, record.persona, box, record.device, boxNow, now())
-                        ledger.record(VmlsGrantRecord(box, plan), now())
+                        // Stored before it is published, marked until the box takes it.
+                        ledger.record(VmlsGrantRecord(box, plan, unconfirmed = true), now())
                         events += plan.active; devices += record.device
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -390,6 +391,7 @@ class VmlsRuntime(
                 if (events.isEmpty()) continue
                 try {
                     publish(route, signer, events)
+                    devices.forEach { ledger.confirmed(box, it) }
                     synchronized(this) { devices.forEach { grantRetry.remove(box to it) } }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -1562,7 +1564,7 @@ class VmlsRuntime(
         private const val MIN_BINDING_SECONDS = 25L * 3_600
         private const val CLOCK_MARGIN_SECONDS = 300L
         /** A live grant with less than this left is renewed rather than published again. */
-        private const val GRANT_RENEW_SECONDS = 7L * 86_400
+        const val GRANT_RENEW_SECONDS = 7L * 86_400
         /** The phone's clock may differ from a box's by this much before the box is asked for its own. */
         private const val CLOCK_SLACK_SECONDS = 86_400L
         private const val GRANT_CHECKS = 10

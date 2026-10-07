@@ -71,4 +71,21 @@ class VmlsRenewalTest {
         ledger.stored(own, now - 25 * 86_400)
         assertTrue(VmlsRenewal.grantsDue(ledger.all(), keeper.pubkey, "99".repeat(32), setOf(own), now, window).isEmpty())
     }
+
+    @Test fun `a renewal the box has not taken is kept marked across a restart, and published again until confirmed`() = runBlocking<Unit> {
+        val storage = MemoryStorage()
+        val ledger = VmlsGrantLedger(storage)
+        ledger.stored(guest, now - 25 * 86_400)
+        // Renewed and stored, then the publish failed and the app restarted.
+        val renewal = ledger.plan(keeper, keeper.pubkey, box, guest, now, now)
+        ledger.record(VmlsGrantRecord(box, renewal, unconfirmed = true), now)
+        val restarted = VmlsGrantLedger(storage)
+        assertEquals(listOf(guest), VmlsRenewal.unconfirmed(restarted.all(), keeper.pubkey, box, setOf(guest)).map { it.device })
+        // Not in use any more: left alone, to lapse.
+        assertTrue(VmlsRenewal.unconfirmed(restarted.all(), keeper.pubkey, box, emptySet()).isEmpty())
+        // The box took it.
+        restarted.confirmed(box, guest)
+        assertTrue(VmlsRenewal.unconfirmed(VmlsGrantLedger(storage).all(), keeper.pubkey, box, setOf(guest)).isEmpty())
+        assertFalse(VmlsGrantLedger(storage).get(box, guest)!!.unconfirmed)
+    }
 }
