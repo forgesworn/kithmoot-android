@@ -375,6 +375,10 @@ data class StartState(
      *  a box's drop tier fronted as wss:// and named to them by its keeper.
      *  Saved on the phone; a contact card's boxes join them without being saved. */
     val circleBoxes: String = "",
+    /** Whether public Nostr profiles (names, pictures) are looked up and shown. Device-wide; Settings reads it with no room open. */
+    val publicProfiles: Boolean = true,
+    /** Whether the person's own camera is shown mirrored. Device-wide, like [publicProfiles]. */
+    val mirrorSelf: Boolean = true,
 )
 
 /** A contact card met at the door, before anything is kept. */
@@ -797,6 +801,8 @@ class RoomViewModel @JvmOverloads constructor(
             relays = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("relaySettings", null) ?: DEFAULT_RELAYS.joinToString("\n"),
             circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: "",
             webAppAddress = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
+            publicProfiles = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getBoolean("publicProfiles", true),
+            mirrorSelf = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getBoolean(MIRROR_SELF, true),
         ),
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
@@ -5187,6 +5193,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (anonymousRoom && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+        _start.update { it.copy(publicProfiles = enabled) }
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
     }
 
@@ -5194,6 +5201,7 @@ class RoomViewModel @JvmOverloads constructor(
      *  it backwards. Remembered for this device, not the room. */
     fun setMirrorSelf(enabled: Boolean) {
         display.edit().putBoolean(MIRROR_SELF, enabled).apply()
+        _start.update { it.copy(mirrorSelf = enabled) }
         _room.update { it.copy(mirrorSelf = enabled) }
     }
 

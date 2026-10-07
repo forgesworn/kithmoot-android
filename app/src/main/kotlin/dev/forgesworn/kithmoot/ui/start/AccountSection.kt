@@ -2,9 +2,6 @@ package dev.forgesworn.kithmoot.ui.start
 
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +12,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.account.BunkerPointer
@@ -40,102 +36,47 @@ class AccountActions(
 }
 
 /**
- * The account, on the start screen: who this phone is signed in as, or the
- * way to sign in. Mirrors the web client's "Your Nostr account" card: the
- * name and picture from the person's kind 0, both ends of the npub, and the
- * signer the key is with.
+ * Signing in, on the start screen: the way in for someone with no account, or
+ * the preview account this phone still holds. Mirrors the web client's "Your
+ * Nostr account" card. Who a signed-in phone is, and what it can do for that
+ * account, is the Account page in Settings.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean, showHeading: Boolean = true) {
     var choosing by remember { mutableStateOf(false) }
-    var signingOut by remember { mutableStateOf(false) }
-    val account = state.account
     val retained = state.retainedAccount
-    var rendezvousIndex by remember(account?.pubkey) { mutableStateOf("") }
+    if (state.account != null) return
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showHeading) Text(accountHeading(state),
             style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-        if (account != null) {
+        if (retained != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ProfileAvatar(account.pubkey, account.name, account.profile, Modifier.size(44.dp))
+                ProfileAvatar(retained.pubkey, retained.name, retained.profile, Modifier.size(44.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(account.shownName, style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.semantics { contentDescription = "Public key ${account.npub}" })
-                    // With no name, the line above already is the npub; printing it twice reads as two keys.
-                    if (account.shownName != account.short) {
-                        Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    }
+                    Text("Preview account", style = MaterialTheme.typography.titleMedium)
+                    Text(retained.npub, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.semantics { contentDescription = "Retained public key ${retained.npub}" })
                 }
             }
-            Text(when (account.method) {
-                "nip55" -> "Signing with ${account.signerLabel ?: "a signer app"} on this phone. Rooms you open are joined as this account."
-                "bunker" -> "Signing through your remote signer. Rooms you open are joined as this account; the first signature in a room needs your signer to be reachable."
-                else -> "Signing with a key kept in this app's encrypted vault. Rooms you open are joined as this account."
-            }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (account.method == "bunker") {
-                var more by remember { mutableStateOf(false) }
-                HorizontalDivider()
-                TextButton({ more = !more }) { Text(if (more) "Hide more for your Nostr account" else "More for your Nostr account") }
-                if (more) {
-                    Text("Vennel rendezvous", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Ask a compatible Heartwood bunker to provision its root-derived rendezvous child to this phone. Choose the person's current index exactly; KithMoot never sees the child in account, room or contact storage.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    state.rendezvous?.activeIndex?.let { active ->
-                        Text("This phone currently holds index $active. Enter an owner-selected index to rotate it.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    OutlinedTextField(
-                        value = rendezvousIndex,
-                        onValueChange = { rendezvousIndex = it.filter(Char::isDigit).take(10) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Rendezvous index") },
-                        placeholder = { Text("Owner-selected current index") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    )
-                    val requestedIndex = rendezvousIndex.toLongOrNull()?.takeIf { it in 0..0xffffffffL }
-                    val rendezvousBusy = state.rendezvous?.busy == true
-                    Button(
-                        onClick = { requestedIndex?.let(actions.onProvisionRendezvous) },
-                        enabled = enabled && !rendezvousBusy && requestedIndex != null,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    ) { Text(if (rendezvousBusy) "Waiting for Heartwood…" else "Ask Heartwood to provision this phone") }
-                    state.rendezvous?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-            }
-            OutlinedButton({ signingOut = true }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
+            Text(
+                "Your encrypted preview data is still on this phone. Sign in through a signer app or bunker with this same Nostr account to keep using its rooms. A different account is refused and does not replace or delete anything.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         } else {
-            if (retained != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ProfileAvatar(retained.pubkey, retained.name, retained.profile, Modifier.size(44.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Preview account", style = MaterialTheme.typography.titleMedium)
-                        Text(retained.npub, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.semantics { contentDescription = "Retained public key ${retained.npub}" })
-                    }
-                }
-                Text(
-                    "Your encrypted preview data is still on this phone. Sign in through a signer app or bunker with this same Nostr account to keep using its rooms. A different account is refused and does not replace or delete anything.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text("Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (state.signingIn) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Waiting for your signer…", Modifier.weight(1f))
+                TextButton(actions.onCancelSignIn) { Text("Cancel") }
             }
-            if (state.signingIn) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Text("Waiting for your signer…", Modifier.weight(1f))
-                    TextButton(actions.onCancelSignIn) { Text("Cancel") }
-                }
-            } else {
-                Button({ actions.onRefreshSigners(); choosing = true }, enabled = enabled,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sign in with Nostr") }
-            }
+        } else {
+            Button({ actions.onRefreshSigners(); choosing = true }, enabled = enabled,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sign in with Nostr") }
         }
         state.signInError?.let { error ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -145,10 +86,15 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean,
         }
     }
 
-    if (choosing) SettingsSheet(title = "Sign in to KithMoot", onDone = { choosing = false }) {
-        SignInChoices(state, actions) { choosing = false }
+    if (choosing) SignInChoicesSheet(state, actions) { choosing = false }
+}
+
+/** The "Sign in to KithMoot" sheet: where the key lives. Opened from the start screen's account block and from Settings' account row. */
+@Composable
+fun SignInChoicesSheet(state: StartState, actions: AccountActions, onDismiss: () -> Unit) {
+    SettingsSheet(title = "Sign in to KithMoot", onDone = onDismiss) {
+        SignInChoices(state, actions, onDismiss)
     }
-    if (signingOut) SignOutDialog(inRoom = false, onConfirm = { signingOut = false; actions.onSignOut() }, onDismiss = { signingOut = false })
 }
 
 /** What the account block is called when it has a heading of its own, or the sheet that hosts it. */

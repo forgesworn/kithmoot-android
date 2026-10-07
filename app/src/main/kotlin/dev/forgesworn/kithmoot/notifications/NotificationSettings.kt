@@ -193,7 +193,7 @@ fun NotificationSettings(
     }
 }
 
-private fun isIgnoringBatteryOptimisations(context: android.content.Context): Boolean =
+internal fun isIgnoringBatteryOptimisations(context: android.content.Context): Boolean =
     context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) ?: true
 
 /** The room a [NotificationSettings] menu was opened from, and how to read
