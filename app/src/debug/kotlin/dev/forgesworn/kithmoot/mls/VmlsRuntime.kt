@@ -306,7 +306,8 @@ class VmlsRuntime(
     }
 
     override suspend fun boxName(persona: String, box: String): String? =
-        try { store.route(persona, box)?.boxName } catch (_: RoomStorageException) { null }
+        // Cleaned again as it is read: a route stored under an older, narrower filter is shown safely too.
+        try { store.route(persona, box)?.boxName?.let(::boxName) } catch (_: RoomStorageException) { null }
 
     /** The Link routes VMLS boxes use, which the app's sweep of unconsented routes must keep. */
     override fun routeIds(): Set<String> =
@@ -1684,10 +1685,17 @@ class VmlsRuntime(
         private fun shortHex(hex: String) = "${hex.take(8)}…${hex.takeLast(8)}"
 
         /** Bidi controls and zero-width characters: a box's name must not reorder or hide what is shown beside it (D1 L4). */
-        private val INVISIBLE = ('\u202A'..'\u202E') + ('\u2066'..'\u2069') + ('\u200B'..'\u200F') + '\uFEFF'
+        /** Characters a box name may not carry: they could hide text, reorder it, or start a line that imitates the box id. */
+        private val UNSHOWN = setOf(
+            Character.CONTROL.toInt(), Character.FORMAT.toInt(), Character.LINE_SEPARATOR.toInt(),
+            Character.PARAGRAPH_SEPARATOR.toInt(), Character.PRIVATE_USE.toInt(), Character.SURROGATE.toInt(),
+            Character.UNASSIGNED.toInt(),
+        )
 
-        private fun boxName(name: String): String =
-            name.filterNot { it.isISOControl() || it in INVISIBLE }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
+        /** By code point, so characters outside the basic plane (tag characters among them) are judged whole. */
+        internal fun boxName(name: String): String = buildString {
+            name.codePoints().filter { Character.getType(it) !in UNSHOWN }.forEach { appendCodePoint(it) }
+        }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
 
         /** Words for the person; never a stack trace or a secret. */
         private fun describe(error: Exception): String = when (error) {
