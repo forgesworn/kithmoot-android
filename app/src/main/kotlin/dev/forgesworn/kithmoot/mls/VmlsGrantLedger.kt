@@ -108,8 +108,14 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
         write(read().filterNot { same(it, record) } + record.copy(state = VmlsGrantState.REVOKED))
     }
 
-    /** Drops grants revoked or lapsed at [boxNow], which no longer hold a scope at the box. */
-    @Synchronized fun prune(boxNow: Long) = write(read().filterNot { it.state == VmlsGrantState.REVOKED || it.expiration <= boxNow })
+    /**
+     * Drops grants revoked, or lapsed by both the box's clock [boxNow] and the
+     * phone's [phoneNow]: a box clock far ahead never erases a live grant's
+     * record, and with it the revocation a close would publish (D1 R5).
+     */
+    @Synchronized fun prune(boxNow: Long, phoneNow: Long) = minOf(boxNow, phoneNow).let { lapsed ->
+        write(read().filterNot { it.state == VmlsGrantState.REVOKED || it.expiration <= lapsed })
+    }
 
     /**
      * Signs, as the keeper [signer], [persona]'s [device]'s next grant at
