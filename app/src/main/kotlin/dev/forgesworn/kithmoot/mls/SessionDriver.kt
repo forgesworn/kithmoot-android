@@ -8,8 +8,8 @@ import dev.forgesworn.kithmoot.crypto.toHex
 
 /** Where an outbound record goes (the engine's `Destination`). */
 sealed class Destination {
-    /** A member leaf's mailbox, on [box]. */
-    class Leaf(val box: ByteArray) : Destination()
+    /** A member leaf's mailbox, on [box]; [leaf] is the recipient's leaf, the same in every epoch. */
+    class Leaf(val box: ByteArray, val leaf: ByteArray) : Destination()
     /** A commit slot of [epoch] at [attempt], on the group's home [box]. */
     class Slot(val box: ByteArray, val epoch: Long, val attempt: Long) : Destination()
     /** A capability's single-use Welcome mailbox; the engine names no box. */
@@ -89,7 +89,10 @@ interface DriverSession : HostedSession {
     fun slotStatus(now: Long, attempt: Long, outcome: SlotOutcome, signedReceipt: ByteArray): EngineStep<Effects>
     fun observeReceipt(now: Long, signedReceipt: ByteArray): EngineStep<Effects>
     fun observeInstallation(now: Long, installation: ByteArray): EngineStep<Effects>
-    /** Not called by the driver: an empty answer is not drained until the engine knows every peer has moved on. */
+    /**
+     * A departed epoch's mailbox the box answered empty. The engine deletes it only once every remaining member
+     * has been heard past that epoch (vennel P3-07); until then it refuses, changing nothing.
+     */
     fun mailboxDrained(mailbox: ByteArray): EngineStep<Effects>
     fun confirmMember(packageId: ByteArray): EngineStep<Effects>
     /** One fetched record, with the box's signed receipt for a slot and, for a Welcome, its box's installation. */
@@ -107,9 +110,10 @@ sealed class Round {
     /**
      * The round ran to its end. [held] counts records left for another box
      * (P3-03b-3b); [stalled] is true when a deposit had no answer, so the
-     * rest of the outbox waits for the next round.
+     * rest of the outbox waits for the next round. [leafHeld] counts records
+     * left behind an earlier record to the same leaf the box did not take.
      */
-    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false) : Round()
+    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false, val leafHeld: Int = 0) : Round()
     /** The session is removed, expired or in a recovery other than a gap: nothing is driven (the room shows why). */
     data class Stopped(val phase: Phase) : Round()
     /** The box gave no capabilities reply: nothing was sent or fetched (no reply holds, P2-R-02). */
@@ -131,8 +135,9 @@ sealed class Round {
  *    acknowledged Welcome;
  * 4. fetches every watched mailbox and processes each record, acknowledging
  *    it at the box only as the engine's `Ack` allows; reads each watched
- *    commit slot through its status (a departed epoch's mailbox is kept
- *    watched to the engine's own bounds, never reported drained);
+ *    commit slot through its status. A departed epoch's mailbox answered
+ *    empty on every page of its fetch is reported drained, which the
+ *    engine refuses until every remaining member has moved past the epoch;
  * 5. queries the receipts an `OrderingUnconfirmed` asked for.
  *
  * Every engine call runs in [SessionHost.step], which witnesses its snapshot
@@ -190,8 +195,15 @@ class SessionDriver<S : DriverSession>(
         var held = 0
         var stalled = false
         val sent = mutableListOf<ByteArray>()
+        // A leaf's records keep the engine's order (vennel contract §5.2): one not taken holds the later ones to the
+        // same recipient leaf (a different mailbox each epoch) until the next round, so a send under a departed epoch
+        // is never overtaken by a later one.
+        var leafHeld = 0
+        val heldLeaves = mutableSetOf<String>()
         for (out in outgoing) {
             val d = out.destination
+            val leaf = (d as? Destination.Leaf)?.leaf?.toHex()
+            if (leaf != null && leaf in heldLeaves) { leafHeld++; continue }
             if (d is Destination.Slot && epoch != null && d.epoch < epoch) {
                 // An earlier epoch's commit: decided already, and never deposited again.
                 sent += out.recordId
@@ -206,7 +218,7 @@ class SessionDriver<S : DriverSession>(
                 // The engine names no box: in this slice a group lives on one box, its home box.
                 is Destination.Welcome, Destination.Introduction -> homeBox
             }
-            if (!box.contentEquals(homeBox)) { held++; continue }
+            if (!box.contentEquals(homeBox)) { held++; leaf?.let(heldLeaves::add); continue }
             val answer: BoxAnswer<*> = when (d) {
                 is Destination.Slot -> client.depositSlot(out.mailbox, d.attempt, out.envelope)
                 else -> client.deposit(out.mailbox, out.envelope)
@@ -218,9 +230,10 @@ class SessionDriver<S : DriverSession>(
                 // never take (its package expired, gone or consumed) leaves the outbox.
                 is BoxAnswer.Refused -> {
                     if (d is Destination.Welcome && answer.code in WELCOME_GONE) sent += out.recordId
+                    leaf?.let(heldLeaves::add)
                     continue
                 }
-                BoxAnswer.Malformed -> continue
+                BoxAnswer.Malformed -> { leaf?.let(heldLeaves::add); continue }
                 is BoxAnswer.Ok -> Unit
             }
             when (val value = (answer as BoxAnswer.Ok).value) {
@@ -264,10 +277,13 @@ class SessionDriver<S : DriverSession>(
         for (batch in mailboxes.chunked(VmlsBoxClient.MAX_FETCH_MAILBOXES)) {
             val kinds = batch.associate { it.mailbox.toHex() to it.kind }
             var after: String? = null
+            var complete = false
+            val answered = mutableSetOf<String>()
             for (page in 0 until maxPages) {
                 val answer = client.fetch(batch.map { it.mailbox }, after) as? BoxAnswer.Ok ?: break
                 val acks = mutableListOf<AckItem>()
                 for (record in answer.value.records) {
+                    answered += record.mailbox.toHex()
                     val kind = kinds[record.mailbox.toHex()]
                     val welcome = if (kind == Watched.Kind.Welcome) homeBox to installation else null
                     val r = stepped(persona, session) { it.process(now, record.mailbox, record.envelope, null, welcome) }
@@ -280,13 +296,16 @@ class SessionDriver<S : DriverSession>(
                 }
                 ack(acks)
                 after = answer.value.next
-                if (after == null) break
+                if (after == null) { complete = true; break }
             }
-            // A departed epoch's mailbox is never reported drained when the box answers it empty: right after a commit
-            // it is empty before any peer has learnt of the commit, and a peer's send under that epoch would then go
-            // to a mailbox no longer read, and be lost. The engine deletes it at its own bounds instead (D6: 72 hours,
-            // or two epochs past). Reporting drained again waits for an engine rule that knows every remaining member
-            // has moved past the epoch.
+            // A departed epoch's mailbox with no record on any page was empty as of the last page's request, which
+            // began after every earlier record here was processed (the box pages by an increasing cursor). Reported
+            // drained, the engine deletes it only once every remaining member has been heard past the epoch (vennel
+            // P3-07); before that it refuses and nothing changes. An early report used to lose a peer's stale send.
+            if (complete) for (w in batch) {
+                if ((w.kind as? Watched.Kind.Mailbox)?.retained != true || w.mailbox.toHex() in answered) continue
+                stepped(persona, session) { it.mailboxDrained(w.mailbox) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
+            }
         }
         for (w in watched) {
             val kind = w.kind as? Watched.Kind.Slot ?: continue
@@ -314,7 +333,7 @@ class SessionDriver<S : DriverSession>(
             // Taken, or refused as unrelated or departed for good: either way the query is answered.
             synchronized(pendingQueries) { queries -= slot to attempt }
         }
-        return Round.Done(delivered, processed, held, stalled)
+        return Round.Done(delivered, processed, held, stalled, leafHeld)
     }
 
     private suspend fun ack(items: List<AckItem>) {
