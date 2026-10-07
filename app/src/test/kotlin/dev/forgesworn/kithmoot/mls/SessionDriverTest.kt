@@ -204,7 +204,7 @@ class SessionDriverTest {
         assertEquals(Round.Done(0, 5, 0), round())
     }
 
-    @Test fun `a departed epoch's mailbox answered empty is reported drained, a current one never`() = runBlocking<Unit> {
+    @Test fun `no mailbox answered empty is reported drained, a departed epoch's included`() = runBlocking<Unit> {
         val retained = bytes(32); val own = bytes(32); val busy = bytes(32)
         world.watch += listOf(
             Watched(retained, Watched.Kind.Mailbox(true), box),
@@ -213,8 +213,12 @@ class SessionDriverTest {
         )
         world.acks[Digests.sha256(fake.put(busy, bytes(50))).toHex()] = AckRule.Keep
         round()
-        assertTrue(world.calls.contains("drained ${retained.toHex()}"))
-        assertTrue(world.calls.none { it == "drained ${own.toHex()}" || it == "drained ${busy.toHex()}" })
+        // Answered empty right after a commit, before peers know of it: a stale send there must still be read.
+        assertTrue(world.calls.none { it.startsWith("drained") }, world.calls.toString())
+        // A peer that had not yet learnt of the commit then sends under the old epoch: the next round reads it.
+        fake.put(retained, bytes(60))
+        round()
+        assertTrue(world.calls.any { it.startsWith("process ${retained.toHex()}") }, world.calls.toString())
     }
 
     @Test fun `a Welcome mailbox's record is processed with the home box's installation`() = runBlocking<Unit> {
