@@ -3,6 +3,31 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.63] - 2026-10-07
+
+- Rooms can self-destruct. A new room with an end date offers
+  "Self-destruct" or "Keep it read-only", and shows a green, amber and red
+  countdown. When a self-destructing room ends, this phone leaves it, asks
+  relays to delete its own messages there, and wipes what it kept of the
+  room, even while the app is closed if background ringing or delivery is
+  on (otherwise at the next start). A room joined from a web link now takes
+  its name from the link.
+- New: VMLS rooms on your own Bothy box. A box that answers with VMLS lets
+  you start a room, invite people by link and let them in, and talk, with
+  the box holding the messages. The room shows its state plainly: sending,
+  retrying, checking with the box, stopped and why, or removed.
+- Removing someone from a VMLS room shows each part on its own: the
+  removal from the group, and each box access it ends, with which of your
+  other rooms keep that access. The room says only what has really
+  happened so far.
+- If a device may be compromised, tick that when removing it. Its box
+  access ends at once, and your messages and new joins in that room wait
+  until it is removed.
+- Settings show what is really happening: with notifications blocked, the
+  notification and background options read off and say why, and signing
+  out asks first.
+- Security: the connection library is updated (rustls 0.23.45).
+
 ## [0.6.62] - 2026-10-06
 
 - On a bad connection you can keep writing. Messages that cannot send yet
