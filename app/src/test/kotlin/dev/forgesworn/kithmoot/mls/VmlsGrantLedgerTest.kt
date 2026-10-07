@@ -122,6 +122,33 @@ class VmlsGrantLedgerTest {
         assertEquals(tag(stray, "grant"), ledger.get(box, device)!!.grantId)
     }
 
+    @Test fun `a removal is kept with the grant, survives a restart, and is cleared by a renewal or a place kept`() = runBlocking<Unit> {
+        val storage = MemoryStorage()
+        val ledger = VmlsGrantLedger(storage)
+        ledger.grant(now)
+        ledger.removed(box, device, now + 10)
+        ledger.removed(box, device, now + 20) // the latest removal is kept: the grace runs from it
+        ledger.removed(box, device, now + 15)
+        assertEquals(now + 20, VmlsGrantLedger(storage).get(box, device)!!.removedAt)
+        assertEquals(listOf(device), VmlsGrantLedger(storage).removals().map { it.device })
+        // Still placed somewhere: no longer a removal.
+        ledger.kept(box, device)
+        assertTrue(ledger.removals().isEmpty())
+        // Admitted again after a removal: the renewed record carries none.
+        ledger.removed(box, device, now + 30)
+        ledger.record(VmlsGrantRecord(box, ledger.plan(keeper, keeper.pubkey, box, device, now + 40)))
+        assertTrue(ledger.removals().isEmpty())
+        // Revoking keeps it listed until the box confirms; revoked, it is done.
+        ledger.removed(box, device, now + 50)
+        val revocation = ledger.revoke(box, device)!!
+        assertEquals(listOf(device), ledger.removals().map { it.device })
+        // A revocation under way is not undone by a place kept: it finishes.
+        ledger.kept(box, device)
+        assertEquals(listOf(device), ledger.removals().map { it.device })
+        ledger.revoked(box, device, revocation)
+        assertTrue(ledger.removals().isEmpty())
+    }
+
     @Test fun `a box clock far ahead does not erase a live grant's record`() = runBlocking<Unit> {
         val ledger = VmlsGrantLedger(MemoryStorage())
         ledger.grant(now)

@@ -48,6 +48,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -110,6 +111,8 @@ class VmlsTwoDeviceLabTest {
             quiet = AtomicBoolean(false),
             scope = scope,
             prompt = ConsentPrompt { ConsentDecision.Approve },
+            // A short grace: settle checks the grant outlives a pass before it, revoke one after it.
+            removedGraceSeconds = REMOVED_GRACE_SECONDS,
         )
     }
 
@@ -132,6 +135,7 @@ class VmlsTwoDeviceLabTest {
             "update" -> update()
             "settle" -> settle()
             "removed" -> removed()
+            "revoke" -> revoke()
             "close" -> close()
             else -> throw AssertionError("unknown step $step")
         }
@@ -239,13 +243,28 @@ class VmlsTwoDeviceLabTest {
         assertTrue("the Remove offered again", lost)
         // The proof of the loss: a Remove made for epoch E is accepted at E + 2, the guest's Update having taken E + 1.
         assertEquals("the guest's Update, then the Remove", before + 2, room().epoch)
-        // D1 R2: the removed device is in none of the keeper's rooms here, so the next pass with the keeper's
-        // signer revokes its grant at the box, before any close.
+        // D1 R2: the removal is noted with the grant, which a pass with the keeper's signer leaves live within
+        // the grace, so the guest can still fetch its removal.
+        val device = File(dir, "guest-device").readText()
+        runtime.foregroundRounds(persona, signer)
+        val grant = grants.get(room().box, device)!!
+        assertEquals("live within the grace", VmlsGrantState.ACTIVE, grant.state)
+        assertNotNull("the removal noted", grant.removedAt)
+    }
+
+    /** D1 R2: once the guest has seen its removal, a pass with the keeper's signer revokes its grant, before any close. */
+    private suspend fun revoke() {
+        check(role == KEEPER)
         val box = room().box
         val device = File(dir, "guest-device").readText()
-        assertEquals(VmlsGrantState.ACTIVE, grants.get(box, device)!!.state)
-        runtime.foregroundRounds(persona, signer)
-        assertEquals("the removed device's grant revoked", VmlsGrantState.REVOKED, grants.get(box, device)!!.state)
+        val since = grants.get(box, device)!!.removedAt!!
+        withTimeout(120_000) {
+            while (grants.get(box, device)?.state != VmlsGrantState.REVOKED) {
+                runtime.foregroundRounds(persona, signer)
+                delay(2_000)
+            }
+        }
+        assertTrue("revoked only after the grace", epochSeconds() >= since + REMOVED_GRACE_SECONDS)
     }
 
     /** The guest's room says it was removed, and is read-only. */
@@ -270,7 +289,8 @@ class VmlsTwoDeviceLabTest {
         val keeperDevice = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, persona)) as VaultResult.Ok).value.device
         assertEquals(VmlsGrantState.ACTIVE, grants.get(box, keeperDevice)!!.state)
         val expected = if (arg("grant") == "active") VmlsGrantState.ACTIVE else VmlsGrantState.REVOKED
-        assertEquals(expected, grants.get(box, device)!!.state)
+        // A grant revoked earlier (D1 R2) is pruned by the close: gone from the ledger is revoked.
+        assertEquals(expected, grants.get(box, device)?.state ?: VmlsGrantState.REVOKED)
     }
 
     private suspend fun openVault(prefix: String, witness: FakeEd25519Witness): MlsVault {
@@ -318,5 +338,7 @@ class VmlsTwoDeviceLabTest {
         const val TAG = "VmlsTwoDevice"
         const val KEEPER = "keeper"
         const val GUEST = "guest"
+        /** The lab's grace before a removed device's grant is revoked (the app's is a day). */
+        const val REMOVED_GRACE_SECONDS = 30L
     }
 }

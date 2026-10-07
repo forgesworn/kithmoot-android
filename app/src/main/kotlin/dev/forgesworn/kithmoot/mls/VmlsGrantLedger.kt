@@ -19,6 +19,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -31,8 +32,15 @@ enum class VmlsGrantState { ACTIVE, REVOKING, REVOKED }
 /**
  * One VMLS grant a keeper issued to an MLS device at a box (P3-03b-3
  * decision 9): the latest signed grant and its revocation, signed together.
+ * [removedAt] is when the device left one of the keeper's rooms there: its
+ * grant is revoked after a grace, unless a room still holds it (D1 R2).
  */
-data class VmlsGrantRecord(val box: String, val plan: CircleGrantPlan, val state: VmlsGrantState = VmlsGrantState.ACTIVE) {
+data class VmlsGrantRecord(
+    val box: String,
+    val plan: CircleGrantPlan,
+    val state: VmlsGrantState = VmlsGrantState.ACTIVE,
+    val removedAt: Long? = null,
+) {
     val issuer: String get() = plan.active.pubkey
     val persona: String get() = tag("p")
     val device: String get() = tag("device")
@@ -104,6 +112,25 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
         return record.plan.revoked
     }
 
+    /**
+     * [device] left one of the keeper's rooms at [box] at [at]: its grant, if
+     * live, is to be revoked after a grace. The latest removal is kept, so
+     * the grace always runs from the device's last removal there.
+     */
+    @Synchronized fun removed(box: String, device: String, at: Long) {
+        val record = get(box, device)?.takeIf { it.state == VmlsGrantState.ACTIVE && (it.removedAt ?: Long.MIN_VALUE) < at } ?: return
+        write(read().filterNot { same(it, record) } + record.copy(removedAt = at))
+    }
+
+    /** [device] still has a place at [box]: its removal no longer counts. A revocation under way is left to finish. */
+    @Synchronized fun kept(box: String, device: String) {
+        val record = get(box, device)?.takeIf { it.removedAt != null && it.state == VmlsGrantState.ACTIVE } ?: return
+        write(read().filterNot { same(it, record) } + record.copy(removedAt = null))
+    }
+
+    /** Grants noted as removed and not yet revoked. */
+    @Synchronized fun removals(): List<VmlsGrantRecord> = read().filter { it.removedAt != null && it.state != VmlsGrantState.REVOKED }
+
     /** The box confirmed [revocation]: the grant id is spent. */
     @Synchronized fun revoked(box: String, device: String, revocation: NostrEvent) {
         val record = get(box, device) ?: return
@@ -160,6 +187,7 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
                     o.getValue("box").jsonPrimitive.content,
                     CircleGrantPlan(NostrEvent.fromJson(o.getValue("active")), NostrEvent.fromJson(o.getValue("revocation"))),
                     VmlsGrantState.valueOf(o.getValue("state").jsonPrimitive.content),
+                    o["removed"]?.jsonPrimitive?.longOrNull,
                 )
             }
             require(entries.size <= MAX_GRANTS && entries.distinctBy(::key).size == entries.size)
@@ -173,6 +201,7 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
             put("version", 1)
             put("grants", buildJsonArray { records.forEach { r -> add(buildJsonObject {
                 put("box", r.box); put("active", r.plan.active.toJson()); put("revocation", r.plan.revoked.toJson()); put("state", r.state.name)
+                r.removedAt?.let { put("removed", it) }
             }) } })
         }.toString().encodeToByteArray()
         try { storage.write(bytes) } finally { bytes.fill(0) }
