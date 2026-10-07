@@ -73,8 +73,8 @@ class Processed(val effects: Effects, val ack: AckRule)
 enum class SlotOutcome { Filled, Expired, Void }
 
 /**
- * The engine calls the driver makes on one hosted session (debug builds:
- * vmls-ffi's `VmlsSession`). Each answers an [EngineStep] for [SessionHost],
+ * The engine calls the driver makes on one hosted session (vmls-ffi's
+ * `VmlsSession`). Each answers an [EngineStep] for [SessionHost],
  * which witnesses any snapshot before the step is released.
  */
 interface DriverSession : HostedSession {

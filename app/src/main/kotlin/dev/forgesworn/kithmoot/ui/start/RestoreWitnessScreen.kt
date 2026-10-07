@@ -25,9 +25,8 @@ import dev.forgesworn.kithmoot.ui.qr.QrCode
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 
 /**
- * The debug-only "Restore witness" screen (P3-03b-2, C5): enrols the signed-in
- * account's MLS vault at its keeper's own box, end to end (B3). Reachable only
- * when the build has a [RestoreWitness], which release builds never do.
+ * The "Restore witness" screen (P3-03b-2, C5): enrols the signed-in
+ * account's MLS vault at its keeper's own box, end to end (B3).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +44,7 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Debug builds only. Your own Bothy box witnesses every change to this account's vault, " +
+                "Your own Bothy box witnesses every change to this account's vault, " +
                     "so a restored or copied phone is fenced instead of carrying on.",
                 style = MaterialTheme.typography.bodyMedium,
             )

@@ -112,8 +112,8 @@ sealed class RoomAction {
  * stored; [members], [epoch] and the commit flags are rebuilt from the
  * engine at each open ([seed]) and from its events, so nothing the engine
  * already holds is kept twice. Messages are never stored: [apply] hands
- * them back and the screen shows them while the room is open (3b-3 is a
- * debug build; P3-05 decides history).
+ * them back and the screen shows them while the room is open (P3-05 decides
+ * history).
  *
  * The removal grace (decisions 14 and 19) is stored, because a pending
  * member's removal is proposed once only: [grace] holds the first proposal

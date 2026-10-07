@@ -40,7 +40,7 @@ fun SettingsScreen(
     onWebAppAddressChanged: (String) -> Boolean,
     notificationSettings: @Composable () -> Unit,
     onBack: () -> Unit,
-    /** Debug builds only (P3-03b-2): null hides the row. */
+    /** P3-03b-2: null hides the row. */
     onRestoreWitness: (() -> Unit)? = null,
     onVmlsBoxes: (() -> Unit)? = null,
     /** In-app updates: version, the automatic-check switch and any update on offer. */
@@ -88,8 +88,8 @@ fun SettingsScreen(
 
             SettingsSection("Connections") {
                 SettingsNavRow("Nostr relays", if (issues > 0) "${issues} ${if (issues == 1) "needs" else "need"} attention" else null) { relaysOpen = true }
-                onRestoreWitness?.let { SettingsNavRow("Restore witness", "Debug build: enrol this account's vault at your Bothy box", onClick = it) }
-                onVmlsBoxes?.let { SettingsNavRow("VMLS boxes", "Debug build: pair the boxes that host this account's VMLS rooms", onClick = it) }
+                onRestoreWitness?.let { SettingsNavRow("Restore witness", "Enrol this account's vault at your Bothy box", onClick = it) }
+                onVmlsBoxes?.let { SettingsNavRow("VMLS boxes", "Pair the boxes that host this account's VMLS rooms", onClick = it) }
                 SettingsNavRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
             }
 

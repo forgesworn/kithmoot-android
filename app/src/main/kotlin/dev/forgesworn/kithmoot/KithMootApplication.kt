@@ -76,13 +76,13 @@ class KithMootApplication : Application() {
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
 
-    /** The restore-witness enrolment (P3-03b-2): debug builds only; null in release. */
+    /** The restore-witness enrolment (P3-03b-2): every build. */
     val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
 
-    /** Ends the vault's session on sign-out or an account switch (§6.2): debug builds only; a no-op in release. */
+    /** Ends the vault's session on sign-out or an account switch (§6.2). */
     val vaultSessionEnd: dev.forgesworn.kithmoot.account.VaultSessionEnd by lazy { dev.forgesworn.kithmoot.account.vaultSessionEnd(this) }
 
-    /** VMLS rooms' runtime (P3-03b-3): debug builds only; null in release. */
+    /** VMLS rooms' runtime (P3-03b-3). */
     val vmlsBoxes: dev.forgesworn.kithmoot.mls.VmlsBoxes? by lazy { dev.forgesworn.kithmoot.mls.vmlsBoxes(this) }
 
     /** In-app updates, checked against the signed release manifest. */

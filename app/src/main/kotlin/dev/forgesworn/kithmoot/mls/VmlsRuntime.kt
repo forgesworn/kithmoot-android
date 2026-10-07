@@ -95,7 +95,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * VMLS rooms' runtime (P3-03b-3), debug builds only: the persona's engine
+ * VMLS rooms' runtime (P3-03b-3): the persona's engine
  * under the shared coordinated vault, its box routes (decision 16), the
  * grants it issues there, and the foreground loop that drives each room
  * through [SessionDriver] and maps its events to the room (decision 22).
@@ -728,7 +728,7 @@ class VmlsRuntime(
     /**
      * An Update before it is due, deposited by the next round: the
      * two-device lab's racing commit (P3-03b-3). The app updates only on
-     * `UpdateDue`.
+     * `UpdateDue`. Lab hook: only androidTest calls it.
      */
     internal suspend fun updating(persona: String, session: String): Unit = rounding.withLock {
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
@@ -843,7 +843,7 @@ class VmlsRuntime(
         publishRooms()
     }
 
-    /** The sessions the vault witnesses for [persona], or null while it cannot say: the lab's view of the sweep. */
+    /** The sessions the vault witnesses for [persona], or null while it cannot say: the lab's view of the sweep. Lab hook: only androidTest calls it. */
     internal suspend fun witnessed(persona: String): Set<String>? = rounding.withLock {
         val engine = engine(persona) ?: return@withLock null
         (engine.host.sessions(persona) as? Hosted.Released)?.value?.keys

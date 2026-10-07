@@ -7,7 +7,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** The debug build's hook for sign-out and account switch (§6.2): it moves the one vault's durable epoch. */
+/** The app's hook for sign-out and account switch (§6.2): it moves the one vault's durable epoch. */
 class VaultSessionEndTest {
     @Test fun `ending the session writes a new epoch and makes an earlier context stale`() {
         val stores = MemoryCoordinatedStores()

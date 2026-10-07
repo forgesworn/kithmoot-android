@@ -587,7 +587,7 @@ internal class PersonaCoordination<V>(
 
     /**
      * The keeper confirms that the old subject was retired at the box. This is
-     * the keeper's word, not proof: v1 (debug only) accepts it as the way out
+     * the keeper's word, not proof: v1 accepts it as the way out
      * after a clear or a fence whose box gives no signed `retired`. They name
      * [retiredSubject]; only then is the old installation (state, seed, route,
      * keys) deleted, its subject and installation kept as tombstones never to

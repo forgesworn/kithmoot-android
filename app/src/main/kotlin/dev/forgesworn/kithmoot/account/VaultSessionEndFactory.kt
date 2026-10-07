@@ -4,7 +4,7 @@ import android.content.Context
 import dev.forgesworn.kithmoot.KithMootApplication
 
 /**
- * Debug builds carry the one coordinated vault (P3-03b-3), so an account change
+ * Every build carries the one coordinated vault (P3-03b-3), so an account change
  * bumps its durable session epoch. The epoch alone moves the generation: no
  * separate app generation is kept.
  */

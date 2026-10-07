@@ -109,8 +109,7 @@ data class VmlsBoxesState(
 
 /**
  * VMLS rooms' runtime as the app's screens reach it (P3-03b-3), with no
- * engine type in sight: debug builds have one, release builds none
- * (`vmlsBoxes()` answers null there, as `restoreWitness()` does).
+ * engine type in sight: every build has one.
  */
 interface VmlsBoxes {
     val state: StateFlow<VmlsBoxesState>

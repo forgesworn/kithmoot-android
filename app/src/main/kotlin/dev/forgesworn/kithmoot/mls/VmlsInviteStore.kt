@@ -67,8 +67,8 @@ class VmlsLink(
 }
 
 /**
- * The keepers' links (P3-03b-3), in their own encrypted store in the debug
- * source set, apart from the room store, since they hold the link's keys.
+ * The keepers' links (P3-03b-3), in their own encrypted store,
+ * apart from the room store, since they hold the link's keys.
  * One store per storage: its lock is the instance's.
  */
 class VmlsInviteStore(private val storage: RoomStorage) {

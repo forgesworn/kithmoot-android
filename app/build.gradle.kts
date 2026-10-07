@@ -109,11 +109,10 @@ android {
     sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("link-bridge/jniLibs"))
     // The reviewed VMLS engine bundle (vennel's vmls-ffi, P3-03b), unpacked
     // the same way into build/vmls-ffi after its archive and manifest are
-    // verified. Debug builds only: the engine is non-shipping until its
-    // independent review (vennel decision D1), and CI checks that no release
-    // APK carries it.
-    sourceSets.getByName("debug").java.srcDir(layout.buildDirectory.dir("vmls-ffi/kotlin"))
-    sourceSets.getByName("debug").jniLibs.srcDir(layout.buildDirectory.dir("vmls-ffi/jniLibs"))
+    // verified. Every build carries it (shipped after vennel's D1 review), and
+    // CI checks that the release APK has the library, for arm64 only.
+    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("vmls-ffi/kotlin"))
+    sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("vmls-ffi/jniLibs"))
 
     packaging {
         // Compress dex and native libraries inside the APK. With minSdk 33 AGP
@@ -144,9 +143,8 @@ tasks.named("preBuild") {
     dependsOn(verifyLinkBridgePrepared)
 }
 
-// Debug builds only (vennel decision D1): a release build never needs or
-// carries the VMLS engine.
-tasks.matching { it.name == "preDebugBuild" }.configureEach {
+// Every build needs the VMLS engine bundle, release as well as debug.
+tasks.matching { it.name == "preDebugBuild" || it.name == "preReleaseBuild" }.configureEach {
     dependsOn(verifyVmlsFfiPrepared)
 }
 

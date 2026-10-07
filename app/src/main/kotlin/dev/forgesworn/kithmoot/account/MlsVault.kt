@@ -656,7 +656,7 @@ class MlsVault(
     /**
      * The keeper confirms that the persona's old subject was retired at the
      * box (`bothyd witness retire --subject …`). This is the keeper's word,
-     * not proof, accepted for v1 debug builds only. Only a cleared or fenced
+     * not proof, accepted for v1. Only a cleared or fenced
      * persona whose marker names exactly [retiredSubject], and with no retiring
      * duty standing, proceeds: its old installation is deleted, its ids are
      * kept as tombstones never to be reused, and a fresh enrolment is allowed.
@@ -1056,7 +1056,7 @@ class MlsVault(
 
 /**
  * What a coordinated vault needs besides its stores: the witness seam (the
- * engine in debug builds, a refusing stub in release) and each persona's
+ * VMLS engine) and each persona's
  * witness channel.
  */
 class VaultCoordination(

@@ -26,7 +26,7 @@ import dev.forgesworn.kithmoot.mls.exit
 import dev.forgesworn.kithmoot.mls.VmlsRoomView
 
 /**
- * Debug builds' VMLS rooms on the home rooms list (P3-03b-3 decision 21),
+ * VMLS rooms on the home rooms list (P3-03b-3 decision 21),
  * beside saved rooms and apart from them: their own store, their own screen.
  * A new one is offered only on a box that answers with VMLS (decision 16).
  */
@@ -43,7 +43,7 @@ fun VmlsRoomsSection(
     var creating by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("VMLS rooms (debug)", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).semantics { heading() })
+            Text("VMLS rooms", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).semantics { heading() })
             if (hosts.isNotEmpty()) TextButton({ creating = true }, enabled = !busy) { Text("New") }
         }
         rooms.forEach { room ->

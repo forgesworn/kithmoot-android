@@ -8,8 +8,8 @@ package dev.forgesworn.kithmoot.account
  * the session they began in ([VaultSession]), so from then on the vault
  * signs nothing and journals nothing for them; an ask still showing is
  * withdrawn; and journalled decisions never replay. [end] returns once the new session epoch is written durably,
- * or has failed to be (the process still cancels). Release builds carry no
- * vault, so [None] does nothing.
+ * or has failed to be (the process still cancels). [None] does nothing, for
+ * callers with no vault.
  */
 fun interface VaultSessionEnd {
     fun end()

@@ -58,7 +58,7 @@ jobs:
       - name: Test, lint and build
         run: ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
 
-      - name: Verify Link is in both APKs and the VMLS engine in debug only
+      - name: Verify Link and the VMLS engine are in both APKs
         run: |
           for variant in debug release; do
             apk="$(find "app/build/outputs/apk/$variant" -maxdepth 1 -name 'app-*.apk' -print -quit)"
@@ -75,14 +75,10 @@ jobs:
             fi
             for abi in $abis; do
               unzip -Z1 "$apk" | grep -Fx "lib/$abi/liblink_ffi.so"
-              # The VMLS engine is debug-only until its independent review
-              # (vennel decision D1): present in debug, absent from release.
-              if [ "$variant" = debug ]; then
-                unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvmls_ffi.so"
-              elif unzip -Z1 "$apk" | grep -q "libvmls_ffi.so"; then
-                echo "error: a release APK carries the VMLS engine" >&2
-                exit 1
-              fi
+              # The VMLS engine ships in every build after vennel's D1 review
+              # (an automated model review; see vennel
+              # docs/gate/2026-10-07-d1-review.md), so both variants carry it.
+              unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvmls_ffi.so"
             done
           done
 

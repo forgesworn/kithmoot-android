@@ -3,8 +3,8 @@ package dev.forgesworn.kithmoot.account
 import dev.forgesworn.kithmoot.crypto.toHex
 
 /**
- * One engine session as the host drives it. Debug builds implement it over
- * vmls-ffi's `VmlsSession`; the engine is debug-only until D1.
+ * One engine session as the host drives it. It is implemented over
+ * vmls-ffi's `VmlsSession`.
  */
 interface HostedSession : AutoCloseable {
     /** The generation of the session's latest snapshot, acknowledged or not. */
