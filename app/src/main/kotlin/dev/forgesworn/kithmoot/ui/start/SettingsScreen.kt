@@ -88,9 +88,19 @@ fun SettingsScreen(
 
             SettingsSection("Connections") {
                 SettingsNavRow("Nostr relays", if (issues > 0) "${issues} ${if (issues == 1) "needs" else "need"} attention" else null) { relaysOpen = true }
+                SettingsNavRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
+            }
+
+            // VMLS rooms and the restore witness need a Bothy box the person runs; most people have none, so they are
+            // kept apart and named as a preview rather than offered among the everyday connections.
+            if (onRestoreWitness != null || onVmlsBoxes != null) SettingsSection("Your Bothy box (preview)") {
+                Text(
+                    "For people who run their own Bothy box: end-to-end encrypted VMLS rooms hosted on it, and its restore witness.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 onRestoreWitness?.let { SettingsNavRow("Restore witness", "Enrol this account's vault at your Bothy box", onClick = it) }
                 onVmlsBoxes?.let { SettingsNavRow("VMLS boxes", "Pair the boxes that host this account's VMLS rooms", onClick = it) }
-                SettingsNavRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
             }
 
             updateSettings?.let { SettingsSection("Updates") { it() } }

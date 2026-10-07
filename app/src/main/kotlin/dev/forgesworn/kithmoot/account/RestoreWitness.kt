@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** What the debug-only "Restore witness" screen shows for the signed-in persona (C5). */
+/** What the "Restore witness" screen shows for the signed-in persona (C5). */
 data class RestoreWitnessState(
     val persona: String? = null,
     val enrolment: WitnessEnrolment? = null,

@@ -96,7 +96,7 @@ val VmlsRoomView.exit: VmlsRoomExit
         else -> VmlsRoomExit.LEAVE
     }
 
-/** The debug VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
+/** The VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
 data class VmlsBoxesState(
     val persona: String? = null,
     val needs: List<VmlsNeed> = emptyList(),
