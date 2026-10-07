@@ -18,6 +18,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -34,12 +35,15 @@ enum class VmlsGrantState { ACTIVE, REVOKING, REVOKED }
  * decision 9): the latest signed grant and its revocation, signed together.
  * [removedAt] is when the device left one of the keeper's rooms there: its
  * grant is revoked after a grace, unless a room still holds it (D1 R2).
+ * [unconfirmed] is a renewal stored but not yet taken by the box: it is
+ * published again until it is, across restarts (P3-03b-3d).
  */
 data class VmlsGrantRecord(
     val box: String,
     val plan: CircleGrantPlan,
     val state: VmlsGrantState = VmlsGrantState.ACTIVE,
     val removedAt: Long? = null,
+    val unconfirmed: Boolean = false,
 ) {
     val issuer: String get() = plan.active.pubkey
     val persona: String get() = tag("p")
@@ -128,6 +132,12 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
         write(read().filterNot { same(it, record) } + record.copy(removedAt = null))
     }
 
+    /** The box took [device]'s grant at [box] as stored: it is no longer published again. */
+    @Synchronized fun confirmed(box: String, device: String) {
+        val record = get(box, device)?.takeIf { it.unconfirmed } ?: return
+        write(read().filterNot { same(it, record) } + record.copy(unconfirmed = false))
+    }
+
     /** Grants noted as removed and not yet revoked. */
     @Synchronized fun removals(): List<VmlsGrantRecord> = read().filter { it.removedAt != null && it.state != VmlsGrantState.REVOKED }
 
@@ -188,6 +198,7 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
                     CircleGrantPlan(NostrEvent.fromJson(o.getValue("active")), NostrEvent.fromJson(o.getValue("revocation"))),
                     VmlsGrantState.valueOf(o.getValue("state").jsonPrimitive.content),
                     o["removed"]?.jsonPrimitive?.longOrNull,
+                    o["unconfirmed"]?.jsonPrimitive?.booleanOrNull ?: false,
                 )
             }
             require(entries.size <= MAX_GRANTS && entries.distinctBy(::key).size == entries.size)
@@ -202,6 +213,7 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
             put("grants", buildJsonArray { records.forEach { r -> add(buildJsonObject {
                 put("box", r.box); put("active", r.plan.active.toJson()); put("revocation", r.plan.revoked.toJson()); put("state", r.state.name)
                 r.removedAt?.let { put("removed", it) }
+                if (r.unconfirmed) put("unconfirmed", true)
             }) } })
         }.toString().encodeToByteArray()
         try { storage.write(bytes) } finally { bytes.fill(0) }

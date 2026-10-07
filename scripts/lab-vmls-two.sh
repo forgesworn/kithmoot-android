@@ -6,7 +6,8 @@
 # `adb reverse`. Each step of VmlsTwoDeviceLabTest is one `am instrument`,
 # a new process: create, ask and join over the relay, a message each way, a
 # restart with a message in the outbox, the guest offline then catching up,
-# a second room the guest joins and leaves and the keeper closes, a Remove
+# the keeper's credential and the guest's grant renewed, a second room the
+# guest joins and leaves and the keeper closes, a Remove
 # that loses its epoch to the guest's Update and is offered again, the
 # removed device's grant revoked, and the keeper's close of the first room.
 #
@@ -161,6 +162,11 @@ one "$guest" guest offline room 1 || failed 'offline'
 online "$guest"
 for _ in $(seq 1 30); do adb_on "$guest" shell ping -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && break; sleep 2; done
 one "$guest" guest talk room 1 expect "$away" || failed 'catching up'
+
+# Renewal (P3-03b-3d): the keeper's credential under the same key and the guest's grant, then a message each way.
+one "$keeper" keeper renew room 1 || failed 'renew'
+both 2 "$keeper" keeper talk room 1 say after-the-renewal expect from-the-guest-after \
+  -- "$guest" guest talk room 1 say from-the-guest-after expect after-the-renewal || failed 'talk after the renewal'
 
 # A second room: the guest joins and leaves; the keeper closes it, keeping the guest's grant for the first room.
 one "$keeper" keeper create room 2 || failed 'create the second room'

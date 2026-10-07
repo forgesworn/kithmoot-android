@@ -26,6 +26,7 @@ import dev.forgesworn.kithmoot.mls.RoomStatus
 import dev.forgesworn.kithmoot.mls.RoomStop
 import dev.forgesworn.kithmoot.mls.VmlsGrantLedger
 import dev.forgesworn.kithmoot.mls.VmlsGrantState
+import dev.forgesworn.kithmoot.mls.VmlsRenewal
 import dev.forgesworn.kithmoot.mls.VmlsInviteStore
 import dev.forgesworn.kithmoot.mls.VmlsRole
 import dev.forgesworn.kithmoot.mls.VmlsRoom
@@ -113,6 +114,9 @@ class VmlsTwoDeviceLabTest {
             prompt = ConsentPrompt { ConsentDecision.Approve },
             // A short grace: settle checks the grant outlives a pass before it, revoke one after it.
             removedGraceSeconds = REMOVED_GRACE_SECONDS,
+            // The renew step widens the windows past the 30-day lifetimes, so the credential and grants renew now.
+            credentialRenewSeconds = if (arg("step") == "renew") RENEW_NOW_SECONDS else VmlsRenewal.CREDENTIAL_RENEW_SECONDS,
+            grantRenewSeconds = if (arg("step") == "renew") RENEW_NOW_SECONDS else VmlsRuntime.GRANT_RENEW_SECONDS,
         )
     }
 
@@ -136,6 +140,7 @@ class VmlsTwoDeviceLabTest {
             "settle" -> settle()
             "removed" -> removed()
             "revoke" -> revoke()
+            "renew" -> renew()
             "close" -> close()
             else -> throw AssertionError("unknown step $step")
         }
@@ -189,6 +194,36 @@ class VmlsTwoDeviceLabTest {
         if (expected.isNotEmpty()) roundsUntil("heard ${expected.size}", 90) { heard().containsAll(expected) }
         repeat(arg("rounds")?.toInt() ?: 2) { runtime.foregroundRounds(persona); delay(1_000) }
         assertEquals(expected, heard().filter { it in expected })
+    }
+
+    /**
+     * P3-03b-3d: one pass with the keeper's signer renews its device credential
+     * under the same key, and the guest's grant at the box (same id, later
+     * expiry), which the box takes. The talk steps after it show the rooms
+     * still work on the engine the new credential rebuilt.
+     */
+    private suspend fun renew() {
+        check(role == KEEPER)
+        val box = room().box
+        val guest = File(dir, "guest-device").readText()
+        val before = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, persona)) as VaultResult.Ok).value
+        val grant = grants.get(box, guest)!!
+        val ownGrant = grants.get(box, before.device)!!
+        runtime.foregroundRounds(persona, signer)
+        val after = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, persona)) as VaultResult.Ok).value
+        assertEquals("the same device key", before.device, after.device)
+        assertTrue("a new credential", after.credentialId != before.credentialId)
+        assertTrue("a later credential expiry", after.credentialExpiresAt > before.credentialExpiresAt)
+        val renewed = grants.get(box, guest)!!
+        assertEquals("the same grant id", grant.grantId, renewed.grantId)
+        assertTrue("a later grant expiry", renewed.expiration > grant.expiration)
+        assertFalse("taken by the box", renewed.unconfirmed)
+        val ownRenewed = grants.get(box, before.device)!!
+        assertTrue("the keeper's own grant renewed", ownRenewed.expiration > ownGrant.expiration && !ownRenewed.unconfirmed)
+        // An Update now binds the leaf under the new credential, and the group takes it.
+        val epoch = checkNotNull(live().epoch)
+        runtime.updating(persona, session())
+        roundsUntil("the Update under the new credential accepted", 30) { (room().epoch ?: 0) > epoch && !room().sending }
     }
 
     /** Sends and stops before any round: the message waits in the persisted outbox for the next process. */
@@ -340,5 +375,7 @@ class VmlsTwoDeviceLabTest {
         const val GUEST = "guest"
         /** The lab's grace before a removed device's grant is revoked (the app's is a day). */
         const val REMOVED_GRACE_SECONDS = 30L
+        /** Wider than the 30-day lifetimes: a pass renews the credential and grants at once. */
+        const val RENEW_NOW_SECONDS = 31L * 86_400
     }
 }
