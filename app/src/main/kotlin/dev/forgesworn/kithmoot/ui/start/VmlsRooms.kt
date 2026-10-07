@@ -104,6 +104,7 @@ fun VmlsRoomScreen(
     onRetire: () -> Unit,
     onRemove: (target: String, person: Boolean, compromised: Boolean) -> Unit,
     plan: suspend (target: String, person: Boolean, compromised: Boolean) -> VmlsRemovalPlan?,
+    onRetryRemoval: (key: String) -> Unit,
     onLeave: () -> Unit,
     onClose: (force: Boolean) -> Unit,
     onForget: () -> Unit,
@@ -151,14 +152,17 @@ fun VmlsRoomScreen(
                 Text(reason, color = MaterialTheme.colorScheme.error)
                 // Decision 23: no self-repair yet; the exits that exist.
                 if (room.state == VmlsRoomState.STOPPED) Text(
-                    if (room.keeper) "Close the room to end it." else "Leave the room, then ask its keeper for a new link.",
+                    // A stopped room takes no Remove; its close revokes the grants (D1 R1).
+                    if (room.keeper) "Close the room to end it: that also revokes at the box the grants of guests in none of your other rooms there. " +
+                        "If one may be compromised and is in another of your rooms on this box, remove it there as compromised."
+                    else "Leave the room, then ask its keeper for a new link.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             if (quiet) Text("Paused while a Tor-only room is open.", style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             Members(room.members, removable = room.keeper && room.canSend) { confirming = it }
-            if (room.removals.isNotEmpty()) Removals(room.removals)
+            if (room.removals.isNotEmpty()) Removals(room.removals, onRetryRemoval)
             HorizontalDivider()
             val list = rememberLazyListState()
             LaunchedEffect(room.messages.size) { if (room.messages.isNotEmpty()) list.animateScrollToItem(room.messages.size - 1) }
@@ -280,7 +284,7 @@ private fun Members(members: List<VmlsMemberView>, removable: Boolean, onRemove:
  * more when no claim fits.
  */
 @Composable
-private fun Removals(removals: List<VmlsRemovalView>) {
+private fun Removals(removals: List<VmlsRemovalView>, onRetry: (key: String) -> Unit) {
     Text("Removals", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
     removals.forEach { removal ->
         Column(Modifier.semantics(mergeDescendants = true) {}) {
@@ -291,6 +295,7 @@ private fun Removals(removals: List<VmlsRemovalView>) {
             removal.claim?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             removal.hold?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
         }
+        removal.retry?.let { key -> TextButton({ onRetry(key) }) { Text("Try the Remove again") } }
     }
 }
 

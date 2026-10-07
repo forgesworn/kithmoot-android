@@ -625,8 +625,8 @@ fun KithMootApp(
                             onRetire = { if (persona != null && session != null) boxes.retireInvite(persona, session) },
                             onRemove = { target, person, compromised ->
                                 if (persona != null && session != null) when {
-                                    // The immediate revocation is signed by the keeper: without its signer, nothing is started.
-                                    compromised -> accountModel.vmlsSigner()?.let { boxes.removeCompromised(it, session, target, person) }
+                                    // The immediate revocation is signed by the keeper: without its signer, nothing starts and the error says so.
+                                    compromised -> boxes.removeCompromised(persona, accountModel.vmlsSigner(), session, target, person)
                                     person -> boxes.removePerson(persona, session, target)
                                     else -> boxes.removeMember(persona, session, target)
                                 }
@@ -634,8 +634,9 @@ fun KithMootApp(
                             plan = { target, person, compromised ->
                                 if (persona != null && session != null) boxes.removalPlan(persona, session, target, person, compromised) else null
                             },
+                            onRetryRemoval = { key -> if (persona != null) boxes.retryRemoval(persona, key) },
                             onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
-                            onClose = { force -> val signer = accountModel.vmlsSigner(); if (signer != null && session != null) boxes.close(signer, session, force) },
+                            onClose = { force -> if (persona != null && session != null) boxes.close(persona, accountModel.vmlsSigner(), session, force) },
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },
                         )
                     }
