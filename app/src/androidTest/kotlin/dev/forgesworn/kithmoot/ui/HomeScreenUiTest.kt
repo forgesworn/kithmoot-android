@@ -359,12 +359,12 @@ class HomeScreenUiTest {
         }
         compose.onNodeWithText("You").assertIsDisplayed()
         compose.onNodeWithText("Text size").assertIsDisplayed()
-        compose.onNodeWithText("Notifications & sound").assertIsDisplayed()
+        compose.onNodeWithText("Notifications and calls").assertIsDisplayed()
         compose.onNodeWithText("Connections").assertIsDisplayed()
         compose.onNodeWithText("Sign in with Nostr").assertIsDisplayed()
         compose.onNodeWithText("Nostr relays").assertIsDisplayed()
         compose.onNodeWithText("KithMoot site").assertIsDisplayed()
-        assertEquals(false, compose.onNodeWithText("Large").fetchSemanticsNode().config.getOrNull(SemanticsProperties.Selected))
+        compose.onNodeWithText("Large").assertIsNotSelected()
         compose.onNodeWithContentDescription("Back").performClick()
     }
 }
