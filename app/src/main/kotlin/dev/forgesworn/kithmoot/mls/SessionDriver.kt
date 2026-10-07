@@ -25,7 +25,7 @@ class Outgoing(val recordId: ByteArray, val mailbox: ByteArray, val destination:
 /** A mailbox to fetch (the engine's `Watch`). */
 class Watched(val mailbox: ByteArray, val kind: Kind, val box: ByteArray?) {
     sealed class Kind {
-        /** This leaf's mailbox, fork evidence, or (with [retained]) a departed epoch's leaf mailbox. */
+        /** This leaf's mailbox, fork evidence, or (with [retained]) a departed epoch's leaf mailbox, kept to the engine's bounds. */
         class Mailbox(val retained: Boolean) : Kind()
         /** A pending join's Welcome mailbox. */
         data object Welcome : Kind()
@@ -89,6 +89,7 @@ interface DriverSession : HostedSession {
     fun slotStatus(now: Long, attempt: Long, outcome: SlotOutcome, signedReceipt: ByteArray): EngineStep<Effects>
     fun observeReceipt(now: Long, signedReceipt: ByteArray): EngineStep<Effects>
     fun observeInstallation(now: Long, installation: ByteArray): EngineStep<Effects>
+    /** Not called by the driver: an empty answer is not drained until the engine knows every peer has moved on. */
     fun mailboxDrained(mailbox: ByteArray): EngineStep<Effects>
     fun confirmMember(packageId: ByteArray): EngineStep<Effects>
     /** One fetched record, with the box's signed receipt for a slot and, for a Welcome, its box's installation. */
@@ -130,7 +131,8 @@ sealed class Round {
  *    acknowledged Welcome;
  * 4. fetches every watched mailbox and processes each record, acknowledging
  *    it at the box only as the engine's `Ack` allows; reads each watched
- *    commit slot through its status; reports a drained departed epoch;
+ *    commit slot through its status (a departed epoch's mailbox is kept
+ *    watched to the engine's own bounds, never reported drained);
  * 5. queries the receipts an `OrderingUnconfirmed` asked for.
  *
  * Every engine call runs in [SessionHost.step], which witnesses its snapshot

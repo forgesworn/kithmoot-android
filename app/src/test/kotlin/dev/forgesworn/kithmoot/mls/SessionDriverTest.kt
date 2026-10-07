@@ -215,6 +215,10 @@ class SessionDriverTest {
         round()
         // Answered empty right after a commit, before peers know of it: a stale send there must still be read.
         assertTrue(world.calls.none { it.startsWith("drained") }, world.calls.toString())
+        // A peer that had not yet learnt of the commit then sends under the old epoch: the next round reads it.
+        fake.put(retained, bytes(60))
+        round()
+        assertTrue(world.calls.any { it.startsWith("process ${retained.toHex()}") }, world.calls.toString())
     }
 
     @Test fun `a Welcome mailbox's record is processed with the home box's installation`() = runBlocking<Unit> {
