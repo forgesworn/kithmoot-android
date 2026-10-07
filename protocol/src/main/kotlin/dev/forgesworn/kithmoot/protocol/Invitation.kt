@@ -104,6 +104,14 @@ data class RoomAdmission(
      * the responder did not say, which is a responder that predates epochs.
      */
     val epoch: Int? = null,
+    /**
+     * The room self-destructs (fold-kit 0.9.0): when it ends, by its time or
+     * by its authority closing it, every member's device deletes what it
+     * wrote there and forgets the room. From `"destruct": true` in the group
+     * invitation's encrypted body; sticky across copies (see
+     * `requestPersistentAdmission`). False for every room before it.
+     */
+    val destruct: Boolean = false,
 )
 
 class InvitationPayload(
