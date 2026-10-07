@@ -239,6 +239,13 @@ class VmlsTwoDeviceLabTest {
         assertTrue("the Remove offered again", lost)
         // The proof of the loss: a Remove made for epoch E is accepted at E + 2, the guest's Update having taken E + 1.
         assertEquals("the guest's Update, then the Remove", before + 2, room().epoch)
+        // D1 R2: the removed device is in none of the keeper's rooms here, so the next pass with the keeper's
+        // signer revokes its grant at the box, before any close.
+        val box = room().box
+        val device = File(dir, "guest-device").readText()
+        assertEquals(VmlsGrantState.ACTIVE, grants.get(box, device)!!.state)
+        runtime.foregroundRounds(persona, signer)
+        assertEquals("the removed device's grant revoked", VmlsGrantState.REVOKED, grants.get(box, device)!!.state)
     }
 
     /** The guest's room says it was removed, and is read-only. */

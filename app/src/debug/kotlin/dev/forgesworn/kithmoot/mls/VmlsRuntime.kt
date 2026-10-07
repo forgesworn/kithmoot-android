@@ -297,6 +297,9 @@ class VmlsRuntime(
      */
     private val removedDevices = HashMap<String, MutableSet<Pair<String, String>>>()
 
+    /** A revocation the box did not confirm, by box and device, and when it is tried again: not on every pass. */
+    private val revokeRetry = HashMap<Pair<String, String>, Long>()
+
     /**
      * Revokes the grant of each device removed from [signer]'s rooms, unless
      * it still has a place in another of the persona's rooms on that box, or a
@@ -309,12 +312,19 @@ class VmlsRuntime(
         if (due.isEmpty() || quiet.get()) return@withLock
         val engine = engine(persona) ?: return@withLock
         val own = ownDevice(persona)
+        val at = now()
         for ((box, devices) in due.groupBy({ it.first }, { it.second })) {
+            val waiting = devices.filter { device -> synchronized(this) { (revokeRetry[box to device] ?: 0) > at } }
+            if (waiting.size == devices.size) continue
             val route = store.route(persona, box) ?: continue
             // A room unreadable now leaves the revocations for the next pass, rather than revoke a member's grant.
             val placed = try { devicesOn(engine, persona, box, except = null) } catch (_: IllegalStateException) { continue }
-            for (device in devices) {
-                val revocation = if (device in placed || device == own) null else ledger.revoke(box, device)
+            // As at a close: grants lapsed by both clocks are dropped first, so none is revoked that holds nothing.
+            ledger.prune(boxClock(route) ?: now(), now())
+            for (device in devices - waiting.toSet()) {
+                // Only a guest grant this keeper issued, as at a close: the persona's own devices keep theirs.
+                val record = ledger.get(box, device)?.takeIf { it.issuer == persona && it.persona != persona }
+                val revocation = if (record == null || device in placed || device == own) null else ledger.revoke(box, device)
                 if (revocation != null) {
                     try {
                         publish(route, signer, listOf(revocation))
@@ -322,10 +332,12 @@ class VmlsRuntime(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
+                        // Not confirmed: tried again later, not on every pass (each try may ask the signer for relay AUTH).
+                        synchronized(this) { revokeRetry[box to device] = now() + REVOKE_RETRY_SECONDS }
                         continue
                     }
                 }
-                synchronized(this) { removedDevices[persona]?.remove(box to device) }
+                synchronized(this) { removedDevices[persona]?.remove(box to device); revokeRetry.remove(box to device) }
             }
         }
     }
@@ -888,6 +900,8 @@ class VmlsRuntime(
                         ledger.prune(boxNow, now())
                         val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow, now())
                         ledger.record(VmlsGrantRecord(room.box, plan), now())
+                        // Admitted again: the keeper keeps this device, so a revocation noted at its removal is dropped.
+                        synchronized(this) { removedDevices[ask.persona]?.remove(room.box to request.device) }
                         publish(route, signer, listOf(plan.active))
                     } catch (failure: Exception) {
                         // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
@@ -1463,6 +1477,7 @@ class VmlsRuntime(
         private const val OPEN_WINDOW_SECONDS = 60L
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
+        private const val REVOKE_RETRY_SECONDS = 10L * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
         private val DEFERRED = setOf("CommitInFlight", "UpdateRequired")
