@@ -23,6 +23,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -400,6 +401,22 @@ class MlsVaultTest {
         vault.bump()
         val after = assertFailsWith<JoinRefusedException> { joinSign(req, ConsentPrompt { error("no prompt on a stale retry") }) }
         assertEquals(VaultRefusal.Stale, after.refusal)
+    }
+
+    @Test fun `work begun before the session ended signs nothing after it, though it asks afresh`() = runBlocking {
+        val begun = VaultSession(vault.context(principal, alice.pubkey))
+        withContext(begun) {
+            vault.bump()
+            // Asked after the bump: without the work's session this would be the next session's, and signed.
+            val refusal = assertFailsWith<JoinRefusedException> { joinSign(request(), ConsentPrompt { error("no prompt for an ended session") }) }
+            assertEquals(VaultRefusal.Stale, refusal.refusal)
+            assertFalse(vault.isCurrent(vault.sessionContext(principal, alice.pubkey)))
+            // Another persona's context is never the work's.
+            assertTrue(vault.isCurrent(vault.sessionContext(principal, "bb".repeat(32))))
+        }
+        // Outside the work, the new session signs.
+        val fresh = request()
+        assertTrue(Schnorr.verify(joinSign(fresh), fresh.text("digest").hexToBytes(), device.hexToBytes()))
     }
 
     @Test fun `a join's ECDH is the vault's own shared x, and a refusal is the join's refusal`() = runBlocking {

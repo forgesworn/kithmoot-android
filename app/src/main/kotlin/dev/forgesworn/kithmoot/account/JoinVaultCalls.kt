@@ -26,7 +26,7 @@ object JoinVaultCalls {
             put("digest", digest.toHex())
             put("expires_at", expiresAt)
         }
-        val reply = vault.signLeafBindingV1(vault.context(principal, persona), request, consent)
+        val reply = vault.signLeafBindingV1(vault.sessionContext(principal, persona), request, consent)
         return when (reply) {
             is VaultResult.Refused -> throw JoinRefusedException("signature", reply.refusal)
             is VaultResult.Ok -> when (val accepted = vault.acceptSignReply(request, reply.value)) {
@@ -48,7 +48,7 @@ object JoinVaultCalls {
             put("peer_rz", peerRz.toHex())
             put("expires_at", expiresAt)
         }
-        val reply = vault.rendezvousEcdhV1(vault.context(principal, persona), request, rendezvous)
+        val reply = vault.rendezvousEcdhV1(vault.sessionContext(principal, persona), request, rendezvous)
         return when (reply) {
             is VaultResult.Refused -> throw JoinRefusedException("rendezvous", reply.refusal)
             is VaultResult.Ok -> when (val accepted = vault.acceptEcdhReply(request, reply.value)) {
