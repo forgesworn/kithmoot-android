@@ -213,8 +213,9 @@ class SessionDriverTest {
         )
         world.acks[Digests.sha256(fake.put(busy, bytes(50))).toHex()] = AckRule.Keep
         // Right after a commit, before peers know of it, the engine refuses: a peer is not yet heard past the epoch.
-        world.refuse["drained"] = "MembersUnheard"
-        round()
+        // As the real engine does, the refusal is a step with no snapshot and no code, and the round goes on.
+        world.drainUnheard = true
+        assertEquals(Round.Done(0, 1, 0), round())
         val drained = world.calls.filter { it.startsWith("drained") }
         assertEquals(listOf("drained ${retained.toHex()}"), drained, "only the empty departed mailbox; never a current one or one with a record")
         // A peer that had not yet learnt of the commit then sends under the old epoch: the mailbox is still read.
@@ -224,7 +225,7 @@ class SessionDriverTest {
         assertTrue(world.calls.any { it.startsWith("process ${retained.toHex()}") }, world.calls.toString())
         assertTrue(world.calls.none { it == "drained ${retained.toHex()}" }, "not reported in a round it had a record")
         // Every peer heard past it: the engine takes the report.
-        world.refuse.remove("drained")
+        world.drainUnheard = false
         world.calls.clear()
         round()
         assertTrue(world.calls.contains("drained ${retained.toHex()}"), world.calls.toString())
@@ -248,11 +249,24 @@ class SessionDriverTest {
         fake.refuseDeposit[stale.mailbox.toHex()] = 429 to "quota"
         val done = round() as Round.Done
         assertEquals(1, done.delivered)
+        assertEquals(1, done.leafHeld)
         assertTrue(fake.records[fresh.mailbox.toHex()] == null, "never ahead of the earlier record to the same leaf")
         assertEquals(listOf(stale.recordId.toHex(), fresh.recordId.toHex()), world.outbox.map { it.recordId.toHex() })
         fake.refuseDeposit.clear()
         assertEquals(2, (round() as Round.Done).delivered)
         assertTrue(world.outbox.isEmpty())
+    }
+
+    @Test fun `a leaf's record for another box, or one the box answers malformed, holds that leaf's later records too`() = runBlocking<Unit> {
+        val leafA = bytes(32); val leafB = bytes(32)
+        val away = Outgoing(bytes(32), bytes(32), Destination.Leaf(otherBox, leafA), bytes(64))
+        val afterAway = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafA), bytes(64))
+        val garbled = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafB), bytes(64))
+        val afterGarbled = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafB), bytes(64))
+        world.outbox += listOf(away, afterAway, garbled, afterGarbled)
+        fake.malformedDeposit += garbled.mailbox.toHex()
+        assertEquals(Round.Done(0, 0, 1, leafHeld = 2), round())
+        assertTrue(fake.records[afterAway.mailbox.toHex()] == null && fake.records[afterGarbled.mailbox.toHex()] == null)
     }
 
     @Test fun `a Welcome mailbox's record is processed with the home box's installation`() = runBlocking<Unit> {
@@ -396,6 +410,8 @@ internal class World {
     var unconfirmOnTick: Pair<ByteArray, Long>? = null
     var phase: Phase = Phase.Active
     var epoch: Long? = 7
+    /** `mailbox_drained` refused as the engine does while a member is unheard: no snapshot, no code. */
+    var drainUnheard = false
     /** Engine calls refused with a code, by the call's first word. */
     val refuse = mutableMapOf<String, String>()
     /** The witness goes down while this record's step is being witnessed. */
@@ -439,7 +455,10 @@ internal class ModelDriverSession(private val world: World, val id: ByteArray, p
     override fun slotStatus(now: Long, attempt: Long, outcome: SlotOutcome, signedReceipt: ByteArray) = mutate("slot_status $attempt $outcome")
     override fun observeReceipt(now: Long, signedReceipt: ByteArray) = mutate("observe_receipt ${signedReceipt.copyOfRange(65, 97).toHex()}")
     override fun observeInstallation(now: Long, installation: ByteArray) = mutate("installation ${installation.toHex()}")
-    override fun mailboxDrained(mailbox: ByteArray) = mutate("drained ${mailbox.toHex()}")
+    override fun mailboxDrained(mailbox: ByteArray): EngineStep<Effects> {
+        if (world.drainUnheard) { world.calls += "drained ${mailbox.toHex()}"; return EngineStep(null, Effects()) }
+        return mutate("drained ${mailbox.toHex()}")
+    }
     override fun confirmMember(packageId: ByteArray) = mutate("confirm ${packageId.toHex()}")
 
     override fun process(now: Long, mailbox: ByteArray, envelope: ByteArray, signedReceipt: ByteArray?, installation: Pair<ByteArray, ByteArray>?): EngineStep<Processed> {
@@ -479,6 +498,8 @@ internal class FakeBox(private val node: String, private val installation: ByteA
     val refuseDeposit = mutableMapOf<String, Pair<Int, String>>()
     /** Mailbox hex the box gives no answer for. */
     val silent = mutableSetOf<String>()
+    /** Mailbox hex the box answers a deposit with a body the client cannot read. */
+    val malformedDeposit = mutableSetOf<String>()
     private val path = LinkPathState("direct", null, "1.2.3.4:5", "test")
     private val b64 = Base64.getEncoder()
 
@@ -512,6 +533,7 @@ internal class FakeBox(private val node: String, private val installation: ByteA
         if (downAfterCapabilities) return null
         return when {
             parts[0] == "mailboxes" && parts[1] in silent -> null
+            parts[0] == "mailboxes" && parts[1] in malformedDeposit -> reply(201, """{"v":1,"code":"stored"}""")
             parts[0] == "mailboxes" && parts[1] in refuseDeposit -> refuseDeposit.getValue(parts[1]).let { (st, code) -> reply(st, """{"v":1,"code":"$code","server_time":1}""") }
             parts[0] == "mailboxes" -> {
                 val list = records.getOrPut(parts[1]) { mutableListOf() }

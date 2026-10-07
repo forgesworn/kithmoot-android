@@ -8,7 +8,7 @@ import dev.forgesworn.kithmoot.crypto.toHex
 
 /** Where an outbound record goes (the engine's `Destination`). */
 sealed class Destination {
-    /** A member leaf's mailbox, on [box]. */
+    /** A member leaf's mailbox, on [box]; [leaf] is the recipient's leaf, the same in every epoch. */
     class Leaf(val box: ByteArray, val leaf: ByteArray) : Destination()
     /** A commit slot of [epoch] at [attempt], on the group's home [box]. */
     class Slot(val box: ByteArray, val epoch: Long, val attempt: Long) : Destination()
@@ -110,9 +110,10 @@ sealed class Round {
     /**
      * The round ran to its end. [held] counts records left for another box
      * (P3-03b-3b); [stalled] is true when a deposit had no answer, so the
-     * rest of the outbox waits for the next round.
+     * rest of the outbox waits for the next round. [leafHeld] counts records
+     * left behind an earlier record to the same leaf the box did not take.
      */
-    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false) : Round()
+    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false, val leafHeld: Int = 0) : Round()
     /** The session is removed, expired or in a recovery other than a gap: nothing is driven (the room shows why). */
     data class Stopped(val phase: Phase) : Round()
     /** The box gave no capabilities reply: nothing was sent or fetched (no reply holds, P2-R-02). */
@@ -195,12 +196,14 @@ class SessionDriver<S : DriverSession>(
         var stalled = false
         val sent = mutableListOf<ByteArray>()
         // A leaf's records keep the engine's order (vennel contract §5.2): one not taken holds the later ones to the
-        // same mailbox's leaf until the next round, so a send under a departed epoch is never overtaken by a later one.
+        // same recipient leaf (a different mailbox each epoch) until the next round, so a send under a departed epoch
+        // is never overtaken by a later one.
+        var leafHeld = 0
         val heldLeaves = mutableSetOf<String>()
         for (out in outgoing) {
             val d = out.destination
             val leaf = (d as? Destination.Leaf)?.leaf?.toHex()
-            if (leaf != null && leaf in heldLeaves) continue
+            if (leaf != null && leaf in heldLeaves) { leafHeld++; continue }
             if (d is Destination.Slot && epoch != null && d.epoch < epoch) {
                 // An earlier epoch's commit: decided already, and never deposited again.
                 sent += out.recordId
@@ -330,7 +333,7 @@ class SessionDriver<S : DriverSession>(
             // Taken, or refused as unrelated or departed for good: either way the query is answered.
             synchronized(pendingQueries) { queries -= slot to attempt }
         }
-        return Round.Done(delivered, processed, held, stalled)
+        return Round.Done(delivered, processed, held, stalled, leafHeld)
     }
 
     private suspend fun ack(items: List<AckItem>) {
