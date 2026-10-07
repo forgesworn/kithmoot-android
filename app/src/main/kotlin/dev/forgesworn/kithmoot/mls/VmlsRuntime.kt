@@ -727,7 +727,7 @@ class VmlsRuntime(
     override fun removePerson(persona: String, session: String, identity: String) = act(persona) { p -> removing(p, session, identity, person = true) }
 
     override fun removeCompromised(persona: String, signer: ParticipantSigner?, session: String, target: String, person: Boolean) =
-        act(persona) { p -> removing(p, session, target, person, compromised = checkNotNull(signer) { NO_SIGNER }) }
+        act(persona) { p -> removing(p, session, target, person, compromised = checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }) }
 
     override fun retryRemoval(persona: String, key: String) = act(persona) { p -> retrying(p, key) }
 
@@ -787,9 +787,12 @@ class VmlsRuntime(
         // afresh, and when the journal is full the oldest such entry makes room. Its grant's revocation goes on
         // regardless, in the ledger (D1 R2).
         val committed = journal.filterValues(::mlsCommitted).keys
-        if (compromised != null && key in journal && key !in committed) {
-            // A removal under way, now taken as compromised: marked so, and its grants revoked at once.
-            check(keepRemoval(persona, key, journal.getValue(key), compromised = true)) { "The removal could not be recorded. Try again shortly." }
+        val stopped = journal[key]?.let(::mlsFailed) == true
+        if ((compromised != null || stopped) && key in journal && key !in committed) {
+            // A removal under way, now taken as compromised: marked so, and its grants revoked at once. One the engine
+            // refused for good and asked for again is made pending, as its retry would be.
+            val bytes = if (stopped) pending(journal.getValue(key)) else journal.getValue(key)
+            check(keepRemoval(persona, key, bytes, compromised = if (compromised != null) true else null)) { "The removal could not be recorded. Try again shortly." }
             removeThenRevoke(compromised, persona, key) { save(advanceRemovals(engine, room)) }
             return@withLock
         }
@@ -1725,6 +1728,8 @@ class VmlsRuntime(
                             is VmlsNextRemoval.Propose -> if (removal.mls() == VmlsMlsState.PENDING) propose = next.leafIds.map { it.toHex() }
                             // Gone, by this keeper's Remove or another's (a stopped one's too): committed once the witness holds that state.
                             VmlsNextRemoval.Done -> if (coordinator != null) {
+                                // Only a pending one commits: a stopped one is made pending again first, as a retry would.
+                                if (removal.mls() == VmlsMlsState.FAILED) removal.setMls(VmlsMlsState.PENDING)
                                 // Not applied or not witnessed yet, or busy: asked again next round.
                                 try { removal.mlsCommitted(s.inner, coordinator) } catch (_: VmlsException) { }
                             }
@@ -1767,6 +1772,17 @@ class VmlsRuntime(
         journal(persona)
         val room = synchronized(this) { live[key(persona, session)] } ?: store.room(persona, session) ?: return@withLock emptyList()
         synchronized(this) { removalViews(persona, room) }
+    }
+
+    /** Whether a journalled removal's Remove was refused for good ([VmlsMlsState.FAILED]); a record the engine does not take counts as not. */
+    private fun mlsFailed(removal: ByteArray): Boolean =
+        try { removalDecode(removal).use { it.mls() == VmlsMlsState.FAILED } } catch (_: VmlsException) { false }
+
+    /** [removal] with its stopped Remove made pending again. */
+    private fun pending(removal: ByteArray): ByteArray = try {
+        removalDecode(removal).use { it.setMls(VmlsMlsState.PENDING); it.encode() }
+    } catch (refused: VmlsException) {
+        throw IllegalStateException("The engine refused that removal (${refused.message}).")
     }
 
     /** Whether a journalled removal's Remove is committed; a record the engine does not take counts as not. */
@@ -2101,7 +2117,8 @@ class VmlsRuntime(
         const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
-        private val DEFERRED = setOf("CommitInFlight", "UpdateRequired")
+        /** Refusals that clear by themselves: tried again later, not abandoned (an outbox over its limits empties as it is delivered). */
+        private val DEFERRED = setOf("CommitInFlight", "UpdateRequired", "AwaitingCommitAck", "OutboxFull", "Callback")
 
         /** Why a send is refused while a compromised device's Remove is not yet witnessed. */
         internal const val HELD = "Sending is held until the compromised device's Remove is applied and witnessed."

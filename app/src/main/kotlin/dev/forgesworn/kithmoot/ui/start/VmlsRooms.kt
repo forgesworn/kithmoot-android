@@ -154,7 +154,7 @@ fun VmlsRoomScreen(
                 if (room.state == VmlsRoomState.STOPPED) Text(
                     // A stopped room takes no Remove; its close revokes the grants (D1 R1).
                     if (room.keeper) "Close the room to end it: that also revokes at the box the grants of guests in none of your other rooms there. " +
-                        "If one may be compromised and is in another of your rooms, remove it there as compromised."
+                        "If one may be compromised and is in another of your rooms on this box, remove it there as compromised."
                     else "Leave the room, then ask its keeper for a new link.",
                     style = MaterialTheme.typography.bodySmall,
                 )

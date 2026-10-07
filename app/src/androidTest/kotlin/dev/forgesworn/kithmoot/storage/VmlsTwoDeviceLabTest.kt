@@ -364,10 +364,11 @@ class VmlsTwoDeviceLabTest {
     private suspend fun cutOff() {
         check(role == GUEST)
         val box = room().box
-        val refused = VmlsLab.eventually(60) { runtime.boxAnswer(persona, box).takeIf { it is BoxAnswer.Refused } } as BoxAnswer.Refused
+        // Only the grant's refusal is waited for: a passing clock or busy refusal is asked again.
+        val refused = VmlsLab.eventually(60) {
+            (runtime.boxAnswer(persona, box) as? BoxAnswer.Refused)?.takeIf { it.status == 403 && it.code == "authority" }
+        }
         log("box refused: ${refused.status} ${refused.code}")
-        assertEquals(403, refused.status)
-        assertEquals("authority", refused.code)
         runCatching { runtime.send(persona, session(), "from-a-compromised-device") }.onFailure { log("send: $it") }
         repeat(5) { runCatching { runtime.foregroundRounds(persona) }.onFailure { log("round: $it") }; delay(1_000) }
         assertEquals("still refused", refused.code, (runtime.boxAnswer(persona, box) as? BoxAnswer.Refused)?.code)
