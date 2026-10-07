@@ -361,6 +361,16 @@ class MlsVault(
         }
     }
 
+    /** Forgets the removal under [key]. */
+    suspend fun forgetRemoval(ctx: VaultContext, key: String): VaultResult<Unit> = refusing {
+        update(ctx.persona) { record ->
+            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (!REMOVAL_KEY.matches(key)) return@update refuse(VaultRefusal.Malformed)
+            record.removals.remove(key)
+            null
+        }
+    }
+
     /** Forgets every removal at [session] (64 hex): its room is left, closed or forgotten. */
     suspend fun forgetRemovals(ctx: VaultContext, session: String): VaultResult<Unit> = refusing {
         update(ctx.persona) { record ->
@@ -1474,9 +1484,12 @@ private class PersonaRecord(
                         e["signature"]?.jsonPrimitive?.content, e["home_box"]?.jsonPrimitive?.content,
                     )
                 }.toMutableList(),
-                json["removals"]?.jsonObject.orEmpty().mapValuesTo(linkedMapOf()) { (key, value) ->
+                // A sealed, witnessed record that does not hold together is refused whole, as every other field is.
+                json["removals"]?.jsonObject.orEmpty().also { require(it.size <= MlsVault.MAX_REMOVALS) }.mapValuesTo(linkedMapOf()) { (key, value) ->
                     require(MlsVault.REMOVAL_KEY.matches(key))
-                    value.jsonPrimitive.also { require(it.isString) }.content
+                    value.jsonPrimitive.also { require(it.isString) }.content.also {
+                        require(Base64.getDecoder().decode(it).size in 1..MlsVault.MAX_REMOVAL_BYTES)
+                    }
                 },
             )
         }

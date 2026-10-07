@@ -659,6 +659,9 @@ class CoordinatedMlsVaultTest {
         assertContentEquals(byteArrayOf(4), read.getValue("$session:$leaf"))
         assertIs<VaultResult.Ok<Unit>>(vault.forgetRemovals(ctx, session))
         assertEquals(listOf("$other:$leaf"), (vault.removals(ctx) as VaultResult.Ok).value.keys.toList())
+        assertIs<VaultResult.Ok<Unit>>(vault.forgetRemoval(ctx, "$other:$leaf"))
+        assertEquals(emptyMap(), (vault.removals(ctx) as VaultResult.Ok).value)
+        assertEquals(refused(VaultRefusal.Malformed), vault.forgetRemoval(ctx, other))
     }
 
     @Test fun `a removal is refused malformed, past its bound, or stale, and read only while the witness confirms`() = runBlocking<Unit> {

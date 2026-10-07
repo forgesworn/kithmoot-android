@@ -744,16 +744,25 @@ class VmlsRuntime(
             synchronized(this) { journals.remove(persona) }
         }
         val journal = journal(persona) ?: throw IllegalStateException("This room waits for this account's vault.")
-        check(key !in journal) { "That removal is already under way." }
-        val grants = VmlsMembership.grants(persona, room.box, devices, ledger.all(), devicesOn(engine, persona, room.box, except = session))
+        // A removal whose Remove is committed is done with as a journal entry: a person let in again is removed
+        // afresh, and when the journal is full the oldest such entry makes room. Its grant's revocation goes on
+        // regardless, in the ledger (D1 R2).
+        val committed = journal.filterValues(::mlsCommitted).keys
+        check(key !in journal || key in committed) { "That removal is already under way." }
+        if (key !in journal && journal.size >= MlsVault.MAX_REMOVALS) {
+            val oldest = committed.firstOrNull() ?: throw IllegalStateException("Too many removals are under way. Try again once one finishes.")
+            check(vault.forgetRemoval(vault.sessionContext(PRINCIPAL, persona), oldest) is VaultResult.Ok) { "The removal could not be recorded. Try again shortly." }
+            synchronized(this) { journals.remove(persona) }
+        }
+        val grants = VmlsMembership.grants(persona, room.box, devices, ledger.all())
         val opened = try {
             engine.host.readback(persona, session.hexToBytes()) { s, _ ->
-                val refs = grants.map { VmlsGrantRef(it.box.hexToBytes(), it.grantId.hexToBytes(), it.keeper) }
+                val refs = grants.map { VmlsGrantRef(it.box.hexToBytes(), it.ref.hexToBytes(), it.keeper) }
                 val removal = if (person) removalPerson(s.inner, target.hexToBytes(), refs) else removalDevice(s.inner, target.hexToBytes(), refs)
                 removal.use { it.encode() }
             }
-        } catch (refused: VmlsException.Engine) {
-            throw IllegalStateException("The engine refused that removal (${refused.code}).")
+        } catch (refused: VmlsException) {
+            throw IllegalStateException("The engine refused that removal (${refused.message}).")
         }
         val bytes = (opened as? Hosted.Released)?.value ?: throw IllegalStateException("This room cannot change now. Try again shortly.")
         check(keepRemoval(persona, key, bytes)) { "The removal could not be recorded. Try again shortly." }
@@ -767,7 +776,7 @@ class VmlsRuntime(
             val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: return@withLock null
             val devices = if (person) room.members.values.filter { it.identity == target }.map { it.device } else listOfNotNull(room.members[target]?.device)
             val records = ledger.all()
-            val listed = VmlsMembership.grants(persona, room.box, devices, records, placed = emptySet()).associateBy { it.device }
+            val listed = VmlsMembership.grants(persona, room.box, devices, records).associateBy { it.device }
             val others = store.rooms().filter { it.persona == persona && it.box == room.box && it.session != session && it.closing == null && !it.ended }
             VmlsRemovalPlan(devices.distinct().map { device ->
                 val keeping = others.filter { other ->
@@ -777,7 +786,7 @@ class VmlsRuntime(
                 val grant = listed[device]
                 VmlsPlannedDevice(shortHex(device), when {
                     grant == null -> "No grant of yours at this box."
-                    keeping.isNotEmpty() -> "Its grant at this box is kept: it is also in ${keeping.joinToString()}."
+                    keeping.isNotEmpty() -> "Its grant at this box stays live: it is also in ${keeping.joinToString()}."
                     !grant.keeper -> "Its grant at this box is not yours to revoke."
                     else -> "Its grant at this box is revoked after the grace, unless another room here takes it first."
                 })
@@ -1512,7 +1521,8 @@ class VmlsRuntime(
                             is VmlsNextRemoval.Propose -> propose = next.leafIds.map { it.toHex() }
                             // Gone, by this keeper's Remove or another's: committed once the witness holds that state.
                             VmlsNextRemoval.Done -> if (removal.mls() == VmlsMlsState.PENDING && coordinator != null) {
-                                try { removal.mlsCommitted(s.inner, coordinator) } catch (_: VmlsException.Engine) { }
+                                // Not applied or not witnessed yet, or busy: asked again next round.
+                                try { removal.mlsCommitted(s.inner, coordinator) } catch (_: VmlsException) { }
                             }
                             VmlsNextRemoval.Wait, VmlsNextRemoval.UpdateFirst -> Unit
                         }
@@ -1541,6 +1551,10 @@ class VmlsRuntime(
         synchronized(this) { removalViews(persona, room) }
     }
 
+    /** Whether a journalled removal's Remove is committed; a record the engine does not take counts as not. */
+    private fun mlsCommitted(removal: ByteArray): Boolean =
+        try { removalDecode(removal).use { it.mls() == VmlsMlsState.COMMITTED } } catch (_: VmlsException) { false }
+
     /** [room]'s removals as its screen shows them, from the journal as last read. */
     private fun removalViews(persona: String, room: VmlsRoom): List<VmlsRemovalView> =
         journals[persona].orEmpty().filterKeys { VmlsMembership.session(it) == room.session }.mapNotNull { (_, bytes) ->
@@ -1568,7 +1582,7 @@ class VmlsRuntime(
         val grants = removal.grants().map { grant ->
             val at = "Grant ${shortHex(grant.grant.grant.toHex())}: "
             at + when (val state = grant.state) {
-                JournalGrant.Pending -> "revocation pending at the box."
+                JournalGrant.Pending -> "not yet revoked at the box."
                 JournalGrant.Revoked -> "revoked at the box."
                 JournalGrant.Failed -> "revocation failed; tried again."
                 is JournalGrant.NotAuthorised -> if (state.requested) "revocation requested from its keeper; not performed." else "not yours to revoke."

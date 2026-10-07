@@ -289,7 +289,7 @@ class VmlsTwoDeviceLabTest {
         // P3-05b, M04 on devices: the journal shows the Remove applied and witnessed, the grant still live, and
         // claims only what that state allows (the removed device may still store under its grant).
         val removal = journalled("the Remove committed") { it.mls.contains("applied at this phone and witnessed") }
-        assertEquals(listOf("revocation pending at the box."), removal.grants.map { it.substringAfter(": ") })
+        assertEquals(listOf("not yet revoked at the box."), removal.grants.map { it.substringAfter(": ") })
         assertTrue("the Remove's claim: ${removal.claim}", removal.claim!!.startsWith("The removed device cannot read messages from later epochs") && removal.claim!!.contains("under its grant"))
     }
 

@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.crypto.Digests
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlinx.coroutines.runBlocking
 
 /** Which grants a removal lists, and which the ledger shows revoked (P3-05b). */
@@ -27,34 +28,39 @@ class VmlsMembershipTest {
         assertEquals(session, VmlsMembership.session(key))
     }
 
+    @Test fun `a grant is named by 32 bytes over its box and id, the same across a renewal`() = runBlocking<Unit> {
+        val first = granted(keeper, guest, phone)
+        val ref = VmlsMembership.grantRef(box, first.grantId)
+        assertEquals(64, ref.length)
+        assertEquals(ref, VmlsMembership.grantRef(box, first.grantId))
+        assertNotEquals(ref, VmlsMembership.grantRef(elsewhere, first.grantId))
+    }
+
     @Test fun `the keeper's grants are listed as its to revoke, another persona's as not, and the rest not at all`() = runBlocking<Unit> {
         val mine = granted(keeper, guest, phone)
         val theirs = granted(other, guest, tablet)
         val own = granted(keeper, keeper.pubkey, "78".repeat(32))
         val atAnotherBox = granted(keeper, guest, "9a".repeat(32), at = elsewhere)
         val ledger = listOf(mine, theirs, own, atAnotherBox)
-        val listed = VmlsMembership.grants(keeper.pubkey, box, listOf(phone, tablet, own.device, atAnotherBox.device, "bc".repeat(32)), ledger, placed = emptySet())
+        val listed = VmlsMembership.grants(keeper.pubkey, box, listOf(phone, tablet, own.device, atAnotherBox.device, "bc".repeat(32), phone), ledger)
         assertEquals(
-            listOf(RemovalGrant(box, mine.grantId, phone, keeper = true), RemovalGrant(box, theirs.grantId, tablet, keeper = false)),
+            listOf(
+                RemovalGrant(box, VmlsMembership.grantRef(box, mine.grantId), phone, keeper = true),
+                RemovalGrant(box, VmlsMembership.grantRef(box, theirs.grantId), tablet, keeper = false),
+            ),
             listed,
-            "the persona's own device, a grant at another box and a device without one are not listed",
+            "each once; the persona's own device, a grant at another box and a device without one are not listed",
         )
-    }
-
-    @Test fun `a device another room on the box holds keeps its grant and is not listed`() = runBlocking<Unit> {
-        val ledger = listOf(granted(keeper, guest, phone), granted(keeper, guest, tablet))
-        val listed = VmlsMembership.grants(keeper.pubkey, box, listOf(phone, tablet, phone), ledger, placed = setOf(tablet))
-        assertEquals(listOf(phone), listed.map { it.device }, "listed once, and the placed device not at all")
     }
 
     @Test fun `a revoked grant is not listed again, and only a revoked record with the same id shows revoked`() = runBlocking<Unit> {
         val live = granted(keeper, guest, phone)
         val revoked = live.copy(state = VmlsGrantState.REVOKED)
-        assertEquals(emptyList(), VmlsMembership.grants(keeper.pubkey, box, listOf(phone), listOf(revoked), emptySet()))
-        val listed = listOf(box to live.grantId)
+        assertEquals(emptyList(), VmlsMembership.grants(keeper.pubkey, box, listOf(phone), listOf(revoked)))
+        val listed = listOf(box to VmlsMembership.grantRef(box, live.grantId))
         assertEquals(emptySet(), VmlsMembership.revoked(listed, listOf(live)))
         assertEquals(emptySet(), VmlsMembership.revoked(listed, listOf(live.copy(state = VmlsGrantState.REVOKING))))
-        assertEquals(setOf(box to live.grantId), VmlsMembership.revoked(listed, listOf(revoked)))
+        assertEquals(listed.toSet(), VmlsMembership.revoked(listed, listOf(revoked)))
         // Another id at the same box and device (a new grant after a revocation) says nothing of the one listed.
         val next = granted(keeper, guest, phone).copy(state = VmlsGrantState.REVOKED)
         assertEquals(emptySet(), VmlsMembership.revoked(listed, listOf(next)))
