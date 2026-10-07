@@ -3,6 +3,9 @@ package dev.forgesworn.kithmoot.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -340,7 +343,8 @@ class HomeScreenUiTest {
     }
 
     // AC 27
-    @Test fun settings_signed_out_shows_every_section() {
+    @Test fun settings_signed_out_lists_its_pages_and_each_opens() {
+        var page by mutableStateOf(dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT)
         compose.setContent {
             KithMootTheme {
                 CompositionLocalProvider(LocalTextSizeSetting provides TextSizeSetting(TextSize.STANDARD) {}) {
@@ -352,19 +356,27 @@ class HomeScreenUiTest {
                         relayChoices = emptyList(),
                         onWebAppAddressChanged = { false },
                         notificationSettings = {},
+                        page = page,
+                        onPageChange = { page = it },
                         onBack = {},
                     )
                 }
             }
         }
-        compose.onNodeWithText("You").assertIsDisplayed()
-        compose.onNodeWithText("Text size").assertIsDisplayed()
-        compose.onNodeWithText("Notifications and calls").assertIsDisplayed()
-        compose.onNodeWithText("Connections").assertIsDisplayed()
         compose.onNodeWithText("Sign in with Nostr").assertIsDisplayed()
-        compose.onNodeWithText("Nostr relays").assertIsDisplayed()
-        compose.onNodeWithText("KithMoot site").assertIsDisplayed()
+        compose.onNodeWithText("Notifications and calls").assertIsDisplayed().assertHeightIsAtLeast(56.dp)
+        compose.onNodeWithText("Display").assertIsDisplayed()
+        compose.onNodeWithText("Privacy").assertIsDisplayed()
+        compose.onNodeWithText("Connections").assertIsDisplayed()
+        compose.onNodeWithText("Display").performClick()
+        compose.onNodeWithText("Text size").assertIsDisplayed()
         compose.onNodeWithText("Large").assertIsNotSelected()
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithText("Connections").performClick()
+        compose.onNodeWithText("Relays").assertIsDisplayed()
+        compose.onNodeWithText("KithMoot site").assertIsDisplayed()
+        compose.onNodeWithText("Relays for private conversations").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Back").performClick()
     }
 }

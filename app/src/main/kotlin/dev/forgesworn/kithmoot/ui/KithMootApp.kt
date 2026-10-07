@@ -132,6 +132,12 @@ fun KithMootApp(
             else -> HomePage.ROOMS
         }
     }
+    // Which page of Settings is open, kept here so it survives the developer pages and rotation;
+    // leaving Settings for the rooms list starts it at the list next time.
+    var settingsPage by rememberSaveable { mutableStateOf(dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT) }
+    androidx.compose.runtime.LaunchedEffect(homePage) {
+        if (homePage == HomePage.ROOMS) settingsPage = dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT
+    }
     var signInSheetOpen by remember { mutableStateOf(false) }
     val homeCoroutines = rememberCoroutineScope()
 
@@ -578,10 +584,16 @@ fun KithMootApp(
                         relayChoices = model.accountRelayChoices(),
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
+                        page = settingsPage,
+                        onPageChange = { settingsPage = it },
                         onBack = { homePage = HomePage.ROOMS },
+                        notificationsAttention = dev.forgesworn.kithmoot.notifications.rememberNotificationsAttention(
+                            model.notifications, ringingOff, needsSigner = promptFor(null) != null),
+                        onPublicProfiles = model::setProfilesEnabled,
+                        onMirrorSelf = model::setMirrorSelf,
                         onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
                         onVmlsBoxes = vmlsBoxes?.let { { homePage = HomePage.VMLS_BOXES } },
-                        updateSettings = { dev.forgesworn.kithmoot.update.UpdateSettings(updates) },
+                        updates = updates,
                     )
                     HomePage.RESTORE_WITNESS -> restoreWitness?.let {
                         dev.forgesworn.kithmoot.ui.start.RestoreWitnessScreen(it, witnessPersona, onBack = { homePage = witnessFrom })

@@ -130,7 +130,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun editsPublicProfileFromTopRightAndDisplaysRealRelayStatus() {
-        ui.click("Settings"); screenshot("account-menu.png"); ui.click("Edit profile")
+        ui.click("Settings"); screenshot("account-menu.png"); ui.click("Alex Rowan"); ui.click("Edit public profile")
         ui.await("profile loaded") { model.start.value.profileMetadata != null && !model.start.value.profileBusy }
         screenshot("profile-editor-top.png")
         ui.replace("Display name", "Alex Updated"); ui.replace("About", "Updated in KithMoot")
@@ -141,14 +141,16 @@ class AccountExperienceUiTest {
         val metadata = Json.parseToJsonElement(profile.content).jsonObject
         assertEquals(JsonPrimitive("Updated in KithMoot"), metadata["about"])
         assertEquals(JsonPrimitive(true), metadata.getValue("custom_client_field").jsonObject["keep"])
-        screenshot("profile-editor.png"); ui.click("Done")
-        ui.click("Nostr relays")
+        screenshot("profile-editor.png")
+        ui.back(); ui.await("account page") { ui.hasText("Rooms on your devices") }
+        ui.back(); ui.await("settings list") { ui.hasText("Display") }
+        ui.click("Connections"); ui.click("Relays")
         ui.await("read receipt visible") { ui.hasText("Read: History read confirmed") }
         screenshot("relay-status.png")
         val eventCount = relay.writes.size
         ui.click("Publish public relay list"); ui.click("Publish relay list")
         ui.await("relay list accepted") { relay.writes.drop(eventCount).any { it.kind == 10002 } && !model.start.value.profileBusy }
         assertEquals(listOf(listOf("r", relay.url.removeSuffix("/"))), relay.writes.last { it.kind == 10002 }.tags)
-        ui.click("Done")
+        ui.back()
     }
 }

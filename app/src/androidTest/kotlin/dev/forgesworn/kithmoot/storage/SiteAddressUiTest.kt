@@ -30,6 +30,7 @@ class SiteAddressUiTest {
         ui.home()
         activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
         ui.click("Settings")
+        ui.click("Connections")
         ui.click("KithMoot site")
         ui.replace("Site address", "http://insecure.example")
         ui.assertEnabled("Save site", false)
@@ -44,7 +45,7 @@ class SiteAddressUiTest {
         }
         screenshot.recycle()
         ui.click("Save site")
-        ui.click("Back")
+        ui.click("Back"); ui.click("Back")
         activity.scenario.onActivity { assertEquals(origin, ViewModelProvider(it)[RoomViewModel::class.java].start.value.webAppAddress) }
         app.savedRooms.reset()
         seedLegacyRoom(app, "Self hosted workshop")

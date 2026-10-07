@@ -76,7 +76,11 @@ class SigningLineageVerifyTest {
             ui.waitUntil(10_000) {
                 runCatching { ui.onNodeWithText("Preview account").fetchSemanticsNode() }.isSuccess
             }
-            ui.onNodeWithText("Preview account").assertExists()
+            // The list shows the retained account as a row; its key and the refusal are on its page.
+            ui.onNodeWithText("Preview account").performClick()
+            ui.waitUntil(10_000) {
+                runCatching { ui.onNodeWithText(npubOf(ACCOUNT_PUBKEY)).fetchSemanticsNode() }.isSuccess
+            }
             ui.onNodeWithText(npubOf(ACCOUNT_PUBKEY)).assertExists()
             ui.onNodeWithText("A different account is refused", substring = true).assertExists()
         }

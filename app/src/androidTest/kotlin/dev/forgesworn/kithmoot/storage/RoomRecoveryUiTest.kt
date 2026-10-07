@@ -98,7 +98,7 @@ class RoomRecoveryUiTest {
         ui.home()
 
         ui.click("Settings")
-        ui.await("settings shown") { ui.hasText("Text size") }
+        ui.await("settings shown") { ui.hasText("Display") }
 
         androidx.test.espresso.Espresso.pressBack()
 

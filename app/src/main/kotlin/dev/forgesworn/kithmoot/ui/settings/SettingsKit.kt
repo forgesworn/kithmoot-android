@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,6 +114,7 @@ fun SettingsNavRow(
         if (selected) Box(Modifier.width(4.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary).align(Alignment.CenterStart))
         Row(
             Modifier.clickable(enabled = enabled, role = Role.Button, onClickLabel = if (external) "Open in Android" else "Open", onClick = onClick)
+                .then(if (selected) Modifier.semantics { this.selected = true } else Modifier)
                 .rowFrame(summary),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -125,6 +127,25 @@ fun SettingsNavRow(
                 null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/** A row that only informs, with an optional [trailing] control (a Cancel beside a spinner, say). Not itself a target. */
+@Composable
+fun SettingsStaticRow(
+    title: String,
+    summary: String? = null,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        Modifier.semantics(mergeDescendants = true) {}.rowFrame(summary),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        leading?.invoke()
+        RowText(title, summary, Modifier.weight(1f))
+        trailing?.invoke()
     }
 }
 
