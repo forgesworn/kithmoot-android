@@ -261,15 +261,12 @@ class SessionDriver<S : DriverSession>(
         val mailboxes = watched.filter { it.kind !is Watched.Kind.Slot }.distinctBy { it.mailbox.toHex() }
         for (batch in mailboxes.chunked(VmlsBoxClient.MAX_FETCH_MAILBOXES)) {
             val kinds = batch.associate { it.mailbox.toHex() to it.kind }
-            val seen = mutableSetOf<String>()
             var after: String? = null
-            var complete = false
             for (page in 0 until maxPages) {
                 val answer = client.fetch(batch.map { it.mailbox }, after) as? BoxAnswer.Ok ?: break
                 val acks = mutableListOf<AckItem>()
                 for (record in answer.value.records) {
                     val kind = kinds[record.mailbox.toHex()]
-                    seen += record.mailbox.toHex()
                     val welcome = if (kind == Watched.Kind.Welcome) homeBox to installation else null
                     val r = stepped(persona, session) { it.process(now, record.mailbox, record.envelope, null, welcome) }
                     r.stop?.let { stop -> ack(acks); return stop }
@@ -281,17 +278,13 @@ class SessionDriver<S : DriverSession>(
                 }
                 ack(acks)
                 after = answer.value.next
-                if (after == null) { complete = true; break }
+                if (after == null) break
             }
-            // A departed epoch's mailbox the box answered empty, after acknowledgement, is deleted (D6).
-            if (complete) {
-                for (w in batch) {
-                    val kind = w.kind
-                    if (kind is Watched.Kind.Mailbox && kind.retained && w.mailbox.toHex() !in seen) {
-                        stepped(persona, session) { it.mailboxDrained(w.mailbox) }.let { r -> r.stop?.let { return it }; take(r.value!!) }
-                    }
-                }
-            }
+            // A departed epoch's mailbox is never reported drained when the box answers it empty: right after a commit
+            // it is empty before any peer has learnt of the commit, and a peer's send under that epoch would then go
+            // to a mailbox no longer read, and be lost. The engine deletes it at its own bounds instead (D6: 72 hours,
+            // or two epochs past). Reporting drained again waits for an engine rule that knows every remaining member
+            // has moved past the epoch.
         }
         for (w in watched) {
             val kind = w.kind as? Watched.Kind.Slot ?: continue
