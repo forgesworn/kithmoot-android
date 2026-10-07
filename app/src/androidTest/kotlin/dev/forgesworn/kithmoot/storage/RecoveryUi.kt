@@ -117,6 +117,11 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         }
     }
 
+    /** The system back gesture, as a person pressing back: one page up in Settings. */
+    fun back() {
+        check(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) { "Back was refused" }
+    }
+
     fun replace(label: String, value: String) {
         reveal { field(label) }
         // As with click: a field found mid-recomposition, or while home is
