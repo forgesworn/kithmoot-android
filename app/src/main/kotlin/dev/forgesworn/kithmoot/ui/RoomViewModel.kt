@@ -1883,7 +1883,8 @@ class RoomViewModel @JvmOverloads constructor(
                 // On the background inbox's own queue, after anything the close still had to write there.
                 val left = withContext(backgroundInboxWrites) { roomWipe().run(target) }
                 if (left.isNotEmpty()) Log.w(JOIN_LOG, "self-destruct room=${roomId.take(8)} could not clear $left")
-                destructTombstones.add(epochSeconds())
+                // One row per room: a room still saved is tried again, and its row waits for that.
+                if (dev.forgesworn.kithmoot.storage.RoomWipeStep.SAVED_ROOM !in left) destructTombstones.add(epochSeconds())
             } finally {
                 dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(roomId)
             }
