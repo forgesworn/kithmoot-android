@@ -75,6 +75,8 @@ data class VmlsRemovalView(
     /** Each listed grant's state at its box. */
     val grants: List<String>,
     val claim: String?,
+    /** For a compromised device's removal, whether this phone's sends are held (P3-05b part 3); null otherwise. */
+    val hold: String? = null,
 )
 
 /**
@@ -110,6 +112,8 @@ data class VmlsRoomView(
     val messages: List<VmlsMessageView>,
     /** The keeper's removals in this room, from the journal. */
     val removals: List<VmlsRemovalView> = emptyList(),
+    /** A compromised device's Remove is not yet witnessed: this phone's sends here are held (P3-05b part 3). */
+    val held: Boolean = false,
 )
 
 /** How a room is left from its menu. */
@@ -200,10 +204,19 @@ interface VmlsBoxes {
     fun removePerson(persona: String, session: String, identity: String)
 
     /**
-     * What removing [target] (a leaf, or with [person] an identity) would
-     * touch, to show before it is confirmed; null when it cannot be read now.
+     * The keeper removes [target] (a leaf, or with [person] an identity) as
+     * a compromised device (P3-05b part 3): the intent is journalled, this
+     * phone's sends and joins in the room are held until the Remove is
+     * witnessed, and [signer] revokes its grants at once, without the grace.
      */
-    suspend fun removalPlan(persona: String, session: String, target: String, person: Boolean): VmlsRemovalPlan? = null
+    fun removeCompromised(signer: ParticipantSigner, session: String, target: String, person: Boolean)
+
+    /**
+     * What removing [target] (a leaf, or with [person] an identity) would
+     * touch, to show before it is confirmed, [compromised] or not; null when
+     * it cannot be read now.
+     */
+    suspend fun removalPlan(persona: String, session: String, target: String, person: Boolean, compromised: Boolean = false): VmlsRemovalPlan? = null
 
     /** A guest leaves (decision 20): its session ends on this phone, and the keeper removes its leaf when it lapses. */
     fun leave(persona: String, session: String)

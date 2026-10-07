@@ -687,6 +687,33 @@ class CoordinatedMlsVaultTest {
         assertEquals(refused(VaultRefusal.WitnessPending), vault.keepRemoval(fresh, kept, byteArrayOf(4)))
     }
 
+    @Test fun `a compromised mark is written with its removal, kept by later writes and forgotten with it`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        val session = bytes(32).toHex()
+        val leaf = bytes(32).toHex()
+        val other = bytes(32).toHex()
+        assertEquals(emptySet(), (vault.compromisedRemovals(ctx) as VaultResult.Ok).value)
+        val before = server.subjects.getValue(subject.toHex()).seq
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(1), compromised = true))
+        assertEquals(before + 1, server.subjects.getValue(subject.toHex()).seq, "the intent and its removal are one witnessed advance")
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$other", byteArrayOf(2)))
+        // A later write of the same removal that does not say keeps the mark.
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(3)))
+        val reopened = vault()
+        assertEquals(setOf("$session:$leaf"), (reopened.compromisedRemovals(reopened.context(principal, alice.pubkey)) as VaultResult.Ok).value)
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(4), compromised = false))
+        assertEquals(emptySet(), (vault.compromisedRemovals(ctx) as VaultResult.Ok).value)
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$other", byteArrayOf(5), compromised = true))
+        assertIs<VaultResult.Ok<Unit>>(vault.forgetRemoval(ctx, "$session:$other"))
+        assertEquals(emptySet(), (vault.compromisedRemovals(ctx) as VaultResult.Ok).value)
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(6), compromised = true))
+        assertIs<VaultResult.Ok<Unit>>(vault.forgetRemovals(ctx, session))
+        assertEquals(emptySet(), (vault.compromisedRemovals(ctx) as VaultResult.Ok).value)
+        // Read only while the witness confirms, as the removals are.
+        vault.bump()
+        assertEquals(refused(VaultRefusal.Stale), vault.compromisedRemovals(ctx))
+    }
+
     private fun request(device: EnrolledDevice, operation: String = bytes(32).toHex()): JsonObject {
         val credential = alice.signed.last()
         val body = VmlsEncode.unsignedBinding(bytes(32), bytes(32), credential, device.device, now + 86_400, homeBox.hexToBytes())

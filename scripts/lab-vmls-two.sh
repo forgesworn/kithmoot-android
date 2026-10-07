@@ -9,7 +9,9 @@
 # the keeper's credential and the guest's grant renewed, a second room the
 # guest joins and leaves and the keeper closes, a Remove
 # that loses its epoch to the guest's Update and is offered again, the
-# removed device's grant revoked, and the keeper's close of the first room.
+# removed device's grant revoked, the keeper's close of the first room, and a
+# third room whose guest device is taken as compromised: its grant revoked at
+# once, before the Remove (M05), the keeper's sends held until the Remove.
 #
 # Usage: KEEPER_SERIAL=emulator-PORT GUEST_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node \
 #        LAB_NOSTR_PORT=PORT [LAB_RELAY=wss://…] scripts/lab-vmls-two.sh
@@ -185,6 +187,18 @@ one "$keeper" keeper revoke room 1 || failed 'revoke the removed device'
 
 # The keeper closes the first room: the guest's grant, in no other room now, is revoked.
 one "$keeper" keeper close room 1 grant revoked || failed 'close the first room'
+
+# P3-05b part 3: a third room, whose guest device the keeper takes as compromised. Its grant is revoked at once,
+# before the Remove (M05), the keeper's sends are held, the device's later message is not taken, and the Remove follows.
+one "$keeper" keeper create room 3 || failed 'create the third room'
+link="$(kept "$keeper" keeper link3)"
+both 20 "$keeper" keeper admit room 3 -- "$guest" guest join room 3 link "$link" || failed 'join the third room'
+both 2 "$keeper" keeper talk room 3 say before-the-compromise expect from-the-guest-third \
+  -- "$guest" guest talk room 3 say from-the-guest-third expect before-the-compromise || failed 'talk in the third room'
+one "$keeper" keeper compromise room 3 || failed 'the compromised device revoked'
+one "$guest" guest cut-off room 3 || failed 'the compromised device cut off'
+one "$keeper" keeper contain room 3 || failed 'the Remove after the revocation'
+one "$keeper" keeper close room 3 grant revoked || failed 'close the third room'
 
 adb_on "$keeper" logcat -d -s VmlsTwoDevice:I > "$reports/keeper-steps.txt" || true
 adb_on "$guest" logcat -d -s VmlsTwoDevice:I > "$reports/guest-steps.txt" || true

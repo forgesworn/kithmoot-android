@@ -49,6 +49,28 @@ object VmlsMembership {
     fun revoked(listed: Collection<Pair<String, String>>, ledger: List<VmlsGrantRecord>): Set<Pair<String, String>> =
         listed.filter { (box, ref) -> ledger.any { it.box == box && it.state == VmlsGrantState.REVOKED && grantRef(it.box, it.grantId) == ref } }.toSet()
 
+    /**
+     * The journal cache after one kept write of [removal] under [key]: the
+     * removals and their compromised marks, or null when there is no whole
+     * journal to add it to ([journal] or [marks] not read), so the next read
+     * goes to the vault. A cache built from one write would read as the whole
+     * journal and lift other rooms' holds. [compromised] null keeps the mark.
+     */
+    fun cached(
+        journal: Map<String, ByteArray>?, marks: Set<String>?, key: String, removal: ByteArray, compromised: Boolean?,
+    ): Pair<Map<String, ByteArray>, Set<String>>? {
+        if (journal == null || marks == null) return null
+        return (journal + (key to removal)) to when (compromised) { true -> marks + key; false -> marks - key; null -> marks }
+    }
+
+    /**
+     * Whether [session]'s sends are held: a removal there is marked
+     * compromised and its Remove is not [committed]. A mark whose removal is
+     * missing holds too.
+     */
+    fun held(journal: Map<String, ByteArray>, marks: Set<String>, session: String, committed: (ByteArray) -> Boolean): Boolean =
+        marks.any { session(it) == session && journal[it]?.let(committed) != true }
+
     private val REF_LABEL = "kithmoot/vmls-removal-grant/v1".toByteArray(Charsets.UTF_8)
 }
 
