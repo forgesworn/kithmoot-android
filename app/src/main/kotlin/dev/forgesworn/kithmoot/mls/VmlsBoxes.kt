@@ -81,6 +81,21 @@ data class VmlsRoomView(
     val messages: List<VmlsMessageView>,
 )
 
+/** How a room is left from its menu. */
+enum class VmlsRoomExit { CLOSE, FORGET, LEAVE }
+
+/**
+ * A keeper always closes, even a room that ended (it was removed, say): only a
+ * close revokes the guests' grants at the box (D1 R1). A guest forgets a room
+ * that ended and leaves one that has not.
+ */
+val VmlsRoomView.exit: VmlsRoomExit
+    get() = when {
+        keeper -> VmlsRoomExit.CLOSE
+        state == VmlsRoomState.REMOVED || state == VmlsRoomState.LAPSED -> VmlsRoomExit.FORGET
+        else -> VmlsRoomExit.LEAVE
+    }
+
 /** The debug VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
 data class VmlsBoxesState(
     val persona: String? = null,

@@ -512,6 +512,8 @@ class VmlsRuntime(
         rounding.withLock {
             val stored = store.room(p, session) ?: return@withLock
             check(stored.ended || synchronized(this) { live[key(p, session)]?.ended } == true) { "Only a room that ended is forgotten; leave or close it instead." }
+            // Forgetting revokes nothing: a keeper's guests would keep their grants at the box (D1 R1).
+            check(stored.role != VmlsRole.KEEPER) { "A keeper closes its room, which revokes its guests' grants." }
             store.update(p, session) { it.copy(closing = Closing.DROPPING) }
             engine(p)?.let { dropped(it, store.room(p, session) ?: return@withLock) }
             publishRooms()
@@ -554,10 +556,10 @@ class VmlsRuntime(
                 linksChanged.update { it + 1 }
                 publishRooms()
             }
-            // Every guest grant this keeper issued at the box that has not lapsed by the box's clock: its members', its
+            // Every guest grant this keeper issued at the box that has not lapsed by both the box's clock and the phone's: its members', its
             // pending joins' and any it removed earlier (a removed member's grant outlives its leaf).
             val boxNow = boxClock(route) ?: now()
-            ledger.prune(boxNow)
+            ledger.prune(boxNow, now())
             val revoke = ledger.all()
                 .filter { it.box == stored.box && it.state != VmlsGrantState.REVOKED && it.issuer == persona && it.persona != persona }
                 .map { it.device }.toSet() - elsewhere - setOfNotNull(ownDevice(persona))
@@ -829,9 +831,9 @@ class VmlsRuntime(
                     // The guest's device is granted before it is answered: its capability goes to the box at once.
                     try {
                         val boxNow = boxClock(route) ?: now()
-                        ledger.prune(boxNow)
-                        val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow)
-                        ledger.record(VmlsGrantRecord(room.box, plan))
+                        ledger.prune(boxNow, now())
+                        val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow, now())
+                        ledger.record(VmlsGrantRecord(room.box, plan), now())
                         publish(route, signer, listOf(plan.active))
                     } catch (failure: Exception) {
                         // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
@@ -1245,9 +1247,9 @@ class VmlsRuntime(
      */
     private suspend fun grant(signer: ParticipantSigner, route: VmlsBoxRoute, device: String) {
         val boxNow = boxClock(route) ?: now()
-        ledger.prune(boxNow)
+        ledger.prune(boxNow, now())
         val live = ledger.get(route.box, device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.expiration - boxNow > GRANT_RENEW_SECONDS }
-        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow).also { ledger.record(VmlsGrantRecord(route.box, it)) }
+        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow, now()).also { ledger.record(VmlsGrantRecord(route.box, it), now()) }
         publish(route, signer, listOf(plan.active))
     }
 

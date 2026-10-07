@@ -20,7 +20,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.mls.VmlsBoxView
 import dev.forgesworn.kithmoot.mls.VmlsMemberView
+import dev.forgesworn.kithmoot.mls.VmlsRoomExit
 import dev.forgesworn.kithmoot.mls.VmlsRoomState
+import dev.forgesworn.kithmoot.mls.exit
 import dev.forgesworn.kithmoot.mls.VmlsRoomView
 
 /**
@@ -116,12 +118,13 @@ fun VmlsRoomScreen(
                 } else if (room != null && room.state != VmlsRoomState.CLOSING) Box {
                     IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                     DropdownMenu(menu, { menu = false }) {
-                        val ended = room.state == VmlsRoomState.REMOVED || room.state == VmlsRoomState.LAPSED
                         if (room.keeper && room.canSend) DropdownMenuItem(text = { Text(if (room.invite) "New invite link" else "Invite link") }, onClick = { menu = false; onInvite() })
                         if (room.keeper && room.invite) DropdownMenuItem(text = { Text("Retire invite link") }, onClick = { menu = false; onRetire() })
-                        if (ended) DropdownMenuItem(text = { Text("Forget room") }, onClick = { menu = false; onForget() })
-                        else if (room.keeper) DropdownMenuItem(text = { Text("Close room") }, onClick = { menu = false; confirming = Confirm.Close })
-                        else DropdownMenuItem(text = { Text("Leave room") }, onClick = { menu = false; confirming = Confirm.Leave })
+                        when (room.exit) {
+                            VmlsRoomExit.CLOSE -> DropdownMenuItem(text = { Text("Close room") }, onClick = { menu = false; confirming = Confirm.Close })
+                            VmlsRoomExit.FORGET -> DropdownMenuItem(text = { Text("Forget room") }, onClick = { menu = false; onForget() })
+                            VmlsRoomExit.LEAVE -> DropdownMenuItem(text = { Text("Leave room") }, onClick = { menu = false; confirming = Confirm.Leave })
+                        }
                     }
                 }
             },
