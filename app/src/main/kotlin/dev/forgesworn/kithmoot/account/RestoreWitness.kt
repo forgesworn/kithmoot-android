@@ -56,6 +56,9 @@ class RestoreWitness(
     /** Whose status [banner] shows, so one account's never shows on another's rooms list. */
     @Volatile private var bannerPersona: String? = null
 
+    /** When the banner's persona was last read from the witness (seconds), for [foregroundTick]. */
+    @Volatile private var lastWitnessRead = 0L
+
     /**
      * A Tor-only room opened or closed (C7). Opening one stops every witness
      * session at once, not only new traffic.
@@ -117,10 +120,12 @@ class RestoreWitness(
 
     /**
      * The foreground timer's tick: every persona's retiring duty, then the
-     * banner for [persona]. Failures leave the banner as it was.
+     * banner for [persona], read from the witness afresh every
+     * [WITNESS_READ_INTERVAL_SECONDS] (C2: a confirmation must not outlast a
+     * retirement for the whole process). Failures leave the banner as it was.
      */
     suspend fun foregroundTick(persona: String?) {
-        if (persona != bannerPersona) { bannerPersona = persona; _banner.value = null }
+        if (persona != bannerPersona) { bannerPersona = persona; _banner.value = null; lastWitnessRead = 0L }
         if (quiet.get()) return
         runCatching { vault.runRetiringDuties() }
         refreshBanner(persona)
@@ -128,8 +133,10 @@ class RestoreWitness(
 
     private suspend fun refreshBanner(persona: String?) {
         if (persona != bannerPersona) return
+        val at = now()
+        val due = at - lastWitnessRead >= WITNESS_READ_INTERVAL_SECONDS
         val status = try {
-            if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona)
+            if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona, check = due).also { if (due) lastWitnessRead = at }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -173,9 +180,12 @@ class RestoreWitness(
         is VaultResult.Refused -> throw IllegalStateException(message)
     }
 
-    private companion object {
+    internal companion object {
         /** The bridge's pairing rendezvous allows 60 s; the booking itself has no bound of its own. */
         const val PAIR_TIMEOUT_MILLIS = 90_000L
+
+        /** How often the foreground tick asks the witness afresh, once the persona is confirmed (C2). */
+        const val WITNESS_READ_INTERVAL_SECONDS = 600L
 
         /** Words for the person; never a stack trace or a secret. */
         fun describe(error: Exception): String = when (error) {

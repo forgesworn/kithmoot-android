@@ -324,6 +324,47 @@ class CoordinatedMlsVaultTest {
         assertTrue(stores.coordinatedNames().isNotEmpty())
     }
 
+    // ---- a confirmation does not last the process (D1 C2) ----
+
+    @Test fun `a check reads the witness again although the persona is confirmed`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey))
+        val before = server.requests
+        // Without a check the answer comes from memory.
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey))
+        assertEquals(before, server.requests)
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = true))
+        assertEquals(before + 1, server.requests)
+    }
+
+    @Test fun `a check after the witness retired the subject fences, where memory still said active`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        server.subjects.getValue(subject.toHex()).retired = true
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey))
+        assertEquals(CoordinationStatus.Fenced("witness-retired", subject.toHex()), vault.coordinationStatus(alice.pubkey, check = true))
+        // A fence is terminal.
+        assertEquals(CoordinationStatus.Fenced("witness-retired", subject.toHex()), vault.coordinationStatus(alice.pubkey))
+    }
+
+    @Test fun `a check after another writer advanced the subject fences as a conflict`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        val sub = server.subjects.getValue(subject.toHex())
+        sub.seq += 1; sub.digest = bytes(32)
+        val status = vault.coordinationStatus(alice.pubkey, check = true)
+        assertIs<CoordinationStatus.Fenced>(status)
+    }
+
+    @Test fun `a check the witness cannot answer keeps the state, fences nothing and the next write reads again`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        server.mode = FakeWitnessServer.Mode.Down
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = true))
+        // Nothing is released on the strength of a confirmation that was not renewed.
+        assertEquals(refused(VaultRefusal.WitnessPending), vault.signLeafBindingV1(ctx, request(device), approve))
+        server.mode = FakeWitnessServer.Mode.Up
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = true))
+        assertIs<VaultResult.Ok<SignLeafBindingReply>>(vault.signLeafBindingV1(ctx, request(device), approve))
+    }
+
     // ---- clear and missing stores ----
 
     @Test fun `witness-pending is Kotlin-only and the ten section 6_2 strings are unchanged`() {

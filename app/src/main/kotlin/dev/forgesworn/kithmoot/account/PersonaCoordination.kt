@@ -163,9 +163,24 @@ internal class PersonaCoordination<V>(
         return if (file?.staged != null) finishPending(c) else readWitness(c)
     }
 
-    private suspend fun readWitness(c: WitnessCoordinator): Gate {
+    /**
+     * [open], then a fresh witness read even when already confirmed (C2): a
+     * confirmation otherwise lasts the whole process, although the witness may
+     * since have retired the subject or moved past this installation. A read
+     * that cannot be had leaves the coordinator unconfirmed, so [Gate.Pending]
+     * comes back and the caller decides whether to keep what it showed; only
+     * what the witness says fences.
+     */
+    suspend fun recheck(): Gate {
+        val gate = open()
+        if ((gate != Gate.Ready && gate != Gate.Pending) || justRead) return gate
+        val c = coordinator ?: return Gate.Pending
+        return if (file?.staged != null) finishPending(c) else readWitness(c, fresh = true)
+    }
+
+    private suspend fun readWitness(c: WitnessCoordinator, fresh: Boolean = false): Gate {
         if (c.fenced() != null) return fenced(c.fenced()!!)
-        if (c.confirmed()) return Gate.Ready
+        if (!fresh && c.confirmed()) return Gate.Ready
         val request = guarded { c.read() }
         val decision = guarded { c.onRead(read(request)) }
         persistState(c)
@@ -500,10 +515,17 @@ internal class PersonaCoordination<V>(
     }
 
     suspend fun status(check: Boolean): CoordinationStatus {
-        val gate = if (check) ready() else open()
+        // A check asks the witness again even when confirmed (C2). If that read
+        // is unavailable the last answer stands: nothing the witness said
+        // fences, and covered writes read again before they release anything.
+        val wasActive = check && snapshot?.fenced == null && coordinator?.let { runCatching { it.confirmed() }.getOrDefault(false) } == true
+        val gate = if (check) recheck() else open()
         return when (gate) {
             Gate.Ready -> CoordinationStatus.Active
-            Gate.Pending -> CoordinationStatus.Pending(coordinator?.let { runCatching { it.refused() }.getOrDefault(false) } ?: false)
+            Gate.Pending -> {
+                val refused = coordinator?.let { runCatching { it.refused() }.getOrDefault(false) } ?: false
+                if (wasActive && !refused) CoordinationStatus.Active else CoordinationStatus.Pending(refused)
+            }
             Gate.NotEnrolled -> CoordinationStatus.NotEnrolled
             is Gate.Fenced -> CoordinationStatus.Fenced(gate.reason, runCatching { store.marker()?.subject }.getOrNull())
         }
