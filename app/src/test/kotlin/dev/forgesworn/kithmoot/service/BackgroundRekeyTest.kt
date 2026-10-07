@@ -53,9 +53,10 @@ class BackgroundRekeyTest {
         closed: Boolean = false,
         scheduled: Boolean = removed.isEmpty() && !closed,
         signer: ByteArray = authoritySecret,
+        destruct: Boolean = false,
     ): NostrEvent = encodeRekeyEvent(
         room, signer, deriveEpoch(epochs[into - 1]), epochs[into], sealedTo, removed, now - 100L * (4 - into),
-        closed = closed, commit = true, scheduled = scheduled,
+        closed = closed, commit = true, scheduled = scheduled, destruct = destruct,
     )
 
     private fun stored() = vault.get(room)!!
@@ -148,5 +149,29 @@ class BackgroundRekeyTest {
         assertEquals(EpochPhase.ACTIVE, begun.phase)
         assertEquals(1, vault.activate(room, 1, now).currentEpoch)
         assertContentEquals(epochs[1].secret, stored().currentSecret)
+    }
+
+    @Test fun `a close that self-destructs is committed here and told, so a room nobody opens still goes`() {
+        var told = 0
+        val follower = BackgroundRekeyFollower(vault, room, authority, participant, { deviceSecret.copyOf() }, { !open }, { now },
+            onDestructClosed = { told++ })
+        follower.offer(rekey(1, closed = true, destruct = true))
+        assertEquals(1, told)
+        assertEquals(EpochPhase.CLOSED, stored().phase)
+        assertEquals(0, stored().currentEpoch)
+    }
+
+    @Test fun `an ordinary close is still left for the open room, and an open room handles its own`() {
+        var told = 0
+        val follower = BackgroundRekeyFollower(vault, room, authority, participant, { deviceSecret.copyOf() }, { !open }, { now },
+            onDestructClosed = { told++ })
+        follower.offer(rekey(1, closed = true))
+        assertEquals(0, told)
+        assertEquals(EpochPhase.ACTIVE, stored().phase)
+        open = true
+        BackgroundRekeyFollower(vault, room, authority, participant, { deviceSecret.copyOf() }, { !open }, { now },
+            onDestructClosed = { told++ }).offer(rekey(1, closed = true, destruct = true))
+        assertEquals(0, told)
+        assertEquals(EpochPhase.ACTIVE, stored().phase)
     }
 }

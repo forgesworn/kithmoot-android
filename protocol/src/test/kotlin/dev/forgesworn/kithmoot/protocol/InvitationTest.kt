@@ -256,4 +256,17 @@ class InvitationTest {
         private const val TYPE_SCRIPT_GRANT =
             """{"kind":20467,"created_at":1800000000,"tags":[["d","e4ab3deb8236620cc308b7abc3fef757621408fc89cc743d3b635c3509ee7c99"],["p","8d7500dd4c12685d1f568b4c2b5048e8534b873319f3a8daa612b469132ec7f7"]],"content":"AiJsSo8VZg5W5Nh4+N5NLr7XL4BzT71GpFxKdXhL7VHFnbQn7oaV2YlPy+z/oqFwZEp0OXYpeDlvj4gCi01C6KUwsjmrSYrJK/VSZWx1JEPbH5plhzoKOtnVIXW8TN/mFzTuMXumUTkChQM+zbSH30DyYvY4Tv757ma7JiAjY7aIzrFJwzIHeSIXopiC2kp1/IudkPGtxdo/rybnofS6vLahGyOVjz76Di0Tksup+wmgaueiuFNYlaqFziOKsLZPkN4QD2Rg2TV5Ae5Z/yeFdeHbL1WStP0al+WSU+4v9ARwqezKYlGuoNOFzyf/R039n0VHAoK2gEgLwdhV0B3Dyx3DoG975xH809utpccrE5KYYSU35ddPtIFj0tWsE0sGjc3yNPUe1fYUDtWvQJcSoRYAVQqB3mbT3QgG3PC033St1NUXLIe/RS9JLm+TOY10vRMGbw4xpFoa5OvH0aYkBP7qB1AwnPiYMkXGTe5O7lHSJz5fEIJUOFdLmoBsnyXanOr51mA7sKE5XKnZ6LQ6zX7otxcjRcDFFeXJvLApITuLlu84VzEDBL5swdyn/D5dVt8gVaoLK6tKSL306xvt5GpMBSZkTvnj/40+l9LWal1XJl8suK6zWaJNVbQDuOMOqUzVRt3TKYuxN4oedipJ+Ctbp+yfVXF0i5E0yoN8t7l28Tw8+JG/R2OWzkxN2khBMoPFyg0REvJxfnmEQLH1GgAJV9JEj5caWN+Nj1MZ4z3yTee0Fh1p4S0vQ6i1o+rVHJ+I1NI3P7be9VR5ng1ldgM8z4pkccoXSbTomvtu7mxAo2ElfelQdRTxu90XYgeRB7PV0jefsZc/tUV6KkxD6S18SB3Bdd/0xOsUJBqn6YG/krbUVu92zAh3RLx69gIL4z8M0AHrjBRhBKPtjTDuCGZw/Xbusgub0e632NrVKYJD7lc=","pubkey":"552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84","id":"775351502c8f40c21232c3417ae98244348331659249ca10a6fb745ecfb272ae","sig":"1f5665cba5261308b085da517fb576c15362d5305c110bd75de88fda224bf1d51e6a663047a410cac045f2441634252b55624fbd82b32c0444372d57778ed09e"}"""
     }
+
+    @Test fun `the room's name a web link carries is read, sanitised, and absent when it names none`() {
+        val host = createRoomInvitation(true)
+        val plain = encodeInvitationUrl("https://kithmoot.example/j/", host.invitation, listOf("wss://relay.example"))
+        assertNull(decodeInvitationUrl(plain)!!.name)
+        fun withName(name: kotlinx.serialization.json.JsonElement): String {
+            val payload = Json.parseToJsonElement(String(base64UrlDecode(plain.substringAfter('#')), Charsets.UTF_8)).jsonObject
+            return plain.substringBefore('#') + "#" + base64UrlEncode(JsonObject(payload + ("n" to name)).toString().toByteArray(Charsets.UTF_8))
+        }
+        assertEquals("Dark Prague", decodeInvitationUrl(withName(JsonPrimitive("  Dark Prague ")))!!.name)
+        assertNull(decodeInvitationUrl(withName(JsonPrimitive("\u200b")))!!.name)
+        assertNull(decodeInvitationUrl(withName(JsonPrimitive(7)))!!.name)
+    }
 }

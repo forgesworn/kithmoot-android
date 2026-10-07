@@ -39,6 +39,9 @@ internal fun NewRoomForm(
     conferenceLength: ConferenceLength = ConferenceLength.NEVER,
     /** Null hides the choice, as the disabled preview behind the storage error does. */
     onConferenceLengthChanged: ((ConferenceLength) -> Unit)? = null,
+    /** When a room with an end ends: self-destruct (the default) or keep a read-only copy. */
+    roomDestruct: Boolean = true,
+    onRoomDestructChanged: ((Boolean) -> Unit)? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
@@ -64,6 +67,9 @@ internal fun NewRoomForm(
             Switch(checked = anonymousMode, onCheckedChange = null, enabled = enabled)
         }
         if (onConferenceLengthChanged != null) ConferenceLengthChoice(conferenceLength, onConferenceLengthChanged, enabled)
+        if (onConferenceLengthChanged != null && onRoomDestructChanged != null && conferenceLength != ConferenceLength.NEVER) {
+            WhenItEndsChoice(roomDestruct, onRoomDestructChanged, enabled)
+        }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onStartRoom, enabled = enabled && !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Start a room") }
@@ -93,6 +99,33 @@ private fun ConferenceLengthChoice(selected: ConferenceLength, onSelected: (Conf
         }
         if (selected != ConferenceLength.NEVER) Text(
             "A conference room: when it ends it closes for everyone and relays delete it.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * When a room with an end ends: Self-destruct, the default (owner decision
+ * D1), or Keep it read-only. Offered only for a room with an end, as on the
+ * web: a room with no end self-destructs only when its authority ends it, and
+ * this phone has no way to end a room early, so it does not offer that.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun WhenItEndsChoice(destruct: Boolean, onSelected: (Boolean) -> Unit, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("When it ends", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((value, label) in listOf(true to "Self-destruct", false to "Keep it read-only")) {
+                FilterChip(
+                    selected = value == destruct, onClick = { onSelected(value) }, enabled = enabled,
+                    label = { Text(label) },
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { role = Role.RadioButton },
+                )
+            }
+        }
+        if (destruct) Text(
+            dev.forgesworn.kithmoot.session.DESTRUCT_PROMISE,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

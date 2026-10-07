@@ -31,4 +31,9 @@ class CallRingSettings(context: Context) {
     fun setMode(roomId: String, mode: CallRingMode) {
         prefs.edit().putString(roomId, mode.storeValue).apply()
     }
+
+    /** Forget the room's choice: the room is gone from this device. */
+    fun forget(roomId: String) {
+        prefs.edit().remove(roomId).apply()
+    }
 }

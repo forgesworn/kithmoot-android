@@ -75,6 +75,12 @@ class RekeyNotice(
      * `docs/scheduled-rekey.md`.
      */
     val scheduled: Boolean = false,
+    /**
+     * The closing rekey says the room self-destructs (fold-kit 0.9.0): every member's device
+     * deletes what it wrote and forgets the room. Believed only beside [closed], and only for
+     * the value `true`; a body carrying it on an open rekey is read in full without it.
+     */
+    val destruct: Boolean = false,
 ) {
     val removed = removed.toList()
     val secret = secret?.copyOf()
@@ -162,6 +168,9 @@ fun encodeRekeyEvent(
     /** Mark a scheduled turn of the key (`"scheduled": true`, after `closed`). Never beside a
      *  removal or a close. Off, the event is byte-identical to before. */
     scheduled: Boolean = false,
+    /** Mark a closure as a self-destruct (`"destruct": true`, after `closed`). Only with
+     *  [closed]. Off, the event is byte-identical to before. */
+    destruct: Boolean = false,
     recipientNonces: Map<String, ByteArray> = emptyMap(),
     bodyNonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
@@ -171,6 +180,7 @@ fun encodeRekeyEvent(
     require(next.epoch == current.epoch + 1) { "a rekey moves the room forward by exactly one epoch" }
     val canonicalRemoved = removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted()
     require(!scheduled || canonicalRemoved.isEmpty() && !closed) { "a scheduled rekey removes nobody and does not close the room" }
+    require(!destruct || closed) { "only a closing rekey can make the room self-destruct" }
     val sealed = buildJsonObject { put("v", 1); put("secret", base64UrlEncode(next.secret)) }.toString()
     val keys = buildJsonObject {
         if (!closed) recipients.forEach { raw ->
@@ -185,6 +195,7 @@ fun encodeRekeyEvent(
         put("v", 1); put("epoch", next.epoch); put("removed", strings(canonicalRemoved))
         if (by != null) put("by", requireEpochHex(by, "admin"))
         if (closed) put("closed", true)
+        if (destruct) put("destruct", true)
         if (scheduled) put("scheduled", true)
         if (commit) put("commit", epochCommitment(room, next.epoch, next.secret))
         if (members != null) put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in canonicalRemoved }.sorted()))
@@ -231,7 +242,8 @@ fun decodeRekeyEvent(
     // Believed only beside no removal and no close: a body that contradicts itself is still announced.
     val scheduled = body.isScheduled() && removed.isEmpty() && !closed
     try {
-        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit, members = readMemberList(body["members"]), scheduled = scheduled)
+        RekeyNotice(epoch, removed, by, closed, secret, event.createdAt, commit = commit, members = readMemberList(body["members"]), scheduled = scheduled,
+            destruct = closed && body.isDestruct())
     } finally { secret?.fill(0) }
 }.getOrNull()
 
@@ -264,6 +276,8 @@ data class RekeyEvidence(
     val members: List<String>? = null,
     /** A scheduled turn of the key: see [RekeyNotice.scheduled]. */
     val scheduled: Boolean = false,
+    /** The closure self-destructs the room: see [RekeyNotice.destruct]. */
+    val destruct: Boolean = false,
 )
 
 /**
@@ -282,7 +296,8 @@ fun readRekeyEvidence(event: NostrEvent, roomId: String, authority: String, prev
         .takeIf { it.all(HEX64::matches) }?.map(String::normaliseHex)?.distinct()?.sorted() ?: return null
     val closed = (body["closed"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
     val commit = (body["commit"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX64::matches)?.normaliseHex()
-    RekeyEvidence(epoch, removed, closed, commit, readMemberList(body["members"]), body.isScheduled() && removed.isEmpty() && !closed)
+    RekeyEvidence(epoch, removed, closed, commit, readMemberList(body["members"]), body.isScheduled() && removed.isEmpty() && !closed,
+        destruct = closed && body.isDestruct())
 }.getOrNull()
 
 /** A JSON number that is an integer, as `Number.isSafeInteger` would see it, as a Long; null otherwise. */
@@ -296,6 +311,9 @@ private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
 
 /** Exactly `"scheduled": true`, as fold-kit's `body.scheduled === true` reads it. */
 private fun JsonObject.isScheduled(): Boolean = (this["scheduled"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
+
+/** Exactly `"destruct": true`, as fold-kit's `body.destruct === true` reads it. */
+private fun JsonObject.isDestruct(): Boolean = (this["destruct"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
 
 /** A JSON number that is an integer, as `Number.isSafeInteger` would see it; null otherwise. */
 internal fun kotlinx.serialization.json.JsonElement?.exactInt(): Int? {

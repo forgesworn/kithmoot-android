@@ -33,6 +33,20 @@ class Nip77OfferArchiveTest {
         assertFailsWith<RoomStorageException> { archive.record(account, room, Events.sign(key, 1, 100, listOf(listOf("d", address)), "wrong kind")) }
     }
 
+    @Test fun `forgetting a room takes its events and leaves every other room's`() {
+        val disk = MemoryStorage()
+        val archive = Nip77OfferArchive(disk)
+        val kept = chat(100, "kept")
+        val gone = chat(101, "gone")
+        archive.record(account, hex(9), kept)
+        archive.record(account, room, gone)
+        archive.forgetRoom(room)
+        assertEquals(emptyList(), archive.available(account, room, address, 100, 101, listOf(gone.id)))
+        assertEquals(listOf(kept.id), archive.available(account, hex(9), address, 100, 101, listOf(kept.id)).map(NostrEvent::id))
+        archive.forgetRoom(hex(9))
+        assertEquals(null, disk.value)
+    }
+
     @Test fun `bounds one account to the newest 127 records`() {
         val archive = Nip77OfferArchive(MemoryStorage())
         val events = (0 until 130).map { chat(1_000L + it) }
@@ -49,7 +63,7 @@ class Nip77OfferArchiveTest {
     private fun hex(seed: Int): String = ByteArray(32) { (seed + it).toByte() }.toHex()
 
     private class MemoryStorage : RoomStorage {
-        private var value: ByteArray? = null
+        var value: ByteArray? = null
         override fun read(): ByteArray? = value?.copyOf()
         override fun write(value: ByteArray) { this.value = value.copyOf() }
         override fun reset() { value = null }

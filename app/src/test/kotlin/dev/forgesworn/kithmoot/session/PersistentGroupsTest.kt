@@ -67,4 +67,16 @@ class PersistentGroupsTest {
         val twin = encodePersistentInvitation(host, secret, 1_800_000_010, relays = listOf("wss://twin.example/"))
         assertEquals(listOf("wss://old.example/"), requestPersistentAdmission(host.invitation) { listOf(older, twin) }.relays)
     }
+
+    @Test fun `self-destruct sticks - any copy that says so wins in either order - and the relays still come from the newest`() = runTest {
+        // fold-kit 0.9.0's destruct-invitation-copies: an older flagged copy, a newer one naming relays.
+        val flagged = encodePersistentInvitation(host, secret, 1_800_000_000, destruct = true)
+        val newer = encodePersistentInvitation(host, secret, 1_800_000_060, relays = listOf("wss://relay.example.com/"))
+        for (order in listOf(listOf(flagged, newer), listOf(newer, flagged))) {
+            val admission = requestPersistentAdmission(host.invitation) { order }
+            assertTrue(admission.destruct)
+            assertEquals(listOf("wss://relay.example.com/"), admission.relays)
+        }
+        assertFalse(requestPersistentAdmission(host.invitation) { listOf(welcome, newer) }.destruct)
+    }
 }

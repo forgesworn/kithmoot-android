@@ -174,6 +174,19 @@ object MessageNotices {
         NotificationManagerCompat.from(context).notify(roomId, ID, notice); true
     } catch (_: SecurityException) { false }
 
+    /**
+     * Every notification this app shows under [roomId]'s tag, whatever posted
+     * it (messages, a call, a call answered elsewhere, a self-destruct
+     * heads-up): the room is gone from this device.
+     */
+    fun cancelEverything(context: Context, roomId: String) {
+        cancel(context, roomId)
+        runCatching {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.activeNotifications.filter { it.tag == roomId }.forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
+
     fun cancel(context: Context, roomId: String) {
         Log.i(LOG_TAG, "room=${BackgroundCallListenerService.label(roomId)} cleared")
         val manager = NotificationManagerCompat.from(context)

@@ -218,4 +218,54 @@ class RoomBookmarksTest {
         val closing = launch { log.close() }; runCurrent(); block.complete(Unit); job.join(); closing.join()
         assertTrue(net.sent.isEmpty())
     }
+
+    @Test fun carriesAnEndSelfDestructAndStartAsTheWebWritesThemAndNoSaveTakesThemBack() = runTest {
+        val dated = groupRoom.copy(endsAt = now / 1000 + 86_400, destruct = true, startsAt = now / 1000 - 60)
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(dated); runCurrent()
+        val plain = Json.parseToJsonElement(signer.nip44Decrypt(signer.pubkey, net.sent.single().content)).jsonObject
+        val room = plain.getValue("room").jsonObject
+        assertEquals(setOf("roomId", "link", "name", "openedAt", "readAt", "endsAt", "destruct", "startsAt"), room.keys)
+        assertEquals(JsonPrimitive(true), room.getValue("destruct"))
+        val second = log(Store(), net); second.open()
+        val listed = second.state.value.rooms.single()
+        assertEquals(dated.endsAt, listed.endsAt); assertTrue(listed.destruct); assertEquals(dated.startsAt, listed.startsAt)
+        // A save from a device that knows none of it keeps all three.
+        second.save(listed.copy(name = "Renamed", endsAt = null, destruct = false, startsAt = null)); runCurrent()
+        val kept = Json.parseToJsonElement(signer.nip44Decrypt(signer.pubkey, net.sent.last().content)).jsonObject.getValue("room").jsonObject
+        assertEquals(JsonPrimitive(true), kept.getValue("destruct"))
+        assertEquals(JsonPrimitive(dated.endsAt!!), kept.getValue("endsAt"))
+        // Learning self-destruct later is a change worth sending.
+        val plainLog = log(Store(), Network()); plainLog.open(); plainLog.save(groupRoom); runCurrent()
+        val before = plainLog.state.value.rooms.single(); assertFalse(before.destruct)
+        plainLog.save(before.copy(destruct = true)); runCurrent()
+        assertTrue(plainLog.state.value.rooms.single().destruct)
+        first.close(); second.close(); plainLog.close()
+    }
+
+    private fun TestScope.told(store: Store, net: Network, into: MutableList<String>) =
+        RoomBookmarks(signer, net, store, backgroundScope, { now }, onTombstone = { into += it })
+
+    @Test fun tellsTheAppOfATombstoneOnlyOnceTheLookupHasSettledAndOnlyWhenItIsTheLatestWord() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open()
+        first.save(groupRoom); runCurrent(); first.remove(groupRoom.roomId); runCurrent()
+        val told = mutableListOf<String>()
+        val second = told(Store(), net, told); second.open(); runCurrent()
+        assertEquals(listOf(groupRoom.roomId), told)
+        // Saved again after its tombstone: the tombstone is history, not news.
+        first.save(groupRoom); runCurrent()
+        val third = mutableListOf<String>()
+        val later = told(Store(), net, third); later.open(); runCurrent()
+        assertEquals(emptyList(), third)
+        first.close(); second.close(); later.close()
+    }
+
+    @Test fun tellsTheAppOfATombstoneThatArrivesWhileItIsListening() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(groupRoom); runCurrent()
+        val told = mutableListOf<String>()
+        val second = told(Store(), net, told); second.open(); runCurrent()
+        assertEquals(emptyList(), told)
+        first.remove(groupRoom.roomId); runCurrent()
+        assertEquals(listOf(groupRoom.roomId), told)
+        first.close(); second.close()
+    }
 }

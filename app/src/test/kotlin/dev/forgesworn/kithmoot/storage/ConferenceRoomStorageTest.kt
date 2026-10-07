@@ -14,13 +14,13 @@ class ConferenceRoomStorageTest {
     private val relays = listOf("wss://relay.example")
     private val base = "https://kithmoot.example/j/"
 
-    private fun room(ends: Long? = this.ends, persistent: Boolean = true): SavedRoom {
+    private fun room(ends: Long? = this.ends, persistent: Boolean = true, destruct: Boolean = false): SavedRoom {
         val secret = Entropy.bytes(32)
         val derived = deriveRoom(secret)
         val who = PrimaryIdentity.create(derived.roomId, now + 3600, now)
         val host = createRoomInvitation(persistent)
         return SavedRoom.create(secret, who, encodeInvitationUrl(base, host.invitation, relays), relays,
-            "Conference", now, host, host.invitation.canonicalInviter, ends = ends)
+            "Conference", now, host, host.invitation.canonicalInviter, ends = ends, destruct = destruct)
     }
 
     @Test fun `the end survives a save and a reopen`() {
@@ -75,5 +75,41 @@ class ConferenceRoomStorageTest {
         val again = SavedRoom.create(previous.secret, identity, previous.joinUrl, relays, "Conference", now + 10, null, previous.authority)
         assertNull(again.ends)
         assertEquals(ends, again.retainingHistory(previous).ends)
+    }
+
+    @Test fun `self-destruct and the start survive a save, show in the summary, and no later opening takes them back`() {
+        val disk = MemoryStorage()
+        val saved = room(destruct = true)
+        assertTrue(saved.destruct)
+        assertEquals(now, saved.startsAt)
+        RoomRepository(disk).save(saved)
+        val restored = RoomRepository(disk).get(saved.id)!!
+        assertTrue(restored.destruct)
+        assertTrue(restored.summary(now).destruct)
+        assertEquals(now, restored.summary(now).startsAt)
+        val again = SavedRoom.create(saved.secret, saved.identity(now), saved.joinUrl, relays, "Conference", now + 10, null, saved.authority, ends = ends)
+        assertFalse(again.destruct)
+        val kept = again.retainingHistory(saved)
+        assertTrue(kept.destruct)
+        assertEquals(now, kept.startsAt)
+    }
+
+    @Test fun `self-destruct learnt later sticks, and the heads-up is remembered with the room`() {
+        val saved = room()
+        assertFalse(saved.destruct)
+        val marked = saved.withDestruct()
+        assertTrue(marked.destruct)
+        assertSame(marked, marked.withDestruct())
+        assertFalse(marked.destructHeadsUp)
+        assertTrue(marked.withDestructHeadsUp().destructHeadsUp)
+    }
+
+    @Test fun `a malformed self-destruct is refused on load, and only a group room can self-destruct`() {
+        val good = room().json
+        for (bad in listOf(JsonPrimitive(false), JsonPrimitive("true"), JsonPrimitive(1), JsonNull)) {
+            assertFails { SavedRoom.decode(JsonObject(good + ("destruct" to bad))) }
+        }
+        assertFails { room(ends = null, persistent = false, destruct = true) }
+        assertFails { SavedRoom.decode(JsonObject(good + ("startsAt" to JsonPrimitive("1")))) }
     }
 }

@@ -73,6 +73,8 @@ fun ChatPane(
     sending: Boolean = false,
     /** Messages kept on this phone and not yet in the log: shown after the last message, as the sender's own. */
     pendingChats: List<PendingChat> = emptyList(),
+    /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
+    destructEndsAt: Long? = null,
     onRetryPending: () -> Unit = {},
     /** Puts the message's text back in the composer through the callback, dropping the kept message. */
     onEditPending: (String, (String) -> Unit) -> Unit = { _, _ -> },
@@ -303,7 +305,9 @@ fun ChatPane(
                     notesAfter[index]?.forEach { NoteLine(it) }
                 }
                 items(shownPending, key = { "pending-" + it.id }) { kept ->
-                    PendingRow(kept, canSend, onRetryPending,
+                    val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
+                        destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
+                    PendingRow(kept, canSend, onRetryPending, doomed = doomed,
                         onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
@@ -451,7 +455,7 @@ internal fun pendingStatus(state: PendingChatState): String = when (state) {
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
 @Composable
-private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         Surface(shape = RoundedCornerShape(16.dp),
@@ -464,7 +468,7 @@ private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(pendingStatus(kept.state), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend) { Text("Retry") }

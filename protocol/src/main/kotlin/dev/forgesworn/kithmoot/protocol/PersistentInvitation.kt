@@ -46,8 +46,10 @@ fun invitationRelaysFrom(urls: List<String>): List<String> =
  * A conference room's [ends] rides in the body and, as a NIP-40 `expiration`,
  * on the event, so relays drop the way in when the room ends. The room's own
  * [relays] - fixed when it was made, used by every member - ride in the body
- * after it (see [invitationRelaysOf]). Without either the envelope is exactly
- * what it always was.
+ * after it (see [invitationRelaysOf]). A room that self-destructs carries
+ * `"destruct": true` between the two (fold-kit 0.9.0), inside the encryption
+ * and never as a tag. Without any of them the envelope is exactly what it
+ * always was.
  */
 fun encodePersistentInvitation(
     host: RoomInvitationHost,
@@ -57,6 +59,7 @@ fun encodePersistentInvitation(
     auxRand: ByteArray = Entropy.bytes(32),
     ends: Long? = null,
     relays: List<String>? = null,
+    destruct: Boolean = false,
 ): NostrEvent {
     require(Schnorr.publicKeyHex(host.inviterSecretKey) == host.invitation.canonicalInviter)
     ends?.let { require(it > now) { "this conference room has ended" } }
@@ -67,6 +70,7 @@ fun encodePersistentInvitation(
         put("room", room.roomId)
         put("secret", base64UrlEncode(roomSecret))
         ends?.let { put("ends", it) }
+        if (destruct) put("destruct", true)
         relays?.let { put("relays", JsonArray(it.map(::JsonPrimitive))) }
     }
     return Events.sign(host.inviterSecretKey, KIND_GROUP_INVITATION, now,
@@ -82,7 +86,9 @@ fun encodePersistentInvitation(
  * `expiration` that is not exactly the body's `ends` refuses the whole
  * envelope: the tag is what relays act on, so it must say what the room says.
  * The room's relays come back as [RoomAdmission.relays]; a malformed list
- * refuses the envelope too.
+ * refuses the envelope too. So does a `destruct` that is present and not
+ * exactly `true` (`false`, `"true"`, `1`, `null`), as fold-kit 0.9.0 reads it:
+ * the same strictness as `ends`. Exactly `true` is [RoomAdmission.destruct].
  */
 fun decodePersistentInvitation(event: NostrEvent, invitation: RoomInvitation): RoomAdmission? = try {
     if (!invitation.persistent || event.kind != KIND_GROUP_INVITATION || event.pubkey != invitation.canonicalInviter || !Events.verify(event)) null
@@ -97,8 +103,10 @@ fun decodePersistentInvitation(event: NostrEvent, invitation: RoomInvitation): R
         require(expirations.size <= 1)
         expirations.singleOrNull()?.let { require(ends != null && it.getOrNull(1) == ends.toString()) }
         val relays = if ("relays" in body) requireNotNull(invitationRelaysOf(body["relays"])) else null
+        val destruct = "destruct" in body
+        if (destruct) require(body["destruct"].let { it is JsonPrimitive && it !is JsonNull && !it.isString && it.booleanOrNull == true })
         if (body["v"]?.jsonPrimitive?.longOrNull != 3L || deriveRoom(secret).roomId != body["room"]?.jsonPrimitive?.content) null
         // A group invitation always opens epoch 0, as fold-kit's says.
-        else RoomAdmission(secret, null, ends, relays, epoch = 0)
+        else RoomAdmission(secret, null, ends, relays, epoch = 0, destruct = destruct)
     }
 } catch (_: Exception) { null }

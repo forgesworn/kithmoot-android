@@ -57,5 +57,9 @@ suspend fun requestPersistentAdmission(
     // any stands, a copy naming none says nothing about them, and between
     // copies signed in the same second the first heard stays.
     val relays = copies.filter { it.second.relays != null }.reduceOrNull { kept, next -> if (next.first.createdAt > kept.first.createdAt) next else kept }?.second?.relays
-    return admissions.first().copy(endsAt = endsAt, relays = relays)
+    // Self-destruct sticks, as on the web (fold-kit 0.9.0): any valid copy
+    // that says so makes the room self-destruct, whichever order they come
+    // in, so a stale or careless copy can never keep its content alive.
+    val destruct = admissions.any { it.destruct }
+    return admissions.first().copy(endsAt = endsAt, relays = relays, destruct = destruct)
 }

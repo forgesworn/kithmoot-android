@@ -31,7 +31,9 @@ fun syncedGroup(rooms: List<AccountRoom>, invitation: RoomInvitation): SyncedGro
     if (named.map { it.roomId }.distinct().size != 1) return null
     val room = named.first()
     val secret = syncedSecret(room) ?: return null
-    return SyncedGroup(room, RoomAdmission(secret, null))
+    // The end and self-destruct the bookmark carries come with it, so an
+    // ended room is refused and a self-destructing one is known as such.
+    return SyncedGroup(room, RoomAdmission(secret, null, endsAt = room.endsAt, destruct = room.destruct))
 }
 
 /** The bookmark's secret, when it derives the room's own id. */

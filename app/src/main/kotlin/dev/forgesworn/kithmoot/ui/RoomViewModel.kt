@@ -23,6 +23,8 @@ import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.RoomNameRecord
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
+import dev.forgesworn.kithmoot.protocol.readRekeyEvidence
+import dev.forgesworn.kithmoot.protocol.KIND_ROOM_REKEY
 import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
@@ -338,10 +340,18 @@ data class StartState(
     val opening: String? = null,
     val error: String? = null,
     val notice: String? = null,
+    /** Rooms that self-destructed on this device, newest first: one greyed row
+     *  each, naming none, until dismissed or seven days pass. */
+    val destructTombstones: List<dev.forgesworn.kithmoot.storage.DestructTombstone> = emptyList(),
     val roomName: String = "",
     val persistentGroup: Boolean = true,
     /** How long a new room runs: Never, or a conference room that ends and is wiped from relays. */
     val conferenceLength: ConferenceLength = ConferenceLength.NEVER,
+    /** When a room with an end ends: self-destruct (owner decision D1, the
+     *  default) or keep a read-only copy. Offered only for a room with an end:
+     *  this phone cannot end a room early, so it never makes a room with no end
+     *  that could only be destroyed from another device. */
+    val roomDestruct: Boolean = true,
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
@@ -622,6 +632,10 @@ data class RoomState(
     val endsAt: Long? = null,
     /** This conference room has reached its end: nothing more is sent, and the link no longer opens it. */
     val conferenceEnded: Boolean = false,
+    /** The room self-destructs when it ends (`SavedRoom.destruct`). */
+    val destruct: Boolean = false,
+    /** When this device first knew the room, for scaling its countdown. */
+    val startsAt: Long? = null,
 ) {
     val self: ParticipantTile? get() = tiles.firstOrNull { it.isSelf }
     val deviceCount: Int get() = self?.deviceCount ?: 1
@@ -681,6 +695,9 @@ val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.n
  * Read from only, and only while the profiles switch is on.
  */
 val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
+
+/** How often self-destructing rooms are looked at: whether one is due, and its heads-up. */
+private const val DESTRUCT_CHECK_MS = 15_000L
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
@@ -1055,6 +1072,19 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // Self-destructing rooms: those whose end came while this phone was
+        // off go now, the rest when theirs comes; the heads-up at red; and the
+        // tombstone rows, which age out by themselves.
+        if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                runCatching { runDueDestructs() }
+                runCatching { sendDestructHeadsUps(epochSeconds()) }
+                runCatching { destructTombstones.list(epochSeconds()) }.getOrNull()?.let { rows ->
+                    if (rows != _start.value.destructTombstones) _start.update { it.copy(destructTombstones = rows) }
+                }
+                delay(DESTRUCT_CHECK_MS)
+            }
+        }
         // Which Ring me rooms cannot answer a call yet, kept current for the banner:
         // whenever the rooms or the account change, and as credentials run down.
         if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
@@ -1213,7 +1243,8 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
         val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope,
-            beforePublish = AccountWriteHold.process::awaitReleased)
+            beforePublish = AccountWriteHold.process::awaitReleased,
+            onTombstone = { roomId -> if (!chatOnly) viewModelScope.launch(Dispatchers.IO) { bookmarkTombstoned(roomId) } })
         roomBookmarks = bookmarks; roomBookmarkScope = scope
         _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
         roomBookmarkLifecycle = scope.launch {
@@ -1263,7 +1294,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
         if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
         return try { RoomBookmarks.validateLink(room.joinUrl, room.id)
-            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room))
+            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room), room.ends, room.destruct, room.startsAt)
         } catch (_: Exception) { null }
     }
 
@@ -1333,7 +1364,8 @@ class RoomViewModel @JvmOverloads constructor(
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
-                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch)
+                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch,
+                destruct = admission?.destruct == true)
         }
     }
 
@@ -1441,7 +1473,8 @@ class RoomViewModel @JvmOverloads constructor(
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
-                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch)
+                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch,
+                destruct = admission.destruct)
         }
     }
 
@@ -1742,6 +1775,147 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** The GL context the renderers share. Null until the media stack is up. */
     val eglBase: EglBase? get() = engine?.eglBase
+
+    // --- self-destruct -------------------------------------------------------
+    //
+    // A room whose group invitation or closing rekey says `destruct` (fold-kit
+    // 0.9.0) is tidied away on this device when it ends, without asking: by its
+    // time while open, at the next start when this phone was off, or when its
+    // closing rekey arrives. The design's order: leave; ask the room's relays
+    // to delete what this device's key signed (NIP-09), which needs that key,
+    // so the saved room stays until then; tombstone the account's bookmark;
+    // wipe everything this phone keeps for the room ([RoomWipeStep]); leave a
+    // tombstone row that names no room. What it cannot do, it says nothing
+    // about: copies others kept, and relays that ignore deletion.
+
+    private val destructor: dev.forgesworn.kithmoot.service.RoomSelfDestructor = (application as KithMootApplication).selfDestructor
+    private val destructTombstones get() = destructor.tombstones
+
+    /** Out of [roomId] on this screen, and off its call, saying it self-destructed. */
+    private suspend fun leaveForDestruct(roomId: String) {
+        gate.withLock {
+            if (savedRoom?.id != roomId) return@withLock
+            val live = session
+            _videos.value = emptyMap()
+            try { live?.leave() } catch (e: CancellationException) { throw e } catch (_: Exception) { } finally { closeSession() }
+        }
+        if (_room.value.roomId == roomId) {
+            _room.value = RoomState(background = backgrounds.load())
+            _stage.value = Stage.START
+            _start.update { it.copy(notice = dev.forgesworn.kithmoot.session.SELF_DESTRUCTED_MESSAGE, error = null) }
+        }
+    }
+
+    /**
+     * Tidy [roomId] away on this device, if it self-destructs and its end has
+     * come ([force]: another of the person's devices already tidied it away).
+     * Leaving happens in any instance showing the room; the rest only in the
+     * call's instance, which owns the account. The tidy-up itself is
+     * [dev.forgesworn.kithmoot.service.RoomSelfDestructor], shared with the
+     * background service.
+     */
+    private suspend fun selfDestruct(roomId: String, force: Boolean = false) {
+        val saved = runCatching { savedRooms.get(roomId) }.getOrNull() ?: return
+        if (!saved.destruct || !(force || destructor.due(saved))) return
+        if (!destructor.claim(roomId)) return
+        try {
+            withContext(NonCancellable) { leaveForDestruct(roomId) }
+            if (chatOnly) return
+            val outcome = destructor.run(roomId, force = force, claimed = true, inboxQueue = backgroundInboxWrites) { room, delete ->
+                // The room's own relays are read and written whatever this phone's relay choices say.
+                withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(room), room.anonymous, room.sharedRelays.toSet()) { delete(it) }
+            }
+            if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) sendOwedBookmarkTombstones()
+            val rooms = runCatching { savedRooms.list() }.getOrNull()
+            _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
+        } finally {
+            destructor.release(roomId)
+        }
+    }
+
+    /**
+     * The person's other devices learn a room is gone from the account's
+     * bookmark tombstone, even if they missed its end. Sent for every room
+     * tidied away here or by the background service, once the account's
+     * bookmarks are loaded; a room the account never listed owes nothing.
+     */
+    private fun sendOwedBookmarkTombstones() {
+        val bookmarks = roomBookmarks ?: return
+        val snapshot = bookmarks.state.value
+        if (!snapshot.ready) return
+        for (roomId in destructor.owedBookmarks(bookmarks.identity)) {
+            if (snapshot.rooms.any { it.roomId == roomId }) changeRoomBookmarks {
+                it.remove(roomId)
+                destructor.bookmarkTombstoned(bookmarks.identity, roomId)
+            } else destructor.bookmarkTombstoned(bookmarks.identity, roomId)
+        }
+    }
+
+    /**
+     * The account's bookmarks say a room was removed. A self-destructing room
+     * this phone still holds goes too: another of the person's devices tidied
+     * it away, perhaps at an end this phone missed. Any other room is left
+     * exactly as it was ([wipesOnBookmarkTombstone]).
+     */
+    private suspend fun bookmarkTombstoned(roomId: String) {
+        val saved = runCatching { savedRooms.get(roomId) }.getOrNull()
+        if (!wipesOnBookmarkTombstone(saved)) return
+        selfDestruct(roomId, force = true)
+    }
+
+    /**
+     * The room on screen was closed by its authority. When it self-destructs,
+     * by its invitation or by the closing rekey, it goes. A device that missed
+     * the rekey (told by the authority's refusal, which carries no flag) reads
+     * the closing rekey from the room's relays with the key of the epoch it
+     * left; found only when it was one epoch behind at most and while relays
+     * keep it. Not found: the room just ends, as it always did.
+     */
+    private suspend fun roomClosed(roomId: String) {
+        val saved = runCatching { savedRooms.get(roomId) }.getOrNull() ?: return
+        if (!saved.destruct) {
+            if (saved.invitation?.invitation?.persistent != true || !closingRekeyDestructs(saved)) return
+            runCatching { savedRooms.update(roomId) { it.withDestruct() } }
+        }
+        selfDestruct(roomId)
+    }
+
+    private suspend fun closingRekeyDestructs(saved: SavedRoom): Boolean {
+        val authority = saved.authority ?: return false
+        val stored = runCatching { roomEpochs.get(saved.id) }.getOrNull() ?: return false
+        val previous = deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
+        val filter = Filter(kinds = listOf(KIND_ROOM_REKEY), authors = listOf(authority), tags = mapOf("#d" to listOf(saved.id)), limit = 50)
+        val events = try {
+            withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) { it.queryAvailable(listOf(filter), 8_000) }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        return events.any { readRekeyEvidence(it, saved.id, authority, previous.epoch, previous.key)?.destruct == true }
+    }
+
+    private val destructSweep = Mutex()
+
+    /** Tidy away every self-destructing room whose end has come. One sweep at a time. */
+    private suspend fun runDueDestructs() {
+        if (!destructSweep.tryLock()) return
+        try {
+            val now = epochSeconds()
+            val due = runCatching { savedRooms.list() }.getOrDefault(emptyList()).filter { it.destruct && !destructor.waiting(it.id, now) }
+            for (summary in due) selfDestruct(summary.id)
+            sendOwedBookmarkTombstones()
+        } finally { destructSweep.unlock() }
+    }
+
+    /** The heads-up at red, once per room whoever sends it; not for the room on screen, which has its pill. */
+    private fun sendDestructHeadsUps(now: Long) {
+        destructor.sendHeadsUps(now) { notifications.foreground && _room.value.roomId == it }
+    }
+
+    /** Remove one self-destructed room's row. */
+    fun dismissTombstone(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            destructTombstones.dismiss(id)
+            _start.update { it.copy(destructTombstones = destructTombstones.list(epochSeconds())) }
+        }
+    }
 
     // --- start screen --------------------------------------------------------
 
@@ -2720,6 +2894,10 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(conferenceLength = value, error = null) }
     }
 
+    fun onRoomDestructChanged(value: Boolean) {
+        _start.update { it.copy(roomDestruct = value, error = null) }
+    }
+
     /**
      * Opens a room.
      *
@@ -2745,6 +2923,7 @@ class RoomViewModel @JvmOverloads constructor(
         val name = _start.value.roomName
         val persistent = true
         val length = _start.value.conferenceLength
+        val destructChoice = _start.value.roomDestruct
         enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
             if (anonymous) holdForTorOnlyEntry()
@@ -2765,7 +2944,9 @@ class RoomViewModel @JvmOverloads constructor(
             // writes, fixed now and named in the signed invitation, so every
             // member uses them whatever else they use.
             val roomRelays = if (anonymous) emptyList() else invitationRelaysFrom(relays.filter { it in selectedReadRelays(relays) && it in selectedWriteRelays(relays) })
-            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays)
+            // Self-destruct rides beside the end, inside the invitation's encryption.
+            val destruct = ends != null && destructChoice
+            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays, destruct)
             open(
                 derived = derived,
                 secret = secret,
@@ -2780,6 +2961,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ends = ends,
                 roomRelays = roomRelays,
                 roomRelaysSigned = true,
+                destruct = destruct,
             )
         }
     }
@@ -2982,6 +3164,7 @@ class RoomViewModel @JvmOverloads constructor(
                 roomRelays = roomRelays,
                 roomRelaysSigned = signedRelays != null,
                 expectedEpoch = admission.epoch,
+                destruct = admission.destruct,
             )
             return
         }
@@ -2997,12 +3180,14 @@ class RoomViewModel @JvmOverloads constructor(
             invitation = payload,
             invitationHost = admission.delegate,
             policy = payload.policy,
-            localName = synced?.room?.name.orEmpty(),
+            // The account's own name for the room, else the one its link carries.
+            localName = synced?.room?.name ?: payload.name.orEmpty(),
             anonymous = anonymous,
             ends = admission.endsAt,
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
             expectedEpoch = admission.epoch,
+            destruct = admission.destruct,
         )
     }
 
@@ -3118,20 +3303,26 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
+    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T =
+        withGroupRelays(relays, anonymous, emptySet(), action)
+
+    /** [forced]: relays read and written whatever this device's relay choices say, as an open room does its own. */
+    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean, forced: Set<String>,
+                                            action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
-            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
-            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
+            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays) + forced.filter { it in relays },
+            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays) + forced.filter { it in relays })
         transport.start()
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
 
-    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null) {
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null,
+                                     destruct: Boolean = false) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }),
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }, destruct = destruct),
                         if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
@@ -3154,10 +3345,11 @@ class RoomViewModel @JvmOverloads constructor(
      *  left to lapse: keeping its link alive would turn a chance expiry into a
      *  standing way back in. A conference room's invitation is signed with its
      *  end, and is no longer signed once the room has ended. */
-    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null, fixedRelays: List<String>? = null) {
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null, fixedRelays: List<String>? = null,
+                                         destruct: Boolean = false) {
         scope.launch {
             while (!conferenceEnded(ends, epochSeconds())) {
-                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) }
+                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays, destruct = destruct)) }
                 catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                 catch (_: Exception) { /* Retried next round. */ }
                 // The link that opened the room may name relays the room has
@@ -3167,7 +3359,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val circle = circleRelaySet()
                 val extra = linkOnlyRelays(roomRelays, linkRelays) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
                 if (extra.isNotEmpty()) {
-                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) } }
+                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays, destruct = destruct)) } }
                     catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                     catch (_: Exception) { /* Retried next round. */ }
                 }
@@ -3269,6 +3461,8 @@ class RoomViewModel @JvmOverloads constructor(
         /** The epoch the responder that admitted this device said the room
          *  is at (`RoomAdmission.epoch`), when this opening asked one. */
         expectedEpoch: Int? = null,
+        /** The room self-destructs, when this opening learnt so (`RoomAdmission.destruct`). */
+        destruct: Boolean = false,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3305,11 +3499,16 @@ class RoomViewModel @JvmOverloads constructor(
         if (anonymousProfile && (secondary || who !is PrimaryIdentity || who.participantKeyForStorage() == null)) {
             throw RoomRecoveryException("Anonymous rooms need a new local primary identity.")
         }
+        // A name already kept here stands, unless it is only the stand-in a
+        // room got before anybody named it and this opening learnt a real one.
+        val keptName = previous?.name?.takeUnless { it == "Room ${derived.roomId.take(8)}" && localName.isNotBlank() }
         val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
-            previous?.name ?: localName, epochSeconds(), invitationHost,
+            keptName ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
-            ends = ends?.takeIf { invitation?.invitation?.persistent == true })
+            ends = ends?.takeIf { invitation?.invitation?.persistent == true },
+            destruct = destruct && invitation?.invitation?.persistent == true)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
+            .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
             // A room saved before its authority was recorded never followed a
             // rekey; pin the one its link names, as a fresh join would.
@@ -3604,6 +3803,8 @@ class RoomViewModel @JvmOverloads constructor(
             canRotateInvitation = record.host(epochSeconds())?.delegation?.isEmpty() == true,
             canShowCard = who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
+            destruct = record.destruct,
+            startsAt = record.startsAt,
             notice = listOfNotNull(
                 "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
                 RoomRelays.refusalNotice(shared.refused.size, torOnly = anonymousProfile),
@@ -3655,12 +3856,13 @@ class RoomViewModel @JvmOverloads constructor(
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
                 val linkRelays = if (anonymousProfile || linkConsents.all().any { it.roomId == record.id }) emptyList() else record.invitation?.relays.orEmpty()
+                // Every copy says what the first said: self-destruct sticks, so a copy without it would only confuse.
                 keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays, record.ends,
-                    record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) })
+                    record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) }, record.destruct)
             }
         }
         readRoomRelaysOnce(scope, transport, record)
-        record.ends?.let { ends -> endConferenceAt(live, scope, ends) }
+        record.ends?.let { ends -> endConferenceAt(live, scope, ends, record.id) }
         live.join()
         if (pendingChat != null) {
             // The list follows the journal; a message leaves it when it shows in the chat.
@@ -4110,18 +4312,23 @@ class RoomViewModel @JvmOverloads constructor(
      * every relay that honours NIP-40), and the room says it has ended. The
      * screen stays, so what was said can still be read until it is left.
      */
-    private fun endConferenceAt(live: RoomSession, scope: CoroutineScope, ends: Long) {
+    private fun endConferenceAt(live: RoomSession, scope: CoroutineScope, ends: Long, roomId: String) {
         scope.launch {
             val wait = (ends - epochSeconds()) * 1000
             if (wait > 0) kotlinx.coroutines.delay(wait)
             withContext(NonCancellable + Dispatchers.IO) {
-                gate.withLock {
-                    if (session !== live) return@withLock
+                val ended = gate.withLock {
+                    if (session !== live) return@withLock false
                     val ended = conferenceEndedMessage(ends)
                     _videos.value = emptyMap()
                     try { live.leave() } finally { closeSession() }
                     _room.update { it.copy(conferenceEnded = true, canRotateInvitation = false, onCall = false, mediaRunning = false,
                         micOn = false, micMuted = false, cameraOn = false, screenOn = false, notice = ended) }
+                    true
+                }
+                // A room that self-destructs does not stay to be read: it goes.
+                if (ended && runCatching { savedRooms.get(roomId)?.destruct == true }.getOrDefault(false)) {
+                    viewModelScope.launch(Dispatchers.IO) { selfDestruct(roomId) }
                 }
             }
         }
@@ -4131,6 +4338,7 @@ class RoomViewModel @JvmOverloads constructor(
     private var epochTroubleDismissed = 0
 
     private fun observeRoomEpoch(live: RoomSession, scope: CoroutineScope) {
+        val closedRoom = savedRoom?.id
         epochTroubleDismissed = 0
         scope.launch {
             kotlinx.coroutines.flow.combine(live.epochGaps, live.epochConflicts, ::epochTroubleLines).collect { lines ->
@@ -4156,6 +4364,7 @@ class RoomViewModel @JvmOverloads constructor(
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Closed -> {
                         roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
                         _room.update { it.copy(movedOn = state.epoch, roomUpdate = "closed", canRotateInvitation = false, notice = "This room was closed") }
+                        closedRoom?.let { id -> viewModelScope.launch(Dispatchers.IO) { roomClosed(id) } }
                     }
                 }
             }
@@ -5451,6 +5660,9 @@ class RoomViewModel @JvmOverloads constructor(
         val lease = epochCadence(record, who, current)
         val coordinate = cadenceCoordinate(lease)
         if (notice.closed || notice.secret == null && notice.removed.any { it.equals(who.participant, ignoreCase = true) }) {
+            // Written down before the room is marked closed, so a device that
+            // stops here still tidies the room away when the app next starts.
+            if (notice.closed && notice.destruct) runCatching { savedRooms.update(record.id) { it.withDestruct() } }
             retireCadenceForEpoch(record, who, secondary, event.id, notice.epoch.toLong() + 1, coordinate)
             roomEpochs.terminal(record.id, durable.currentEpoch, notice, event.id, epochSeconds())
             return EpochGateResult.COMMITTED
@@ -5883,6 +6095,7 @@ class RoomViewModel @JvmOverloads constructor(
                     policy = payload.policy,
                     localName = "Private with ${shortNpub(peer)}",
                     expectedEpoch = admission.epoch,
+                    destruct = admission.destruct,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -5975,7 +6188,7 @@ class RoomViewModel @JvmOverloads constructor(
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned && !keepsOwnRelays(saved) }) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned && !keepsOwnRelays(saved) }, saved.destruct) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 // The link names the room's own relays first, then the rest of
@@ -6471,6 +6684,14 @@ class RoomViewModel @JvmOverloads constructor(
 }
 
 internal fun epochSeconds(): Long = System.currentTimeMillis() / 1000
+
+/**
+ * Whether a bookmark tombstone from the account wipes a room this phone holds:
+ * only a self-destructing one, which another of the person's devices has
+ * tidied away. Removing any other room from the account removes only its
+ * bookmark, as it always has.
+ */
+internal fun wipesOnBookmarkTombstone(saved: SavedRoom?): Boolean = saved?.destruct == true
 
 /** Accepts a list separated by newlines, commas or spaces, and keeps only websocket URLs. */
 /** The hand-marked circle boxes, normalised as `ContactBook.normalise` does, so a

@@ -521,6 +521,7 @@ fun KithMootApp(
                         onPersistentGroupChanged = model::onPersistentGroupChanged,
                         onStartRoom = model::startRoom,
                         onConferenceLengthChanged = model::onConferenceLengthChanged,
+                        onRoomDestructChanged = model::onRoomDestructChanged,
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,
@@ -550,6 +551,7 @@ fun KithMootApp(
                                 model.inviteLinkFor(id)?.let { link -> share(context, link, "Send invite link") }
                             }
                         },
+                        onDismissTombstone = model::dismissTombstone,
                         vmlsRooms = vmlsBoxes?.let { boxes -> {
                             val vmlsRooms by boxes.rooms.collectAsState()
                             val vmlsState by boxes.state.collectAsState()
@@ -726,6 +728,7 @@ fun KithMootApp(
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,
                             sending = roomState.chatSending,
                             pendingChats = roomState.pendingChats,
+                            destructEndsAt = roomState.endsAt?.takeIf { roomState.destruct },
                             onRetryPending = { model.retryPendingChat() },
                             onEditPending = model::editPendingChat,
                             onDeletePending = model::deletePendingChat,
