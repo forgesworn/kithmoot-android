@@ -1580,7 +1580,7 @@ class VmlsRuntime(
             }
         }
         val grants = removal.grants().map { grant ->
-            val at = "Grant ${shortHex(grant.grant.grant.toHex())}: "
+            val at = "Grant at box ${shortHex(grant.grant.node.toHex())}: "
             at + when (val state = grant.state) {
                 JournalGrant.Pending -> "not yet revoked at the box."
                 JournalGrant.Revoked -> "revoked at the box."
