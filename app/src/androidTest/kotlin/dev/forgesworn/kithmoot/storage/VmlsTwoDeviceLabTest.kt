@@ -208,6 +208,7 @@ class VmlsTwoDeviceLabTest {
         val guest = File(dir, "guest-device").readText()
         val before = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, persona)) as VaultResult.Ok).value
         val grant = grants.get(box, guest)!!
+        val ownGrant = grants.get(box, before.device)!!
         runtime.foregroundRounds(persona, signer)
         val after = (vault.device(vault.context(VmlsRuntime.PRINCIPAL, persona)) as VaultResult.Ok).value
         assertEquals("the same device key", before.device, after.device)
@@ -217,6 +218,12 @@ class VmlsTwoDeviceLabTest {
         assertEquals("the same grant id", grant.grantId, renewed.grantId)
         assertTrue("a later grant expiry", renewed.expiration > grant.expiration)
         assertFalse("taken by the box", renewed.unconfirmed)
+        val ownRenewed = grants.get(box, before.device)!!
+        assertTrue("the keeper's own grant renewed", ownRenewed.expiration > ownGrant.expiration && !ownRenewed.unconfirmed)
+        // An Update now binds the leaf under the new credential, and the group takes it.
+        val epoch = checkNotNull(live().epoch)
+        runtime.updating(persona, session())
+        roundsUntil("the Update under the new credential accepted", 30) { (room().epoch ?: 0) > epoch && !room().sending }
     }
 
     /** Sends and stops before any round: the message waits in the persisted outbox for the next process. */

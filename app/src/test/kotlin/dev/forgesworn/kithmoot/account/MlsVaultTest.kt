@@ -109,9 +109,10 @@ class MlsVaultTest {
         assertEquals(device, verified.device)
         assertEquals(until, verified.expiresAt)
         assertTrue(listOf("scope", "person") in renewed.credential!!.tags)
-        // The scalar is kept: the device still signs a binding for the renewed credential's persona.
-        val homeBoxScope = ConsentScope(principal, alice.pubkey, device, homeBox, MlsVault.SIGN_METHOD)
-        assertTrue(vault.approve(ctx, homeBoxScope) is VaultResult.Ok)
+        // The scalar is kept: the same device key signs a binding under the renewed credential.
+        val req = request(credential = renewed.credential!!, expiresAt = clock + 86_400, deadline = clock + 300)
+        val reply = (vault.signLeafBindingV1(ctx, req, approve) as VaultResult.Ok).value
+        assertTrue(Schnorr.verify(reply.signature.hexToBytes(), req.text("digest").hexToBytes(), device.hexToBytes()))
     }
 
     @Test fun `renewal refuses a lapsed credential, without asking the signer`() = runBlocking<Unit> {

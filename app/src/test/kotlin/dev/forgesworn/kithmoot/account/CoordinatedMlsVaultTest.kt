@@ -227,7 +227,7 @@ class CoordinatedMlsVaultTest {
         assertIs<VaultResult.Ok<SignLeafBindingReply>>(vault.signLeafBindingV1(ctx, request(renewed), approve))
     }
 
-    @Test fun `a renewal is refused, and nothing signed, while the witness is not Ready`() = runBlocking<Unit> {
+    @Test fun `a renewal is held while the witness is not Ready, and a fenced profile asks nothing`() = runBlocking<Unit> {
         enrolAtBox(); val device = enrolDevice()
         server.mode = FakeWitnessServer.Mode.Down
         // Held: the credential is not renewed, and the stored one is still served.

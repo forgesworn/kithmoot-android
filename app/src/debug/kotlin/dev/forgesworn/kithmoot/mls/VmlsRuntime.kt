@@ -318,6 +318,8 @@ class VmlsRuntime(
      * under the same lock so no round is cut short by it.
      */
     private suspend fun renewCredential(signer: ParticipantSigner) = rounding.withLock {
+        // A Tor-only room is open (C7): the signer's relays and the witness are paused with the rest.
+        if (quiet.get()) return@withLock
         val persona = signer.pubkey
         val at = now()
         if (synchronized(this) { (credentialRetry[persona] ?: 0) > at }) return@withLock
@@ -371,7 +373,9 @@ class VmlsRuntime(
                 // Renewals stored but not taken by the box (kept in the ledger, so across restarts) are published again.
                 val pending = VmlsRenewal.unconfirmed(records, persona, box, inUse - waiting)
                 if (pending.isEmpty() && VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, at, grantRenewSeconds + CLOCK_SLACK_SECONDS).isEmpty()) continue
-                val boxNow = boxClock(route) ?: at
+                // The publish needs the box anyway, and a renewal dated by the phone's clock could run past the 120 s the
+                // box allows and be refused for good: without the box's clock this box waits for the next pass.
+                val boxNow = boxClock(route) ?: continue
                 val due = VmlsRenewal.grantsDue(records, persona, box, inUse - waiting, boxNow, grantRenewSeconds) - pending.toSet()
                 val events = ArrayList<NostrEvent>()
                 val devices = ArrayList<String>()
@@ -464,7 +468,8 @@ class VmlsRuntime(
             val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
                 ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
             read.members.values.forEach { placed += it.device }
-            invites.link(persona, other.session)?.joins?.forEach { placed += it.device }
+            // A join past its deadline no longer holds a place: it is not renewed, and not kept from revocation.
+            invites.link(persona, other.session)?.joins?.filter { it.deadline > now() }?.forEach { placed += it.device }
         }
         return placed
     }
@@ -1010,9 +1015,11 @@ class VmlsRuntime(
                         val boxNow = boxClock(route) ?: now()
                         ledger.prune(boxNow, now())
                         val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow, now())
-                        ledger.record(VmlsGrantRecord(room.box, plan), now())
-                        // Admitted again: the record just stored carries no removal, so the keeper keeps this device.
+                        // Admitted again: the record just stored carries no removal, so the keeper keeps this device. It is
+                        // marked until the box takes it, so a failed publish is sent again by the rounds (P3-03b-3d).
+                        ledger.record(VmlsGrantRecord(room.box, plan, unconfirmed = true), now())
                         publish(route, signer, listOf(plan.active))
+                        ledger.confirmed(room.box, request.device)
                     } catch (failure: Exception) {
                         // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
                         runCatching {
@@ -1430,8 +1437,10 @@ class VmlsRuntime(
         val boxNow = boxClock(route) ?: now()
         ledger.prune(boxNow, now())
         val live = ledger.get(route.box, device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.expiration - boxNow > GRANT_RENEW_SECONDS }
-        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow, now()).also { ledger.record(VmlsGrantRecord(route.box, it), now()) }
+        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow, now())
+            .also { ledger.record(VmlsGrantRecord(route.box, it, unconfirmed = true), now()) }
         publish(route, signer, listOf(plan.active))
+        ledger.confirmed(route.box, device)
     }
 
     /**
