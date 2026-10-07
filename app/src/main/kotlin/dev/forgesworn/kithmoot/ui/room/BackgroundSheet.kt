@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +18,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
 import dev.forgesworn.kithmoot.media.effects.SeaScene
+import dev.forgesworn.kithmoot.ui.settings.SettingsSwitchRow
 
 /**
  * "Hide what is behind you", as a sheet.
@@ -64,18 +64,13 @@ fun BackgroundSheet(
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("Fish swimming past", style = MaterialTheme.typography.bodyLarge)
-            Switch(
-                checked = choice.showsFish,
-                enabled = choice.scene?.asset != null,
-                onCheckedChange = { wanted -> onChoose(choice.scene, wanted) },
-            )
-        }
+        SettingsSwitchRow(
+            title = "Fish swimming past",
+            summary = "Only with a sea scene",
+            checked = choice.showsFish,
+            enabled = choice.scene?.asset != null,
+            onCheckedChange = { wanted -> onChoose(choice.scene, wanted) },
+        )
 
         Text(
             "This is the phone's best guess at where you stop and your room " +

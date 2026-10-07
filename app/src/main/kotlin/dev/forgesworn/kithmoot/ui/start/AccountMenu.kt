@@ -16,6 +16,7 @@ import dev.forgesworn.kithmoot.account.ProfileMetadata
 import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.room.ProfileAvatar
+import dev.forgesworn.kithmoot.ui.settings.SettingsSheet
 import kotlinx.serialization.json.JsonPrimitive
 
 data class AccountSettingsActions(
@@ -82,34 +83,46 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
             if (account != null) DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; leaving = true }, enabled = !state.profileBusy && !state.roomSyncBusy && !state.projectsBusy)
         }
     }
-    if (page != null) ModalBottomSheet(onDismissRequest = { if (!state.profileBusy) page = null },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-            TextButton({ page = null }, enabled = !state.profileBusy) { Text("Done") }
-        }
-        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (page) {
+    page?.let { current ->
+        SettingsSheet(
+            title = when (current) {
+                "signin" -> "Sign in with Nostr"
+                "profile" -> "Edit public profile"
+                "notifications" -> "Notifications and calls"
+                "relays" -> "Relays"
+                else -> "Relays for private conversations"
+            },
+            onDone = { page = null }, doneEnabled = !state.profileBusy, padded = current != "notifications",
+        ) {
+            when (current) {
                 // In a room the sheet used to open with every control disabled and no
                 // reason. Say why, and offer the way there, as the web client does.
                 "signin" -> if (inRoom) {
-                    Text("Sign in with Nostr", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                     Text(signInFromRoom(torOnlyRoom))
                     Button({ page = null; actions.leaveRoom() }, Modifier.heightIn(min = 48.dp)) { Text("Leave to sign in") }
-                } else AccountSection(state, signIn, !state.busy)
+                } else AccountSection(state, signIn, !state.busy, showHeading = false)
                 "profile" -> ProfileEditorFields(state, actions)
                 "notifications" -> notificationSettings()
                 "relays" -> RelayEditor(state, choices, inRoom, actions)
                 "dmrelays" -> DmRelayEditor(state, actions)
             }
         }
-        }
     }
-    if (leaving) AlertDialog(onDismissRequest = { leaving = false }, title = { Text(if (inRoom) "Leave this room and sign out?" else "Sign out?") },
-        text = { Text(if (inRoom) "This ends your call and discards this room's unsent draft. Saved rooms remain on this phone." else "Your saved rooms remain on this phone. Account rooms will be available when you sign in again.") },
-        confirmButton = { TextButton({ leaving = false; actions.signOut() }) { Text("Sign out") } },
-        dismissButton = { TextButton({ leaving = false }) { Text("Cancel") } })
+    if (leaving) SignOutDialog(inRoom, onConfirm = { leaving = false; actions.signOut() }, onDismiss = { leaving = false })
+}
+
+/**
+ * "Sign out?" before the account goes, from Settings and from the room menu
+ * alike. Inside a room it also says the room is left, since signing out ends
+ * the call and discards the draft.
+ */
+@Composable
+internal fun SignOutDialog(inRoom: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (inRoom) "Leave this room and sign out?" else "Sign out?") },
+        text = { Text(if (inRoom) "This ends your call and discards this room's unsent draft. Saved rooms remain on this phone."
+            else "Your saved rooms stay on this phone. Rooms in your account come back when you sign in again.") },
+        confirmButton = { TextButton(onConfirm) { Text("Sign out") } },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }
 
 /** Editing a public Nostr profile: extracted so Settings can host the same
@@ -117,7 +130,6 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
  *  in-room account menu's behaviour unchanged. */
 @Composable
 internal fun ProfileEditorFields(state: StartState, actions: AccountSettingsActions) {
-    Text("Edit public profile", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
     Text("These details are public on Nostr. Publishing updates your kind-0 profile for other clients too.", style = MaterialTheme.typography.bodySmall)
     if (state.profileBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
     val metadata = state.profileMetadata
@@ -142,7 +154,6 @@ internal fun ProfileEditorFields(state: StartState, actions: AccountSettingsActi
  *  Settings, Connections, "Relays for private conversations". */
 @Composable
 internal fun DmRelayEditor(state: StartState, actions: AccountSettingsActions) {
-    Text("Relays for private conversations", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
     Text("Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.",
         style = MaterialTheme.typography.bodySmall)
     if (state.profileBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -169,7 +180,6 @@ internal fun RelayEditor(state: StartState, choices: List<RelayChoice>, inRoom: 
     var saved by remember { mutableStateOf(true) }
     var publish by remember { mutableStateOf(false) }
     val editable = !inRoom && !state.busy && !state.profileBusy
-    Text("Relays", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
     Text("Read receives events. Write publishes them. Turn both off to disable a relay on this device.", style = MaterialTheme.typography.bodySmall)
     if (inRoom) Text("Leave the room to change connections. You can still check their status here.")
     for ((index, relay) in draft.withIndex()) key(relay.url, index) {

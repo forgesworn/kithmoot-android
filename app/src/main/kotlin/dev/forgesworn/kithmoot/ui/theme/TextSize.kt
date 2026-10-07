@@ -32,6 +32,16 @@ enum class TextSize(val label: String, val scale: Float) {
     }
 }
 
+/** Android's own ceiling for text size: 200%. */
+const val MAX_FONT_SCALE = 2.0f
+
+/**
+ * The scale the app draws text at: the phone's own font scale times the in-app
+ * choice, held to [cap]. At 100% to 130% on the phone every choice is
+ * unchanged; only the product of the two large settings is bounded.
+ */
+fun effectiveFontScale(system: Float, choice: Float, cap: Float = MAX_FONT_SCALE): Float = minOf(system * choice, cap)
+
 /** The current choice and the way to change it, for the settings control. */
 class TextSizeSetting(val size: TextSize, val set: (TextSize) -> Unit)
 

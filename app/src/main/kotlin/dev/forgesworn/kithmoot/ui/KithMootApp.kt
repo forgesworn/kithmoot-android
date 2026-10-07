@@ -415,7 +415,7 @@ fun KithMootApp(
                             override fun mode() = model.callRingMode(roomState.roomId)
                             override fun setMode(mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = model.setCallRingMode(roomState.roomId, mode)
                         } else null
-                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, prompt = promptFor(null))
+                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, showHeading = false, prompt = promptFor(null), savedRoomCount = accountState.savedRooms.size)
                     })
     }
 
@@ -443,13 +443,7 @@ fun KithMootApp(
                 // Settings and Projects bring their own app bar; home's stays
                 // hidden underneath so there is only ever one visible.
                 if (stage == Stage.START && homePage == HomePage.ROOMS) TopAppBar(
-                    title = {
-                        // Capped so the in-app text size (up to 1.5x) never
-                        // clips inside the 64 dp bar at the top of its range (F13).
-                        val density = androidx.compose.ui.platform.LocalDensity.current
-                        val cappedSize = (22f * minOf(density.fontScale, 1.5f) / density.fontScale)
-                        Text("KithMoot", style = MaterialTheme.typography.titleLarge.copy(fontSize = cappedSize.sp), maxLines = 1)
-                    },
+                    title = { Text("KithMoot", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                     actions = {
                         androidx.compose.material3.IconButton({ homePage = HomePage.SETTINGS }) {
                             androidx.compose.material3.Icon(Icons.Filled.Settings, "Settings")
@@ -579,7 +573,7 @@ fun KithMootApp(
                         ),
                         relayChoices = model.accountRelayChoices(),
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
-                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null)) },
+                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
                         onBack = { homePage = HomePage.ROOMS },
                         onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
                         onVmlsBoxes = vmlsBoxes?.let { { homePage = HomePage.VMLS_BOXES } },

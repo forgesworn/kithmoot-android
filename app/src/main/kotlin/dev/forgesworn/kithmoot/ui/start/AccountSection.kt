@@ -21,6 +21,7 @@ import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.account.BunkerPointer
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 import dev.forgesworn.kithmoot.ui.room.ProfileAvatar
+import dev.forgesworn.kithmoot.ui.settings.SettingsSheet
 
 /** What the start screen can do about the account. Grouped so the screen's parameter list stays readable. */
 class AccountActions(
@@ -48,12 +49,13 @@ class AccountActions(
 @Composable
 fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean, showHeading: Boolean = true) {
     var choosing by remember { mutableStateOf(false) }
+    var signingOut by remember { mutableStateOf(false) }
     val account = state.account
     val retained = state.retainedAccount
     var rendezvousIndex by remember(account?.pubkey) { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (showHeading) Text(if (account != null) "Your Nostr account" else if (retained != null) "Keep your preview account" else "Keep your rooms with you",
+        if (showHeading) Text(accountHeading(state),
             style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
         if (account != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -105,7 +107,7 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean,
                     state.rendezvous?.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-            OutlinedButton(actions.onSignOut, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
+            OutlinedButton({ signingOut = true }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sign out") }
         } else {
             if (retained != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -143,12 +145,15 @@ fun AccountSection(state: StartState, actions: AccountActions, enabled: Boolean,
         }
     }
 
-    if (choosing) {
-        ModalBottomSheet(onDismissRequest = { choosing = false }) {
-            SignInChoices(state, actions) { choosing = false }
-        }
+    if (choosing) SettingsSheet(title = "Sign in to KithMoot", onDone = { choosing = false }) {
+        SignInChoices(state, actions) { choosing = false }
     }
+    if (signingOut) SignOutDialog(inRoom = false, onConfirm = { signingOut = false; actions.onSignOut() }, onDismiss = { signingOut = false })
 }
+
+/** What the account block is called when it has a heading of its own, or the sheet that hosts it. */
+internal fun accountHeading(state: StartState): String =
+    if (state.account != null) "Your Nostr account" else if (state.retainedAccount != null) "Keep your preview account" else "Keep your rooms with you"
 
 @Composable
 private fun SignInChoices(state: StartState, actions: AccountActions, done: () -> Unit) {
@@ -157,12 +162,8 @@ private fun SignInChoices(state: StartState, actions: AccountActions, done: () -
     var bunker by remember { mutableStateOf("") }
     var scanningBunker by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    // A bunker URI is often pasted with the IME open. Keep the focused field
-    // and its action reachable on short phones instead of letting the sheet be
-    // covered by the keyboard.
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding()
-        .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Sign in to KithMoot", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+    // The sheet scrolls and clears the keyboard, so a pasted bunker link stays reachable on short phones.
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Choose where your key lives. It never leaves your signer.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         if (state.signers.isEmpty()) {

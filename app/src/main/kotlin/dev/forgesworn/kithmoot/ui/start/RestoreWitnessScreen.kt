@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -34,7 +36,7 @@ fun RestoreWitnessScreen(witness: RestoreWitness, persona: String?, onBack: () -
     LaunchedEffect(persona) { witness.open(persona) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Restore witness") },
+            title = { Text("Restore witness", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }) { padding ->

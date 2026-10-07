@@ -83,12 +83,15 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
             if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeDown()) }
             SystemClock.sleep(120)
         }
-        repeat(12) {
+        // Down the page first, then back up: a long page can have been left scrolled past the control.
+        repeat(24) { attempt ->
             find()?.let { return it }
             val scroll = scrollContainer() ?: return@repeat
-            if (scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) SystemClock.sleep(120)
+            val forward = attempt < 12
+            val direction = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            if (scroll.performAction(direction)) SystemClock.sleep(120)
             find()?.let { return it }
-            if (useSwipeFallback) runCatching { onView(isRoot()).perform(swipeUp()) }
+            if (useSwipeFallback && forward) runCatching { onView(isRoot()).perform(swipeUp()) }
             SystemClock.sleep(120)
         }
         var found: T? = null
