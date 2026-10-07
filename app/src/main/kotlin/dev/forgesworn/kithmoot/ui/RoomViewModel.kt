@@ -1126,6 +1126,11 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Moves the vault's session epoch durably. In-process it cancels even when the write fails, and the store is reset, so the next start fails safe. */
+    private fun endVaultSession() {
+        try { getApplication<KithMootApplication>().vaultSessionEnd.end() } catch (_: Exception) { }
+    }
+
     private fun newAccountScope(): CoroutineScope {
         accountScope?.cancel()
         return CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job])).also { accountScope = it }
@@ -1134,6 +1139,9 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
         stopRoomBookmarks()
         stopSharedProjects()
+        // Signing in over another session is an account change: cancel the old
+        // one's vault work. A cold start has no session, so journals still replay.
+        if (accountSession != null) endVaultSession()
         accountSession?.close()
         accountSession = session
         pendingProfile = null
@@ -1623,6 +1631,9 @@ class RoomViewModel @JvmOverloads constructor(
                         return@withLock
                     }
                     val signedOutAccount = accountSession?.account?.pubkey
+                    // First, before anything is released: queued VMLS work for this
+                    // account must find the session already over (§6.2).
+                    endVaultSession()
                     // Finish every pending write and clear its journal before
                     // releasing the account identity that owns it.
                     signedOutAccount?.let { account ->

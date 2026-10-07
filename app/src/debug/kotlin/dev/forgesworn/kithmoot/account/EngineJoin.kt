@@ -1,7 +1,5 @@
 package dev.forgesworn.kithmoot.account
 
-import dev.forgesworn.kithmoot.crypto.hexToBytes
-import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.mls.VmlsBoxClient
 import dev.forgesworn.vmls.ffi.VmlsBindingRequest
 import dev.forgesworn.vmls.ffi.VmlsCapability
@@ -13,9 +11,6 @@ import dev.forgesworn.vmls.ffi.VmlsSignRequest
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.prepareCapability
 import dev.forgesworn.vmls.ffi.prepareIntroduction
-import java.util.Base64
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * Joining a group (P3-03b-3b-2), debug builds only. The engine asks; the
@@ -83,40 +78,11 @@ class EngineJoin(
     }
 
     /** The vault's leaf binding signature for an engine sign request, asked under the persona's consent. */
-    suspend fun sign(persona: String, request: VmlsSignRequest): ByteArray {
-        val reply = vault.signLeafBindingV1(
-            vault.context(principal, persona),
-            buildJsonObject {
-                put("v", 1)
-                put("operation", request.operation.toHex())
-                put("body", Base64.getEncoder().encodeToString(request.body))
-                put("digest", request.digest.toHex())
-                put("expires_at", request.expiresAt.toLong())
-            },
-            consent,
-        )
-        return when (reply) {
-            is VaultResult.Ok -> reply.value.signature.hexToBytes()
-            is VaultResult.Refused -> throw JoinRefusedException("signature", reply.refusal)
-        }
-    }
+    suspend fun sign(persona: String, request: VmlsSignRequest): ByteArray =
+        JoinVaultCalls.sign(vault, principal, persona, consent, request.operation, request.body, request.digest, request.expiresAt.toLong())
 
-    private suspend fun ecdh(persona: String, request: VmlsEcdhRequest): ByteArray {
-        val reply = vault.rendezvousEcdhV1(
-            vault.context(principal, persona),
-            buildJsonObject {
-                put("v", 1)
-                put("operation", request.operation.toHex())
-                put("peer_rz", request.peerRz.toHex())
-                put("expires_at", request.expiresAt.toLong())
-            },
-            rendezvous,
-        )
-        return when (reply) {
-            is VaultResult.Ok -> reply.value.sharedX.hexToBytes()
-            is VaultResult.Refused -> throw JoinRefusedException("rendezvous", reply.refusal)
-        }
-    }
+    private suspend fun ecdh(persona: String, request: VmlsEcdhRequest): ByteArray =
+        JoinVaultCalls.ecdh(vault, principal, persona, request.operation, request.peerRz, request.expiresAt.toLong(), rendezvous)
 }
 
 /**
@@ -138,6 +104,3 @@ fun admissible(introduction: VmlsIntroduction, envelope: ByteArray, grantedDevic
 
 /** The keeper's Add of an opened capability, as a host step. Register its package at the box first (D5). */
 fun addStep(session: EngineSession, now: Long, capability: VmlsCapability) = hostedStep(session.inner.add(now.toULong(), listOf(capability)))
-
-/** The vault refused a request the join needed; nothing was created. */
-class JoinRefusedException(val what: String, val refusal: VaultRefusal) : Exception("The vault refused the join's $what: $refusal")

@@ -1326,7 +1326,12 @@ class VmlsRuntime(
 
     private fun act(persona: String?, work: suspend (String) -> Unit) {
         scope.launch {
+            // Taken before the action queues: a sign-out or account switch while it waits
+            // makes it stale (§6.2), where a context taken as it runs would be the next
+            // session's. A vault that cannot answer fails the work itself, as before.
+            val asked = persona?.let { runCatching { vault.context(PRINCIPAL, it) }.getOrNull() }
             acting.withLock {
+                if (asked != null && !vault.isCurrent(asked)) return@withLock
                 _state.update { it.copy(busy = true, error = null, notice = null) }
                 try {
                     if (persona == null) refresh(null) else work(persona)

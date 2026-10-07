@@ -374,6 +374,45 @@ class MlsVaultTest {
         assertEquals(refused(VaultRefusal.Unauthorised), vault.device(vault.context(principal, alice.pubkey)))
     }
 
+    // ---- the join's calls: every reply is checked before the engine sees it (E04, E06) ----
+
+    private suspend fun joinSign(req: JsonObject, consent: ConsentPrompt = approve) = JoinVaultCalls.sign(
+        vault, principal, alice.pubkey, consent, req.text("operation").hexToBytes(),
+        Base64.getDecoder().decode(req.text("body")), req.text("digest").hexToBytes(), req.long("expires_at"),
+    )
+
+    @Test fun `a join's signature is the vault's own, checked before the engine gets it`() = runBlocking {
+        val req = request()
+        val signature = joinSign(req)
+        assertTrue(Schnorr.verify(signature, req.text("digest").hexToBytes(), device.hexToBytes()))
+    }
+
+    @Test fun `a join's sign is refused as stale when the session ends while consent is open`() = runBlocking {
+        val req = request()
+        val refusal = assertFailsWith<JoinRefusedException> { joinSign(req, ConsentPrompt { vault.bump(); ConsentDecision.Approve }) }
+        assertEquals(VaultRefusal.Stale, refusal.refusal)
+        assertEquals("signature", refusal.what)
+    }
+
+    @Test fun `a join's retry of an operation journalled before the session ended is stale, never a replay`() = runBlocking {
+        val req = request()
+        joinSign(req)
+        vault.bump()
+        val after = assertFailsWith<JoinRefusedException> { joinSign(req, ConsentPrompt { error("no prompt on a stale retry") }) }
+        assertEquals(VaultRefusal.Stale, after.refusal)
+    }
+
+    @Test fun `a join's ECDH is the vault's own shared x, and a refusal is the join's refusal`() = runBlocking {
+        val req = ecdh()
+        val shared = JoinVaultCalls.ecdh(vault, principal, alice.pubkey, req.text("operation").hexToBytes(), peerRz.hexToBytes(), req.long("expires_at"), child(alice.pubkey))
+        assertEquals(Schnorr.sharedPointX(peerSecret, ownRz.hexToBytes()).toHex(), shared.toHex())
+        val refusal = assertFailsWith<JoinRefusedException> {
+            JoinVaultCalls.ecdh(vault, principal, alice.pubkey, bytes(32), peerRz.hexToBytes(), now + 300, child(RecordingSigner().pubkey))
+        }
+        assertEquals(VaultRefusal.Unauthorised, refusal.refusal)
+        assertEquals("rendezvous", refusal.what)
+    }
+
     // ---- helpers ----
 
     private fun request(
