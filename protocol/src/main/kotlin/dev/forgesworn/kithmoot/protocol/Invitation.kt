@@ -118,6 +118,14 @@ class InvitationPayload(
     val invitation: RoomInvitation,
     val relays: List<String>,
     val policy: RoomPolicy?,
+    /**
+     * The room's name as the link that invited this device spelt it (`n`),
+     * sanitised as a display name is, since a link is text a stranger wrote.
+     * What a joiner calls the room until its members' shared name arrives.
+     * Null when the link names none, or only something unprintable. Mirrors
+     * fold-kit's `parseRoomLink` `name`.
+     */
+    val name: String? = null,
 )
 
 fun createRoomInvitation(persistent: Boolean = false): RoomInvitationHost {
@@ -202,7 +210,8 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
         RoomPolicy.fromJson(json)
             ?: throw JoinUrlException("join URL carries an access policy at an unknown tier")
     }
-    return InvitationPayload(invitation, relays, policy)
+    val name = DisplayName.sanitise((payload["n"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+    return InvitationPayload(invitation, relays, policy, name)
 }
 
 data class InvitationRequest(val device: String, val requestId: String)

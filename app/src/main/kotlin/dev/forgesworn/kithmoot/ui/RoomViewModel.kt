@@ -3222,7 +3222,8 @@ class RoomViewModel @JvmOverloads constructor(
             invitation = payload,
             invitationHost = admission.delegate,
             policy = payload.policy,
-            localName = synced?.room?.name.orEmpty(),
+            // The account's own name for the room, else the one its link carries.
+            localName = synced?.room?.name ?: payload.name.orEmpty(),
             anonymous = anonymous,
             ends = admission.endsAt,
             roomRelays = roomRelays,
@@ -3533,8 +3534,11 @@ class RoomViewModel @JvmOverloads constructor(
         if (anonymousProfile && (secondary || who !is PrimaryIdentity || who.participantKeyForStorage() == null)) {
             throw RoomRecoveryException("Anonymous rooms need a new local primary identity.")
         }
+        // A name already kept here stands, unless it is only the stand-in a
+        // room got before anybody named it and this opening learnt a real one.
+        val keptName = previous?.name?.takeUnless { it == "Room ${derived.roomId.take(8)}" && localName.isNotBlank() }
         val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
-            previous?.name ?: localName, epochSeconds(), invitationHost,
+            keptName ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
             ends = ends?.takeIf { invitation?.invitation?.persistent == true },
             destruct = destruct && invitation?.invitation?.persistent == true)
