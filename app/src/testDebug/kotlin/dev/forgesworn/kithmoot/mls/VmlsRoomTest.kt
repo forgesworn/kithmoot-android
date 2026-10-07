@@ -227,4 +227,16 @@ class VmlsRoomTest {
         assertEquals(emptyList<String>(), room.dueRemovals(1_005).second)
         assertTrue(room.evicting.isEmpty())
     }
+
+    @Test fun `a device removed is gone, and one that updated under a new leaf is not (D1 R2)`() {
+        val kept = VmlsRoomMember(other, "55".repeat(32), "66".repeat(32), false)
+        val before = keeper().copy(members = mapOf(leaf to member, other to kept))
+        // Bob's device left by a Remove.
+        assertEquals(setOf(member.device), before.devicesGone(before.copy(members = mapOf(other to kept))))
+        // The same device under a new leaf after an Update has not gone.
+        val moved = "77".repeat(32)
+        assertEquals(emptySet(), before.devicesGone(before.copy(members = mapOf(moved to member.copy(leaf = moved), other to kept))))
+        // Through the room's own signals.
+        assertEquals(setOf(member.device), before.devicesGone(before.on(now, RoomSignal.MemberRemoved(leaf))))
+    }
 }

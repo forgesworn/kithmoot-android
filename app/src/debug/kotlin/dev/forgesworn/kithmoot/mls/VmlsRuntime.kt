@@ -283,8 +283,68 @@ class VmlsRuntime(
         else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
 
     /** Under the session the rounds began in, as every action is: a sign-out while one runs leaves it nothing to sign. */
-    override suspend fun foregroundRounds(persona: String?) =
-        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) { roundsNow(persona) }
+    override suspend fun foregroundRounds(persona: String?, signer: ParticipantSigner?) =
+        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) {
+            roundsNow(persona)
+            if (persona != null && signer?.pubkey == persona) revokeRemoved(signer)
+        }
+
+    /**
+     * Devices removed from a keeper's room, by box, whose grants are to be
+     * revoked (D1 R2): a removed member otherwise keeps its grant, and up to
+     * 64 MiB at the box, until the room closes. Kept in memory: a close
+     * revokes whatever this misses.
+     */
+    private val removedDevices = HashMap<String, MutableSet<Pair<String, String>>>()
+
+    /**
+     * Revokes the grant of each device removed from [signer]'s rooms, unless
+     * it still has a place in another of the persona's rooms on that box, or a
+     * join pending there (decision 24's rule, as at a close). One the box
+     * does not confirm is tried again at the next pass.
+     */
+    private suspend fun revokeRemoved(signer: ParticipantSigner) = rounding.withLock {
+        val persona = signer.pubkey
+        val due = synchronized(this) { removedDevices[persona]?.toList() }.orEmpty()
+        if (due.isEmpty() || quiet.get()) return@withLock
+        val engine = engine(persona) ?: return@withLock
+        val own = ownDevice(persona)
+        for ((box, devices) in due.groupBy({ it.first }, { it.second })) {
+            val route = store.route(persona, box) ?: continue
+            // A room unreadable now leaves the revocations for the next pass, rather than revoke a member's grant.
+            val placed = try { devicesOn(engine, persona, box, except = null) } catch (_: IllegalStateException) { continue }
+            for (device in devices) {
+                val revocation = if (device in placed || device == own) null else ledger.revoke(box, device)
+                if (revocation != null) {
+                    try {
+                        publish(route, signer, listOf(revocation))
+                        ledger.revoked(box, device, revocation)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        continue
+                    }
+                }
+                synchronized(this) { removedDevices[persona]?.remove(box to device) }
+            }
+        }
+    }
+
+    /**
+     * The devices [persona]'s rooms on [box] still need, other than [except]:
+     * their members' and pending joins'. Throws when a room's members cannot
+     * be read now, rather than have a guest revoked.
+     */
+    private suspend fun devicesOn(engine: Engine, persona: String, box: String, except: String?): Set<String> {
+        val placed = HashSet<String>()
+        for (other in store.rooms().filter { it.persona == persona && it.box == box && it.session != except && it.closing == null && !it.ended }) {
+            val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
+                ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
+            read.members.values.forEach { placed += it.device }
+            invites.link(persona, other.session)?.joins?.forEach { placed += it.device }
+        }
+        return placed
+    }
 
     private suspend fun roundsNow(persona: String?) {
         rounding.withLock {
@@ -541,13 +601,7 @@ class VmlsRuntime(
             val route = store.route(persona, stored.box) ?: throw IllegalStateException("This room's box is not paired.")
             // The devices the persona's other rooms on this box still need, read before anything changes: a room whose
             // members cannot be read now stops the close, rather than have its guests revoked.
-            val elsewhere = HashSet<String>()
-            for (other in store.rooms().filter { it.persona == persona && it.box == stored.box && it.session != session && it.closing == null && !it.ended }) {
-                val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
-                    ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
-                read.members.values.forEach { elsewhere += it.device }
-                invites.link(persona, other.session)?.joins?.forEach { elsewhere += it.device }
-            }
+            val elsewhere = devicesOn(engine, persona, stored.box, except = session)
             if (stored.closing == null) {
                 store.update(persona, session) { it.invited(null).copy(closing = Closing.REVOKING) }
                 synchronized(this) { live.remove(key(persona, session)) }
@@ -1082,6 +1136,10 @@ class VmlsRuntime(
     private suspend fun apply(room: VmlsRoom, events: List<Any>): VmlsRoom {
         if (events.isEmpty()) return room
         val applied = room.apply(events.map(::roomSignal), now())
+        // A keeper's members removed (by its Remove or another member's): their grants are revoked next (D1 R2).
+        if (room.role == VmlsRole.KEEPER) room.devicesGone(applied.room).takeIf { it.isNotEmpty() }?.let { gone ->
+            synchronized(this) { removedDevices.getOrPut(room.persona) { HashSet() } += gone.map { room.box to it } }
+        }
         if (applied.messages.isNotEmpty()) synchronized(this) {
             val kept = received.getOrPut(key(room.persona, room.session)) { ArrayDeque() }
             applied.messages.forEach { kept.addLast(it); if (kept.size > MAX_MESSAGES) kept.removeFirst() }

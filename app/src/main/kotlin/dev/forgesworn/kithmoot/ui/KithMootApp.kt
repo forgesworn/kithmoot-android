@@ -178,7 +178,7 @@ fun KithMootApp(
         LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle) {
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 while (true) {
-                    try { vmlsBoxes.foregroundRounds(witnessPersona) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { }
+                    try { vmlsBoxes.foregroundRounds(witnessPersona, accountModel.vmlsSigner()?.takeIf { it.pubkey == witnessPersona }) } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled } catch (_: Exception) { }
                     kotlinx.coroutines.delay(if (vmlsRoomOnScreen) VMLS_ROOM_ROUND_INTERVAL_MILLIS else VMLS_ROUND_INTERVAL_MILLIS)
                 }
             }
