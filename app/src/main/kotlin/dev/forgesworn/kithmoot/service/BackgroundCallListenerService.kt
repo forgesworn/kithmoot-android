@@ -196,6 +196,11 @@ class BackgroundCallListenerService : Service() {
             while (isActive) {
                 if (!reconcileNow()) break
                 CredentialRenewal.renewQuietly(applicationContext, fromBackground = true)
+                // Self-destructing rooms nobody has open: their heads-up at red,
+                // once whoever sends it, and their tidy-up once their end has come.
+                val application = application as KithMootApplication
+                runCatching { application.selfDestructor.sendHeadsUps(skip = ActiveRoomRegistry::isOpen) }
+                runCatching { application.selfDestructor.runDue(skip = ActiveRoomRegistry::isOpen) }
                 delay(RECONCILE_INTERVAL_MS)
             }
             stopAll()
@@ -383,6 +388,14 @@ class BackgroundCallListenerService : Service() {
                 deviceSecretKey = candidate.saved::deviceSecretKey,
                 mayFollow = { !ActiveRoomRegistry.isOpen(watch.stableRoomId) && !holdsCadence(application, candidate.saved) },
                 now = ::now,
+                onDestructClosed = {
+                    Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} closed to self-destruct")
+                    scope.launch {
+                        runCatching { application.savedRooms.update(watch.stableRoomId) { it.withDestruct() } }
+                        application.selfDestructor.run(watch.stableRoomId)
+                        reconcileNow()
+                    }
+                },
             )
             jobs += scope.launch {
                 pool.subscribe({ listOf(backgroundRekeyFilter(watch.stableRoomId, authority)) }).collect { event ->

@@ -70,6 +70,9 @@ class KithMootApplication : Application() {
         )
     }
 
+    /** Tidies self-destructing rooms away, for the app and the background service alike. */
+    val selfDestructor: dev.forgesworn.kithmoot.service.RoomSelfDestructor by lazy { dev.forgesworn.kithmoot.service.RoomSelfDestructor(this) }
+
     /** Who each room knows, for its epoch desks (kithmoot#207). Advisory: see `RoomMembers`. */
     val roomMembers: RoomMembers by lazy { RoomMembers(EncryptedRoomStorage(this, "kithmoot.room-members.v1", 1024 * 1024)) }
 

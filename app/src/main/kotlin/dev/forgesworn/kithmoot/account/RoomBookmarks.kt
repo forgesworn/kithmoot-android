@@ -44,6 +44,15 @@ class RoomBookmarks(
     private val now: () -> Long = System::currentTimeMillis,
     /** Waits out [AccountWriteHold] before each relay publish. */
     private val beforePublish: suspend () -> Unit = {},
+    /**
+     * A room the account's records now say was removed, by another of the
+     * person's devices or this one: told for each tombstone once the first
+     * lookup has settled (so an old tombstone a relay sends before the newer
+     * record that replaced it is never mistaken for the latest word), then
+     * for each new one as it arrives. Must not block. The app wipes a
+     * self-destructing room it still holds; any other room it leaves alone.
+     */
+    private val onTombstone: (String) -> Unit = {},
 ) {
     private data class Record(val event: NostrEvent, val value: JsonObject) {
         val roomId get() = value.getValue("roomId").jsonPrimitive.content
@@ -181,7 +190,9 @@ class RoomBookmarks(
             }
             val found = transport.queryAvailable(filters)
             for (event in found) receive(event)
-            gate.withLock { live(); repair(found); ready = collector?.isActive == true; syncing = false; emit() }
+            val tombstoned = gate.withLock { live(); repair(found); ready = collector?.isActive == true; syncing = false; emit()
+                if (ready) (records + pending).filterValues { it.value["room"] == null }.keys.toList() else emptyList() }
+            tombstoned.forEach { runCatching { onTombstone(it) } }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             gate.withLock { syncing = false; ready = false
@@ -219,21 +230,28 @@ class RoomBookmarks(
         persist(out = out); pending = out
     }
 
-    private suspend fun receive(event: NostrEvent) = gate.withLock {
-        live(); if (fatal != null || !isRecord(event) || records.values.any { it.event.id == event.id }) return@withLock
+    private suspend fun receive(event: NostrEvent) {
+        val tombstone = receiveLocked(event)
+        if (tombstone != null) runCatching { onTombstone(tombstone) }
+    }
+
+    /** The room a newly taken tombstone removes, once the first lookup has settled; null otherwise. */
+    private suspend fun receiveLocked(event: NostrEvent): String? = gate.withLock {
+        live(); if (fatal != null || !isRecord(event) || records.values.any { it.event.id == event.id }) return@withLock null
         val text = try { signer.nip44Decrypt(identity, event.content) }
         catch (e: CancellationException) { throw e }
         catch (e: SignerException) { throw e }
-        catch (_: Exception) { return@withLock }
+        catch (_: Exception) { return@withLock null }
         live()
         val incoming = try { validate(event, Json.parseToJsonElement(text).jsonObject) }
-        catch (_: Exception) { return@withLock }
+        catch (_: Exception) { return@withLock null }
         val old = records[incoming.roomId]
-        if (old != null && !newer(event, old.event)) return@withLock
+        if (old != null && !newer(event, old.event)) return@withLock null
         val next = LinkedHashMap(records).apply { put(incoming.roomId, incoming) }
         val out = LinkedHashMap(pending)
         out[incoming.roomId]?.let { if (it.event.id == event.id || newer(event, it.event)) out.remove(incoming.roomId) }
         persist(next, out); records = next; pending = out; emit()
+        incoming.roomId.takeIf { ready && incoming.value["room"] == null && (out[incoming.roomId] ?: next[incoming.roomId]) === incoming }
     }
 
     suspend fun save(room: AccountRoom) {

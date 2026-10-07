@@ -241,4 +241,31 @@ class RoomBookmarksTest {
         assertTrue(plainLog.state.value.rooms.single().destruct)
         first.close(); second.close(); plainLog.close()
     }
+
+    private fun TestScope.told(store: Store, net: Network, into: MutableList<String>) =
+        RoomBookmarks(signer, net, store, backgroundScope, { now }, onTombstone = { into += it })
+
+    @Test fun tellsTheAppOfATombstoneOnlyOnceTheLookupHasSettledAndOnlyWhenItIsTheLatestWord() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open()
+        first.save(groupRoom); runCurrent(); first.remove(groupRoom.roomId); runCurrent()
+        val told = mutableListOf<String>()
+        val second = told(Store(), net, told); second.open(); runCurrent()
+        assertEquals(listOf(groupRoom.roomId), told)
+        // Saved again after its tombstone: the tombstone is history, not news.
+        first.save(groupRoom); runCurrent()
+        val third = mutableListOf<String>()
+        val later = told(Store(), net, third); later.open(); runCurrent()
+        assertEquals(emptyList(), third)
+        first.close(); second.close(); later.close()
+    }
+
+    @Test fun tellsTheAppOfATombstoneThatArrivesWhileItIsListening() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open(); first.save(groupRoom); runCurrent()
+        val told = mutableListOf<String>()
+        val second = told(Store(), net, told); second.open(); runCurrent()
+        assertEquals(emptyList(), told)
+        first.remove(groupRoom.roomId); runCurrent()
+        assertEquals(listOf(groupRoom.roomId), told)
+        first.close(); second.close()
+    }
 }

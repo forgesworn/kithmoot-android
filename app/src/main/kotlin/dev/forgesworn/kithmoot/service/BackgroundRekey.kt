@@ -54,6 +54,13 @@ class BackgroundRekeyFollower(
     private val deviceSecretKey: () -> ByteArray,
     private val mayFollow: () -> Boolean,
     private val now: () -> Long,
+    /**
+     * The authority closed the room with `destruct` (fold-kit 0.9.0) while
+     * nobody had it open: the close is committed to [vault], as an open room
+     * commits it, and this is told so the room is tidied away without waiting
+     * for somebody to open it. Any other close is still left for the open room.
+     */
+    private val onDestructClosed: () -> Unit = {},
 ) {
     /** The first authority-signed rekey seen for each epoch above the journal's: the one followed. */
     private val pending = TreeMap<Int, NostrEvent>()
@@ -85,6 +92,12 @@ class BackgroundRekeyFollower(
             val notice = try {
                 decodeRekeyEvent(next, stableRoomId, authority, current, key)
             } finally { key.fill(0) }
+            if (notice != null && notice.closed && notice.destruct) {
+                if (!mayFollow()) return
+                val closed = runCatching { vault.terminal(stableRoomId, stored.currentEpoch, notice, next.id, now()) }.isSuccess
+                if (closed) onDestructClosed()
+                return
+            }
             if (notice == null || notice.secret == null || notice.closed ||
                 notice.removed.any { it.equals(participant, ignoreCase = true) }) return
             if (!mayFollow()) return

@@ -693,12 +693,6 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 
 /** How often self-destructing rooms are looked at: whether one is due, and its heads-up. */
 private const val DESTRUCT_CHECK_MS = 15_000L
-/** How long a room whose relays could not be reached waits before it is tried again. */
-private const val DESTRUCT_RETRY_SECONDS = 120L
-/** How long the background service is given to let a room go before its stores are cleared again. */
-private const val DESTRUCT_SETTLE_MS = 1_500L
-/** Rooms being tidied away now, in this process: every instance shares one set. */
-private val SELF_DESTRUCT_RUNNING: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
@@ -1244,7 +1238,8 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
         val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope,
-            beforePublish = AccountWriteHold.process::awaitReleased)
+            beforePublish = AccountWriteHold.process::awaitReleased,
+            onTombstone = { roomId -> if (!chatOnly) viewModelScope.launch(Dispatchers.IO) { bookmarkTombstoned(roomId) } })
         roomBookmarks = bookmarks; roomBookmarkScope = scope
         _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
         roomBookmarkLifecycle = scope.launch {
@@ -1788,41 +1783,8 @@ class RoomViewModel @JvmOverloads constructor(
     // tombstone row that names no room. What it cannot do, it says nothing
     // about: copies others kept, and relays that ignore deletion.
 
-    private val destructTombstones = dev.forgesworn.kithmoot.storage.DestructTombstones.of(application)
-    /** Rooms being tidied away now, process-wide, so two triggers never run one twice. */
-    private val destructRunning: MutableSet<String> get() = SELF_DESTRUCT_RUNNING
-    /** When a room whose relays could not be reached is next tried, unix seconds. */
-    private val destructRetryAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val destructSweep = Mutex()
-
-    private fun roomWipe(): dev.forgesworn.kithmoot.storage.RoomWipe {
-        val app = getApplication<KithMootApplication>()
-        return dev.forgesworn.kithmoot.storage.RoomWipe(mapOf<dev.forgesworn.kithmoot.storage.RoomWipeStep, suspend (dev.forgesworn.kithmoot.storage.RoomWipeTarget) -> Unit>(
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.PENDING_OUTBOX to { t ->
-                dev.forgesworn.kithmoot.storage.PendingChatVault(app, t.roomId, t.participant, t.devicePubkey).outbox.clear() },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.ASSIGNMENTS to { t -> AssignmentVault(app, t.roomId, t.participant).reset() },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.BACKGROUND_INBOX to { t ->
-                dev.forgesworn.kithmoot.storage.BackgroundInboxVault(app, t.roomId, t.participant, t.devicePubkey).inbox.clear() },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.PARTICIPANT_CACHE to { t ->
-                dev.forgesworn.kithmoot.service.BackgroundParticipantCache(app).forget(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.NOTIFICATIONS to { t ->
-                dev.forgesworn.kithmoot.notifications.MessageNotices.cancelEverything(app, t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.NIP77_OFFERS to { t -> nip77Offers.forgetRoom(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.NIP77_INDEX to { t -> nip77Events.forgetRoom(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.CALL_RING_SETTING to { t ->
-                dev.forgesworn.kithmoot.notifications.CallRingSettings(app).forget(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.EPOCHS to { t -> roomEpochs.forget(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.MEMBERS to { t -> roomMembers.forget(t.roomId) },
-            dev.forgesworn.kithmoot.storage.RoomWipeStep.SAVED_ROOM to { t -> savedRooms.forget(t.roomId) },
-        ))
-    }
-
-    /** A self-destructing room whose end has come: by its time, or closed by its authority. */
-    private fun destructDue(saved: SavedRoom, now: Long): Boolean =
-        saved.destruct && (saved.ended(now) || runCatching { roomEpochs.get(saved.id)?.phase == EpochPhase.CLOSED }.getOrDefault(false))
-
-    /** Every relay the room is on: its own, and the ones this device used for it. */
-    private fun destructRelays(saved: SavedRoom): List<String> = (saved.sharedRelays + saved.relays).distinct()
+    private val destructor: dev.forgesworn.kithmoot.service.RoomSelfDestructor = (application as KithMootApplication).selfDestructor
+    private val destructTombstones get() = destructor.tombstones
 
     /** Out of [roomId] on this screen, and off its call, saying it self-destructed. */
     private suspend fun leaveForDestruct(roomId: String) {
@@ -1841,64 +1803,59 @@ class RoomViewModel @JvmOverloads constructor(
 
     /**
      * Tidy [roomId] away on this device, if it self-destructs and its end has
-     * come. Leaving happens in any instance showing the room; the rest only in
-     * the call's instance, which owns the account and the stores.
+     * come ([force]: another of the person's devices already tidied it away).
+     * Leaving happens in any instance showing the room; the rest only in the
+     * call's instance, which owns the account. The tidy-up itself is
+     * [dev.forgesworn.kithmoot.service.RoomSelfDestructor], shared with the
+     * background service.
      */
-    private suspend fun selfDestruct(roomId: String) {
+    private suspend fun selfDestruct(roomId: String, force: Boolean = false) {
         val saved = runCatching { savedRooms.get(roomId) }.getOrNull() ?: return
-        if (!destructDue(saved, epochSeconds())) return
-        if (!destructRunning.add(roomId)) return
+        if (!saved.destruct || !(force || destructor.due(saved))) return
+        if (!destructor.claim(roomId)) return
         try {
             withContext(NonCancellable) { leaveForDestruct(roomId) }
             if (chatOnly) return
-            val app = getApplication<KithMootApplication>()
-            // The background service hands the room over now, rather than at its next look.
-            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(roomId)
-            val target = dev.forgesworn.kithmoot.storage.RoomWipeTarget(saved.id, saved.participant, saved.devicePubkey)
-            try {
-                val key = saved.deviceSecretKey()
-                val report = try {
-                    withGroupRelays(destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) {
-                        dev.forgesworn.kithmoot.relay.Nip09Deletion.deleteOwnEvents(it, key, ::epochSeconds)
-                    }
-                } catch (e: CancellationException) { throw e
-                } catch (_: Exception) { dev.forgesworn.kithmoot.relay.Nip09Deletion.Report(complete = false)
-                } finally { key.fill(0) }
-                Log.i(JOIN_LOG, "self-destruct room=${roomId.take(8)} found=${report.found} requested=${report.requested} " +
-                    "failed=${report.failed} complete=${report.complete} reached=${report.reached}")
-                if (!report.reached) {
-                    // No relay could be asked: the device key is kept, in the
-                    // saved room, until one can. Nothing shows meanwhile.
-                    dev.forgesworn.kithmoot.notifications.MessageNotices.cancelEverything(app, roomId)
-                    destructRetryAt[roomId] = epochSeconds() + DESTRUCT_RETRY_SECONDS
-                    return
-                }
-                destructRetryAt.remove(roomId)
-                // The person's other devices learn the room is gone even if they missed the end.
-                roomBookmarks?.let { bookmarks ->
-                    if (bookmarks.identity == saved.participant && bookmarks.state.value.rooms.any { it.roomId == roomId }) {
-                        changeRoomBookmarks { it.remove(roomId) }
-                    }
-                }
-                // On the background inbox's own queue, after anything the close still had to write there.
-                val left = withContext(backgroundInboxWrites) { roomWipe().run(target) }
-                if (left.isNotEmpty()) Log.w(JOIN_LOG, "self-destruct room=${roomId.take(8)} could not clear $left")
-                // One row per room: a room still saved is tried again, and its row waits for that.
-                if (dev.forgesworn.kithmoot.storage.RoomWipeStep.SAVED_ROOM !in left) destructTombstones.add(epochSeconds())
-            } finally {
-                dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.unmark(roomId)
+            val outcome = destructor.run(roomId, force = force, claimed = true, inboxQueue = backgroundInboxWrites) { room, delete ->
+                // The room's own relays are read and written whatever this phone's relay choices say.
+                withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(room), room.anonymous, room.sharedRelays.toSet()) { delete(it) }
             }
-            // The background service may have written once more before it let go.
-            delay(DESTRUCT_SETTLE_MS)
-            withContext(backgroundInboxWrites) {
-                roomWipe().run(target, only = setOf(dev.forgesworn.kithmoot.storage.RoomWipeStep.BACKGROUND_INBOX,
-                    dev.forgesworn.kithmoot.storage.RoomWipeStep.PARTICIPANT_CACHE, dev.forgesworn.kithmoot.storage.RoomWipeStep.NOTIFICATIONS))
-            }
+            if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) sendOwedBookmarkTombstones()
             val rooms = runCatching { savedRooms.list() }.getOrNull()
             _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
         } finally {
-            destructRunning.remove(roomId)
+            destructor.release(roomId)
         }
+    }
+
+    /**
+     * The person's other devices learn a room is gone from the account's
+     * bookmark tombstone, even if they missed its end. Sent for every room
+     * tidied away here or by the background service, once the account's
+     * bookmarks are loaded; a room the account never listed owes nothing.
+     */
+    private fun sendOwedBookmarkTombstones() {
+        val bookmarks = roomBookmarks ?: return
+        val snapshot = bookmarks.state.value
+        if (!snapshot.ready) return
+        for (roomId in destructor.owedBookmarks(bookmarks.identity)) {
+            if (snapshot.rooms.any { it.roomId == roomId }) changeRoomBookmarks {
+                it.remove(roomId)
+                destructor.bookmarkTombstoned(bookmarks.identity, roomId)
+            } else destructor.bookmarkTombstoned(bookmarks.identity, roomId)
+        }
+    }
+
+    /**
+     * The account's bookmarks say a room was removed. A self-destructing room
+     * this phone still holds goes too: another of the person's devices tidied
+     * it away, perhaps at an end this phone missed. Any other room is left
+     * exactly as it was ([wipesOnBookmarkTombstone]).
+     */
+    private suspend fun bookmarkTombstoned(roomId: String) {
+        val saved = runCatching { savedRooms.get(roomId) }.getOrNull()
+        if (!wipesOnBookmarkTombstone(saved)) return
+        selfDestruct(roomId, force = true)
     }
 
     /**
@@ -1924,40 +1881,27 @@ class RoomViewModel @JvmOverloads constructor(
         val previous = deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
         val filter = Filter(kinds = listOf(KIND_ROOM_REKEY), authors = listOf(authority), tags = mapOf("#d" to listOf(saved.id)), limit = 50)
         val events = try {
-            withGroupRelays(destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) { it.queryAvailable(listOf(filter), 8_000) }
+            withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) { it.queryAvailable(listOf(filter), 8_000) }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
         return events.any { readRekeyEvidence(it, saved.id, authority, previous.epoch, previous.key)?.destruct == true }
     }
+
+    private val destructSweep = Mutex()
 
     /** Tidy away every self-destructing room whose end has come. One sweep at a time. */
     private suspend fun runDueDestructs() {
         if (!destructSweep.tryLock()) return
         try {
             val now = epochSeconds()
-            val due = runCatching { savedRooms.list() }.getOrDefault(emptyList()).filter { it.destruct && (destructRetryAt[it.id] ?: 0) <= now }
+            val due = runCatching { savedRooms.list() }.getOrDefault(emptyList()).filter { it.destruct && !destructor.waiting(it.id, now) }
             for (summary in due) selfDestruct(summary.id)
+            sendOwedBookmarkTombstones()
         } finally { destructSweep.unlock() }
     }
 
-    /**
-     * One heads-up per self-destructing room, at the start of red, through the
-     * person's notification settings. None for a room already past red when
-     * first seen, and none for the room on screen, which has its pill.
-     */
+    /** The heads-up at red, once per room whoever sends it; not for the room on screen, which has its pill. */
     private fun sendDestructHeadsUps(now: Long) {
-        val rooms = runCatching { savedRooms.list() }.getOrDefault(emptyList())
-        for (room in rooms) {
-            val ends = room.endsAt ?: continue
-            if (!room.destruct || room.ended) continue
-            val stage = dev.forgesworn.kithmoot.session.countdownStage(ends - now, dev.forgesworn.kithmoot.session.roomLifetime(ends, room.startsAt))
-            if (stage != dev.forgesworn.kithmoot.session.CountdownStage.RED) continue
-            val saved = runCatching { savedRooms.get(room.id) }.getOrNull() ?: continue
-            if (saved.destructHeadsUp) continue
-            runCatching { savedRooms.update(room.id) { it.withDestructHeadsUp() } }.getOrNull() ?: continue
-            if (notifications.foreground && _room.value.roomId == room.id) continue
-            dev.forgesworn.kithmoot.notifications.DestructHeadsUp.post(getApplication(), room.id,
-                dev.forgesworn.kithmoot.ui.start.roomLabel(room.name, room.id), ends - now)
-        }
+        destructor.sendHeadsUps(now) { notifications.foreground && _room.value.roomId == it }
     }
 
     /** Remove one self-destructed room's row. */
@@ -6724,6 +6668,14 @@ class RoomViewModel @JvmOverloads constructor(
 }
 
 internal fun epochSeconds(): Long = System.currentTimeMillis() / 1000
+
+/**
+ * Whether a bookmark tombstone from the account wipes a room this phone holds:
+ * only a self-destructing one, which another of the person's devices has
+ * tidied away. Removing any other room from the account removes only its
+ * bookmark, as it always has.
+ */
+internal fun wipesOnBookmarkTombstone(saved: SavedRoom?): Boolean = saved?.destruct == true
 
 /** Accepts a list separated by newlines, commas or spaces, and keeps only websocket URLs. */
 /** The hand-marked circle boxes, normalised as `ContactBook.normalise` does, so a
