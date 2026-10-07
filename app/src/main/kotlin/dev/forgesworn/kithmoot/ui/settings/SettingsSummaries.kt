@@ -57,3 +57,5 @@ fun updatesSummary(versionName: String, state: AppUpdates.State, installedFrom: 
             if (installedFrom == InstalledFrom.ZAPSTORE) "$version · Updates come through Zapstore" else version
     }
 }
+
+const val VMLS_PREVIEW_SUMMARY = "For people who run their own Bothy box. Off until you turn it on."

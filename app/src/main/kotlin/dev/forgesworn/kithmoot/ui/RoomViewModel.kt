@@ -1980,7 +1980,7 @@ class RoomViewModel @JvmOverloads constructor(
         val routes = linkEngine.routeIds()
         val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
         // VMLS boxes keep their own routes (P3-03b-3 decision 16).
-        consentedRoutes += getApplication<KithMootApplication>().vmlsBoxes?.routeIds().orEmpty()
+        consentedRoutes += getApplication<KithMootApplication>().vmlsBoxesForHousekeeping?.routeIds().orEmpty()
         routes.filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
     }
 

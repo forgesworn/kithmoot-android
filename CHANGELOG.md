@@ -12,17 +12,13 @@ version it publishes (`release_notes` in `zapstore.yaml`).
   room, even while the app is closed if background ringing or delivery is
   on (otherwise at the next start). A room joined from a web link now takes
   its name from the link.
-- New: VMLS rooms on your own Bothy box. A box that answers with VMLS lets
-  you start a room, invite people by link and let them in, and talk, with
-  the box holding the messages. The room shows its state plainly: sending,
-  retrying, checking with the box, stopped and why, or removed.
-- Removing someone from a VMLS room shows each part on its own: the
-  removal from the group, and each box access it ends, with which of your
-  other rooms keep that access. The room says only what has really
-  happened so far.
-- If a device may be compromised, tick that when removing it. Its box
-  access ends at once, and your messages and new joins in that room wait
-  until it is removed.
+- Settings is now a list of pages: your account, notifications and calls,
+  display, privacy, connections and updates, side by side on a tablet or
+  a wide screen.
+- For people who run their own Bothy box: VMLS rooms and the restore
+  witness, as a preview, off until turned on in Settings, Connections.
+  They need a box that offers VMLS, which no Bothy release does yet; while
+  the preview is off, none of it runs or shows.
 - Settings show what is really happening: with notifications blocked, the
   notification and background options read off and say why, and signing
   out asks first.

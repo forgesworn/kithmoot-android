@@ -22,6 +22,8 @@ import dev.forgesworn.kithmoot.epoch.RoomMembers
  * Owns one serialised repository for saved room access across activities.
  * Live connections belong to the view model that opened the room.
  */
+private const val VMLS_PREVIEW = "preview"
+
 class KithMootApplication : Application() {
     /** Where signer intents wait for their answer, so an activity recreated meanwhile does not lose it. */
     val signerRelay = dev.forgesworn.kithmoot.account.SignerRelay()
@@ -79,14 +81,43 @@ class KithMootApplication : Application() {
     /** One engine owner for the whole process; room consent selects any usable route later. */
     val linkEngine: LinkTransportManager by lazy { LinkTransportManager(linkTransport, ReflectiveLinkTransportRuntime()) }
 
-    /** The restore-witness enrolment (P3-03b-2): every build. */
-    val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
+    private val vmlsPreferences by lazy { getSharedPreferences("kithmoot.vmls", MODE_PRIVATE) }
+    private val vmlsPreviewState by lazy { kotlinx.coroutines.flow.MutableStateFlow(vmlsPreferences.getBoolean(VMLS_PREVIEW, false)) }
+
+    /**
+     * VMLS rooms and the restore witness, off until the person turns them on in
+     * Settings. They need a Bothy box that offers VMLS, and most people have
+     * none: while this is off nothing of theirs runs, shows or asks.
+     */
+    val vmlsPreview: kotlinx.coroutines.flow.StateFlow<Boolean> get() = vmlsPreviewState
+
+    fun setVmlsPreview(on: Boolean) {
+        vmlsPreferences.edit().putBoolean(VMLS_PREVIEW, on).apply()
+        vmlsPreviewState.value = on
+    }
+
+    private val restoreWitnessEngine by lazy { dev.forgesworn.kithmoot.account.restoreWitness(this) }
+
+    /** The restore-witness enrolment (P3-03b-2): null while the VMLS preview is off. */
+    val restoreWitness: dev.forgesworn.kithmoot.account.RestoreWitness? get() = if (vmlsPreview.value) restoreWitnessEngine else null
 
     /** Ends the vault's session on sign-out or an account switch (§6.2). */
     val vaultSessionEnd: dev.forgesworn.kithmoot.account.VaultSessionEnd by lazy { dev.forgesworn.kithmoot.account.vaultSessionEnd(this) }
 
-    /** VMLS rooms' runtime (P3-03b-3). */
-    val vmlsBoxes: dev.forgesworn.kithmoot.mls.VmlsBoxes? by lazy { dev.forgesworn.kithmoot.mls.vmlsBoxes(this) }
+    private val vmlsEngine = lazy { dev.forgesworn.kithmoot.mls.vmlsBoxes(this) }
+
+    /** VMLS rooms' runtime (P3-03b-3): null while the VMLS preview is off. */
+    val vmlsBoxes: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = if (vmlsPreview.value) vmlsEngine.value else null
+
+    /**
+     * The runtime whatever the switch says, for the duties that must not lapse
+     * when the preview is turned off: keeping its boxes' routes, and ending its
+     * session with the account's.
+     */
+    val vmlsBoxesForHousekeeping: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = vmlsEngine.value
+
+    /** The runtime only if something already started it. */
+    val vmlsBoxesIfStarted: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = if (vmlsEngine.isInitialized()) vmlsEngine.value else null
 
     /** In-app updates, checked against the signed release manifest. */
     val updates: dev.forgesworn.kithmoot.update.AppUpdates by lazy { dev.forgesworn.kithmoot.update.AppUpdates(this) }

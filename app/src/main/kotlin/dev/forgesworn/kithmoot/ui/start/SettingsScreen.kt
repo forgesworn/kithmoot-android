@@ -128,6 +128,9 @@ fun SettingsScreen(
     /** Device-wide choices Settings changes while no room is open. */
     onPublicProfiles: (Boolean) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
+    /** Whether VMLS rooms and the restore witness are turned on; null hides the switch. */
+    vmlsPreview: Boolean? = null,
+    onVmlsPreview: (Boolean) -> Unit = {},
     /** P3-03b-2: null hides the row. */
     onRestoreWitness: (() -> Unit)? = null,
     onVmlsBoxes: (() -> Unit)? = null,
@@ -195,7 +198,7 @@ fun SettingsScreen(
             SettingsPage.DISPLAY -> DisplayPage()
             SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles)
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
-                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) })
+                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }

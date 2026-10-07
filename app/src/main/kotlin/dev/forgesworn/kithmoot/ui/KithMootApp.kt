@@ -159,7 +159,10 @@ fun KithMootApp(
     // The restore witness (P3-03b-2). No witness traffic
     // while a Tor-only room is open (C7); the retiring duty runs at open and
     // on a timer while the app is in the foreground.
-    val restoreWitness = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.restoreWitness }
+    val app = remember(context) { context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication }
+    // VMLS rooms and the restore witness are off until turned on in Settings: while off, neither runs nor shows.
+    val vmlsPreview = app?.vmlsPreview?.collectAsState()?.value == true
+    val restoreWitness = remember(app, vmlsPreview) { app?.restoreWitness }
     val witnessPersona = startState.account?.pubkey
     val witnessStatus = restoreWitness?.banner?.collectAsState()?.value
     if (restoreWitness != null) {
@@ -176,7 +179,7 @@ fun KithMootApp(
     }
     // VMLS rooms (P3-03b-3). Driven while the app is in the foreground and paused,
     // as witness traffic is, while a Tor-only room is open (the shared quiet flag, C7).
-    val vmlsBoxes = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.vmlsBoxes }
+    val vmlsBoxes = remember(app, vmlsPreview) { app?.vmlsBoxes }
     // The open VMLS room (P3-03b-3), by session.
     var vmlsSession by rememberSaveable { mutableStateOf<String?>(null) }
     val vmlsRoomOnScreen by androidx.compose.runtime.rememberUpdatedState(homePage == HomePage.VMLS_ROOM)
@@ -591,6 +594,8 @@ fun KithMootApp(
                             model.notifications, ringingOff, needsSigner = promptFor(null) != null),
                         onPublicProfiles = model::setProfilesEnabled,
                         onMirrorSelf = model::setMirrorSelf,
+                        vmlsPreview = vmlsPreview.takeIf { app != null },
+                        onVmlsPreview = { app?.setVmlsPreview(it) },
                         onRestoreWitness = restoreWitness?.let { { witnessFrom = HomePage.SETTINGS; homePage = HomePage.RESTORE_WITNESS } },
                         onVmlsBoxes = vmlsBoxes?.let { { homePage = HomePage.VMLS_BOXES } },
                         updates = updates,
