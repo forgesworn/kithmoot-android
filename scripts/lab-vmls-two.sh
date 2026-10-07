@@ -7,8 +7,8 @@
 # a new process: create, ask and join over the relay, a message each way, a
 # restart with a message in the outbox, the guest offline then catching up,
 # a second room the guest joins and leaves and the keeper closes, a Remove
-# that loses its epoch to the guest's Update and is offered again, and the
-# keeper's close of the first room.
+# that loses its epoch to the guest's Update and is offered again, the
+# removed device's grant revoked, and the keeper's close of the first room.
 #
 # Usage: KEEPER_SERIAL=emulator-PORT GUEST_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node \
 #        LAB_NOSTR_PORT=PORT [LAB_RELAY=wss://…] scripts/lab-vmls-two.sh
@@ -174,6 +174,8 @@ one "$keeper" keeper prepare-remove room 1 || failed 'prepare the Remove'
 one "$guest" guest update room 1 || failed 'the Update'
 one "$keeper" keeper settle room 1 || failed 'the Remove offered again'
 one "$guest" guest removed room 1 || failed 'removed'
+# The removed device's grant, revoked once the guest has seen its removal (D1 R2), before any close.
+one "$keeper" keeper revoke room 1 || failed 'revoke the removed device'
 
 # The keeper closes the first room: the guest's grant, in no other room now, is revoked.
 one "$keeper" keeper close room 1 grant revoked || failed 'close the first room'

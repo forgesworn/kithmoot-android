@@ -121,6 +121,8 @@ class VmlsRuntime(
     /** Answers the vault's consent asks; null puts each ask on [consent] for the dialog. */
     prompt: ConsentPrompt? = null,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** How long a removed device keeps its grant, to fetch its own removal (D1 R2). */
+    private val removedGraceSeconds: Long = REMOVED_GRACE_SECONDS,
     private val random: SecureRandom = SecureRandom(),
 ) : VmlsBoxes {
     private val _state = MutableStateFlow(VmlsBoxesState())
@@ -283,8 +285,74 @@ class VmlsRuntime(
         else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
 
     /** Under the session the rounds began in, as every action is: a sign-out while one runs leaves it nothing to sign. */
-    override suspend fun foregroundRounds(persona: String?) =
-        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) { roundsNow(persona) }
+    override suspend fun foregroundRounds(persona: String?, signer: ParticipantSigner?) =
+        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) {
+            roundsNow(persona)
+            if (persona != null && signer?.pubkey == persona) revokeRemoved(signer)
+        }
+
+    /** A revocation the box did not confirm, by box and device, and when it is tried again: not on every pass. */
+    private val revokeRetry = HashMap<Pair<String, String>, Long>()
+
+    /**
+     * Revokes the grant of each device removed from [signer]'s rooms once
+     * [removedGraceSeconds] have passed (D1 R2): a removed member otherwise
+     * keeps its grant, and up to 64 MiB at the box, until the room closes.
+     * The grace lets the removed device fetch its own removal first, so it
+     * learns it was removed rather than finding the box shut. A device that
+     * still has a place in another of the persona's rooms on that box, or a
+     * join pending there, keeps its grant (decision 24's rule, as at a close).
+     * One the box does not confirm is tried again later.
+     */
+    private suspend fun revokeRemoved(signer: ParticipantSigner) = rounding.withLock {
+        val persona = signer.pubkey
+        val at = now()
+        // Only guest grants this keeper issued, as at a close: the persona's own devices keep theirs.
+        val due = ledger.removals().filter {
+            it.issuer == persona && it.persona != persona && it.removedAt!! + removedGraceSeconds <= at &&
+                synchronized(this) { (revokeRetry[it.box to it.device] ?: 0) <= at }
+        }
+        if (due.isEmpty() || quiet.get()) return@withLock
+        val engine = engine(persona) ?: return@withLock
+        val own = ownDevice(persona)
+        for ((box, records) in due.groupBy { it.box }) {
+            val route = store.route(persona, box) ?: continue
+            // A room unreadable now leaves the revocations for the next pass, rather than revoke a member's grant.
+            val placed = try { devicesOn(engine, persona, box, except = null) } catch (_: IllegalStateException) { continue }
+            // As at a close: grants lapsed by both clocks are dropped first, so none is revoked that holds nothing.
+            ledger.prune(boxClock(route) ?: now(), now())
+            for (device in records.map { it.device }) {
+                if (device in placed || device == own) { ledger.kept(box, device); continue }
+                val revocation = ledger.revoke(box, device) ?: continue
+                try {
+                    publish(route, signer, listOf(revocation))
+                    ledger.revoked(box, device, revocation)
+                    synchronized(this) { revokeRetry.remove(box to device) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Not confirmed: tried again later, not on every pass (each try may ask the signer for relay AUTH).
+                    synchronized(this) { revokeRetry[box to device] = now() + REVOKE_RETRY_SECONDS }
+                }
+            }
+        }
+    }
+
+    /**
+     * The devices [persona]'s rooms on [box] still need, other than [except]:
+     * their members' and pending joins'. Throws when a room's members cannot
+     * be read now, rather than have a guest revoked.
+     */
+    private suspend fun devicesOn(engine: Engine, persona: String, box: String, except: String?): Set<String> {
+        val placed = HashSet<String>()
+        for (other in store.rooms().filter { it.persona == persona && it.box == box && it.session != except && it.closing == null && !it.ended }) {
+            val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
+                ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
+            read.members.values.forEach { placed += it.device }
+            invites.link(persona, other.session)?.joins?.forEach { placed += it.device }
+        }
+        return placed
+    }
 
     private suspend fun roundsNow(persona: String?) {
         rounding.withLock {
@@ -541,13 +609,7 @@ class VmlsRuntime(
             val route = store.route(persona, stored.box) ?: throw IllegalStateException("This room's box is not paired.")
             // The devices the persona's other rooms on this box still need, read before anything changes: a room whose
             // members cannot be read now stops the close, rather than have its guests revoked.
-            val elsewhere = HashSet<String>()
-            for (other in store.rooms().filter { it.persona == persona && it.box == stored.box && it.session != session && it.closing == null && !it.ended }) {
-                val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other)
-                    ?: throw IllegalStateException("${other.name} on the same box cannot be read just now. Try closing again shortly.")
-                read.members.values.forEach { elsewhere += it.device }
-                invites.link(persona, other.session)?.joins?.forEach { elsewhere += it.device }
-            }
+            val elsewhere = devicesOn(engine, persona, stored.box, except = session)
             if (stored.closing == null) {
                 store.update(persona, session) { it.invited(null).copy(closing = Closing.REVOKING) }
                 synchronized(this) { live.remove(key(persona, session)) }
@@ -834,6 +896,7 @@ class VmlsRuntime(
                         ledger.prune(boxNow, now())
                         val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow, now())
                         ledger.record(VmlsGrantRecord(room.box, plan), now())
+                        // Admitted again: the record just stored carries no removal, so the keeper keeps this device.
                         publish(route, signer, listOf(plan.active))
                     } catch (failure: Exception) {
                         // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
@@ -1088,6 +1151,9 @@ class VmlsRuntime(
             applied.messages.forEach { said(room.persona, room.session, VmlsMessageView(false, it.senderIdentity, String(it.body, Charsets.UTF_8), now())) }
         }
         var next = save(applied.room)
+        // A keeper's members removed (by its Remove or another member's): their grants are revoked after the grace
+        // (D1 R2). Noted once the room is saved; a mark that cannot be written is left to the room's close.
+        if (room.role == VmlsRole.KEEPER) room.devicesGone(applied.room).forEach { runCatching { ledger.removed(room.box, it, now()) } }
         if (RoomAction.StartUpdate in applied.actions) next = update(next)
         return next
     }
@@ -1405,6 +1471,8 @@ class VmlsRuntime(
         private const val OPEN_WINDOW_SECONDS = 60L
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
+        private const val REVOKE_RETRY_SECONDS = 10L * 60
+        const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
         private val DEFERRED = setOf("CommitInFlight", "UpdateRequired")

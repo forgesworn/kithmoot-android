@@ -177,8 +177,13 @@ interface VmlsBoxes {
     /** Forgets a room that ended (removed, or its invitation lapsed). */
     fun forgetRoom(persona: String, session: String)
 
-    /** One pass over [persona]'s VMLS rooms while the app is in the foreground. */
-    suspend fun foregroundRounds(persona: String?)
+    /**
+     * One pass over [persona]'s VMLS rooms while the app is in the foreground.
+     * With the persona's [signer], a keeper's grants for devices removed from
+     * its rooms are revoked at the box (D1 R2); without it they wait for the
+     * next pass that has it, or for the room's close.
+     */
+    suspend fun foregroundRounds(persona: String?, signer: ParticipantSigner? = null)
 
     /**
      * A join request waiting on the keeper (decision 18): one at a time per

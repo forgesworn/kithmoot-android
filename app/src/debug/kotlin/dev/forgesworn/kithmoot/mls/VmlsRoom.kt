@@ -310,6 +310,14 @@ data class VmlsRoom(
     fun evicted(leaf: String): VmlsRoom = copy(evicting = evicting + leaf)
 
     /**
+     * The devices in this room and not in [next]: removed, by this keeper or
+     * another member. A device keeps its place under a new leaf after an
+     * Update, so devices are compared, not leaves.
+     */
+    fun devicesGone(next: VmlsRoom): Set<String> =
+        members.values.map { it.device }.toSet() - next.members.values.map { it.device }.toSet()
+
+    /**
      * A repair finished with the engine [phase] active: the stop the phase
      * could not show is cleared. An ended room stays ended.
      */
