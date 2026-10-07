@@ -51,7 +51,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The coordinated MLS vault with the real VMLS engine (debug builds), its
+ * The coordinated MLS vault with the real VMLS engine, its
  * real Keystore-backed stores, and an in-process witness signing real Ed25519
  * receipts (P3-03b-2). Tests named `wNN_` are the note's acceptance rows;
  * W01-W04 need a process restart and are [CoordinatedVaultRestartTest].

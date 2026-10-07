@@ -40,6 +40,11 @@ done
 scripts/fetch-link-bridge.sh build/link-ffi-android.zip
 python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 
+# The VMLS engine ships in the release too, so its reviewed bundle is fetched
+# and verified the same way.
+scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+
 if [[ -n "$password_file" ]]; then
   IFS= read -r production_password < "$password_file" || [[ -n "$production_password" ]]
 else

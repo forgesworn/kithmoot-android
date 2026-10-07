@@ -4,11 +4,8 @@ package dev.forgesworn.kithmoot.account
  * The restore-witness coordinator (vennel `vmls_mls::coordinator`, contract
  * §4.1-§4.5) as the MLS vault sees it, in Kotlin types only (P3-03b-2).
  *
- * Debug builds implement it over the VMLS engine (`EngineVaultWitness`); the
- * engine is debug-only until its independent review (vennel D1), so release
- * builds get `NoVaultWitness`, which refuses everything and never lets a
- * covered write through unwitnessed. [vaultWitness] is the same-named factory
- * in each build type's source set.
+ * Every build implements it over the VMLS engine (`EngineVaultWitness`), made
+ * by [vaultWitness]. There is no unwitnessed mode.
  *
  * Every decision is the core's: this interface only carries bytes across.
  */

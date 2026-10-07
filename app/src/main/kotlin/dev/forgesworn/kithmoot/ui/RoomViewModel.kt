@@ -1012,10 +1012,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** The person's signer, when signed in. What every new room is joined as. */
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
-    /** The signed-in account's signer, for the debug VMLS boxes page's grants (P3-03b-3). */
+    /** The signed-in account's signer, for the VMLS boxes page's grants (P3-03b-3). */
     fun vmlsSigner(): ParticipantSigner? = accountSigner
 
-    /** Where a debug VMLS room's link points, as today's invitation links do. */
+    /** Where a VMLS room's link points, as today's invitation links do. */
     fun vmlsJoinBase(): String = selectedWebApp.joinBase
 
     init {
@@ -1799,7 +1799,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The routes are read first: one paired after this read is never swept, whoever names it.
         val routes = linkEngine.routeIds()
         val consentedRoutes = linkConsents.all().mapTo(mutableSetOf()) { it.routeId }
-        // Debug builds' VMLS boxes keep their own routes (P3-03b-3 decision 16); release builds have none.
+        // VMLS boxes keep their own routes (P3-03b-3 decision 16).
         consentedRoutes += getApplication<KithMootApplication>().vmlsBoxes?.routeIds().orEmpty()
         routes.filterNot(consentedRoutes::contains).forEach(linkEngine::remove)
     }

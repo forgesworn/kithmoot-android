@@ -16,9 +16,8 @@ import dev.forgesworn.vmls.ffi.openCoordinator
 import java.security.SecureRandom
 
 /**
- * [VaultWitness] over the VMLS engine's coordinator (vmls-ffi), debug builds
- * only. The native library loads on first use, never when this object is made,
- * so JVM unit tests that compile the debug source set never need it.
+ * [VaultWitness] over the VMLS engine's coordinator (vmls-ffi). The native library loads on first use, never when this object is made,
+ * so JVM unit tests that compile the app's sources never need it.
  */
 class EngineVaultWitness(private val random: SecureRandom = SecureRandom()) : VaultWitness {
     /** The coordinator only uses the platform's CSPRNG; the two keys are placeholders it never reads. */

@@ -150,7 +150,7 @@ fun KithMootApp(
         onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false); model.setCallRingForeground(false) }
     }
     val context = LocalContext.current
-    // The restore witness (P3-03b-2): debug builds only. No witness traffic
+    // The restore witness (P3-03b-2). No witness traffic
     // while a Tor-only room is open (C7); the retiring duty runs at open and
     // on a timer while the app is in the foreground.
     val restoreWitness = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.restoreWitness }
@@ -168,7 +168,7 @@ fun KithMootApp(
             }
         }
     }
-    // VMLS rooms (P3-03b-3): debug builds only. Driven while the app is in the foreground and paused,
+    // VMLS rooms (P3-03b-3). Driven while the app is in the foreground and paused,
     // as witness traffic is, while a Tor-only room is open (the shared quiet flag, C7).
     val vmlsBoxes = remember(context) { (context.applicationContext as? dev.forgesworn.kithmoot.KithMootApplication)?.vmlsBoxes }
     // The open VMLS room (P3-03b-3), by session.

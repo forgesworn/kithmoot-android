@@ -7,7 +7,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
 
 /**
- * Debug builds carry the VMLS engine, so they get VMLS rooms (P3-03b-3):
+ * Every build carries the VMLS engine, so every build has VMLS rooms (P3-03b-3):
  * the shared coordinated vault, the app's Link engine, and their own stores
  * (decision 21), apart from saved rooms.
  */

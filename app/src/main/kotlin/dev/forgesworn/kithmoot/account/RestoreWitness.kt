@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** What the debug-only "Restore witness" screen shows for the signed-in persona (C5). */
+/** What the "Restore witness" screen shows for the signed-in persona (C5). */
 data class RestoreWitnessState(
     val persona: String? = null,
     val enrolment: WitnessEnrolment? = null,
@@ -29,8 +29,7 @@ data class RestoreWitnessState(
 /**
  * The keeper's enrolment of a persona at their box (B3), and the app's side of
  * it while it runs: the "Restore witness" screen, the pending banner and the
- * foreground retiring timer. Debug builds only: release builds get no
- * [RestoreWitness] at all (`restoreWitness()` answers null there).
+ * foreground retiring timer.
  *
  * [quiet] is shared with the persona's [PersonaLinks]: true while a Tor-only
  * room is open, so no witness traffic leaves the phone (C7).

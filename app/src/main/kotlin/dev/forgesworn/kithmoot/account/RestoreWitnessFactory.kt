@@ -3,7 +3,7 @@ package dev.forgesworn.kithmoot.account
 import android.content.Context
 
 /**
- * Debug builds carry the VMLS engine, so they get the "Restore witness"
+ * Every build carries the VMLS engine, so every build gets the "Restore witness"
  * screen: a coordinated MLS vault whose personas reach their box through
  * their own Link engines.
  */

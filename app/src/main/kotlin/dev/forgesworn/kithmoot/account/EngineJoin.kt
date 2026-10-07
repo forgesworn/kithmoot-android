@@ -13,7 +13,7 @@ import dev.forgesworn.vmls.ffi.prepareCapability
 import dev.forgesworn.vmls.ffi.prepareIntroduction
 
 /**
- * Joining a group (P3-03b-3b-2), debug builds only. The engine asks; the
+ * Joining a group (P3-03b-3b-2). The engine asks; the
  * vault answers each request under the persona's consent; nothing here holds
  * a secret. Between the two sides, out of band: the guest's MLS device key
  * and rendezvous key go to the keeper, and the keeper's rendezvous key, the

@@ -11,12 +11,13 @@ vennel's `VMLS Android bundle` workflow builds it. vennel is private, so a
 reviewed build is republished, byte for byte, as a prerelease of this
 repository.
 
-**Debug builds only.** The engine is non-shipping until its independent
-review (vennel decision D1). Only the `debug` build type (the debug APK
-and instrumentation tests) compiles the binding and packages
-`libvmls_ffi.so`, and only debug builds require the bundle. CI fails if a
-release APK carries the library, and the production release script never
-fetches it.
+**Every build carries it.** The engine shipped after vennel's D1 review (an
+automated model review; see vennel `docs/gate/2026-10-07-d1-review.md`).
+The `main` source set compiles the binding and packages `libvmls_ffi.so`,
+and debug and release builds both require the bundle. Release is arm64
+only, as for Link. CI fails if the release APK lacks
+`lib/arm64-v8a/libvmls_ffi.so` or carries any x86_64 library, and the
+production release script fetches the bundle.
 
 ```sh
 scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip

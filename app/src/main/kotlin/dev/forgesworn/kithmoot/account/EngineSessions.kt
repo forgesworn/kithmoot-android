@@ -27,7 +27,7 @@ import dev.forgesworn.vmls.ffi.openSession
 import java.security.SecureRandom
 
 /**
- * The engine's sessions for [SessionHost] (P3-03b-3a), debug builds only.
+ * The engine's sessions for [SessionHost] (P3-03b-3a).
  * [deviceKey] is the enrolled device's x-only public key and [rendezvousKey]
  * the persona's x-only `rz`; neither secret half crosses.
  */

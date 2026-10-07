@@ -96,7 +96,7 @@ val VmlsRoomView.exit: VmlsRoomExit
         else -> VmlsRoomExit.LEAVE
     }
 
-/** The debug VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
+/** The VMLS boxes page: the signed-in persona, what it lacks, its MLS device and its boxes. */
 data class VmlsBoxesState(
     val persona: String? = null,
     val needs: List<VmlsNeed> = emptyList(),
@@ -109,8 +109,7 @@ data class VmlsBoxesState(
 
 /**
  * VMLS rooms' runtime as the app's screens reach it (P3-03b-3), with no
- * engine type in sight: debug builds have one, release builds none
- * (`vmlsBoxes()` answers null there, as `restoreWitness()` does).
+ * engine type in sight: every build has one.
  */
 interface VmlsBoxes {
     val state: StateFlow<VmlsBoxesState>

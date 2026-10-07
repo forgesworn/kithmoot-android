@@ -9,7 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /**
- * The debug engine's one coordinated vault per process, shared by the
+ * The engine's one coordinated vault per process, shared by the
  * restore witness and VMLS rooms (P3-03b-3): two vaults over the same stores
  * would each hold a persona's lock and witness alone. [quiet] is true while
  * a Tor-only room is open, and stops witness and VMLS traffic alike (C7).

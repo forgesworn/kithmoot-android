@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
  * The vault calls a join makes for the engine (P3-03b-3b-2), each followed by
  * the adapter's reply check (P3-02 E04, E06): a value reaches the engine only
  * if this vault made it, in the current generation, for exactly this request.
- * Debug builds' `EngineJoin` calls these; they hold no secret.
+ * `EngineJoin` calls these; they hold no secret.
  */
 object JoinVaultCalls {
     /** The vault's leaf binding signature for an engine sign request, asked under the persona's consent. */

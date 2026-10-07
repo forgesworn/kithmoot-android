@@ -27,10 +27,9 @@ import dev.forgesworn.kithmoot.mls.VmlsNeed
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 
 /**
- * The debug-only "VMLS boxes" page (P3-03b-3 decisions 15 and 16): the
+ * The "VMLS boxes" page (P3-03b-3 decisions 15 and 16): the
  * boxes that host the signed-in account's VMLS rooms, each reached by its
- * own ordinary pairing and granted to this phone's MLS device. Reachable
- * only when the build has [VmlsBoxes], which release builds never do.
+ * own ordinary pairing and granted to this phone's MLS device.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,7 +47,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Debug builds only. A VMLS room lives on a Bothy box you own. This phone pairs with the box, " +
+                "A VMLS room lives on a Bothy box you own. This phone pairs with the box, " +
                     "and your account grants this phone's MLS device there.",
                 style = MaterialTheme.typography.bodyMedium,
             )

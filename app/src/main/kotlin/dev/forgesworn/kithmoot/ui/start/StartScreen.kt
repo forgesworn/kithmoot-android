@@ -84,7 +84,7 @@ fun StartScreen(
     onOpenProjects: () -> Unit = {},
     onShareInvite: (String) -> Unit = {},
     onSignIn: () -> Unit = {},
-    /** Debug builds' VMLS rooms (P3-03b-3 decision 21), shown beside saved rooms; null in release. */
+    /** VMLS rooms (P3-03b-3 decision 21), shown beside saved rooms. */
     vmlsRooms: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current

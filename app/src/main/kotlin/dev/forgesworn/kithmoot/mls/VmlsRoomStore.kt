@@ -29,9 +29,8 @@ data class VmlsBoxRoute(val persona: String, val box: String, val routeId: Strin
 }
 
 /**
- * The VMLS rooms and box routes on this phone (decision 21), debug builds
- * only: `SavedRoom` and its storage are untouched, so existing rooms are
- * unchanged and a release build carries nothing. A room is stored as
+ * The VMLS rooms and box routes on this phone (decision 21): `SavedRoom` and its storage
+ * are untouched, so existing rooms are unchanged. A room is stored as
  * [VmlsRoom]'s stored fields; its members, epoch and messages are not.
  * A closed or forgotten room is removed; its snapshot is the snapshot
  * store's to wipe. One store per storage: its lock is the instance's.
