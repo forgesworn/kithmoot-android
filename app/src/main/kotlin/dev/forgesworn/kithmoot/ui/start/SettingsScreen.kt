@@ -8,14 +8,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
+import dev.forgesworn.kithmoot.ui.settings.SettingsNavRow
+import dev.forgesworn.kithmoot.ui.settings.SettingsNote
+import dev.forgesworn.kithmoot.ui.settings.SettingsRadioGroup
+import dev.forgesworn.kithmoot.ui.settings.SettingsSection
+import dev.forgesworn.kithmoot.ui.settings.SettingsSheet
 import dev.forgesworn.kithmoot.ui.theme.TextSize
+import dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle
 
 /**
  * Settings, full screen (design-home-rooms.md Q5): account, text size,
@@ -51,103 +58,55 @@ fun SettingsScreen(
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Settings") },
+            title = { Text("Settings", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() }) },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("You", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { heading() })
-                AccountSection(state, signIn, enabled = !state.busy, showHeading = false)
-                if (state.account != null) {
-                    TextButton({ profileOpen = true; accountSettings.loadProfile() }) { Text("Edit profile") }
-                    AccountSyncSection(state.roomBookmarks, importableCount, enabled = !state.busy && !state.roomSyncBusy, accountRooms)
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Text size", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { heading() })
-                val textSetting = LocalTextSizeSetting.current
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    TextSize.entries.forEachIndexed { index, size ->
-                        SegmentedButton(
-                            selected = size == textSetting.size,
-                            onClick = { textSetting.set(size) },
-                            shape = SegmentedButtonDefaults.itemShape(index, TextSize.entries.size),
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text(size.label) }
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            SettingsSection("You") {
+                Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AccountSection(state, signIn, enabled = !state.busy, showHeading = false)
+                    if (state.account != null) {
+                        TextButton({ profileOpen = true; accountSettings.loadProfile() }) { Text("Edit profile") }
+                        AccountSyncSection(state.roomBookmarks, importableCount, enabled = !state.busy && !state.roomSyncBusy, accountRooms)
                     }
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Notifications & sound", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { heading() })
-                notificationSettings()
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Connections", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.semantics { heading() })
-                SettingsRow("Nostr relays", if (issues > 0) "${issues} ${if (issues == 1) "needs" else "need"} attention" else null) { relaysOpen = true }
-                onRestoreWitness?.let { SettingsRow("Restore witness", "Debug build: enrol this account's vault at your Bothy box", it) }
-                onVmlsBoxes?.let { SettingsRow("VMLS boxes", "Debug build: pair the boxes that host this account's VMLS rooms", it) }
-                SettingsRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
-            }
-
-            updateSettings?.let {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Updates", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.semantics { heading() })
-                    it()
+            SettingsSection("Text size") {
+                val textSetting = LocalTextSizeSetting.current
+                SettingsRadioGroup(TextSize.entries, textSetting.size, { it.label }, textSetting.set)
+                Text("Messages, names and menus will look like this.", style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                SettingsNote("Changes the words in KithMoot only, not the rest of your phone.")
+                if (LocalContext.current.resources.configuration.fontScale > 1f) {
+                    SettingsNote("This adds to your phone's own text size, up to twice the standard size.")
                 }
             }
 
-            Text(
+            SettingsSection("Notifications and calls") { notificationSettings() }
+
+            SettingsSection("Connections") {
+                SettingsNavRow("Nostr relays", if (issues > 0) "${issues} ${if (issues == 1) "needs" else "need"} attention" else null) { relaysOpen = true }
+                onRestoreWitness?.let { SettingsNavRow("Restore witness", "Debug build: enrol this account's vault at your Bothy box", onClick = it) }
+                onVmlsBoxes?.let { SettingsNavRow("VMLS boxes", "Debug build: pair the boxes that host this account's VMLS rooms", onClick = it) }
+                SettingsNavRow("KithMoot site", runCatching { dev.forgesworn.kithmoot.session.WebAppAddress.parse(state.webAppAddress).origin.removePrefix("https://") }.getOrDefault(state.webAppAddress)) { siteOpen = true }
+            }
+
+            updateSettings?.let { SettingsSection("Updates") { it() } }
+
+            SettingsNote(
                 "Saved room access and identities are encrypted on this device and excluded from backups. " +
                     "Room messages travel through relays encrypted. Forgetting a room does not delete those messages.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 
-    if (relaysOpen) ModalBottomSheet(onDismissRequest = { relaysOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-                TextButton({ relaysOpen = false }, enabled = !state.profileBusy) { Text("Done") }
-            }
-            Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                RelayEditor(state, relayChoices, inRoom = false, accountSettings)
-            }
-        }
+    if (relaysOpen) SettingsSheet(title = "Relays", onDone = { relaysOpen = false }, doneEnabled = !state.profileBusy) {
+        RelayEditor(state, relayChoices, inRoom = false, accountSettings)
     }
-    if (profileOpen) ModalBottomSheet(onDismissRequest = { profileOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-                TextButton({ profileOpen = false }, enabled = !state.profileBusy) { Text("Done") }
-            }
-            Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ProfileEditorFields(state, accountSettings)
-            }
-        }
+    if (profileOpen) SettingsSheet(title = "Edit public profile", onDone = { profileOpen = false }, doneEnabled = !state.profileBusy) {
+        ProfileEditorFields(state, accountSettings)
     }
     if (siteOpen) SiteAddressDialog(state.webAppAddress, onWebAppAddressChanged, onDismiss = { siteOpen = false })
-}
-
-@Composable
-private fun SettingsRow(label: String, supporting: String?, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-        Column(Modifier.padding(vertical = 12.dp)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            supporting?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-    }
 }

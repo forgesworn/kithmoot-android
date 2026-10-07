@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.start
 
+import dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,7 +23,7 @@ import dev.forgesworn.kithmoot.ui.StartState
 fun ProjectsScreen(state: StartState, actions: ProjectActions, onBack: () -> Unit) {
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("Projects") },
+            title = { Text("Projects", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { if (state.account != null) TextButton(actions.refresh, enabled = !state.projects.syncing && !state.projectsBusy) { Text("Sync") } },
         )

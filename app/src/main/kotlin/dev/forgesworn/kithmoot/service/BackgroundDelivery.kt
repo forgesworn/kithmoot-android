@@ -129,6 +129,20 @@ fun shouldRunBackgroundService(
 ): Boolean = notificationsPermitted && savedRoomIds.isNotEmpty() &&
     (deliveryEnabled || shouldRunBackgroundListener(ringEnabled, savedRoomIds, ringMode, notificationsPermitted))
 
+/** A switch shows the effect, not the wish: on only when Android would let it work. The saved choice is never rewritten. */
+fun effectivelyOn(saved: Boolean, notificationsAllowed: Boolean): Boolean = saved && notificationsAllowed
+
+/**
+ * The line under "Receive messages when KithMoot is closed", or null with the
+ * switch off. Says why nothing is arriving before it says how delivery is doing.
+ */
+fun backgroundStatusLine(switchOn: Boolean, notificationsAllowed: Boolean, savedRooms: Int, state: DeliveryState): String? = when {
+    !switchOn -> null
+    !notificationsAllowed -> "Paused until notifications are allowed"
+    savedRooms <= 0 -> "Nothing to receive yet: you have no saved rooms"
+    else -> "Now: ${state.label}"
+}
+
 /** One watched room's connection, as the state summary sees it. */
 data class RoomLink(val relaysUp: Int, val needsSigner: Boolean)
 

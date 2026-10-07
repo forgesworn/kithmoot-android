@@ -46,6 +46,10 @@ class ChatNotifications(private val context: Context) {
     private var keepReply = false
     private var lastNotice = ""
     private var messages: List<ChatMessage> = emptyList()
+    /** Whether the Android permission request has returned at least once: after that, "Allow notifications" opens Android's own page. */
+    var askedForNotifications: Boolean
+        get() = prefs.getBoolean("askedForNotifications", false)
+        set(value) { prefs.edit().putBoolean("askedForNotifications", value).apply() }
     fun allowed() = NotificationManagerCompat.from(context).areNotificationsEnabled()
     @Synchronized fun save(value: ChatNoticeSettings) {
         prefs.edit().putBoolean("enabled", value.enabled).putBoolean("bell", value.bell).putBoolean("previews", value.previews).apply()
