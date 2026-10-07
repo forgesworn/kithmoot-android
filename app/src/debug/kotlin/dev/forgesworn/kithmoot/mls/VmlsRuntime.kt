@@ -178,6 +178,15 @@ class VmlsRuntime(
     /** Each room as driven, seeded from its engine at first: members, epoch and commit flags are never stored. */
     private val live = HashMap<String, VmlsRoom>()
 
+    /** What the vault's coordination last said for each persona: its rooms show it ([roomUnder]). */
+    private val coordination = HashMap<String, CoordinationStatus>()
+
+    /** Personas whose coordination was Active and has not since been refused or fenced (M1). */
+    private val confirmed = HashSet<String>()
+
+    /** When each persona's held coordination was last read again by the rounds (M1). */
+    private val rechecked = HashMap<String, Long>()
+
     /** What each box last answered, by persona and box. */
     private val answered = HashMap<String, Boolean>()
 
@@ -276,11 +285,29 @@ class VmlsRuntime(
             publish(route, signer, listOf(revocation))
             ledger.revoked(box, device, revocation)
         }
+        // The vault's approvals for this box go with it, so a box paired again later asks again (D1 K3). A vault that
+        // will not record the withdrawal keeps the route: forgetting is tried again, and the revocation above is a no-op.
+        if (device != null) withdrawn(persona, box, device)
         store.forgetRoute(persona, box)
         runCatching { link.remove(route.routeId) }
         synchronized(this) { drivers.remove(key(persona, box)); answered.remove(key(persona, box)) }
         refresh(persona)
     }
+
+    /** Withdraws the vault's approved consent scopes for [box] and this phone's [device]: the box's requests and its room signatures. */
+    private suspend fun withdrawn(persona: String, box: String, device: String) {
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        for (method in listOf(MlsVault.BOX_METHOD, MlsVault.SIGN_METHOD)) {
+            val result = vault.withdraw(ctx, ConsentScope(PRINCIPAL, persona, device, box, method))
+            check(result is VaultResult.Ok) { "This account's vault would not withdraw its approvals for the box. Try again shortly." }
+        }
+        // A denial's cool-off belongs to the box that is gone: a box paired again is asked afresh.
+        synchronized(this) { denied.keys.removeAll { it.persona == persona && it.homeBox == box } }
+    }
+
+    override suspend fun boxName(persona: String, box: String): String? =
+        // Cleaned again as it is read: a route stored under an older, narrower filter is shown safely too.
+        try { store.route(persona, box)?.boxName?.let(::boxName) } catch (_: RoomStorageException) { null }
 
     /** The Link routes VMLS boxes use, which the app's sweep of unconsented routes must keep. */
     override fun routeIds(): Set<String> =
@@ -481,7 +508,13 @@ class VmlsRuntime(
             viewer = persona
             publishRooms()
             if (persona == null || quiet.get()) return
-            val engine = engine(persona) ?: return
+            var engine = engine(persona)
+            // A keeper that was confirmed and whose witness did not answer a check reads again, at most once a minute,
+            // so its rooms resume on the next round once the witness answers (M1). Here, never inside a step.
+            if (engine == null && recheckHeld(persona)) engine = engine(persona)
+            // What the vault's gate said just now decides what the rooms may show (D1 R3).
+            publishRooms()
+            if (engine == null) return
             val mine = store.rooms().filter { it.persona == persona }
             // Left or closed: the session is dropped, then the room forgotten. A keeper's still revoking waits for its close.
             for (room in mine.filter { it.closing == Closing.DROPPING }) {
@@ -502,6 +535,26 @@ class VmlsRuntime(
                 }
             }
         }
+    }
+
+    /**
+     * A fresh witness read for [persona] when it was confirmed and is now held only because a check went unanswered
+     * (Pending, not refused), at most once a minute. True when it read. Called under [rounding], outside any step;
+     * the vault takes its own per-persona lock for the read.
+     */
+    private suspend fun recheckHeld(persona: String): Boolean {
+        val at = now()
+        val due = synchronized(this) {
+            val held = coordination[persona]
+            if (persona !in confirmed || held !is CoordinationStatus.Pending || held.refused) return false
+            if (at - (rechecked[persona] ?: 0L) < RECHECK_SECONDS) return false
+            rechecked[persona] = at
+            true
+        }
+        if (!due || quiet.get()) return false
+        val status = try { vault.coordinationStatus(persona, check = true) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { return false }
+        remember(persona, status)
+        return true
     }
 
     /**
@@ -593,11 +646,12 @@ class VmlsRuntime(
         _rooms.value = synchronized(this) {
             stored.map { kept ->
                 val room = live[key(persona, kept.session)]?.copy(closing = kept.closing) ?: kept
+                val under = roomUnder(coordination[persona], stateOf(room))
                 VmlsRoomView(
                     session = room.session, name = room.name, box = room.box, boxName = routes[room.box]?.boxName ?: "Bothy box",
-                    keeper = room.role == VmlsRole.KEEPER, state = stateOf(room), reason = reasonOf(room),
+                    keeper = room.role == VmlsRole.KEEPER, state = under?.state ?: stateOf(room), reason = under?.reason ?: reasonOf(room),
                     members = room.members.values.sortedBy { it.leaf }.map { VmlsMemberView(it.leaf, it.identity, it.device, it.pending) },
-                    invite = room.invite != null, canSend = room.canSend,
+                    invite = room.invite != null, canSend = room.canSend && under == null,
                     messages = chat[key(persona, room.session)]?.toList().orEmpty(),
                 )
             }
@@ -848,6 +902,8 @@ class VmlsRuntime(
      * (a new link asks every device afresh).
      */
     suspend fun invite(persona: String, session: String, base: String, relays: List<String>): String = rounding.withLock {
+        // A held or fenced keeper offers no link: its guest would wait for a Welcome that cannot come (D1 R3).
+        need(persona)?.let { throw IllegalStateException(it) }
         val room = room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
         check(room.role == VmlsRole.KEEPER && room.canSend) { "Only the room's keeper invites, while the room is working." }
         val host = createRoomInvitation()
@@ -908,6 +964,9 @@ class VmlsRuntime(
         if (quiet.get()) return
         // A request already seen, or one over a link asked too often of late, is turned away before it is opened.
         if (gate.spent(event.id.lowercase()) || !admitted(link.session)) return
+        // A held or fenced keeper neither asks nor answers (D1 R3): the request is left unspent, so the guest's next ask is heard.
+        // After the cheap flood checks, as this one reads the vault.
+        if (need(link.persona) != null) return
         val key = link.key.hexToBytes()
         val request = try { decodeVmlsJoinRequest(event, invitation, key, now()) } finally { key.fill(0) } ?: return
         if (request.device == ownDevice(link.persona)) return
@@ -995,6 +1054,11 @@ class VmlsRuntime(
                         return
                     }
                     check(room.canSend) { "This room cannot add anyone now." }
+                    // No grant is signed while the vault is held or fenced (D1 R3); the device may be asked about again.
+                    need(ask.persona)?.let { why ->
+                        runCatching { store.update(ask.persona, ask.session) { it.copy(asked = it.asked - request.device) } }
+                        throw IllegalStateException(why)
+                    }
                     val route = store.route(ask.persona, room.box) ?: throw IllegalStateException("This room's box is not paired.")
                     val rz = rendezvousKey(ask.persona) ?: throw IllegalStateException("This account has no rendezvous key.")
                     val counter = random.nextLong() ushr 11
@@ -1490,7 +1554,11 @@ class VmlsRuntime(
     private suspend fun need(persona: String): String? = when (needs(persona).firstOrNull()) {
         null -> null
         VmlsNeed.SIGN_IN -> "Sign in first."
-        VmlsNeed.WITNESS -> "Enrol this account at its restore witness first: VMLS rooms need a vault your box confirms."
+        VmlsNeed.WITNESS -> when (synchronized(this) { coordination[persona] }) {
+            is CoordinationStatus.Pending -> "Waiting for the restore witness to confirm this account."
+            is CoordinationStatus.Fenced -> "This account's vault is fenced on this phone; see Restore witness."
+            else -> "Enrol this account at its restore witness first: VMLS rooms need a vault your box confirms."
+        }
         VmlsNeed.RENDEZVOUS -> "This account has no rendezvous key yet: provision one from your signer in Settings."
     }
 
@@ -1499,8 +1567,17 @@ class VmlsRuntime(
         val needs = mutableListOf<VmlsNeed>()
         val status = try { vault.coordinationStatus(persona) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         if (status != CoordinationStatus.Active) needs += VmlsNeed.WITNESS
+        // Unknown (the read failed) leaves what was last known: the rooms are not flipped by one failed read.
+        if (status != null) remember(persona, status)
         if (rendezvousKey(persona) == null) needs += VmlsNeed.RENDEZVOUS
         return needs
+    }
+
+    private fun remember(persona: String, status: CoordinationStatus) = synchronized(this) {
+        coordination[persona] = status
+        // Confirmed once, and not since refused or fenced: a Pending that is only a failed read may be read again.
+        if (status == CoordinationStatus.Active) confirmed += persona
+        else if (status !is CoordinationStatus.Pending || status.refused) confirmed -= persona
     }
 
     private suspend fun rendezvousKey(persona: String): String? {
@@ -1598,6 +1675,8 @@ class VmlsRuntime(
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
         private const val REVOKE_RETRY_SECONDS = 10L * 60
+        /** A held keeper's fresh witness read is asked for at most this often (M1). */
+        private const val RECHECK_SECONDS = 60L
         const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
@@ -1605,8 +1684,18 @@ class VmlsRuntime(
 
         private fun shortHex(hex: String) = "${hex.take(8)}…${hex.takeLast(8)}"
 
-        private fun boxName(name: String): String =
-            name.filterNot { it.isISOControl() }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
+        /** Bidi controls and zero-width characters: a box's name must not reorder or hide what is shown beside it (D1 L4). */
+        /** Characters a box name may not carry: they could hide text, reorder it, or start a line that imitates the box id. */
+        private val UNSHOWN = setOf(
+            Character.CONTROL.toInt(), Character.FORMAT.toInt(), Character.LINE_SEPARATOR.toInt(),
+            Character.PARAGRAPH_SEPARATOR.toInt(), Character.PRIVATE_USE.toInt(), Character.SURROGATE.toInt(),
+            Character.UNASSIGNED.toInt(),
+        )
+
+        /** By code point, so characters outside the basic plane (tag characters among them) are judged whole. */
+        internal fun boxName(name: String): String = buildString {
+            name.codePoints().filter { Character.getType(it) !in UNSHOWN }.forEach { appendCodePoint(it) }
+        }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
 
         /** Words for the person; never a stack trace or a secret. */
         private fun describe(error: Exception): String = when (error) {
@@ -1616,5 +1705,37 @@ class VmlsRuntime(
             is RoomStorageException -> "This phone's VMLS rooms could not be read or written."
             else -> "The box could not be reached (${error.javaClass.simpleName})."
         }
+    }
+}
+
+/** A fence's code as words for the person; an unknown code is shown as it came. */
+internal fun fenceWords(reason: String): String = when (reason) {
+    "witness-retired" -> "the restore witness retired it"
+    "missing-seal-key" -> "its sealing key is gone from this phone"
+    "missing-file" -> "its stored state is missing"
+    "installation-replaced" -> "another phone has taken over this account's vault"
+    "sequence-exhausted" -> "its sequence is used up"
+    else -> reason
+}
+
+/** How a persona's coordination changes what its room shows (D1 R3). */
+internal class RoomUnder(val state: VmlsRoomState, val reason: String?)
+
+/**
+ * What a room shows while its persona's vault is not confirmed: a fenced or
+ * unenrolled vault stops it, an unconfirmed one is "checking with the box",
+ * and neither can send. Null when the vault is active (or not yet known), and
+ * for a room that has ended or is closing, which already says more.
+ */
+internal fun roomUnder(coordination: CoordinationStatus?, state: VmlsRoomState): RoomUnder? {
+    if (coordination == null || coordination == CoordinationStatus.Active) return null
+    if (state == VmlsRoomState.REMOVED || state == VmlsRoomState.LAPSED || state == VmlsRoomState.CLOSING) return null
+    return when (coordination) {
+        CoordinationStatus.Active -> null
+        is CoordinationStatus.Pending -> RoomUnder(VmlsRoomState.CHECKING, null)
+        CoordinationStatus.NotEnrolled ->
+            RoomUnder(VmlsRoomState.STOPPED, "This room stopped sending: this account is not enrolled at its restore witness.")
+        is CoordinationStatus.Fenced ->
+            RoomUnder(VmlsRoomState.STOPPED, "This room stopped sending: this account's vault is fenced (${fenceWords(coordination.reason)}); see Restore witness.")
     }
 }

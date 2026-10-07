@@ -63,7 +63,7 @@ import kotlinx.coroutines.launch
 
 /** Which page home shows: the rooms list, or one of the two full-screen
  *  pages reached from it (design-home-rooms.md section 4). */
-/** How often the restore witness's retiring duty runs while the app is in the foreground. */
+/** How often the foreground tick runs: the restore witness's retiring duty, and its fresh read of the banner (D1 C2). */
 private const val RETIRING_DUTY_INTERVAL_MILLIS = 15 * 60 * 1000L
 
 /** How often VMLS rooms are driven while the app is in the foreground (P3-03b-3; the room screens tighten it). */
@@ -198,7 +198,9 @@ fun KithMootApp(
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
         // Only the signed-in account's ask is shown: another account's is never put to this one.
         if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
-            dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking) { vmlsBoxes.answer(asking, it) }
+            var askedBox by remember(asking) { mutableStateOf<String?>(null) }
+            LaunchedEffect(asking) { askedBox = vmlsBoxes.boxName(asking.persona, asking.homeBox) }
+            dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking, askedBox) { vmlsBoxes.answer(asking, it) }
         } else if (joinAsk != null && !lockedCallOnly && !callAnswering) {
             dev.forgesworn.kithmoot.ui.start.VmlsJoinDialog(joinAsk) { approve ->
                 accountModel.vmlsSigner()?.let { vmlsBoxes.admit(it, joinAsk, approve) }

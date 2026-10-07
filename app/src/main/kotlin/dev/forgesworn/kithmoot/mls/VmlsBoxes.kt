@@ -123,6 +123,9 @@ interface VmlsBoxes {
 
     fun answer(scope: ConsentScope, decision: ConsentDecision)
 
+    /** The name of [persona]'s paired [box], for the consent ask beside its short id; null when it is not paired or cannot be read. */
+    suspend fun boxName(persona: String, box: String): String? = null
+
     /** The vault's session ended (sign-out or account switch): withdraw any ask still showing. */
     fun sessionEnded() {}
 

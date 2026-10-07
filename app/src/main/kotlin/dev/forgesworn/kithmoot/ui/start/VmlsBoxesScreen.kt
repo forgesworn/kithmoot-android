@@ -185,7 +185,7 @@ fun VmlsJoinDialog(ask: VmlsJoinAsk, onAnswer: (Boolean) -> Unit) {
  * request it was asked for; the same ask comes back later.
  */
 @Composable
-fun VaultConsentDialog(scope: ConsentScope, onAnswer: (ConsentDecision) -> Unit) {
+fun VaultConsentDialog(scope: ConsentScope, boxName: String?, onAnswer: (ConsentDecision) -> Unit) {
     AlertDialog(
         onDismissRequest = { onAnswer(ConsentDecision.Deny) },
         title = { Text(if (scope.method == MlsVault.SIGN_METHOD) "Sign for a VMLS room?" else "Talk to your box?") },
@@ -195,7 +195,9 @@ fun VaultConsentDialog(scope: ConsentScope, onAnswer: (ConsentDecision) -> Unit)
                     if (scope.method == MlsVault.SIGN_METHOD) "Let this phone's MLS device sign its place in VMLS rooms on this box? Allowing is kept."
                     else "Let this phone's MLS device sign its requests to this box for VMLS rooms? Allowing is kept.",
                 )
+                // The real short id first, on its own line, then the box's name as it calls itself: a crafted name cannot imitate the id (D1 R6, L4).
                 Text("Box ${short(scope.homeBox)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                if (!boxName.isNullOrBlank()) Text("Named: $boxName", style = MaterialTheme.typography.bodySmall)
                 Text("Device ${short(scope.device)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
         },

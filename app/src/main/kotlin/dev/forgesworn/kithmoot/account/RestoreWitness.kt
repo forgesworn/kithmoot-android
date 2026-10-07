@@ -56,6 +56,9 @@ class RestoreWitness(
     /** Whose status [banner] shows, so one account's never shows on another's rooms list. */
     @Volatile private var bannerPersona: String? = null
 
+    /** When the banner's persona was last read from the witness (seconds), for [foregroundTick]. */
+    @Volatile private var lastWitnessRead = 0L
+
     /**
      * A Tor-only room opened or closed (C7). Opening one stops every witness
      * session at once, not only new traffic.
@@ -117,10 +120,13 @@ class RestoreWitness(
 
     /**
      * The foreground timer's tick: every persona's retiring duty, then the
-     * banner for [persona]. Failures leave the banner as it was.
+     * banner for [persona], read from the witness afresh every
+     * [WITNESS_READ_INTERVAL_SECONDS] (C2: a confirmation must not outlast a
+     * retirement for the whole process). Failures, and a read the witness did
+     * not answer, leave the banner as it was.
      */
     suspend fun foregroundTick(persona: String?) {
-        if (persona != bannerPersona) { bannerPersona = persona; _banner.value = null }
+        if (persona != bannerPersona) { bannerPersona = persona; _banner.value = null; lastWitnessRead = 0L }
         if (quiet.get()) return
         runCatching { vault.runRetiringDuties() }
         refreshBanner(persona)
@@ -128,15 +134,22 @@ class RestoreWitness(
 
     private suspend fun refreshBanner(persona: String?) {
         if (persona != bannerPersona) return
+        val at = now()
+        val due = at - lastWitnessRead >= WITNESS_READ_INTERVAL_SECONDS
         val status = try {
-            if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona)
+            if (persona == null || !vault.coordinationKnown(persona)) null else vault.coordinationStatus(persona, check = due)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             return
         }
         // The account may have changed while this was suspended.
-        if (persona == bannerPersona) _banner.value = status
+        if (persona != bannerPersona) return
+        // A check the witness did not answer (unavailable, not refused) shows what was shown, and is not counted
+        // as a read: the next tick asks again (M1). With nothing shown yet it shows the pending it is.
+        if (due && status is CoordinationStatus.Pending && !status.refused && _banner.value != null) return
+        if (due && !(status is CoordinationStatus.Pending && !status.refused)) lastWitnessRead = at
+        _banner.value = status
     }
 
     private suspend fun refresh(persona: String?, check: Boolean) {
@@ -173,9 +186,12 @@ class RestoreWitness(
         is VaultResult.Refused -> throw IllegalStateException(message)
     }
 
-    private companion object {
+    internal companion object {
         /** The bridge's pairing rendezvous allows 60 s; the booking itself has no bound of its own. */
         const val PAIR_TIMEOUT_MILLIS = 90_000L
+
+        /** How often the foreground tick asks the witness afresh (C2): every tick, which is fifteen minutes apart. */
+        const val WITNESS_READ_INTERVAL_SECONDS = 15L * 60
 
         /** Words for the person; never a stack trace or a secret. */
         fun describe(error: Exception): String = when (error) {
