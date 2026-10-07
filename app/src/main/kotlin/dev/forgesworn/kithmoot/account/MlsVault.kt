@@ -1459,6 +1459,7 @@ private class PersonaRecord(
             // Written only when there is one, so a record without removals keeps its bytes. An older build
             // reads past the key and drops it on its next write: a downgrade loses the journal.
             if (removals.isNotEmpty()) put("removals", buildJsonObject { removals.forEach { (key, value) -> put(key, value) } })
+            // The same for the compromised marks: a downgrade lifts their holds and their revocations' retries.
             if (compromised.isNotEmpty()) put("compromised", buildJsonArray { compromised.forEach { add(it) } })
         }.toString().toByteArray(Charsets.UTF_8)
         val scalar = device?.scalar

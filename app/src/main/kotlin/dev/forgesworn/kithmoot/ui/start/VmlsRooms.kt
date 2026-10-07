@@ -206,8 +206,9 @@ fun VmlsRoomScreen(
         is Confirm.Remove -> {
             // What the removal touches, read before it is confirmed (P3-05b): every device and each one's grant here.
             var compromised by remember(ask) { mutableStateOf(false) }
-            var planned by remember(ask) { mutableStateOf<VmlsRemovalPlan?>(null) }
-            LaunchedEffect(ask, compromised) { planned = null; planned = plan(ask.target, ask.person, compromised) }
+            // Keyed on the choice too, so a changed choice shows no plan, and cannot be confirmed, until its own is read.
+            var planned by remember(ask, compromised) { mutableStateOf<VmlsRemovalPlan?>(null) }
+            LaunchedEffect(ask, compromised) { planned = plan(ask.target, ask.person, compromised) }
             val touched = planned?.devices?.joinToString("\n") { "Device ${it.device}: ${it.grant}" } ?: "Reading what it touches…"
             AlertDialog(
                 onDismissRequest = { confirming = null },
@@ -223,8 +224,9 @@ fun VmlsRoomScreen(
                             Text("It may be compromised", Modifier.padding(start = 8.dp))
                         }
                         if (compromised) Text(
-                            "Its box access ends now, without the usual grace, so it may never see that it was removed. " +
-                                "Your messages and new joins here wait until the Remove is applied and witnessed. " +
+                            "Each grant of yours it holds is revoked at once, without the usual grace, as the plan below says, " +
+                                "so it may never see that it was removed. Your new messages and joins here wait until the Remove " +
+                                "is applied and witnessed; any already on their way go first. " +
                                 "Until then it may still read what was already sent in this epoch.",
                             style = MaterialTheme.typography.bodySmall,
                         )

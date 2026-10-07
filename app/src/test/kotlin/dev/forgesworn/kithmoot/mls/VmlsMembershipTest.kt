@@ -4,7 +4,10 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.crypto.Digests
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /** Which grants a removal lists, and which the ledger shows revoked (P3-05b). */
@@ -66,5 +69,28 @@ class VmlsMembershipTest {
         assertEquals(emptySet(), VmlsMembership.revoked(listed, listOf(next)))
         // Pruned from the ledger: not shown revoked, so the removal claims less, never more.
         assertEquals(emptySet(), VmlsMembership.revoked(listed, emptyList()))
+    }
+
+    @Test fun `one write is added only to a whole journal, never taken for it`() {
+        val a = "a".repeat(64); val b = "b".repeat(64); val leaf = "c".repeat(64)
+        // Evicted or refused before: no cache, so the next read goes to the vault and still sees room b's mark.
+        assertNull(VmlsMembership.cached(null, null, "$a:$leaf", byteArrayOf(1), compromised = false))
+        assertNull(VmlsMembership.cached(mapOf("$b:$leaf" to byteArrayOf(2)), null, "$a:$leaf", byteArrayOf(1), null))
+        val (journal, marks) = VmlsMembership.cached(mapOf("$b:$leaf" to byteArrayOf(2)), setOf("$b:$leaf"), "$a:$leaf", byteArrayOf(1), null)!!
+        assertEquals(setOf("$a:$leaf", "$b:$leaf"), journal.keys)
+        assertEquals(setOf("$b:$leaf"), marks)
+        assertEquals(setOf("$a:$leaf", "$b:$leaf"), VmlsMembership.cached(journal, marks, "$a:$leaf", byteArrayOf(3), true)!!.second)
+        assertEquals(emptySet(), VmlsMembership.cached(journal, marks, "$b:$leaf", byteArrayOf(3), false)!!.second)
+    }
+
+    @Test fun `a room is held while a compromised removal there is not committed, or its record is missing`() {
+        val a = "a".repeat(64); val b = "b".repeat(64); val leaf = "c".repeat(64)
+        val committed = { bytes: ByteArray -> bytes[0] == 1.toByte() }
+        val journal = mapOf("$a:$leaf" to byteArrayOf(0), "$b:$leaf" to byteArrayOf(1))
+        assertTrue(VmlsMembership.held(journal, setOf("$a:$leaf"), a, committed))
+        assertFalse(VmlsMembership.held(journal, setOf("$a:$leaf"), b, committed), "another room's mark holds only its own room")
+        assertFalse(VmlsMembership.held(journal, setOf("$b:$leaf"), b, committed), "released once committed")
+        assertFalse(VmlsMembership.held(journal, emptySet(), a, committed), "an ordinary removal holds nothing")
+        assertTrue(VmlsMembership.held(emptyMap(), setOf("$a:$leaf"), a, committed), "a mark without its record holds")
     }
 }

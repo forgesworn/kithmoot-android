@@ -769,8 +769,8 @@ class VmlsRuntime(
         if (compromised != null && key in journal && key !in committed) {
             // A removal under way, now taken as compromised: marked so, and its grants revoked at once.
             check(keepRemoval(persona, key, journal.getValue(key), compromised = true)) { "The removal could not be recorded. Try again shortly." }
-            revokeNow(compromised, persona, key)
             save(advanceRemovals(engine, room))
+            revokeNow(compromised, persona, key)
             return@withLock
         }
         check(key !in journal || key in committed) { "That removal is already under way." }
@@ -791,8 +791,9 @@ class VmlsRuntime(
         }
         val bytes = (opened as? Hosted.Released)?.value ?: throw IllegalStateException("This room cannot change now. Try again shortly.")
         check(keepRemoval(persona, key, bytes, compromised = compromised != null)) { "The removal could not be recorded. Try again shortly." }
-        if (compromised != null) revokeNow(compromised, persona, key)
+        // The Remove first, so it never waits on the box's answers to the revocations (decision 6).
         if (propose) save(advanceRemovals(engine, room)) else publishRooms()
+        if (compromised != null) revokeNow(compromised, persona, key)
     }
 
     override suspend fun removalPlan(persona: String, session: String, target: String, person: Boolean, compromised: Boolean): VmlsRemovalPlan? = try {
@@ -813,6 +814,7 @@ class VmlsRuntime(
                 VmlsPlannedDevice(shortHex(device), when {
                     grant == null -> "No grant of yours at this box."
                     !grant.keeper -> "Its grant at this box is not yours to revoke."
+                    compromised && quiet.get() -> "Its grant at this box is revoked once the Tor-only room is closed."
                     compromised && keeping.isNotEmpty() -> "Its grant at this box is revoked now, which also ends its box access for ${keeping.joinToString()}."
                     compromised -> "Its grant at this box is revoked now."
                     keeping.isNotEmpty() -> "Its grant at this box stays live: it is also in ${keeping.joinToString()}."
@@ -1533,13 +1535,10 @@ class VmlsRuntime(
     private suspend fun keepRemoval(persona: String, key: String, removal: ByteArray, compromised: Boolean? = null): Boolean {
         val kept = vault.keepRemoval(vault.sessionContext(PRINCIPAL, persona), key, removal, compromised) is VaultResult.Ok
         synchronized(this) {
-            if (kept) {
-                journals[persona] = journals[persona].orEmpty() + (key to removal)
-                val marked = this.compromised[persona].orEmpty()
-                this.compromised[persona] = when (compromised) { true -> marked + key; false -> marked - key; null -> marked }
-            } else {
-                journals.remove(persona); this.compromised.remove(persona)
-            }
+            val cached = if (kept) VmlsMembership.cached(journals[persona], this.compromised[persona], key, removal, compromised) else null
+            // Not read whole yet (or refused): read again from the vault, never taken from this one write (review H1).
+            if (cached == null) { journals.remove(persona); this.compromised.remove(persona) }
+            else { journals[persona] = cached.first; this.compromised[persona] = cached.second }
         }
         publishRooms()
         return kept
@@ -1560,7 +1559,7 @@ class VmlsRuntime(
     /** [held] from the journal as last read: for the screens, which the send itself checks again. */
     private fun heldNow(persona: String, session: String): Boolean {
         val read = journals[persona] ?: return false
-        return compromised[persona].orEmpty().any { VmlsMembership.session(it) == session && read[it]?.let(::mlsCommitted) != true }
+        return VmlsMembership.held(read, compromised[persona].orEmpty(), session, ::mlsCommitted)
     }
 
     /**
@@ -1569,7 +1568,7 @@ class VmlsRuntime(
      * whatever other room on the box holds it (a compromised device keeps no
      * box access). The journal marks each one the box confirmed `Revoked`, and
      * each it did not `Failed`, tried again on a later pass. A grant the
-     * ledger no longer holds, or that has lapsed, is left `Pending`: its
+     * ledger no longer holds (pruned once lapsed) is left `Pending`: its
      * removal claims less, never more.
      */
     private suspend fun revokeNow(signer: ParticipantSigner, persona: String, key: String) {
@@ -1589,7 +1588,8 @@ class VmlsRuntime(
             val at = now()
             val record = ledger.all().firstOrNull { it.box == box && VmlsMembership.grantRef(box, it.grantId) == ref } ?: continue
             if (record.state == VmlsGrantState.REVOKED) { outcomes[ref] = JournalGrant.Revoked; continue }
-            if (record.expiration <= at || synchronized(this) { (revokeRetry[box to record.device] ?: 0) > at }) continue
+            // A grant the phone's clock thinks lapsed is revoked all the same: the box's clock may still honour it.
+            if (synchronized(this) { (revokeRetry[box to record.device] ?: 0) > at }) continue
             val route = store.route(persona, box) ?: continue
             val revocation = ledger.revoke(box, record.device) ?: continue
             try {
@@ -1613,12 +1613,37 @@ class VmlsRuntime(
         keepRemoval(persona, key, next)
     }
 
-    /** [revokeNow] for each of [signer]'s compromised devices' removals with a grant still open: one the box refused is tried again. */
+    /**
+     * [revokeNow] for each of [signer]'s compromised devices' removals with a
+     * grant still open: one the box refused is tried again. Then every
+     * revocation of [signer]'s the ledger holds as begun and unconfirmed, so
+     * one is not lost with its journal entry (evicted once committed, or
+     * forgotten with its room) or by a close finished without the box: a
+     * grant once meant to end is ended (review M1).
+     */
     private suspend fun revokeCompromised(signer: ParticipantSigner) = rounding.withLock {
         val persona = signer.pubkey
         if (quiet.get()) return@withLock
-        journal(persona) ?: return@withLock
-        synchronized(this) { compromised[persona].orEmpty().toList() }.forEach { revokeNow(signer, persona, it) }
+        if (journal(persona) != null) synchronized(this) { compromised[persona].orEmpty().toList() }.forEach { revokeNow(signer, persona, it) }
+        val at = now()
+        val begun = ledger.all().filter {
+            it.state == VmlsGrantState.REVOKING && it.issuer == persona && it.persona != persona &&
+                synchronized(this) { (revokeRetry[it.box to it.device] ?: 0) <= at }
+        }
+        for (record in begun) {
+            if (quiet.get()) return@withLock
+            val route = store.route(persona, record.box) ?: continue
+            val revocation = ledger.revoke(record.box, record.device) ?: continue
+            try {
+                publish(route, signer, listOf(revocation))
+                ledger.revoked(record.box, record.device, revocation)
+                synchronized(this) { revokeRetry.remove(record.box to record.device) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                synchronized(this) { revokeRetry[record.box to record.device] = now() + REVOKE_RETRY_SECONDS }
+            }
+        }
     }
 
     /**
@@ -1712,7 +1737,7 @@ class VmlsRuntime(
         val hold = if (!compromised) null else if (removal.mls() == VmlsMlsState.COMMITTED) {
             "Taken as compromised: this phone's sends resumed in the epoch after the Remove."
         } else {
-            "Taken as compromised: this phone's sends and new joins here are held until the Remove is applied and witnessed."
+            "Taken as compromised: this phone's new sends and joins here are held until the Remove is applied and witnessed; any already on their way go first."
         }
         return VmlsRemovalView(target, mls, credential, grants, removal.claimCopy(), hold)
     }
