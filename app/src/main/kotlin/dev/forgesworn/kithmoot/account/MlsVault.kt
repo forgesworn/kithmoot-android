@@ -132,6 +132,9 @@ class MlsVault(
 
     private fun current(ctx: VaultContext): Boolean = ctx.generation == generation()
 
+    /** Whether [ctx] still belongs to this session: false after a [bump], so queued work can drop itself before it asks for anything. */
+    fun isCurrent(ctx: VaultContext): Boolean = current(ctx)
+
     /** A journalled decision is this session's: the whole generation, or in coordinated mode the epoch and app generation. */
     private fun sameSession(entry: Generation, ctx: Generation): Boolean =
         if (coordination == null) entry == ctx else entry.epoch.isNotEmpty() && entry.epoch == ctx.epoch && entry.app == ctx.app

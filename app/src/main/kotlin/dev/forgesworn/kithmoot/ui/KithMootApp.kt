@@ -196,7 +196,8 @@ fun KithMootApp(
         // The vault's consent ask, then a join request: no prompt may cover an answered call or the lock screen's call.
         val asking = vmlsBoxes.consent.collectAsState().value
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
-        if (asking != null && !lockedCallOnly && !callAnswering) {
+        // Only the signed-in account's ask is shown: another account's is never put to this one.
+        if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
             dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking) { vmlsBoxes.answer(asking, it) }
         } else if (joinAsk != null && !lockedCallOnly && !callAnswering) {
             dev.forgesworn.kithmoot.ui.start.VmlsJoinDialog(joinAsk) { approve ->

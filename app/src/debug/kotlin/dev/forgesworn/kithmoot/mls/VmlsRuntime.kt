@@ -20,6 +20,8 @@ import dev.forgesworn.kithmoot.account.SessionHost
 import dev.forgesworn.kithmoot.account.StoredRendezvousChild
 import dev.forgesworn.kithmoot.account.VaultRefusal
 import dev.forgesworn.kithmoot.account.VaultResult
+import dev.forgesworn.kithmoot.account.VaultSession
+import dev.forgesworn.kithmoot.account.sessionContext
 import dev.forgesworn.kithmoot.account.hostedStep
 import dev.forgesworn.kithmoot.account.sessionCall
 import dev.forgesworn.kithmoot.crypto.hexToBytes
@@ -72,6 +74,8 @@ import java.security.SecureRandom
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +91,7 @@ import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -182,6 +187,11 @@ class VmlsRuntime(
         synchronized(this) { if (_consent.value == scope) waiting?.complete(decision) }
     }
 
+    /** The account changed (§6.2): an ask still showing is withdrawn, not answered, so it is never shown to the next account. */
+    override fun sessionEnded() {
+        synchronized(this) { waiting?.cancel() }
+    }
+
     override fun open(persona: String?) = act(persona) { viewer = it; publishRooms(); refresh(it) }
 
     override fun pair(signer: ParticipantSigner, code: String) = act(signer.pubkey) { pairing(signer, code) }
@@ -254,7 +264,7 @@ class VmlsRuntime(
         val persona = signer.pubkey
         val route = store.route(persona, box) ?: throw IllegalStateException("This box is not paired.")
         check(store.rooms().none { it.persona == persona && it.box == box }) { "A VMLS room still uses this box." }
-        val device = (vault.device(vault.context(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device
+        val device = (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device
         // The grant is withdrawn first: the route is the only way to reach the box with its revocation.
         if (device != null) ledger.revoke(box, device)?.let { revocation ->
             publish(route, signer, listOf(revocation))
@@ -272,7 +282,11 @@ class VmlsRuntime(
         if (pairingNow.get() > 0) link.routeIds()
         else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
 
-    override suspend fun foregroundRounds(persona: String?) {
+    /** Under the session the rounds began in, as every action is: a sign-out while one runs leaves it nothing to sign. */
+    override suspend fun foregroundRounds(persona: String?) =
+        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) { roundsNow(persona) }
+
+    private suspend fun roundsNow(persona: String?) {
         rounding.withLock {
             // Signed out, or another account: the other personas' sessions are closed (SessionHost.closeAll).
             retain(persona)
@@ -434,7 +448,7 @@ class VmlsRuntime(
 
     override fun say(persona: String, session: String, text: String) {
         if (text.isBlank()) return
-        scope.launch {
+        scope.launch(begun(persona)) {
             try { send(persona, session, text) } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) {
                 _state.update { it.copy(error = describe(error)) }
             }
@@ -755,7 +769,7 @@ class VmlsRuntime(
     }
 
     private suspend fun ownDevice(persona: String): String? = synchronized(this) { ownDevices[persona] }
-        ?: (vault.device(vault.context(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device?.also { synchronized(this) { ownDevices[persona] = it } }
+        ?: (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device?.also { synchronized(this) { ownDevices[persona] = it } }
 
     private fun lapse() {
         val lapsed = synchronized(this) {
@@ -904,7 +918,7 @@ class VmlsRuntime(
     override fun join(signer: ParticipantSigner, url: String, code: String) {
         if (!joiningLock.tryLock()) { _state.update { it.copy(error = "Already asking to join a room.") }; return }
         // Started even on a scope being cancelled, so the lock is always released.
-        scope.launch(start = CoroutineStart.ATOMIC) {
+        scope.launch(begun(signer.pubkey), start = CoroutineStart.ATOMIC) {
             try { joinNow(signer, url, code) } finally { joiningLock.unlock() }
         }
     }
@@ -1154,7 +1168,7 @@ class VmlsRuntime(
     /** Null while the persona lacks a witness-confirmed vault, an enrolled device or a rendezvous key. */
     private suspend fun engine(persona: String): Engine? {
         if (need(persona) != null) return null
-        val device = (vault.device(vault.context(PRINCIPAL, persona)) as? VaultResult.Ok)?.value ?: return null
+        val device = (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value ?: return null
         val rz = rendezvousKey(persona) ?: return null
         synchronized(this) {
             engines[persona]?.let { kept ->
@@ -1183,7 +1197,7 @@ class VmlsRuntime(
 
     /** Nothing is signed for the box while a Tor-only room is open (C7), so a round under way stops at its next request. */
     private fun client(persona: String, route: VmlsBoxRoute) = VmlsBoxClient(link, route.routeId, route.box, {
-        if (quiet.get()) VaultResult.Refused(VaultRefusal.Busy) else vault.signBoxRequestV1(vault.context(PRINCIPAL, persona), it, prompt)
+        if (quiet.get()) VaultResult.Refused(VaultRefusal.Busy) else vault.signBoxRequestV1(vault.sessionContext(PRINCIPAL, persona), it, prompt)
     })
 
     /** Closes every engine but [persona]'s: its decrypted sessions go with it. */
@@ -1212,7 +1226,7 @@ class VmlsRuntime(
 
     /** The persona's device, enrolled now if it has none, with a person credential as long as the engine allows. */
     private suspend fun enrolled(persona: String, signer: ParticipantSigner): EnrolledDevice {
-        val ctx = vault.context(PRINCIPAL, persona)
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
         (vault.device(ctx) as? VaultResult.Ok)?.value?.let { return it }
         return when (val enrolled = vault.enrol(ctx, signer, now() + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS - CLOCK_MARGIN_SECONDS)) {
             is VaultResult.Ok -> enrolled.value
@@ -1316,7 +1330,7 @@ class VmlsRuntime(
     private suspend fun refresh(persona: String?) {
         val needs = needs(persona)
         if (persona == null) { _state.value = VmlsBoxesState(needs = needs); return }
-        val device = (vault.device(vault.context(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device
+        val device = (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device
         val rooms = store.rooms().filter { it.persona == persona }
         val boxes = store.routes().filter { it.persona == persona }.map { route ->
             VmlsBoxView(route.box, route.boxName, synchronized(this) { answered[key(persona, route.box)] }, rooms.count { it.box == route.box })
@@ -1325,8 +1339,11 @@ class VmlsRuntime(
     }
 
     private fun act(persona: String?, work: suspend (String) -> Unit) {
-        scope.launch {
+        val begun = persona?.let(::begun) ?: EmptyCoroutineContext
+        scope.launch(begun) {
             acting.withLock {
+                // Asked in a session since ended: dropped before it asks for anything.
+                if (begun[VaultSession]?.context?.let(vault::isCurrent) == false) return@withLock
                 _state.update { it.copy(busy = true, error = null, notice = null) }
                 try {
                     if (persona == null) refresh(null) else work(persona)
@@ -1340,6 +1357,15 @@ class VmlsRuntime(
             }
         }
     }
+
+    /**
+     * The session work for [persona] was asked in: a sign-out or account switch while
+     * it waits, or while it runs, makes it stale (§6.2). Every vault call it makes takes
+     * this context ([VaultSession]), never the next session's. A vault that cannot
+     * answer leaves the work to fail itself, as before.
+     */
+    private fun begun(persona: String): CoroutineContext =
+        runCatching { vault.context(PRINCIPAL, persona) }.getOrNull()?.let(::VaultSession) ?: EmptyCoroutineContext
 
     private fun key(persona: String, id: String) = "$persona:$id"
 

@@ -108,6 +108,9 @@ interface VmlsBoxes {
 
     fun answer(scope: ConsentScope, decision: ConsentDecision)
 
+    /** The vault's session ended (sign-out or account switch): withdraw any ask still showing. */
+    fun sessionEnded() {}
+
     /** The page opened for [persona], or none signed in. */
     fun open(persona: String?)
 

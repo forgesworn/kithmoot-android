@@ -528,6 +528,31 @@ class CoordinatedMlsVaultTest {
         assertFalse(before.value.contentEquals(after.value))
     }
 
+    @Test fun `a sign blocked in consent is stale once the session ends, and nothing is signed or journalled`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        val req = request(device)
+        val end = VaultSessionEnd { vault.bump() }
+        val blocked = vault.signLeafBindingV1(ctx, req, ConsentPrompt { end.end(); ConsentDecision.Approve })
+        assertEquals(refused(VaultRefusal.Stale), blocked)
+        assertFalse(vault.isCurrent(ctx))
+        // Nothing was decided, so the next session's retry asks afresh.
+        var asked = 0
+        val retry = vault.signLeafBindingV1(vault.context(principal, alice.pubkey), req, ConsentPrompt { asked++; ConsentDecision.Approve })
+        assertIs<VaultResult.Ok<SignLeafBindingReply>>(retry)
+        assertEquals(1, asked)
+    }
+
+    @Test fun `a decision journalled before the session ended is stale afterwards, however it is retried`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        val req = request(device)
+        val first = vault.signLeafBindingV1(ctx, req, approve) as VaultResult.Ok
+        VaultSessionEnd { vault.bump() }.end()
+        // The earlier context, and a fresh one, both meet a stale decision: never a replay of the signature.
+        assertEquals(refused(VaultRefusal.Stale), vault.signLeafBindingV1(ctx, req, ConsentPrompt { error("no prompt") }))
+        assertEquals(refused(VaultRefusal.Stale), vault.signLeafBindingV1(vault.context(principal, alice.pubkey), req, ConsentPrompt { error("no prompt") }))
+        assertEquals(refused(VaultRefusal.Stale), vault.acceptSignReply(req, first.value))
+    }
+
     // ---- helpers ----
 
     private fun request(device: EnrolledDevice, operation: String = bytes(32).toHex()): JsonObject {
