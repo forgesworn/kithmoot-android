@@ -469,6 +469,19 @@ class VmlsRuntime(
         save(removeLeaves(engine, marked, due))
     }
 
+    /**
+     * An Update before it is due, deposited by the next round: the
+     * two-device lab's racing commit (P3-03b-3). The app updates only on
+     * `UpdateDue`.
+     */
+    internal suspend fun updating(persona: String, session: String): Unit = rounding.withLock {
+        val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
+        val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
+        val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
+        check(room.canSend && !room.sending) { "This room cannot change now. Try again shortly." }
+        check(save(update(room)).sending) { "The engine made no Update." }
+    }
+
     override fun leave(persona: String, session: String) = act(persona) { p -> leaving(p, session) }
 
     /** [leave], awaited: the session is dropped now if the vault's witness confirms it, otherwise by the rounds. */
