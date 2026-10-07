@@ -63,7 +63,7 @@ import kotlinx.coroutines.launch
 
 /** Which page home shows: the rooms list, or one of the two full-screen
  *  pages reached from it (design-home-rooms.md section 4). */
-/** How often the restore witness's retiring duty runs while the app is in the foreground. */
+/** How often the foreground tick runs: the restore witness's retiring duty, and its fresh read of the banner (D1 C2). */
 private const val RETIRING_DUTY_INTERVAL_MILLIS = 15 * 60 * 1000L
 
 /** How often VMLS rooms are driven while the app is in the foreground (P3-03b-3; the room screens tighten it). */

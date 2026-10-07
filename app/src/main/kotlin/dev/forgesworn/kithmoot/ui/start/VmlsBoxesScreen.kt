@@ -195,8 +195,9 @@ fun VaultConsentDialog(scope: ConsentScope, boxName: String?, onAnswer: (Consent
                     if (scope.method == MlsVault.SIGN_METHOD) "Let this phone's MLS device sign its place in VMLS rooms on this box? Allowing is kept."
                     else "Let this phone's MLS device sign its requests to this box for VMLS rooms? Allowing is kept.",
                 )
-                // As the join prompt names it: the box's name, with its short id beside (D1 R6).
-                Text(consentBoxLine(boxName, scope.homeBox), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                // The real short id first, on its own line, then the box's name as it calls itself: a crafted name cannot imitate the id (D1 R6, L4).
+                Text("Box ${short(scope.homeBox)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                if (!boxName.isNullOrBlank()) Text("Named: $boxName", style = MaterialTheme.typography.bodySmall)
                 Text("Device ${short(scope.device)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
         },
@@ -209,8 +210,5 @@ fun VaultConsentDialog(scope: ConsentScope, boxName: String?, onAnswer: (Consent
 private fun Heading(text: String) {
     Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { heading() })
 }
-
-/** "Box Home (1234abcd…89abcdef)", or the short id alone before the box is named. */
-internal fun consentBoxLine(boxName: String?, box: String) = if (boxName.isNullOrBlank()) "Box ${short(box)}" else "Box $boxName (${short(box)})"
 
 private fun short(hex: String) = "${hex.take(8)}…${hex.takeLast(8)}"

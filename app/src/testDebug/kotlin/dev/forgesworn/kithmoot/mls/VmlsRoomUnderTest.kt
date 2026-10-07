@@ -20,7 +20,8 @@ class VmlsRoomUnderTest {
         for (state in listOf(VmlsRoomState.READY, VmlsRoomState.SENDING, VmlsRoomState.RETRYING, VmlsRoomState.CHECKING, VmlsRoomState.JOINING, VmlsRoomState.STOPPED)) {
             val under = assertNotNull(roomUnder(CoordinationStatus.Fenced("witness-retired", null), state))
             assertEquals(VmlsRoomState.STOPPED, under.state)
-            assertTrue("witness-retired" in under.reason!!)
+            assertTrue("retired" in under.reason!!)
+            assertTrue("witness-retired" !in under.reason!!, "a human reason, not the raw code")
         }
     }
 
@@ -34,5 +35,10 @@ class VmlsRoomUnderTest {
         for (state in listOf(VmlsRoomState.REMOVED, VmlsRoomState.LAPSED, VmlsRoomState.CLOSING)) {
             assertNull(roomUnder(CoordinationStatus.Fenced("x", null), state))
         }
+    }
+
+    @Test fun `a fence code is put in words, and an unknown one is shown as it came`() {
+        assertEquals("the restore witness retired it", fenceWords("witness-retired"))
+        assertEquals("some-new-code", fenceWords("some-new-code"))
     }
 }

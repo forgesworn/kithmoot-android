@@ -515,17 +515,15 @@ internal class PersonaCoordination<V>(
     }
 
     suspend fun status(check: Boolean): CoordinationStatus {
-        // A check asks the witness again even when confirmed (C2). If that read
-        // is unavailable the last answer stands: nothing the witness said
-        // fences, and covered writes read again before they release anything.
-        val wasActive = check && snapshot?.fenced == null && coordinator?.let { runCatching { it.confirmed() }.getOrDefault(false) } == true
+        // A check asks the witness again even when confirmed (C2). A read that
+        // cannot be had leaves the coordinator unconfirmed, and that is what is
+        // said: Pending(refused = false), not Active (M1). Nothing the witness
+        // said fences; the caller decides whether to keep what it showed, and
+        // the rooms hold until a read succeeds.
         val gate = if (check) recheck() else open()
         return when (gate) {
             Gate.Ready -> CoordinationStatus.Active
-            Gate.Pending -> {
-                val refused = coordinator?.let { runCatching { it.refused() }.getOrDefault(false) } ?: false
-                if (wasActive && !refused) CoordinationStatus.Active else CoordinationStatus.Pending(refused)
-            }
+            Gate.Pending -> CoordinationStatus.Pending(coordinator?.let { runCatching { it.refused() }.getOrDefault(false) } ?: false)
             Gate.NotEnrolled -> CoordinationStatus.NotEnrolled
             is Gate.Fenced -> CoordinationStatus.Fenced(gate.reason, runCatching { store.marker()?.subject }.getOrNull())
         }

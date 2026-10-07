@@ -22,7 +22,7 @@ class RestoreWitnessTickTest {
 
     private fun bytes(n: Int) = ByteArray(n).also(random::nextBytes)
 
-    @Test fun `the banner is read from the witness afresh every ten minutes, and from memory between`() = runBlocking<Unit> {
+    @Test fun `the banner is read from the witness afresh every fifteen minutes, and from memory between`() = runBlocking<Unit> {
         val server = FakeWitnessServer(bytes(32))
         val stores = MemoryCoordinatedStores()
         val vault = MlsVault.coordinated(VaultCoordination(stores, WitnessChannels { _, _, _ -> server.channel }, FakeVaultWitness()), now = { clock })
@@ -53,5 +53,38 @@ class RestoreWitnessTickTest {
         clock += RestoreWitness.WITNESS_READ_INTERVAL_SECONDS
         tick.foregroundTick(persona)
         assertIs<CoordinationStatus.Fenced>(tick.banner.value)
+    }
+
+    @Test fun `a check the witness cannot answer keeps the banner, is not counted as a read, and the next tick asks again`() = runBlocking<Unit> {
+        val server = FakeWitnessServer(bytes(32))
+        val stores = MemoryCoordinatedStores()
+        val vault = MlsVault.coordinated(VaultCoordination(stores, WitnessChannels { _, _, _ -> server.channel }, FakeVaultWitness()), now = { clock })
+        var key = bytes(32)
+        while (runCatching { Schnorr.publicKey(key) }.isFailure) key = bytes(32)
+        val persona = Schnorr.publicKey(key).toHex()
+        val genesis = (vault.beginCoordination(persona, bytes(32), server.key) as VaultResult.Ok).value
+        server.enrol(genesis.subject, genesis.initialDigest)
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(persona, check = true))
+        val links = PersonaLinks(object : LinkTransportRuntime {
+            override fun start(state: LinkTransportState): LinkTransportSession = error("The tick opens no Link session")
+        }, quiet = { false })
+        val tick = RestoreWitness(vault, links, AtomicBoolean(false), CoroutineScope(Job()), now = { clock })
+        tick.foregroundTick(persona)
+        assertEquals(CoordinationStatus.Active, tick.banner.value)
+
+        server.mode = FakeWitnessServer.Mode.Down
+        clock += RestoreWitness.WITNESS_READ_INTERVAL_SECONDS
+        tick.foregroundTick(persona)
+        assertEquals(CoordinationStatus.Active, tick.banner.value, "the banner keeps what it showed")
+        // The rooms' own read now says the truth.
+        assertEquals(CoordinationStatus.Pending(refused = false), vault.coordinationStatus(persona, check = false))
+
+        // Not counted as a read: the very next tick asks again, rather than waiting out the interval.
+        server.mode = FakeWitnessServer.Mode.Up
+        clock += 60
+        val before = server.requests
+        tick.foregroundTick(persona)
+        assertEquals(CoordinationStatus.Active, tick.banner.value)
+        assertEquals(before + 1, server.requests)
     }
 }

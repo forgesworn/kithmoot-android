@@ -178,8 +178,14 @@ class VmlsRuntime(
     /** Each room as driven, seeded from its engine at first: members, epoch and commit flags are never stored. */
     private val live = HashMap<String, VmlsRoom>()
 
-    /** What the vault's coordination last said for each persona: its rooms show it ([roomStateUnder]). */
+    /** What the vault's coordination last said for each persona: its rooms show it ([roomUnder]). */
     private val coordination = HashMap<String, CoordinationStatus>()
+
+    /** Personas whose coordination was Active and has not since been refused or fenced (M1). */
+    private val confirmed = HashSet<String>()
+
+    /** When each persona's held coordination was last read again by the rounds (M1). */
+    private val rechecked = HashMap<String, Long>()
 
     /** What each box last answered, by persona and box. */
     private val answered = HashMap<String, Boolean>()
@@ -501,7 +507,10 @@ class VmlsRuntime(
             viewer = persona
             publishRooms()
             if (persona == null || quiet.get()) return
-            val engine = engine(persona)
+            var engine = engine(persona)
+            // A keeper that was confirmed and whose witness did not answer a check reads again, at most once a minute,
+            // so its rooms resume on the next round once the witness answers (M1). Here, never inside a step.
+            if (engine == null && recheckHeld(persona)) engine = engine(persona)
             // What the vault's gate said just now decides what the rooms may show (D1 R3).
             publishRooms()
             if (engine == null) return
@@ -525,6 +534,26 @@ class VmlsRuntime(
                 }
             }
         }
+    }
+
+    /**
+     * A fresh witness read for [persona] when it was confirmed and is now held only because a check went unanswered
+     * (Pending, not refused), at most once a minute. True when it read. Called under [rounding], outside any step;
+     * the vault takes its own per-persona lock for the read.
+     */
+    private suspend fun recheckHeld(persona: String): Boolean {
+        val at = now()
+        val due = synchronized(this) {
+            val held = coordination[persona]
+            if (persona !in confirmed || held !is CoordinationStatus.Pending || held.refused) return false
+            if (at - (rechecked[persona] ?: 0L) < RECHECK_SECONDS) return false
+            rechecked[persona] = at
+            true
+        }
+        if (!due || quiet.get()) return false
+        val status = try { vault.coordinationStatus(persona, check = true) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { return false }
+        remember(persona, status)
+        return true
     }
 
     /**
@@ -932,10 +961,11 @@ class VmlsRuntime(
     /** A request over [link]: asked of the keeper only if the gate lets it through (decision 18). */
     private suspend fun asked(link: VmlsLink, invitation: RoomInvitation, event: NostrEvent, carrier: VmlsCarrier) {
         if (quiet.get()) return
-        // A held or fenced keeper neither asks nor answers (D1 R3): the request is left unspent, so the guest's next ask is heard.
-        if (need(link.persona) != null) return
         // A request already seen, or one over a link asked too often of late, is turned away before it is opened.
         if (gate.spent(event.id.lowercase()) || !admitted(link.session)) return
+        // A held or fenced keeper neither asks nor answers (D1 R3): the request is left unspent, so the guest's next ask is heard.
+        // After the cheap flood checks, as this one reads the vault.
+        if (need(link.persona) != null) return
         val key = link.key.hexToBytes()
         val request = try { decodeVmlsJoinRequest(event, invitation, key, now()) } finally { key.fill(0) } ?: return
         if (request.device == ownDevice(link.persona)) return
@@ -1523,7 +1553,11 @@ class VmlsRuntime(
     private suspend fun need(persona: String): String? = when (needs(persona).firstOrNull()) {
         null -> null
         VmlsNeed.SIGN_IN -> "Sign in first."
-        VmlsNeed.WITNESS -> "Enrol this account at its restore witness first: VMLS rooms need a vault your box confirms."
+        VmlsNeed.WITNESS -> when (synchronized(this) { coordination[persona] }) {
+            is CoordinationStatus.Pending -> "Waiting for the restore witness to confirm this account."
+            is CoordinationStatus.Fenced -> "This account's vault is fenced on this phone; see Restore witness."
+            else -> "Enrol this account at its restore witness first: VMLS rooms need a vault your box confirms."
+        }
         VmlsNeed.RENDEZVOUS -> "This account has no rendezvous key yet: provision one from your signer in Settings."
     }
 
@@ -1533,9 +1567,16 @@ class VmlsRuntime(
         val status = try { vault.coordinationStatus(persona) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
         if (status != CoordinationStatus.Active) needs += VmlsNeed.WITNESS
         // Unknown (the read failed) leaves what was last known: the rooms are not flipped by one failed read.
-        if (status != null) synchronized(this) { coordination[persona] = status }
+        if (status != null) remember(persona, status)
         if (rendezvousKey(persona) == null) needs += VmlsNeed.RENDEZVOUS
         return needs
+    }
+
+    private fun remember(persona: String, status: CoordinationStatus) = synchronized(this) {
+        coordination[persona] = status
+        // Confirmed once, and not since refused or fenced: a Pending that is only a failed read may be read again.
+        if (status == CoordinationStatus.Active) confirmed += persona
+        else if (status !is CoordinationStatus.Pending || status.refused) confirmed -= persona
     }
 
     private suspend fun rendezvousKey(persona: String): String? {
@@ -1633,6 +1674,8 @@ class VmlsRuntime(
         /** A denied scope is not asked about again for this long. */
         private const val DENIED_SECONDS = 10L * 60
         private const val REVOKE_RETRY_SECONDS = 10L * 60
+        /** A held keeper's fresh witness read is asked for at most this often (M1). */
+        private const val RECHECK_SECONDS = 60L
         const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
@@ -1640,8 +1683,11 @@ class VmlsRuntime(
 
         private fun shortHex(hex: String) = "${hex.take(8)}…${hex.takeLast(8)}"
 
+        /** Bidi controls and zero-width characters: a box's name must not reorder or hide what is shown beside it (D1 L4). */
+        private val INVISIBLE = ('\u202A'..'\u202E') + ('\u2066'..'\u2069') + ('\u200B'..'\u200F') + '\uFEFF'
+
         private fun boxName(name: String): String =
-            name.filterNot { it.isISOControl() }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
+            name.filterNot { it.isISOControl() || it in INVISIBLE }.trim().take(VmlsRoom.MAX_NAME).ifBlank { "Bothy box" }
 
         /** Words for the person; never a stack trace or a secret. */
         private fun describe(error: Exception): String = when (error) {
@@ -1652,6 +1698,16 @@ class VmlsRuntime(
             else -> "The box could not be reached (${error.javaClass.simpleName})."
         }
     }
+}
+
+/** A fence's code as words for the person; an unknown code is shown as it came. */
+internal fun fenceWords(reason: String): String = when (reason) {
+    "witness-retired" -> "the restore witness retired it"
+    "missing-seal-key" -> "its sealing key is gone from this phone"
+    "missing-file" -> "its stored state is missing"
+    "installation-replaced" -> "another phone has taken over this account's vault"
+    "sequence-exhausted" -> "its sequence is used up"
+    else -> reason
 }
 
 /** How a persona's coordination changes what its room shows (D1 R3). */
@@ -1672,6 +1728,6 @@ internal fun roomUnder(coordination: CoordinationStatus?, state: VmlsRoomState):
         CoordinationStatus.NotEnrolled ->
             RoomUnder(VmlsRoomState.STOPPED, "This room stopped sending: this account is not enrolled at its restore witness.")
         is CoordinationStatus.Fenced ->
-            RoomUnder(VmlsRoomState.STOPPED, "This room stopped sending: this account's vault is fenced (${coordination.reason}).")
+            RoomUnder(VmlsRoomState.STOPPED, "This room stopped sending: this account's vault is fenced (${fenceWords(coordination.reason)}); see Restore witness.")
     }
 }

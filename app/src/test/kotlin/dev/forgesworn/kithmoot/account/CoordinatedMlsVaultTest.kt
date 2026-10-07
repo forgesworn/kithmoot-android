@@ -354,14 +354,19 @@ class CoordinatedMlsVaultTest {
         assertIs<CoordinationStatus.Fenced>(status)
     }
 
-    @Test fun `a check the witness cannot answer keeps the state, fences nothing and the next write reads again`() = runBlocking<Unit> {
+    @Test fun `a check the witness cannot answer is pending, not active, for the rooms too, and fences nothing`() = runBlocking<Unit> {
         enrolAtBox(); val device = enrolDevice()
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = false))
         server.mode = FakeWitnessServer.Mode.Down
-        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = true))
+        // M1: the check says what it found, and what the rooms read afterwards (no check) agrees.
+        assertEquals(CoordinationStatus.Pending(refused = false), vault.coordinationStatus(alice.pubkey, check = true))
+        assertEquals(CoordinationStatus.Pending(refused = false), vault.coordinationStatus(alice.pubkey, check = false))
         // Nothing is released on the strength of a confirmation that was not renewed.
         assertEquals(refused(VaultRefusal.WitnessPending), vault.signLeafBindingV1(ctx, request(device), approve))
         server.mode = FakeWitnessServer.Mode.Up
+        // The witness answers again: a fresh read (what the rooms ask for) confirms, and the rooms' own read follows.
         assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = true))
+        assertEquals(CoordinationStatus.Active, vault.coordinationStatus(alice.pubkey, check = false))
         assertIs<VaultResult.Ok<SignLeafBindingReply>>(vault.signLeafBindingV1(ctx, request(device), approve))
     }
 
