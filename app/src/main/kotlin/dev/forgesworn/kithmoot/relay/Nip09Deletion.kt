@@ -37,6 +37,9 @@ object Nip09Deletion {
         val failed: Int = 0,
         /** False when the time ran out, or a question went unanswered. */
         val complete: Boolean = true,
+        /** At least one relay answered what the key signed: false means no
+         *  relay could be asked at all, and the run is worth trying again. */
+        val reached: Boolean = false,
     )
 
     /** An addressable event's address, `kind:pubkey:d`, or null for any other. */
@@ -92,6 +95,7 @@ object Nip09Deletion {
                     transport.queryAvailable(listOf(Filter(authors = listOf(author), limit = QUERY_LIMIT)), queryTimeoutMs)
                 } catch (e: CancellationException) { throw e
                 } catch (_: Exception) { report = report.copy(complete = false); break }
+                report = report.copy(reached = true)
                 val fresh = found.filter { it.kind != KIND_DELETION && it.pubkey.equals(author, ignoreCase = true) && it.id !in asked }
                     .distinctBy { it.id }
                 report = report.copy(found = report.found + fresh.size)

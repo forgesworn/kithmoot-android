@@ -46,6 +46,17 @@ class Nip77EventIndexTest {
         assertEquals(1, index.records(account, room, hex(8), 0, 200).size)
     }
 
+    @Test fun forgettingARoomTakesItsEntriesForEveryAccountAndNoOtherRooms() {
+        val index = Nip77EventIndex(MemoryStorage())
+        index.record(account, room, chat(100))
+        index.record(otherAccount, room, chat(101))
+        index.record(account, hex(9), chat(102))
+        index.forgetRoom(room)
+        assertEquals(0, index.records(account, room, address, 0, 200).size)
+        assertEquals(0, index.records(otherAccount, room, address, 0, 200).size)
+        assertEquals(1, index.records(account, hex(9), address, 0, 200).size)
+    }
+
     @Test fun refusesUnverifiedNonChatOrMalformedMetadata() {
         val index = Nip77EventIndex(MemoryStorage())
         val good = chat(100)

@@ -66,6 +66,15 @@ class Nip77OfferArchive(private val storage: RoomStorage) {
             .toList()
     }
 
+    /** Forget every event kept for [roomId], whichever account: the room self-destructed. */
+    @Synchronized fun forgetRoom(roomId: String) = guarded {
+        val canonicalRoom = canonicalHex(roomId, "room")
+        val all = read()
+        val retained = all.filterNot { it.roomId == canonicalRoom }
+        if (retained.size == all.size) return@guarded
+        if (retained.isEmpty()) storage.reset() else write(retained)
+    }
+
     @Synchronized fun clear(account: String) = guarded {
         val canonicalAccount = canonicalHex(account, "account")
         val retained = read().filterNot { it.account == canonicalAccount }

@@ -87,6 +87,7 @@ class Nip09DeletionTest {
         assertEquals(1_250, report.requested)
         assertEquals(0, report.failed)
         assertTrue(report.complete)
+        assertTrue(report.reached)
         assertTrue(relay.filters.all { it.authors == listOf(devicePub) && it.limit == Nip09Deletion.QUERY_LIMIT && it.kinds == null })
         assertTrue(relay.published.all { it.kind == 5 && it.pubkey == devicePub && it.tags.count { t -> t[0] == "e" } <= 300 })
         assertEquals(listOf(theirs), relay.held.filter { it.kind != 5 })
@@ -110,5 +111,6 @@ class Nip09DeletionTest {
         val report = Nip09Deletion.deleteOwnEvents(silent, device, { now })
         assertEquals(0, report.found)
         assertFalse(report.complete)
+        assertFalse(report.reached)
     }
 }
