@@ -1263,7 +1263,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
         if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
         return try { RoomBookmarks.validateLink(room.joinUrl, room.id)
-            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room))
+            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room), room.ends, room.destruct, room.startsAt)
         } catch (_: Exception) { null }
     }
 
@@ -1333,7 +1333,8 @@ class RoomViewModel @JvmOverloads constructor(
             checkSelection()
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
-                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch)
+                invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch,
+                destruct = admission?.destruct == true)
         }
     }
 
@@ -1441,7 +1442,8 @@ class RoomViewModel @JvmOverloads constructor(
                 PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at).also { checkSelection() }
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
-                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch)
+                invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch,
+                destruct = admission.destruct)
         }
     }
 
@@ -2982,6 +2984,7 @@ class RoomViewModel @JvmOverloads constructor(
                 roomRelays = roomRelays,
                 roomRelaysSigned = signedRelays != null,
                 expectedEpoch = admission.epoch,
+                destruct = admission.destruct,
             )
             return
         }
@@ -3003,6 +3006,7 @@ class RoomViewModel @JvmOverloads constructor(
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
             expectedEpoch = admission.epoch,
+            destruct = admission.destruct,
         )
     }
 
@@ -3269,6 +3273,8 @@ class RoomViewModel @JvmOverloads constructor(
         /** The epoch the responder that admitted this device said the room
          *  is at (`RoomAdmission.epoch`), when this opening asked one. */
         expectedEpoch: Int? = null,
+        /** The room self-destructs, when this opening learnt so (`RoomAdmission.destruct`). */
+        destruct: Boolean = false,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3308,8 +3314,10 @@ class RoomViewModel @JvmOverloads constructor(
         val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
             previous?.name ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
-            ends = ends?.takeIf { invitation?.invitation?.persistent == true })
+            ends = ends?.takeIf { invitation?.invitation?.persistent == true },
+            destruct = destruct && invitation?.invitation?.persistent == true)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
+            .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
             // A room saved before its authority was recorded never followed a
             // rekey; pin the one its link names, as a fresh join would.
@@ -5883,6 +5891,7 @@ class RoomViewModel @JvmOverloads constructor(
                     policy = payload.policy,
                     localName = "Private with ${shortNpub(peer)}",
                     expectedEpoch = admission.epoch,
+                    destruct = admission.destruct,
                 )
             } catch (e: CancellationException) {
                 throw e

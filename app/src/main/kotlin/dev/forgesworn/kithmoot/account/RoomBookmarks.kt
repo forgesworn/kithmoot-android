@@ -19,8 +19,15 @@ import java.util.UUID
  *  is encrypted to the account's own key like the rest of it, and never names a
  *  temporary delegated admission. A relay may keep an old copy of a replaceable
  *  record, so a tombstone removes it only from the record the account reads.
- *  Wire-compatible with `admission` in app/src/room-bookmarks.ts. */
-data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long, val admission: String? = null) {
+ *  Wire-compatible with `admission` in app/src/room-bookmarks.ts.
+ *
+ *  A conference room's [endsAt] travels too, so the list on another device
+ *  shows it ended without opening it; so do [destruct] and [startsAt], so
+ *  another device knows the room self-destructs, and scales its countdown the
+ *  same way, without opening it. Wire-compatible with
+ *  `endsAt`, `destruct` and `startsAt` in the web client's `room` record. */
+data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long, val admission: String? = null,
+    val endsAt: Long? = null, val destruct: Boolean = false, val startsAt: Long? = null) {
     val label: String get() = name ?: "Room ${roomId.take(8)}"
     override fun toString(): String = "AccountRoom($roomId)"
 }
@@ -93,7 +100,14 @@ class RoomBookmarks(
         validateLink(link, id)
         val opened = obj.getValue("openedAt").jsonPrimitive
         require(!opened.isString && opened.long >= 0)
-        return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long, admission(value, id))
+        // Read as the web reads them: an end that is not a positive safe
+        // integer, a flag that is not exactly true, or a start that is not a
+        // number is dropped, never the record.
+        val ends = (obj["endsAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull?.takeIf { it in 1..9_007_199_254_740_991L }
+        val destruct = (obj["destruct"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
+        val startsAt = (obj["startsAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull?.takeIf { it >= 0 }
+        return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long, admission(value, id),
+            ends, destruct, startsAt)
     }
 
     /** A secret is kept only when it derives the room's own id; otherwise the
@@ -237,8 +251,12 @@ class RoomBookmarks(
             val previous = old?.let { room(it.value) }
             // A save from a device that holds no secret keeps the one the record
             // carries: the record is last-writer-wins and would otherwise drop it.
-            val cleaned = room?.copy(name = DisplayName.sanitise(room.name), admission = room.admission ?: previous?.admission)
-            if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name && previous?.admission == cleaned?.admission) return@withLock
+            // Likewise the end, the start and self-destruct, which no save takes back.
+            val cleaned = room?.copy(name = DisplayName.sanitise(room.name), admission = room.admission ?: previous?.admission,
+                endsAt = room.endsAt ?: previous?.endsAt, destruct = room.destruct || previous?.destruct == true,
+                startsAt = previous?.startsAt ?: room.startsAt)
+            if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name && previous?.admission == cleaned?.admission &&
+                previous?.endsAt == cleaned?.endsAt && previous?.destruct == cleaned?.destruct && previous?.startsAt == cleaned?.startsAt) return@withLock
             val at = maxOf(now(), ((old?.event?.createdAt ?: -1) + 1) * 1000)
             check(at <= now() + 60_000) { "Too many room changes at once. Try again shortly." }
             val value = buildJsonObject {
@@ -246,6 +264,9 @@ class RoomBookmarks(
                 cleaned?.let { r -> put("room", buildJsonObject {
                     put("roomId", r.roomId); put("link", r.link); r.name?.let { put("name", it) }
                     put("openedAt", r.openedAt); put("readAt", 0)
+                    r.endsAt?.let { put("endsAt", it) }
+                    if (r.destruct) put("destruct", true)
+                    r.startsAt?.let { put("startsAt", it) }
                 }) }
                 cleaned?.admission?.let { put("admission", buildJsonObject { put("secret", it) }) }
             }

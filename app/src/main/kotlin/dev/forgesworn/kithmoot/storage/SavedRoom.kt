@@ -54,7 +54,11 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** A conference room's end, unix seconds; null for a room that does not end. */
     val endsAt: Long? = null,
     /** Pinned to the top of the home list on this device. Never leaves it: not in account bookmarks, not on a relay. */
-    val pinned: Boolean = false)
+    val pinned: Boolean = false,
+    /** The room self-destructs when it ends: see [SavedRoom.destruct]. */
+    val destruct: Boolean = false,
+    /** When this device first knew the room, for scaling its countdown: see [SavedRoom.startsAt]. */
+    val startsAt: Long? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -107,6 +111,22 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val ends: Long? get() = json["ends"]?.jsonPrimitive?.long
     /** A conference room past its end: it cannot be opened, replied to or shared. */
     fun ended(now: Long): Boolean = conferenceEnded(ends, now)
+    /**
+     * The room self-destructs (fold-kit 0.9.0 `destruct`, from its group
+     * invitation or its closing rekey): when it ends, by its time or by its
+     * authority closing it, this device deletes what it wrote there and
+     * forgets it. Kept so a device offline at the end still does so when the
+     * app next starts, which needs this record's device key, so the record
+     * stays until then. Never taken back once set.
+     */
+    val destruct: Boolean get() = json["destruct"]?.jsonPrimitive?.booleanOrNull == true
+    /** Unix seconds this device first knew a room that ends, for scaling the
+     *  countdown to the room's lifetime (a late joiner's is shorter than the
+     *  room's: close enough for choosing colours). Null for a room with no
+     *  end, and every record older than the countdown. */
+    val startsAt: Long? get() = json["startsAt"]?.jsonPrimitive?.longOrNull
+    /** The heads-up at the start of the countdown's red stage has been shown for this room. */
+    val destructHeadsUp: Boolean get() = json["destructHeadsUp"]?.jsonPrimitive?.booleanOrNull == true
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
@@ -114,7 +134,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
             ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
-            pinned = pinned)
+            pinned = pinned, destruct = destruct, startsAt = startsAt)
     }
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
@@ -250,6 +270,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val clean = project?.trim()?.take(48).orEmpty()
         if (clean.isEmpty()) remove("project") else put("project", clean)
     }
+    /** Learnt that the room self-destructs: from its closing rekey, or a
+     *  later copy of its invitation. Sticky, so there is no way back. */
+    fun withDestruct(): SavedRoom = if (destruct) this else changed { put("destruct", true) }.also { it.validate() }
+    fun withDestructHeadsUp(): SavedRoom = if (destructHeadsUp) this else changed { put("destructHeadsUp", true) }
     fun withPinned(pinned: Boolean): SavedRoom = changed { if (pinned) put("pinned", JsonPrimitive(true)) else remove("pinned") }
     fun withRelays(relays: List<String>): SavedRoom = changed {
         require(relays.isNotEmpty() && relays.size <= 16)
@@ -332,6 +356,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             // The end is the room's, not the link's: a later opening that did
             // not learn it (a synced bookmark) must not forget it.
             if (ends == null) previous.ends?.let { put("ends", it) }
+            // So is self-destruct, which no later opening takes back, and
+            // when this device first knew the room, which the countdown scales by.
+            if (previous.destruct) put("destruct", true)
+            previous.startsAt?.let { put("startsAt", it) }
+            if (previous.destructHeadsUp) put("destructHeadsUp", true)
             // What this device was told about the room's epoch is the room's too.
             previous.epochHint?.takeIf { it > (epochHint ?: -1) }?.let { put("epochHint", it.toLong()) }
             // So are its relays: a link's hints never displace what the
@@ -383,6 +412,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         json["epochHint"]?.let { require(it is JsonPrimitive && !it.isString && (it.intOrNull ?: -1) >= 0) }
         json["ends"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: 0L) > 0L) }
         if (ends != null) require(invitation?.invitation?.persistent == true) { "Only a group room can end." }
+        json["destruct"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
+        if (destruct) require(invitation?.invitation?.persistent == true) { "Only a group room can self-destruct." }
+        json["startsAt"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: -1L) >= 0L) }
+        json["destructHeadsUp"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
         if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
         when (identityJson.text("type")) {
@@ -423,7 +456,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     companion object {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
-                   ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false): SavedRoom {
+                   ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false,
+                   destruct: Boolean = false): SavedRoom {
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
@@ -433,7 +467,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("name", cleanName(name, id))
                 put("openedAt", now)
                 if (anonymous) put("anonymous", true)
-                ends?.let { put("ends", it) }
+                ends?.let { put("ends", it); put("startsAt", now) }
+                if (destruct) put("destruct", true)
                 if (roomRelays.isNotEmpty()) {
                     put("fixedRelays", JsonArray(roomRelays.map(::JsonPrimitive)))
                     if (roomRelaysSigned) put("fixedRelaysSigned", true)
