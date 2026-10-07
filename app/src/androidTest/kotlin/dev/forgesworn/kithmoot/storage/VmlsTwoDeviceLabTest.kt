@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
+import dev.forgesworn.kithmoot.mls.BoxAnswer
 import dev.forgesworn.kithmoot.account.ConsentDecision
 import dev.forgesworn.kithmoot.account.ConsentPrompt
 import dev.forgesworn.kithmoot.account.CoordinationStatus
@@ -198,6 +199,8 @@ class VmlsTwoDeviceLabTest {
         if (expected.isNotEmpty()) roundsUntil("heard ${expected.size}", 90) { heard().containsAll(expected) }
         repeat(arg("rounds")?.toInt() ?: 2) { runtime.foregroundRounds(persona); delay(1_000) }
         assertEquals(expected, heard().filter { it in expected })
+        // The contrast for cut-off: while its grant is live, the box answers the guest's own signed read.
+        if (role == GUEST) VmlsLab.eventually(60) { runtime.boxAnswer(persona, room().box).takeIf { it is BoxAnswer.Ok } }
     }
 
     /**
@@ -354,11 +357,20 @@ class VmlsTwoDeviceLabTest {
         assertEquals(VmlsRuntime.HELD, refused?.message)
     }
 
-    /** The compromised guest's message, sent after its grant was revoked: the box takes nothing from it. */
+    /**
+     * The compromised guest's message, sent after its grant was revoked: the box refuses the device's own signed
+     * read with `authority`, which is where its rounds stop, so nothing it sends is deposited.
+     */
     private suspend fun cutOff() {
         check(role == GUEST)
+        val box = room().box
+        val refused = VmlsLab.eventually(60) { runtime.boxAnswer(persona, box).takeIf { it is BoxAnswer.Refused } } as BoxAnswer.Refused
+        log("box refused: ${refused.status} ${refused.code}")
+        assertEquals(403, refused.status)
+        assertEquals("authority", refused.code)
         runCatching { runtime.send(persona, session(), "from-a-compromised-device") }.onFailure { log("send: $it") }
         repeat(5) { runCatching { runtime.foregroundRounds(persona) }.onFailure { log("round: $it") }; delay(1_000) }
+        assertEquals("still refused", refused.code, (runtime.boxAnswer(persona, box) as? BoxAnswer.Refused)?.code)
         log("cut off: ${runtime.room(persona, session()).orGone()}")
     }
 

@@ -77,6 +77,8 @@ data class VmlsRemovalView(
     val claim: String?,
     /** For a compromised device's removal, whether this phone's sends are held (P3-05b part 3); null otherwise. */
     val hold: String? = null,
+    /** The removal's key when the engine refused its Remove for good, to try it again ([VmlsBoxes.retryRemoval]); null otherwise. */
+    val retry: String? = null,
 )
 
 /**
@@ -208,8 +210,12 @@ interface VmlsBoxes {
      * a compromised device (P3-05b part 3): the intent is journalled, this
      * phone's sends and joins in the room are held until the Remove is
      * witnessed, and [signer] revokes its grants at once, without the grace.
+     * Without [signer] (or another persona's), nothing starts and the error says so.
      */
-    fun removeCompromised(signer: ParticipantSigner, session: String, target: String, person: Boolean)
+    fun removeCompromised(persona: String, signer: ParticipantSigner?, session: String, target: String, person: Boolean)
+
+    /** Tries again a journalled Remove the engine refused for good ([VmlsRemovalView.retry]). */
+    fun retryRemoval(persona: String, key: String)
 
     /**
      * What removing [target] (a leaf, or with [person] an identity) would
@@ -226,8 +232,9 @@ interface VmlsBoxes {
      * grants of guests in none of its other rooms on the box are revoked by
      * [signer], and its session ends. Calling it again retries a close a
      * revocation held up; with [force], it finishes without that revocation.
+     * Without [signer] (or another persona's), nothing is done and the error says so.
      */
-    fun close(signer: ParticipantSigner, session: String, force: Boolean = false)
+    fun close(persona: String, signer: ParticipantSigner?, session: String, force: Boolean = false)
 
     /** Forgets a room that ended (removed, or its invitation lapsed). */
     fun forgetRoom(persona: String, session: String)

@@ -726,8 +726,29 @@ class VmlsRuntime(
 
     override fun removePerson(persona: String, session: String, identity: String) = act(persona) { p -> removing(p, session, identity, person = true) }
 
-    override fun removeCompromised(signer: ParticipantSigner, session: String, target: String, person: Boolean) =
-        act(signer.pubkey) { p -> removing(p, session, target, person, compromised = signer) }
+    override fun removeCompromised(persona: String, signer: ParticipantSigner?, session: String, target: String, person: Boolean) =
+        act(persona) { p -> removing(p, session, target, person, compromised = checkNotNull(signer) { NO_SIGNER }) }
+
+    override fun retryRemoval(persona: String, key: String) = act(persona) { p -> retrying(p, key) }
+
+    /**
+     * [retryRemoval], awaited: a Remove the engine refused for good ([VmlsMlsState.FAILED])
+     * is made pending again, and the rounds propose it afresh.
+     */
+    internal suspend fun retrying(persona: String, key: String): Unit = rounding.withLock {
+        val stored = journal(persona)?.get(key) ?: throw IllegalStateException("That removal is no longer kept on this phone.")
+        val next = try {
+            removalDecode(stored).use {
+                check(it.mls() == VmlsMlsState.FAILED) { "That Remove has not stopped." }
+                it.setMls(VmlsMlsState.PENDING)
+                it.encode()
+            }
+        } catch (refused: VmlsException) {
+            throw IllegalStateException("The engine refused that removal (${refused.message}).")
+        }
+        check(keepRemoval(persona, key, next)) { "The removal could not be recorded. Try again shortly." }
+        publishRooms()
+    }
 
     /**
      * [removeMember] or [removePerson], awaited: the removal is opened by the
@@ -880,7 +901,8 @@ class VmlsRuntime(
         }
     }
 
-    override fun close(signer: ParticipantSigner, session: String, force: Boolean) = act(signer.pubkey) { closing(signer, session, force) }
+    override fun close(persona: String, signer: ParticipantSigner?, session: String, force: Boolean) =
+        act(persona) { p -> closing(checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }, session, force) }
 
     /**
      * [close], awaited (decision 24): the link is retired and its pending
@@ -1503,8 +1525,11 @@ class VmlsRuntime(
         return removeLeaves(engine, marked, due)
     }
 
-    /** One Remove for [due], already marked as removing on [marked]: a lost one is offered again, as decision 19's are. */
-    private suspend fun removeLeaves(engine: Engine, marked: VmlsRoom, due: List<String>): VmlsRoom {
+    /**
+     * One Remove for [due], already marked as removing on [marked]: a lost one is offered again, as decision 19's are.
+     * One the engine refuses for good is [abandoned].
+     */
+    private suspend fun removeLeaves(engine: Engine, marked: VmlsRoom, due: List<String>, abandoned: suspend () -> Unit = {}): VmlsRoom {
         val room = marked
         val at = now()
         val outcome = engine.host.step(room.persona, room.session.hexToBytes()) { s ->
@@ -1519,7 +1544,7 @@ class VmlsRuntime(
         return when (removal.refused) {
             null -> apply(marked.committing(), removal.events)
             in DEFERRED -> marked.removalDeferred(due)
-            else -> marked.removalAbandoned(due)
+            else -> marked.removalAbandoned(due).also { abandoned() }
         }
     }
 
@@ -1696,9 +1721,10 @@ class VmlsRuntime(
                     removalDecode(stored).use { removal ->
                         var propose: List<String>? = null
                         if (removal.mls() != VmlsMlsState.COMMITTED) when (val next = removal.next(s.inner)) {
-                            is VmlsNextRemoval.Propose -> propose = next.leafIds.map { it.toHex() }
-                            // Gone, by this keeper's Remove or another's: committed once the witness holds that state.
-                            VmlsNextRemoval.Done -> if (removal.mls() == VmlsMlsState.PENDING && coordinator != null) {
+                            // Not once the engine refused it for good: it waits for the keeper's retry.
+                            is VmlsNextRemoval.Propose -> if (removal.mls() == VmlsMlsState.PENDING) propose = next.leafIds.map { it.toHex() }
+                            // Gone, by this keeper's Remove or another's (a stopped one's too): committed once the witness holds that state.
+                            VmlsNextRemoval.Done -> if (coordinator != null) {
                                 // Not applied or not witnessed yet, or busy: asked again next round.
                                 try { removal.mlsCommitted(s.inner, coordinator) } catch (_: VmlsException) { }
                             }
@@ -1716,9 +1742,23 @@ class VmlsRuntime(
             }
             val (next, propose) = (read as? Hosted.Released)?.value ?: continue
             if (!next.contentEquals(stored)) keepRemoval(room.persona, key, next)
-            if (propose != null && room.canSend && !room.sending) room = removeLeaves(engine, room, propose)
+            if (propose != null && room.canSend && !room.sending) room = removeLeaves(engine, room, propose) { failed(room.persona, key) }
         }
         return room
+    }
+
+    /**
+     * A journalled Remove the engine refused for good, set [VmlsMlsState.FAILED]: no longer proposed each round, and
+     * shown so, with a retry. A compromised device's hold stays (fails closed): the device is still in the epoch.
+     */
+    private suspend fun failed(persona: String, key: String) {
+        val stored = journal(persona)?.get(key) ?: return
+        val next = try {
+            removalDecode(stored).use { if (it.mls() != VmlsMlsState.PENDING) return; it.setMls(VmlsMlsState.FAILED); it.encode() }
+        } catch (_: VmlsException) {
+            return
+        }
+        keepRemoval(persona, key, next)
     }
 
     /** [session]'s removals read afresh from the vault, as its screen shows them. Lab hook: only androidTest calls it. */
@@ -1736,10 +1776,10 @@ class VmlsRuntime(
     /** [room]'s removals as its screen shows them, from the journal as last read. */
     private fun removalViews(persona: String, room: VmlsRoom): List<VmlsRemovalView> =
         journals[persona].orEmpty().filterKeys { VmlsMembership.session(it) == room.session }.mapNotNull { (key, bytes) ->
-            try { removalDecode(bytes).use { removalView(it, room, key in compromised[persona].orEmpty()) } } catch (_: VmlsException) { null }
+            try { removalDecode(bytes).use { removalView(it, room, key, key in compromised[persona].orEmpty()) } } catch (_: VmlsException) { null }
         }
 
-    private fun removalView(removal: VmlsRemoval, room: VmlsRoom, compromised: Boolean): VmlsRemovalView {
+    private fun removalView(removal: VmlsRemoval, room: VmlsRoom, key: String, compromised: Boolean): VmlsRemovalView {
         val leaves = removal.leafIds().map { it.toHex() }
         val person = removal.personIdentity()?.toHex()
         val target = person?.let { "Person ${shortHex(it)} (${leaves.size} device${if (leaves.size == 1) "" else "s"})" }
@@ -1747,7 +1787,7 @@ class VmlsRuntime(
         val mls = when (removal.mls()) {
             VmlsMlsState.PENDING -> "MLS Remove: not yet applied and witnessed."
             VmlsMlsState.COMMITTED -> "MLS Remove: applied at this phone and witnessed."
-            VmlsMlsState.FAILED -> "MLS Remove: stopped; it can be tried again."
+            VmlsMlsState.FAILED -> "MLS Remove: refused by the engine and stopped. Try it again, or close the room."
         }
         val credential = person?.let {
             when (removal.credential()) {
@@ -1771,7 +1811,7 @@ class VmlsRuntime(
         } else {
             "Taken as compromised: this phone's new sends and joins here are held until the Remove is applied and witnessed; any already on their way go first."
         }
-        return VmlsRemovalView(target, mls, credential, grants, removal.claimCopy(), hold)
+        return VmlsRemovalView(target, mls, credential, grants, removal.claimCopy(), hold, retry = key.takeIf { removal.mls() == VmlsMlsState.FAILED })
     }
 
     /** The engine's state, authoritative over what was stored. Null when the host does not hold the session. */
@@ -1843,6 +1883,10 @@ class VmlsRuntime(
             answered.keys.removeAll { it.startsWith("$other:") }
         }
     }
+
+    /** [persona]'s box [box]'s answer to its capabilities read, signed by this phone's device. Lab hook: only androidTest calls it. */
+    internal suspend fun boxAnswer(persona: String, box: String): BoxAnswer<ByteArray> =
+        client(persona, store.route(persona, box) ?: throw IllegalStateException("That box is not paired.")).capabilities()
 
     /** Whether [route]'s box answers with VMLS and its installation for this phone's device; null when unreachable. */
     private suspend fun ask(route: VmlsBoxRoute): Boolean? {
@@ -2061,6 +2105,9 @@ class VmlsRuntime(
 
         /** Why a send is refused while a compromised device's Remove is not yet witnessed. */
         internal const val HELD = "Sending is held until the compromised device's Remove is applied and witnessed."
+
+        /** Why an action the keeper's signer makes does nothing without it. */
+        internal const val NO_SIGNER = "This needs your account's signing key, which this phone does not hold now. Sign in again, then retry."
 
         private fun shortHex(hex: String) = "${hex.take(8)}…${hex.takeLast(8)}"
 
