@@ -61,6 +61,35 @@ enum class VmlsRoomState {
 /** A member as the room shows it; [invited] until its first Update confirms it. */
 data class VmlsMemberView(val leaf: String, val identity: String, val device: String, val invited: Boolean)
 
+/**
+ * One removal from the membership journal (contract §7, P3-05b), each
+ * component apart. [claim] is the engine's permitted-claims copy, shown
+ * verbatim, or null: then the components are all the room may say.
+ */
+data class VmlsRemovalView(
+    /** "Device ab12…" or "Person cd34… (2 devices)". */
+    val target: String,
+    val mls: String,
+    /** A person's credential; null for a device. */
+    val credential: String?,
+    /** Each listed grant's state at its box. */
+    val grants: List<String>,
+    val claim: String?,
+)
+
+/**
+ * What a removal would touch, shown before it is confirmed (P3-05b): every
+ * device, and each one's grant at the room's box, with the other rooms that
+ * keep it there.
+ */
+data class VmlsRemovalPlan(val devices: List<VmlsPlannedDevice>)
+
+/**
+ * A device a removal names. [grant]: "revoked after the grace", "not this
+ * keeper's to revoke", "kept: also in <rooms>", or "no grant at this box".
+ */
+data class VmlsPlannedDevice(val device: String, val grant: String)
+
 /** One message while the app ran: not kept (P3-05 decides history). */
 data class VmlsMessageView(val mine: Boolean, val sender: String, val body: String, val at: Long)
 
@@ -79,6 +108,8 @@ data class VmlsRoomView(
     val invite: Boolean,
     val canSend: Boolean,
     val messages: List<VmlsMessageView>,
+    /** The keeper's removals in this room, from the journal. */
+    val removals: List<VmlsRemovalView> = emptyList(),
 )
 
 /** How a room is left from its menu. */
@@ -162,8 +193,17 @@ interface VmlsBoxes {
     /** Retires the keeper's link: no more prompts (decision 18). */
     fun retireInvite(persona: String, session: String)
 
-    /** The keeper removes [leaf] from the room. */
+    /** The keeper removes the device at [leaf] from the room, journalled (P3-05b). */
     fun removeMember(persona: String, session: String, leaf: String)
+
+    /** The keeper removes every device of the person [identity] from the room, journalled (P3-05b). */
+    fun removePerson(persona: String, session: String, identity: String)
+
+    /**
+     * What removing [target] (a leaf, or with [person] an identity) would
+     * touch, to show before it is confirmed; null when it cannot be read now.
+     */
+    suspend fun removalPlan(persona: String, session: String, target: String, person: Boolean): VmlsRemovalPlan? = null
 
     /** A guest leaves (decision 20): its session ends on this phone, and the keeper removes its leaf when it lapses. */
     fun leave(persona: String, session: String)

@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.vmls.ffi.VmlsCoordinator
 
 /**
  * One engine session as the host drives it. It is implemented over
@@ -71,7 +72,21 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
      * Runs [call] on [session] at its witnessed generation. A call that
      * changes the session is released only once its snapshot is witnessed.
      */
-    suspend fun <R> step(persona: String, session: ByteArray, call: (S) -> EngineStep<R>): Hosted<R> = vault.underPersona(persona) { coord ->
+    suspend fun <R> step(persona: String, session: ByteArray, call: (S) -> EngineStep<R>): Hosted<R> =
+        stepWith(persona, session, engine = false) { handle, _ -> call(handle) }
+
+    /**
+     * A read that changes nothing, at the witnessed generation, with the
+     * engine's coordinator: the membership journal's readback (P3-05b),
+     * which the engine checks against the coordinator itself. The
+     * coordinator is null unless the witness confirms the persona.
+     */
+    suspend fun <R> readback(persona: String, session: ByteArray, call: (S, VmlsCoordinator?) -> R): Hosted<R> =
+        stepWith(persona, session, engine = true) { handle, coordinator -> EngineStep(null, call(handle, coordinator)) }
+
+    private suspend fun <R> stepWith(
+        persona: String, session: ByteArray, engine: Boolean, call: (S, VmlsCoordinator?) -> EngineStep<R>,
+    ): Hosted<R> = vault.underPersona(persona) { coord ->
         val began = synchronized(guard) { epoch }
         val id = sessionId(session)
         val key = key(persona, id)
@@ -100,7 +115,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
         val markHash = coord.snapshotHash(id, mark)
         val step = try {
             if (markHash == null) throw MlsVaultUnavailableException(IllegalStateException("The snapshot's hash is unknown"))
-            call(handle)
+            call(handle, if (engine) coord.engineCoordinator() else null)
         } catch (error: Throwable) {
             // A refused call leaves the engine as it was, but a fault may not: reopen next time.
             close(key, handle)

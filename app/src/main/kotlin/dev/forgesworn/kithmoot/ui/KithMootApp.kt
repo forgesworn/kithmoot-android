@@ -604,7 +604,12 @@ fun KithMootApp(
                                 }
                             },
                             onRetire = { if (persona != null && session != null) boxes.retireInvite(persona, session) },
-                            onRemove = { leaf -> if (persona != null && session != null) boxes.removeMember(persona, session, leaf) },
+                            onRemove = { target, person ->
+                                if (persona != null && session != null) {
+                                    if (person) boxes.removePerson(persona, session, target) else boxes.removeMember(persona, session, target)
+                                }
+                            },
+                            plan = { target, person -> if (persona != null && session != null) boxes.removalPlan(persona, session, target, person) else null },
                             onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
                             onClose = { force -> val signer = accountModel.vmlsSigner(); if (signer != null && session != null) boxes.close(signer, session, force) },
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },

@@ -67,6 +67,15 @@ import dev.forgesworn.kithmoot.storage.RoomStorageException
 import dev.forgesworn.kithmoot.vmls.LeafBinding
 import dev.forgesworn.vmls.ffi.VmlsBindingRequest
 import dev.forgesworn.vmls.ffi.VmlsCredential
+import dev.forgesworn.vmls.ffi.VmlsCredentialState
+import dev.forgesworn.vmls.ffi.VmlsGrantRef
+import dev.forgesworn.vmls.ffi.VmlsGrantState as JournalGrant
+import dev.forgesworn.vmls.ffi.VmlsMlsState
+import dev.forgesworn.vmls.ffi.VmlsNextRemoval
+import dev.forgesworn.vmls.ffi.VmlsRemoval
+import dev.forgesworn.vmls.ffi.removalDecode
+import dev.forgesworn.vmls.ffi.removalDevice
+import dev.forgesworn.vmls.ffi.removalPerson
 import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.prepareCreate
@@ -653,6 +662,7 @@ class VmlsRuntime(
                     members = room.members.values.sortedBy { it.leaf }.map { VmlsMemberView(it.leaf, it.identity, it.device, it.pending) },
                     invite = room.invite != null, canSend = room.canSend && under == null,
                     messages = chat[key(persona, room.session)]?.toList().orEmpty(),
+                    removals = if (room.role == VmlsRole.KEEPER) removalViews(persona, room) else emptyList(),
                 )
             }
         }
@@ -711,18 +721,72 @@ class VmlsRuntime(
 
     override fun removeMember(persona: String, session: String, leaf: String) = act(persona) { p -> removing(p, session, leaf) }
 
-    /** [removeMember], awaited. */
-    internal suspend fun removing(persona: String, session: String, leaf: String): Unit = rounding.withLock {
+    override fun removePerson(persona: String, session: String, identity: String) = act(persona) { p -> removing(p, session, identity, person = true) }
+
+    /**
+     * [removeMember] or [removePerson], awaited: the removal is opened by the
+     * engine from the live session, journalled and witnessed in the vault,
+     * and then driven by the rounds until every component is done (P3-05b).
+     */
+    internal suspend fun removing(persona: String, session: String, target: String, person: Boolean = false): Unit = rounding.withLock {
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
         check(stored.closing == null) { "This room is closing." }
         val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
         check(room.role == VmlsRole.KEEPER) { "Only the room's keeper removes members." }
-        check(room.canSend && !room.sending) { "This room cannot change now. Try again shortly." }
-        check(leaf in room.members && leaf !in room.removing) { "That member is not in the room." }
-        // Kept as the keeper's choice: a Remove deferred or lost is offered again by the rounds until the leaf is gone.
-        val (marked, due) = room.evicted(leaf).dueRemovals(now())
-        save(removeLeaves(engine, marked, due))
+        check(room.canSend) { "This room cannot change now. Try again shortly." }
+        val devices = if (person) room.members.values.filter { it.identity == target }.map { it.device } else listOfNotNull(room.members[target]?.device)
+        check(devices.isNotEmpty()) { "That member is not in the room." }
+        val key = VmlsMembership.key(session, target)
+        // Removals of rooms no longer kept here, whose drop could not forget them, are forgotten first: they hold places.
+        journal(persona)?.keys?.map(VmlsMembership::session)?.distinct()?.filter { store.room(persona, it) == null }?.forEach { gone ->
+            vault.forgetRemovals(vault.sessionContext(PRINCIPAL, persona), gone)
+            synchronized(this) { journals.remove(persona) }
+        }
+        val journal = journal(persona) ?: throw IllegalStateException("This room waits for this account's vault.")
+        check(key !in journal) { "That removal is already under way." }
+        val grants = VmlsMembership.grants(persona, room.box, devices, ledger.all(), devicesOn(engine, persona, room.box, except = session))
+        val opened = try {
+            engine.host.readback(persona, session.hexToBytes()) { s, _ ->
+                val refs = grants.map { VmlsGrantRef(it.box.hexToBytes(), it.grantId.hexToBytes(), it.keeper) }
+                val removal = if (person) removalPerson(s.inner, target.hexToBytes(), refs) else removalDevice(s.inner, target.hexToBytes(), refs)
+                removal.use { it.encode() }
+            }
+        } catch (refused: VmlsException.Engine) {
+            throw IllegalStateException("The engine refused that removal (${refused.code}).")
+        }
+        val bytes = (opened as? Hosted.Released)?.value ?: throw IllegalStateException("This room cannot change now. Try again shortly.")
+        check(keepRemoval(persona, key, bytes)) { "The removal could not be recorded. Try again shortly." }
+        save(advanceRemovals(engine, room))
+    }
+
+    override suspend fun removalPlan(persona: String, session: String, target: String, person: Boolean): VmlsRemovalPlan? = try {
+        rounding.withLock {
+            val engine = engine(persona) ?: return@withLock null
+            val stored = store.room(persona, session) ?: return@withLock null
+            val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: return@withLock null
+            val devices = if (person) room.members.values.filter { it.identity == target }.map { it.device } else listOfNotNull(room.members[target]?.device)
+            val records = ledger.all()
+            val listed = VmlsMembership.grants(persona, room.box, devices, records, placed = emptySet()).associateBy { it.device }
+            val others = store.rooms().filter { it.persona == persona && it.box == room.box && it.session != session && it.closing == null && !it.ended }
+            VmlsRemovalPlan(devices.distinct().map { device ->
+                val keeping = others.filter { other ->
+                    val read = synchronized(this) { live[key(persona, other.session)] } ?: seed(engine, other) ?: return@withLock null
+                    read.members.values.any { it.device == device }
+                }.map { it.name }
+                val grant = listed[device]
+                VmlsPlannedDevice(shortHex(device), when {
+                    grant == null -> "No grant of yours at this box."
+                    keeping.isNotEmpty() -> "Its grant at this box is kept: it is also in ${keeping.joinToString()}."
+                    !grant.keeper -> "Its grant at this box is not yours to revoke."
+                    else -> "Its grant at this box is revoked after the grace, unless another room here takes it first."
+                })
+            })
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
     /**
@@ -827,7 +891,14 @@ class VmlsRuntime(
     private suspend fun dropped(engine: Engine, room: VmlsRoom) {
         when (engine.host.drop(room.persona, room.session.hexToBytes())) {
             // Fenced: this installation's vault is superseded, and the session with it.
-            is Hosted.Released, Hosted.Unknown, is Hosted.Fenced -> forgotten(room.persona, room.session)
+            is Hosted.Released, Hosted.Unknown, is Hosted.Fenced -> {
+                // Its removals go with it; one that cannot be forgotten now waits for the room's next drop or a later close.
+                if (journal(room.persona)?.keys?.any { VmlsMembership.session(it) == room.session } == true) {
+                    vault.forgetRemovals(vault.sessionContext(PRINCIPAL, room.persona), room.session)
+                    synchronized(this) { journals.remove(room.persona) }
+                }
+                forgotten(room.persona, room.session)
+            }
             Hosted.Held -> Unit
         }
     }
@@ -1322,6 +1393,7 @@ class VmlsRuntime(
         }
         if (room.canSend && round is Round.Done && room.role == VmlsRole.KEEPER) {
             room = removeDue(engine, room)
+            room = advanceRemovals(engine, room)
             room = addJoins(engine, route, room)
         }
         save(room)
@@ -1396,6 +1468,114 @@ class VmlsRuntime(
     }
 
     private class Removal(val events: List<Any>, val refused: String?)
+
+    // ---- the membership journal (contract §7, P3-05b) ----
+
+    /** Each persona's removals as last read or written: the engine's records, by key. */
+    private val journals = HashMap<String, Map<String, ByteArray>>()
+
+    /** [persona]'s removals, read once from the vault; null while the vault cannot say. */
+    private suspend fun journal(persona: String): Map<String, ByteArray>? {
+        synchronized(this) { journals[persona] }?.let { return it }
+        val read = (vault.removals(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value ?: return null
+        synchronized(this) { journals[persona] = read }
+        publishRooms()
+        return read
+    }
+
+    /** Writes a removal through the vault; on a refusal the journal is read again next time. */
+    private suspend fun keepRemoval(persona: String, key: String, removal: ByteArray): Boolean {
+        val kept = vault.keepRemoval(vault.sessionContext(PRINCIPAL, persona), key, removal) is VaultResult.Ok
+        synchronized(this) { if (kept) journals[persona] = journals[persona].orEmpty() + (key to removal) else journals.remove(persona) }
+        publishRooms()
+        return kept
+    }
+
+    /**
+     * One step of each of [start]'s removals that is not finished: the Remove
+     * loop (`next`), the readback once its leaves are gone (`mlsCommitted`,
+     * against the witnessed state itself) and the grants the ledger shows
+     * revoked. A changed record is written through the vault; one that
+     * cannot be is worked out again next round, from the session.
+     */
+    private suspend fun advanceRemovals(engine: Engine, start: VmlsRoom): VmlsRoom {
+        var room = start
+        val journal = journal(room.persona) ?: return room
+        val session = room.session.hexToBytes()
+        for ((key, stored) in journal.filterKeys { VmlsMembership.session(it) == room.session }) {
+            val records = ledger.all()
+            val read = try {
+                engine.host.readback(room.persona, session) { s, coordinator ->
+                    removalDecode(stored).use { removal ->
+                        var propose: List<String>? = null
+                        if (removal.mls() != VmlsMlsState.COMMITTED) when (val next = removal.next(s.inner)) {
+                            is VmlsNextRemoval.Propose -> propose = next.leafIds.map { it.toHex() }
+                            // Gone, by this keeper's Remove or another's: committed once the witness holds that state.
+                            VmlsNextRemoval.Done -> if (removal.mls() == VmlsMlsState.PENDING && coordinator != null) {
+                                try { removal.mlsCommitted(s.inner, coordinator) } catch (_: VmlsException.Engine) { }
+                            }
+                            VmlsNextRemoval.Wait, VmlsNextRemoval.UpdateFirst -> Unit
+                        }
+                        val open = removal.grants().filter { it.grant.keeper && (it.state == JournalGrant.Pending || it.state == JournalGrant.Failed) }
+                        val revoked = VmlsMembership.revoked(open.map { it.grant.node.toHex() to it.grant.grant.toHex() }, records)
+                        open.filter { (it.grant.node.toHex() to it.grant.grant.toHex()) in revoked }.forEach { removal.setGrant(it.grant.grant, JournalGrant.Revoked) }
+                        removal.encode() to propose
+                    }
+                }
+            } catch (_: VmlsException) {
+                // The session is not active (removed, stopped) or the record is not one the engine takes: left as it is.
+                continue
+            }
+            val (next, propose) = (read as? Hosted.Released)?.value ?: continue
+            if (!next.contentEquals(stored)) keepRemoval(room.persona, key, next)
+            if (propose != null && room.canSend && !room.sending) room = removeLeaves(engine, room, propose)
+        }
+        return room
+    }
+
+    /** [session]'s removals read afresh from the vault, as its screen shows them. Lab hook: only androidTest calls it. */
+    internal suspend fun removals(persona: String, session: String): List<VmlsRemovalView> = rounding.withLock {
+        synchronized(this) { journals.remove(persona) }
+        journal(persona)
+        val room = synchronized(this) { live[key(persona, session)] } ?: store.room(persona, session) ?: return@withLock emptyList()
+        synchronized(this) { removalViews(persona, room) }
+    }
+
+    /** [room]'s removals as its screen shows them, from the journal as last read. */
+    private fun removalViews(persona: String, room: VmlsRoom): List<VmlsRemovalView> =
+        journals[persona].orEmpty().filterKeys { VmlsMembership.session(it) == room.session }.mapNotNull { (_, bytes) ->
+            try { removalDecode(bytes).use { removalView(it, room) } } catch (_: VmlsException) { null }
+        }
+
+    private fun removalView(removal: VmlsRemoval, room: VmlsRoom): VmlsRemovalView {
+        val leaves = removal.leafIds().map { it.toHex() }
+        val person = removal.personIdentity()?.toHex()
+        val target = person?.let { "Person ${shortHex(it)} (${leaves.size} device${if (leaves.size == 1) "" else "s"})" }
+            ?: "Device ${shortHex(room.members[leaves.single()]?.device ?: leaves.single())}"
+        val mls = when (removal.mls()) {
+            VmlsMlsState.PENDING -> "MLS Remove: not yet applied and witnessed."
+            VmlsMlsState.COMMITTED -> "MLS Remove: applied at this phone and witnessed."
+            VmlsMlsState.FAILED -> "MLS Remove: stopped; it can be tried again."
+        }
+        val credential = person?.let {
+            when (removal.credential()) {
+                VmlsCredentialState.UNCHANGED -> "Credential: not revoked."
+                VmlsCredentialState.PENDING -> "Credential: revocation asked, not yet seen."
+                VmlsCredentialState.REVOKED -> "Credential: a tombstone is seen."
+                VmlsCredentialState.FAILED -> "Credential: revocation failed."
+            }
+        }
+        val grants = removal.grants().map { grant ->
+            val at = "Grant ${shortHex(grant.grant.grant.toHex())}: "
+            at + when (val state = grant.state) {
+                JournalGrant.Pending -> "revocation pending at the box."
+                JournalGrant.Revoked -> "revoked at the box."
+                JournalGrant.Failed -> "revocation failed; tried again."
+                is JournalGrant.NotAuthorised -> if (state.requested) "revocation requested from its keeper; not performed." else "not yours to revoke."
+            }
+        }
+        return VmlsRemovalView(target, mls, credential, grants, removal.claimCopy())
+    }
 
     /** The engine's state, authoritative over what was stored. Null when the host does not hold the session. */
     private suspend fun seed(engine: Engine, room: VmlsRoom): VmlsRoom? {
