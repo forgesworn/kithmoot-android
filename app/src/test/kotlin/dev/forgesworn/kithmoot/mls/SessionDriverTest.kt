@@ -88,7 +88,7 @@ class SessionDriverTest {
     // ---- capabilities ----
 
     @Test fun `no capabilities reply holds the round, so nothing is sent, fetched or told to the engine`() = runBlocking<Unit> {
-        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         fake.capabilities = null
         assertEquals(Round.Offline(BoxAnswer.Unreachable), round())
         assertEquals(listOf("GET /vmls/v1/capabilities"), fake.requests)
@@ -106,7 +106,7 @@ class SessionDriverTest {
     // ---- the outbox ----
 
     @Test fun `records are deposited and then marked delivered in one witnessed step`() = runBlocking<Unit> {
-        val a = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val a = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         val b = Outgoing(bytes(32), bytes(32), Destination.Evidence(box), bytes(64))
         world.outbox += listOf(a, b)
         assertEquals(Round.Done(2, 0, 0), round())
@@ -116,7 +116,7 @@ class SessionDriverTest {
     }
 
     @Test fun `a deposit with no answer stops the outbox and marks nothing`() = runBlocking<Unit> {
-        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         fake.downAfterCapabilities = true
         assertEquals(Round.Done(0, 0, 0, stalled = true), round())
         assertTrue(world.calls.none { it.startsWith("delivered") })
@@ -160,7 +160,7 @@ class SessionDriverTest {
     }
 
     @Test fun `a record for another box is held and counted, never sent`() = runBlocking<Unit> {
-        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(otherBox), bytes(64))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(otherBox, bytes(32)), bytes(64))
         assertEquals(Round.Done(0, 0, 1), round())
         assertTrue(fake.requests.none { it.startsWith("PUT") })
     }
@@ -204,7 +204,7 @@ class SessionDriverTest {
         assertEquals(Round.Done(0, 5, 0), round())
     }
 
-    @Test fun `no mailbox answered empty is reported drained, a departed epoch's included`() = runBlocking<Unit> {
+    @Test fun `a departed epoch's mailbox answered empty is reported drained, the engine deciding`() = runBlocking<Unit> {
         val retained = bytes(32); val own = bytes(32); val busy = bytes(32)
         world.watch += listOf(
             Watched(retained, Watched.Kind.Mailbox(true), box),
@@ -212,13 +212,47 @@ class SessionDriverTest {
             Watched(busy, Watched.Kind.Mailbox(true), box),
         )
         world.acks[Digests.sha256(fake.put(busy, bytes(50))).toHex()] = AckRule.Keep
+        // Right after a commit, before peers know of it, the engine refuses: a peer is not yet heard past the epoch.
+        world.refuse["drained"] = "MembersUnheard"
         round()
-        // Answered empty right after a commit, before peers know of it: a stale send there must still be read.
-        assertTrue(world.calls.none { it.startsWith("drained") }, world.calls.toString())
-        // A peer that had not yet learnt of the commit then sends under the old epoch: the next round reads it.
+        val drained = world.calls.filter { it.startsWith("drained") }
+        assertEquals(listOf("drained ${retained.toHex()}"), drained, "only the empty departed mailbox; never a current one or one with a record")
+        // A peer that had not yet learnt of the commit then sends under the old epoch: the mailbox is still read.
+        world.calls.clear()
         fake.put(retained, bytes(60))
         round()
         assertTrue(world.calls.any { it.startsWith("process ${retained.toHex()}") }, world.calls.toString())
+        assertTrue(world.calls.none { it == "drained ${retained.toHex()}" }, "not reported in a round it had a record")
+        // Every peer heard past it: the engine takes the report.
+        world.refuse.remove("drained")
+        world.calls.clear()
+        round()
+        assertTrue(world.calls.contains("drained ${retained.toHex()}"), world.calls.toString())
+    }
+
+    @Test fun `a departed mailbox is not reported drained from a fetch that did not reach its last page`() = runBlocking<Unit> {
+        val retained = bytes(32); val own = bytes(32)
+        world.watch += listOf(Watched(retained, Watched.Kind.Mailbox(true), box), Watched(own, Watched.Kind.Mailbox(false), box))
+        repeat(40) { fake.put(own, bytes(40 + it)) }
+        fake.pageSize = 1
+        round()
+        assertTrue(world.calls.none { it.startsWith("drained") }, world.calls.toString())
+    }
+
+    @Test fun `a leaf's records keep their order, one not taken holding the later ones to that leaf only`() = runBlocking<Unit> {
+        val leafA = bytes(32); val leafB = bytes(32)
+        val stale = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafA), bytes(64))
+        val toB = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafB), bytes(64))
+        val fresh = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, leafA), bytes(64))
+        world.outbox += listOf(stale, toB, fresh)
+        fake.refuseDeposit[stale.mailbox.toHex()] = 429 to "quota"
+        val done = round() as Round.Done
+        assertEquals(1, done.delivered)
+        assertTrue(fake.records[fresh.mailbox.toHex()] == null, "never ahead of the earlier record to the same leaf")
+        assertEquals(listOf(stale.recordId.toHex(), fresh.recordId.toHex()), world.outbox.map { it.recordId.toHex() })
+        fake.refuseDeposit.clear()
+        assertEquals(2, (round() as Round.Done).delivered)
+        assertTrue(world.outbox.isEmpty())
     }
 
     @Test fun `a Welcome mailbox's record is processed with the home box's installation`() = runBlocking<Unit> {
@@ -257,7 +291,7 @@ class SessionDriverTest {
     }
 
     @Test fun `every request was signed by the vault, outside every step`() = runBlocking<Unit> {
-        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        world.outbox += Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         world.watch += Watched(bytes(32), Watched.Kind.Mailbox(false), box)
         assertIs<Round.Done>(round())
         assertTrue(fake.requests.size >= 3)
@@ -302,8 +336,8 @@ class SessionDriverTest {
     }
 
     @Test fun `a refused deposit holds only its own record, no answer holds the rest, a gone Welcome leaves`() = runBlocking<Unit> {
-        val refused = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
-        val ok = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val refused = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
+        val ok = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         val gone = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
         world.outbox += listOf(refused, ok, gone)
         fake.refuseDeposit[refused.mailbox.toHex()] = 403 to "authority"
@@ -312,8 +346,8 @@ class SessionDriverTest {
         assertEquals(2, done.delivered)
         assertEquals(listOf(refused.recordId.toHex()), world.outbox.map { it.recordId.toHex() })
         // No answer at all: the box may have it, so the rest waits.
-        val silent = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
-        val after = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val silent = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
+        val after = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         world.outbox.clear(); world.outbox += listOf(silent, after)
         fake.silent += silent.mailbox.toHex()
         val stalled = round() as Round.Done
@@ -325,7 +359,7 @@ class SessionDriverTest {
     @Test fun `an engine refusal changes nothing and the round goes on`() = runBlocking<Unit> {
         world.refuse["deposit_result"] = "UnexpectedSlot"
         val slot = Outgoing(bytes(32), bytes(32), Destination.Slot(box, 7, 3), bytes(64))
-        val leaf = Outgoing(bytes(32), bytes(32), Destination.Leaf(box), bytes(64))
+        val leaf = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
         world.outbox += listOf(slot, leaf)
         assertEquals(2, (round() as Round.Done).delivered)
         world.refuse["process"] = "WrongPhase"

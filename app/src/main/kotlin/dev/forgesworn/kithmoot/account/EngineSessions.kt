@@ -72,7 +72,7 @@ class EngineSession(val inner: VmlsSession) : DriverSession {
 
     override fun outbox(): List<Outgoing> = sessionCall { inner.outbox() }.map { out ->
         Outgoing(out.recordId, out.mailbox, when (val d = out.destination) {
-            is VmlsDestination.Leaf -> Destination.Leaf(d.homeBox)
+            is VmlsDestination.Leaf -> Destination.Leaf(d.homeBox, d.leafId)
             is VmlsDestination.CommitSlot -> Destination.Slot(d.homeBox, d.epoch.also { check(it <= Long.MAX_VALUE.toULong()) }.toLong(), d.attempt.toLong())
             is VmlsDestination.Welcome -> Destination.Welcome(d.packageId)
             is VmlsDestination.Introduction -> Destination.Introduction
