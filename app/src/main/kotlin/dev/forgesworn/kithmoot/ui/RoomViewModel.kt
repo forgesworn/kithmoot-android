@@ -1858,7 +1858,7 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 val key = saved.deviceSecretKey()
                 val report = try {
-                    withGroupRelays(destructRelays(saved), saved.anonymous) {
+                    withGroupRelays(destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) {
                         dev.forgesworn.kithmoot.relay.Nip09Deletion.deleteOwnEvents(it, key, ::epochSeconds)
                     }
                 } catch (e: CancellationException) { throw e
@@ -1924,7 +1924,7 @@ class RoomViewModel @JvmOverloads constructor(
         val previous = deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
         val filter = Filter(kinds = listOf(KIND_ROOM_REKEY), authors = listOf(authority), tags = mapOf("#d" to listOf(saved.id)), limit = 50)
         val events = try {
-            withGroupRelays(destructRelays(saved), saved.anonymous) { it.queryAvailable(listOf(filter), 8_000) }
+            withGroupRelays(destructRelays(saved), saved.anonymous, saved.sharedRelays.toSet()) { it.queryAvailable(listOf(filter), 8_000) }
         } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
         return events.any { readRekeyEvidence(it, saved.id, authority, previous.epoch, previous.key)?.destruct == true }
     }
@@ -3346,12 +3346,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T {
+    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean = false, action: suspend (RelayPool) -> T): T =
+        withGroupRelays(relays, anonymous, emptySet(), action)
+
+    /** [forced]: relays read and written whatever this device's relay choices say, as an open room does its own. */
+    private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean, forced: Set<String>,
+                                            action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
-            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
-            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
+            readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays) + forced.filter { it in relays },
+            writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays) + forced.filter { it in relays })
         transport.start()
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
