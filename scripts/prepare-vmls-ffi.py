@@ -10,8 +10,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-EXPECTED_ARCHIVE_SHA256 = "6e9c9f81e332a4c9ddaec69a71fa9337eea158dde3dd0aa8597e6da586e9bd2a"
-EXPECTED_COMMIT = "3398d2e683b77944c15973857f8ba98d1a8c5b44"
+EXPECTED_ARCHIVE_SHA256 = "4569baaf4dd8df4e2f8b3b2e2c800bd20de86cc51c45d638352f1b70995e1cb6"
+EXPECTED_COMMIT = "b35a1537a0992943fb1e3e7028bcb0c61e84e25d"
 EXPECTED_FILES = {
     "jniLibs/arm64-v8a/libvmls_ffi.so",
     "jniLibs/x86_64/libvmls_ffi.so",
