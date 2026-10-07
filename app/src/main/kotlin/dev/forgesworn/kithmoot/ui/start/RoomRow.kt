@@ -40,7 +40,9 @@ internal data class ConversationAction(val label: String, val destructive: Boole
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun RoomRow(roomId: String, name: String, status: String?, time: String, timeSpoken: String, enabled: Boolean,
-    open: () -> Unit, actions: List<ConversationAction>, pinned: Boolean = false, ended: Boolean = false, unread: Int = 0) {
+    open: () -> Unit, actions: List<ConversationAction>, pinned: Boolean = false, ended: Boolean = false, unread: Int = 0,
+    /** The room's countdown pill, for a room with an end still to come. */
+    countdown: (@Composable () -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
     // "No messages yet" says nothing the row does not already show, so the
@@ -75,6 +77,7 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                         RowTime(time, timeSpoken, weight)
                         if (unread > 0) UnreadPill(unread)
                     }
+                    countdown?.invoke()
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurface,
@@ -87,6 +90,7 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         if (unread > 0) UnreadPill(unread)
                     }
+                    countdown?.invoke()
                 }
             }
         }
@@ -136,4 +140,20 @@ private fun UnreadPill(count: Int) {
 private fun RowTime(time: String, timeSpoken: String, weight: FontWeight?) {
     Text(time, style = MaterialTheme.typography.bodyMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.semantics { contentDescription = timeSpoken })
+}
+
+/**
+ * A self-destructed room's row: greyed, the time it went, and Dismiss. It
+ * names no room (owner decision D2), so nobody is left wondering where a room
+ * went and nothing here says which it was.
+ */
+@Composable
+internal fun TombstoneRow(at: Long, zone: java.time.ZoneId, locale: java.util.Locale, onDismiss: () -> Unit) {
+    val text = dev.forgesworn.kithmoot.session.tombstoneText(at, zone, locale)
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).clearAndSetSemantics {})
+        Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onDismiss, Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Dismiss: $text" }) { Text("Dismiss") }
+    }
 }

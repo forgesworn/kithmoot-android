@@ -29,6 +29,10 @@ internal data class HomeRoom(
     val endsAt: Long? = null,
     /** Pinned on this device; account bookmarks are never pinned. */
     val pinned: Boolean = false,
+    /** The room self-destructs when it ends: its pill is green, amber, red. */
+    val destruct: Boolean = false,
+    /** When this device first knew the room, for scaling the countdown. */
+    val startsAt: Long? = null,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -65,6 +69,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             openedAt = room.openedAt, project = room.project, account = room.account,
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
+            destruct = room.destruct, startsAt = room.startsAt,
         )
     }
     if (!signedIn) return fromSaved
@@ -73,6 +78,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             id = bookmark.roomId, label = roomLabel(bookmark.name, bookmark.roomId), source = RoomSource.ACCOUNT,
             openedAt = bookmark.openedAt, project = null, account = null, anonymous = false,
             secondary = false, ended = false, canShareInvite = false,
+            endsAt = bookmark.endsAt, destruct = bookmark.destruct, startsAt = bookmark.startsAt,
         )
     }
     return fromSaved + fromBookmarks
@@ -181,6 +187,8 @@ internal fun roomRowState(
         room.account != null && room.account != signedInAs ->
             "Joined as ${shortNpub(room.account)}. Sign in with that account to open it."
         room.source == RoomSource.ACCOUNT -> "From your other devices."
+        // A room that self-destructs says so in its countdown pill instead.
+        room.endsAt != null && room.destruct && activity == null -> null
         room.endsAt != null && activity == null -> "Conference room. ${conferenceEndsLine(room.endsAt, zone, locale)}."
         activity == null -> if (room.anonymous) "Tor-only room." else null
         !activity.readsChat -> "Quiet room. Open it to read."
@@ -250,4 +258,7 @@ internal fun homeLayout(widthDp: Int, heightDp: Int): HomeLayout = when {
 
 /** The web's rule: returning once there is a room to show, or an account to
  *  fetch rooms for. Otherwise the cold, first-run state. */
-internal fun isReturning(rooms: List<HomeRoom>, signedIn: Boolean): Boolean = rooms.isNotEmpty() || signedIn
+internal fun isReturning(rooms: List<HomeRoom>, signedIn: Boolean, tombstones: Int = 0): Boolean = rooms.isNotEmpty() || signedIn || tombstones > 0
+
+/** Whether a row shows the countdown pill: a room with an end still to come. */
+internal fun showsCountdown(room: HomeRoom, now: Long): Boolean = room.endsAt != null && !room.ended && !conferenceEnded(room.endsAt, now)

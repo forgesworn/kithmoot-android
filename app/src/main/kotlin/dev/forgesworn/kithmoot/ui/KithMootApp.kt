@@ -548,6 +548,7 @@ fun KithMootApp(
                                 model.inviteLinkFor(id)?.let { link -> share(context, link, "Send invite link") }
                             }
                         },
+                        onDismissTombstone = model::dismissTombstone,
                         vmlsRooms = vmlsBoxes?.let { boxes -> {
                             val vmlsRooms by boxes.rooms.collectAsState()
                             val vmlsState by boxes.state.collectAsState()
@@ -724,6 +725,7 @@ fun KithMootApp(
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,
                             sending = roomState.chatSending,
                             pendingChats = roomState.pendingChats,
+                            destructEndsAt = roomState.endsAt?.takeIf { roomState.destruct },
                             onRetryPending = { model.retryPendingChat() },
                             onEditPending = model::editPendingChat,
                             onDeletePending = model::deletePendingChat,

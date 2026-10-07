@@ -300,7 +300,10 @@ fun RoomScreen(
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
-                state.endsAt?.let {
+                if (state.destruct) {
+                    // Said once, here, and never more: what self-destruct does, and what it cannot.
+                    Text(dev.forgesworn.kithmoot.session.destructDetails(state.endsAt), style = MaterialTheme.typography.bodyMedium)
+                } else state.endsAt?.let {
                     Text(if (state.conferenceEnded) conferenceEndedMessage(it) else "Conference room. ${conferenceEndsLine(it)}",
                         style = MaterialTheme.typography.bodyMedium)
                 }
@@ -362,6 +365,10 @@ fun RoomScreen(
        Column {
         if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
+        // The countdown to a room's end, under its name: green, amber, red
+        // for one that self-destructs, grey for one that keeps a copy.
+        val countdownEnds = state.endsAt?.takeIf { !lockedCallOnly && !state.conferenceEnded && state.movedOn == null }
+        if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
         if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -431,6 +438,8 @@ fun RoomScreen(
         }
        }
       }
+        // The final minute of a room that self-destructs, across the chat or the call.
+        if (state.destruct && !state.conferenceEnded && state.movedOn == null) state.endsAt?.let { FinalMinuteBanner(it) }
         // Outside the controls that hide on a call: a recording, and why a
         // microphone is locked, are said for as long as they are true.
         if (state.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || state.meetingOn) {

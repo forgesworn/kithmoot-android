@@ -175,4 +175,24 @@ class RoomRowsTest {
             roomRowState(conference, null, "room-1", null, ends, london, Locale.UK, true).status)
         assertEquals(ends, mergeRooms(listOf(SavedRoomSummary("a", "A", false, 10, endsAt = ends)), emptyList(), false).single().endsAt)
     }
+
+    @Test fun `a self-destructing room's row leaves the end to its pill, and its bookmark carries the flag`() {
+        val london = ZoneId.of("Europe/London")
+        val ends = 1_759_597_200L
+        val doomed = room(canShareInvite = true).copy(endsAt = ends, destruct = true, startsAt = ends - 86_400)
+        assertNull(roomRowState(doomed, null, null, null, ends - 60, london, Locale.UK, true).status)
+        assertTrue(showsCountdown(doomed, ends - 60))
+        assertFalse(showsCountdown(doomed, ends))
+        assertFalse(showsCountdown(room(), ends))
+        assertEquals("This conference room ended on Sat 4 Oct, 18:00.",
+            roomRowState(doomed, null, null, null, ends, london, Locale.UK, true).status)
+        val merged = mergeRooms(listOf(SavedRoomSummary("a", "A", false, 10, endsAt = ends, destruct = true, startsAt = 5)),
+            listOf(AccountRoom("b", "link-b", "B", 20, endsAt = ends, destruct = true, startsAt = 7)), signedIn = true)
+        assertEquals(listOf(true, true), merged.map { it.destruct })
+        assertEquals(listOf<Long?>(5, 7), merged.map { it.startsAt })
+        assertEquals(ends, merged.single { it.id == "b" }.endsAt)
+        // Only tombstones left still shows the rooms list, so the rows can be seen and dismissed.
+        assertTrue(isReturning(emptyList(), signedIn = false, tombstones = 1))
+        assertFalse(isReturning(emptyList(), signedIn = false))
+    }
 }

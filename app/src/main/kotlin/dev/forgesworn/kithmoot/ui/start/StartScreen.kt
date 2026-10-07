@@ -86,6 +86,8 @@ fun StartScreen(
     onSignIn: () -> Unit = {},
     /** Debug builds' VMLS rooms (P3-03b-3 decision 21), shown beside saved rooms; null in release. */
     vmlsRooms: (@Composable () -> Unit)? = null,
+    /** Removes one self-destructed room's row. */
+    onDismissTombstone: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
@@ -118,7 +120,7 @@ fun StartScreen(
     val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn) {
         mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn)
     }
-    val returning = isReturning(homeRooms, signedIn)
+    val returning = isReturning(homeRooms, signedIn, state.destructTombstones.size)
     val sortedIds = remember(homeRooms) { sortByActivity(homeRooms) { null }.map { it.id } }
     var previousOrder by rememberSaveable { mutableStateOf<List<String>?>(null) }
     val listState = rememberLazyListState()
@@ -200,7 +202,7 @@ fun StartScreen(
                 onConferenceLengthChanged = onConferenceLengthChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
-                vmlsRooms = vmlsRooms,
+                vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
             )
         }
     }
@@ -410,6 +412,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
+    onDismissTombstone: (String) -> Unit = {},
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
@@ -499,8 +502,16 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 if (open) items(group.rooms, key = { it.id }) { room ->
                     val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
                     RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
-                        pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now))
+                        pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
+                        countdown = if (showsCountdown(room, now)) ({
+                            dev.forgesworn.kithmoot.ui.room.CountdownPill(room.endsAt!!, room.startsAt, room.destruct,
+                                dev.forgesworn.kithmoot.ui.room.rememberNow())
+                        }) else null)
                 }
+            }
+            // Rooms that self-destructed here: greyed, naming none (D2), until dismissed or seven days pass.
+            if (query.isBlank()) items(state.destructTombstones, key = { "tombstone-" + it.id }) { tombstone ->
+                TombstoneRow(tombstone.at, zone, locale) { onDismissTombstone(tombstone.id) }
             }
         }
     }
