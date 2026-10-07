@@ -74,14 +74,17 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
      * Stores [record] before it is published. Refused while a revocation is
      * pending, for another id while one is live, or when it is not later
      * than the one stored (a stale plan would leave a revocation the box
-     * refuses).
+     * refuses). A stored grant counts as lapsed only once both the plan's
+     * date (the box's clock) and [phoneNow] are past it: a box clock far
+     * ahead never lets a new id overwrite a live grant and its revocation
+     * (D1 R5).
      */
-    @Synchronized fun record(record: VmlsGrantRecord) {
+    @Synchronized fun record(record: VmlsGrantRecord, phoneNow: Long = record.plan.active.createdAt) {
         require(record.state == VmlsGrantState.ACTIVE)
         val records = read()
         val stored = records.singleOrNull { same(it, record) }
         // A revoked grant, or one lapsed before this plan was signed, holds no scope at the box.
-        if (stored != null && stored.state != VmlsGrantState.REVOKED && stored.expiration > record.plan.active.createdAt) {
+        if (stored != null && stored.state != VmlsGrantState.REVOKED && stored.expiration > minOf(record.plan.active.createdAt, phoneNow)) {
             require(stored.state == VmlsGrantState.ACTIVE) { "A revocation is pending for this device." }
             require(stored.grantId == record.grantId && stored.persona == record.persona) { "Another grant is live for this device." }
             require(record.plan.active.createdAt > stored.plan.active.createdAt && record.expiration >= stored.expiration) { "A later grant is already stored." }
@@ -122,11 +125,12 @@ class VmlsGrantLedger(private val storage: RoomStorage) {
      * [box]: the retained id while it is live, otherwise a new one. The
      * keeper's own device names the keeper as [persona]; a guest's names the
      * guest, whose grant is then no keeper's. [boxNow] is the box's clock,
-     * since a scoped grant counts only up to 120 s ahead of it. Not stored:
+     * since a scoped grant counts only up to 120 s ahead of it; the retained
+     * id lapses only once [phoneNow] is past it too (D1 R5). Not stored:
      * [record] it, then publish it.
      */
-    suspend fun plan(signer: ParticipantSigner, persona: String, box: String, device: String, boxNow: Long): CircleGrantPlan {
-        val previous = synchronized(this) { get(box, device) }?.takeUnless { it.state == VmlsGrantState.REVOKED || it.expiration <= boxNow }
+    suspend fun plan(signer: ParticipantSigner, persona: String, box: String, device: String, boxNow: Long, phoneNow: Long = boxNow): CircleGrantPlan {
+        val previous = synchronized(this) { get(box, device) }?.takeUnless { it.state == VmlsGrantState.REVOKED || it.expiration <= minOf(boxNow, phoneNow) }
         require(previous?.state != VmlsGrantState.REVOKING) { "A revocation is pending for this device." }
         require(previous == null || previous.persona == persona) { "The device is granted to another persona." }
         val terms = VmlsGrantTerms(

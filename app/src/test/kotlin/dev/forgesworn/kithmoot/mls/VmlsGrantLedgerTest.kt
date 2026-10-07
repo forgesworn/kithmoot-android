@@ -106,6 +106,22 @@ class VmlsGrantLedgerTest {
         assertTrue(ledger.all().isEmpty())
     }
 
+    @Test fun `a box clock far ahead keeps a live grant's id, and never lets a new id overwrite it`() = runBlocking<Unit> {
+        val ledger = VmlsGrantLedger(MemoryStorage())
+        val first = ledger.grant(now)
+        val ahead = now + VMLS_GRANT_LIFETIME_SECONDS + 86_400
+        // Lapsed by the box's clock alone: the phone's says it is live, so its id is kept.
+        assertEquals(tag(first, "grant"), tag(ledger.plan(keeper, keeper.pubkey, box, device, ahead, now), "grant"))
+        // A plan for a new id, made on the box's clock alone, cannot replace it while the phone says it is live.
+        val stray = ledger.plan(keeper, keeper.pubkey, box, device, ahead)
+        assertNotEquals(tag(first, "grant"), tag(stray, "grant"))
+        assertFailsWith<IllegalArgumentException> { ledger.record(VmlsGrantRecord(box, stray), now) }
+        assertEquals(tag(first, "grant"), ledger.get(box, device)!!.grantId)
+        // Once the phone's clock agrees it lapsed, a new id is recorded.
+        ledger.record(VmlsGrantRecord(box, stray), ahead)
+        assertEquals(tag(stray, "grant"), ledger.get(box, device)!!.grantId)
+    }
+
     @Test fun `a box clock far ahead does not erase a live grant's record`() = runBlocking<Unit> {
         val ledger = VmlsGrantLedger(MemoryStorage())
         ledger.grant(now)

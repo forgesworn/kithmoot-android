@@ -556,7 +556,7 @@ class VmlsRuntime(
                 linksChanged.update { it + 1 }
                 publishRooms()
             }
-            // Every guest grant this keeper issued at the box that has not lapsed by the box's clock: its members', its
+            // Every guest grant this keeper issued at the box that has not lapsed by both the box's clock and the phone's: its members', its
             // pending joins' and any it removed earlier (a removed member's grant outlives its leaf).
             val boxNow = boxClock(route) ?: now()
             ledger.prune(boxNow, now())
@@ -832,8 +832,8 @@ class VmlsRuntime(
                     try {
                         val boxNow = boxClock(route) ?: now()
                         ledger.prune(boxNow, now())
-                        val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow)
-                        ledger.record(VmlsGrantRecord(room.box, plan))
+                        val plan = ledger.plan(signer, request.persona, room.box, request.device, boxNow, now())
+                        ledger.record(VmlsGrantRecord(room.box, plan), now())
                         publish(route, signer, listOf(plan.active))
                     } catch (failure: Exception) {
                         // Not granted: no join is awaited (an earlier one is kept), and the device may be asked about again.
@@ -1249,7 +1249,7 @@ class VmlsRuntime(
         val boxNow = boxClock(route) ?: now()
         ledger.prune(boxNow, now())
         val live = ledger.get(route.box, device)?.takeIf { it.state == VmlsGrantState.ACTIVE && it.expiration - boxNow > GRANT_RENEW_SECONDS }
-        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow).also { ledger.record(VmlsGrantRecord(route.box, it)) }
+        val plan = live?.plan ?: ledger.plan(signer, route.persona, route.box, device, boxNow, now()).also { ledger.record(VmlsGrantRecord(route.box, it), now()) }
         publish(route, signer, listOf(plan.active))
     }
 
