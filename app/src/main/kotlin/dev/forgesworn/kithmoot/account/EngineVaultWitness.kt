@@ -69,6 +69,7 @@ private class EngineCoordinator(private val inner: VmlsCoordinator) : WitnessCoo
     override fun onRetiringRead(answer: WitnessAnswer): WitnessDecision = engine { decision(inner.onRetiringRead(answer(answer))) }
     override fun retiringAdvance(): ByteArray? = engine { inner.retiringAdvance() }
     override fun onRetiring(answer: WitnessAnswer): WitnessDecision = engine { decision(inner.onRetiring(answer(answer))) }
+    override val engine: VmlsCoordinator get() = inner
     override fun close() = inner.close()
 }
 

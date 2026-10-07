@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.account
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.vmls.ffi.VmlsCoordinator
 import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 
@@ -318,6 +319,13 @@ internal class PersonaCoordination<V>(
     }
 
     // ---- MLS sessions (P3-03b-3a) ----
+
+    /**
+     * The engine's coordinator, for the membership journal's readback
+     * (P3-05b), only while the witness confirms the persona: call it under
+     * the persona's lock, as [SessionHost] does. Null otherwise.
+     */
+    suspend fun engineCoordinator(): VmlsCoordinator? = if (ready() == Gate.Ready) coordinator?.engine else null
 
     /** The hash of [session]'s snapshot at [generation] as the core was given it, if this open has it. */
     fun snapshotHash(session: String, generation: Long): ByteArray? = hashes[session to generation]?.copyOf()

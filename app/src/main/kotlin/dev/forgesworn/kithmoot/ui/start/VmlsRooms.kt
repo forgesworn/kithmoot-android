@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.mls.VmlsBoxView
 import dev.forgesworn.kithmoot.mls.VmlsMemberView
+import dev.forgesworn.kithmoot.mls.VmlsRemovalPlan
+import dev.forgesworn.kithmoot.mls.VmlsRemovalView
 import dev.forgesworn.kithmoot.mls.VmlsRoomExit
 import dev.forgesworn.kithmoot.mls.VmlsRoomState
 import dev.forgesworn.kithmoot.mls.exit
@@ -96,7 +98,8 @@ fun VmlsRoomScreen(
     onSay: (String) -> Unit,
     onInvite: () -> Unit,
     onRetire: () -> Unit,
-    onRemove: (String) -> Unit,
+    onRemove: (target: String, person: Boolean) -> Unit,
+    plan: suspend (target: String, person: Boolean) -> VmlsRemovalPlan?,
     onLeave: () -> Unit,
     onClose: (force: Boolean) -> Unit,
     onForget: () -> Unit,
@@ -150,7 +153,8 @@ fun VmlsRoomScreen(
             }
             if (quiet) Text("Paused while a Tor-only room is open.", style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-            Members(room.members, removable = room.keeper && room.canSend) { confirming = Confirm.Remove(it) }
+            Members(room.members, removable = room.keeper && room.canSend) { confirming = it }
+            if (room.removals.isNotEmpty()) Removals(room.removals)
             HorizontalDivider()
             val list = rememberLazyListState()
             LaunchedEffect(room.messages.size) { if (room.messages.isNotEmpty()) list.animateScrollToItem(room.messages.size - 1) }
@@ -193,10 +197,17 @@ fun VmlsRoomScreen(
             "Finish without the box?",
             "The room ends on this phone. A guest whose revocation the box did not confirm keeps its place on the box until its grant lapses, and cannot be let into another of your rooms there until then.",
             "Finish", { confirming = null }) { confirming = null; onClose(true) }
-        is Confirm.Remove -> ConfirmDialog(
-            "Remove this member?",
-            "Device ${short(ask.member.device)} is removed at the next change the box accepts; the room tries again until it is.",
-            "Remove", { confirming = null }) { confirming = null; onRemove(ask.member.leaf) }
+        is Confirm.Remove -> {
+            // What the removal touches, read before it is confirmed (P3-05b): every device and each one's grant here.
+            var planned by remember(ask) { mutableStateOf<VmlsRemovalPlan?>(null) }
+            LaunchedEffect(ask) { planned = plan(ask.target, ask.person) }
+            val touched = planned?.devices?.joinToString("\n") { "Device ${it.device}: ${it.grant}" } ?: "Reading what it touches…"
+            ConfirmDialog(
+                if (ask.person) "Remove this person?" else "Remove this device?",
+                "${ask.label} is removed from the room's next epoch, once the box accepts the change; the room tries again until it is. " +
+                    "The MLS Remove and each box grant are separate, and each shows its own state under Removals.\n\n$touched",
+                "Remove", { confirming = null }) { confirming = null; onRemove(ask.target, ask.person) }
+        }
     }
 }
 
@@ -204,23 +215,50 @@ private sealed class Confirm {
     data object Leave : Confirm()
     data object Close : Confirm()
     data object Force : Confirm()
-    data class Remove(val member: VmlsMemberView) : Confirm()
+    /** A device's [target] leaf, or with [person] a person's identity. */
+    data class Remove(val target: String, val person: Boolean, val label: String) : Confirm()
 }
 
+/** Members by person: each device removable on its own, and a person with several devices as a whole too. */
 @Composable
-private fun Members(members: List<VmlsMemberView>, removable: Boolean, onRemove: (VmlsMemberView) -> Unit) {
+private fun Members(members: List<VmlsMemberView>, removable: Boolean, onRemove: (Confirm.Remove) -> Unit) {
     if (members.isEmpty()) {
         Text("No one else is in this room yet.", style = MaterialTheme.typography.bodySmall)
         return
     }
     Text("Members", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
-    members.forEach { member ->
+    members.groupBy { it.identity }.forEach { (identity, devices) ->
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(short(member.identity), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                if (member.invited) Text("invited", style = MaterialTheme.typography.labelSmall)
+            Text(short(identity), Modifier.weight(1f), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            if (removable && devices.size > 1) TextButton({ onRemove(Confirm.Remove(identity, true, "Person ${short(identity)}, with ${devices.size} devices,")) }) { Text("Remove person") }
+        }
+        devices.forEach { member ->
+            Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Device ${short(member.device)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+                    if (member.invited) Text("invited", style = MaterialTheme.typography.labelSmall)
+                }
+                if (removable) TextButton({ onRemove(Confirm.Remove(member.leaf, false, "Device ${short(member.device)}")) }) { Text("Remove") }
             }
-            if (removable) TextButton({ onRemove(member) }) { Text("Remove") }
+        }
+    }
+}
+
+/**
+ * The keeper's removals (contract §7, P3-05b): each component's own state,
+ * then the engine's permitted claim for them, word for word, or nothing
+ * more when no claim fits.
+ */
+@Composable
+private fun Removals(removals: List<VmlsRemovalView>) {
+    Text("Removals", style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { heading() })
+    removals.forEach { removal ->
+        Column(Modifier.semantics(mergeDescendants = true) {}) {
+            Text(removal.target, style = MaterialTheme.typography.bodySmall)
+            Text(removal.mls, style = MaterialTheme.typography.labelSmall)
+            removal.credential?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+            removal.grants.forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
+            removal.claim?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

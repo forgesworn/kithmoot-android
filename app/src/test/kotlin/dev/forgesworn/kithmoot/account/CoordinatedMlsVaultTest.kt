@@ -9,6 +9,7 @@ import java.security.SecureRandom
 import java.util.Base64
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -637,6 +638,54 @@ class CoordinatedMlsVaultTest {
     }
 
     // ---- helpers ----
+
+    // ---- the membership journal (P3-05b) ----
+
+    @Test fun `a removal is kept opaque, witnessed with the record, and forgotten with its room`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        val session = bytes(32).toHex()
+        val other = bytes(32).toHex()
+        val leaf = bytes(32).toHex()
+        assertEquals(emptyMap(), (vault.removals(ctx) as VaultResult.Ok).value)
+        val before = server.subjects.getValue(subject.toHex()).seq
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(1, 2, 3)))
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$other:$leaf", byteArrayOf(9)))
+        assertEquals(before + 2, server.subjects.getValue(subject.toHex()).seq, "each change is a witnessed advance")
+        // Replaced in place, and read back from a fresh open of the same profile.
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:$leaf", byteArrayOf(4)))
+        val reopened = vault()
+        val read = (reopened.removals(reopened.context(principal, alice.pubkey)) as VaultResult.Ok).value
+        assertEquals(listOf("$session:$leaf", "$other:$leaf"), read.keys.toList())
+        assertContentEquals(byteArrayOf(4), read.getValue("$session:$leaf"))
+        assertIs<VaultResult.Ok<Unit>>(vault.forgetRemovals(ctx, session))
+        assertEquals(listOf("$other:$leaf"), (vault.removals(ctx) as VaultResult.Ok).value.keys.toList())
+        assertIs<VaultResult.Ok<Unit>>(vault.forgetRemoval(ctx, "$other:$leaf"))
+        assertEquals(emptyMap(), (vault.removals(ctx) as VaultResult.Ok).value)
+        assertEquals(refused(VaultRefusal.Malformed), vault.forgetRemoval(ctx, other))
+    }
+
+    @Test fun `a removal is refused malformed, past its bound, or stale, and read only while the witness confirms`() = runBlocking<Unit> {
+        enrolAtBox(); enrolDevice()
+        val session = bytes(32).toHex()
+        assertEquals(refused(VaultRefusal.Malformed), vault.keepRemoval(ctx, session, byteArrayOf(1)))
+        assertEquals(refused(VaultRefusal.Malformed), vault.keepRemoval(ctx, "$session:${session.uppercase()}", byteArrayOf(1)))
+        assertEquals(refused(VaultRefusal.Malformed), vault.keepRemoval(ctx, "$session:$session", ByteArray(0)))
+        assertEquals(refused(VaultRefusal.Malformed), vault.keepRemoval(ctx, "$session:$session", ByteArray(MlsVault.MAX_REMOVAL_BYTES + 1)))
+        repeat(MlsVault.MAX_REMOVALS) { assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, "$session:${bytes(32).toHex()}", byteArrayOf(1))) }
+        assertEquals(refused(VaultRefusal.Busy), vault.keepRemoval(ctx, "$session:${bytes(32).toHex()}", byteArrayOf(1)))
+        // A key already kept is still replaced at the bound.
+        val kept = (vault.removals(ctx) as VaultResult.Ok).value.keys.first()
+        assertIs<VaultResult.Ok<Unit>>(vault.keepRemoval(ctx, kept, byteArrayOf(2)))
+        vault.bump()
+        assertEquals(refused(VaultRefusal.Stale), vault.keepRemoval(ctx, kept, byteArrayOf(3)))
+        assertEquals(refused(VaultRefusal.Stale), vault.removals(ctx))
+        // With the witness down, nothing is read or written.
+        val fresh = vault.context(principal, alice.pubkey)
+        server.mode = FakeWitnessServer.Mode.Down
+        assertEquals(CoordinationStatus.Pending(false), vault.coordinationStatus(alice.pubkey, check = true))
+        assertEquals(refused(VaultRefusal.WitnessPending), vault.removals(fresh))
+        assertEquals(refused(VaultRefusal.WitnessPending), vault.keepRemoval(fresh, kept, byteArrayOf(4)))
+    }
 
     private fun request(device: EnrolledDevice, operation: String = bytes(32).toHex()): JsonObject {
         val credential = alice.signed.last()

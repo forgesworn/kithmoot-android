@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.vmls.ffi.VmlsCoordinator
+
 /**
  * The restore-witness coordinator (vennel `vmls_mls::coordinator`, contract
  * §4.1-§4.5) as the MLS vault sees it, in Kotlin types only (P3-03b-2).
@@ -98,6 +100,13 @@ interface WitnessCoordinator : AutoCloseable {
     fun onRetiringRead(answer: WitnessAnswer): WitnessDecision
     fun retiringAdvance(): ByteArray?
     fun onRetiring(answer: WitnessAnswer): WitnessDecision
+    /**
+     * The engine's coordinator itself, the one engine type here: the
+     * membership journal's readback (P3-05b) reads the witnessed generation
+     * from it inside the engine (`VmlsRemoval.mlsCommitted`), never from a
+     * number Kotlin passes. Null where no engine stands behind it (a fake).
+     */
+    val engine: VmlsCoordinator? get() = null
 }
 
 /** The core refused a call: its stable code (`Stale`, `CoordinatorFenced`, ...). */

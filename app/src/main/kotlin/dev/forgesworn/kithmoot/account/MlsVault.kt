@@ -332,6 +332,55 @@ class MlsVault(
         }
     }
 
+    // ---- the membership journal (contract §7, P3-05b) ----
+
+    /**
+     * The persona's removals, by key: each the engine's own record
+     * (`VmlsRemoval.encode`), kept opaque here so the engine's checks are
+     * the only ones. Coordinated: read only while the witness confirms.
+     */
+    suspend fun removals(ctx: VaultContext): VaultResult<Map<String, ByteArray>> = refusing {
+        look(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            VaultResult.Ok(record?.removals.orEmpty().mapValues { Base64.getDecoder().decode(it.value) })
+        }
+    }
+
+    /**
+     * Keeps [removal] under [key] (`<session>:<target>`, both 64 hex), replacing
+     * what was there; written and witnessed with the rest of the record. At
+     * most [MAX_REMOVALS] are kept: a new one past that is [VaultRefusal.Busy].
+     */
+    suspend fun keepRemoval(ctx: VaultContext, key: String, removal: ByteArray): VaultResult<Unit> = refusing {
+        update(ctx.persona) { record ->
+            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (!REMOVAL_KEY.matches(key) || removal.isEmpty() || removal.size > MAX_REMOVAL_BYTES) return@update refuse(VaultRefusal.Malformed)
+            if (key !in record.removals && record.removals.size >= MAX_REMOVALS) return@update refuse(VaultRefusal.Busy)
+            record.removals[key] = Base64.getEncoder().encodeToString(removal)
+            null
+        }
+    }
+
+    /** Forgets the removal under [key]. */
+    suspend fun forgetRemoval(ctx: VaultContext, key: String): VaultResult<Unit> = refusing {
+        update(ctx.persona) { record ->
+            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (!REMOVAL_KEY.matches(key)) return@update refuse(VaultRefusal.Malformed)
+            record.removals.remove(key)
+            null
+        }
+    }
+
+    /** Forgets every removal at [session] (64 hex): its room is left, closed or forgotten. */
+    suspend fun forgetRemovals(ctx: VaultContext, session: String): VaultResult<Unit> = refusing {
+        update(ctx.persona) { record ->
+            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (!HEX64.matches(session)) return@update refuse(VaultRefusal.Malformed)
+            record.removals.keys.removeAll { it.startsWith("$session:") }
+            null
+        }
+    }
+
     // ---- signLeafBindingV1 (§6.2) ----
 
     suspend fun signLeafBindingV1(ctx: VaultContext, request: JsonElement, consent: ConsentPrompt): VaultResult<SignLeafBindingReply> =
@@ -1048,6 +1097,12 @@ class MlsVault(
             random: SecureRandom = SecureRandom(),
         ): MlsVault = MlsVault(coordination.stores, now, appGeneration, random, coordination = coordination)
         internal val HEX64 = Regex("^[0-9a-f]{64}$")
+        /** A removal's key: its session and its target (a leaf or a person), each 64 hex. */
+        internal val REMOVAL_KEY = Regex("^[0-9a-f]{64}:[0-9a-f]{64}$")
+        /** Removals kept per persona (P3-05b). */
+        const val MAX_REMOVALS = 64
+        /** The engine's own bound on a removal's bytes (`MAX_REMOVAL_BYTES`). */
+        const val MAX_REMOVAL_BYTES = 64 * 1024
 
         /** The replies a vault made, by identity, and what each was made for. */
         private val made: MutableMap<Any, Origin> = Collections.synchronizedMap(WeakHashMap())
@@ -1344,6 +1399,8 @@ private class PersonaRecord(
     val approved: MutableList<ConsentScope> = mutableListOf(),
     val revoked: MutableList<String> = mutableListOf(),
     val journal: MutableList<JournalEntry> = mutableListOf(),
+    /** The membership journal (P3-05b): each removal's engine record, base64, by key. */
+    val removals: MutableMap<String, String> = linkedMapOf(),
 ) {
     fun entry(principal: String, handle: String, operation: String): JournalEntry? =
         journal.firstOrNull { it.principal == principal && it.handle == handle && it.operation == operation }
@@ -1376,6 +1433,9 @@ private class PersonaRecord(
                     e.homeBox?.let { put("home_box", it) }
                 }
             })
+            // Written only when there is one, so a record without removals keeps its bytes. An older build
+            // reads past the key and drops it on its next write: a downgrade loses the journal.
+            if (removals.isNotEmpty()) put("removals", buildJsonObject { removals.forEach { (key, value) -> put(key, value) } })
         }.toString().toByteArray(Charsets.UTF_8)
         val scalar = device?.scalar
         val out = ByteArray(2 + (scalar?.size ?: 0) + json.size)
@@ -1424,6 +1484,13 @@ private class PersonaRecord(
                         e["signature"]?.jsonPrimitive?.content, e["home_box"]?.jsonPrimitive?.content,
                     )
                 }.toMutableList(),
+                // A sealed, witnessed record that does not hold together is refused whole, as every other field is.
+                json["removals"]?.jsonObject.orEmpty().also { require(it.size <= MlsVault.MAX_REMOVALS) }.mapValuesTo(linkedMapOf()) { (key, value) ->
+                    require(MlsVault.REMOVAL_KEY.matches(key))
+                    value.jsonPrimitive.also { require(it.isString) }.content.also {
+                        require(Base64.getDecoder().decode(it).size in 1..MlsVault.MAX_REMOVAL_BYTES)
+                    }
+                },
             )
         }
 

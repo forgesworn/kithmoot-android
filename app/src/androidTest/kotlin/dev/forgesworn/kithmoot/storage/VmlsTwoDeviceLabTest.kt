@@ -26,6 +26,7 @@ import dev.forgesworn.kithmoot.mls.RoomStatus
 import dev.forgesworn.kithmoot.mls.RoomStop
 import dev.forgesworn.kithmoot.mls.VmlsGrantLedger
 import dev.forgesworn.kithmoot.mls.VmlsGrantState
+import dev.forgesworn.kithmoot.mls.VmlsRemovalView
 import dev.forgesworn.kithmoot.mls.VmlsRenewal
 import dev.forgesworn.kithmoot.mls.VmlsInviteStore
 import dev.forgesworn.kithmoot.mls.VmlsRole
@@ -285,6 +286,26 @@ class VmlsTwoDeviceLabTest {
         val grant = grants.get(room().box, device)!!
         assertEquals("live within the grace", VmlsGrantState.ACTIVE, grant.state)
         assertNotNull("the removal noted", grant.removedAt)
+        // P3-05b, M04 on devices: the journal shows the Remove applied and witnessed, the grant still live, and
+        // claims only what that state allows (the removed device may still store under its grant).
+        val removal = journalled("the Remove committed") { it.mls.contains("applied at this phone and witnessed") }
+        assertEquals(listOf("not yet revoked at the box."), removal.grants.map { it.substringAfter(": ") })
+        assertTrue("the Remove's claim: ${removal.claim}", removal.claim!!.startsWith("The removed device cannot read messages from later epochs") && removal.claim!!.contains("under its grant"))
+    }
+
+    /**
+     * The room's single removal once [what] holds of it, the rounds driving it there: with the keeper's
+     * [revoking] signer only when a revocation may happen meanwhile.
+     */
+    private suspend fun journalled(what: String, revoking: Boolean = false, test: (VmlsRemovalView) -> Boolean): VmlsRemovalView {
+        var rounds = 0
+        while (true) {
+            val seen = runtime.removals(persona, session()).singleOrNull()
+            if (seen != null && test(seen)) return seen.also { log("$what after $rounds rounds: $it") }
+            if (rounds++ >= 30) throw AssertionError("$role: $what not reached after 30 rounds: $seen")
+            runtime.foregroundRounds(persona, if (revoking) signer else null)
+            delay(1_000)
+        }
     }
 
     /** D1 R2: once the guest has seen its removal, a pass with the keeper's signer revokes its grant, before any close. */
@@ -300,6 +321,9 @@ class VmlsTwoDeviceLabTest {
             }
         }
         assertTrue("revoked only after the grace", epochSeconds() >= since + REMOVED_GRACE_SECONDS)
+        // P3-05b: the journal takes the box's confirmation, and only now claims both controls done here.
+        val removal = journalled("the grant revoked in the journal", revoking = true) { it.grants == listOf(it.grants.single().substringBefore(": ") + ": revoked at the box.") }
+        assertEquals("Both are done at this phone and box; other members' offline devices may not have caught up.", removal.claim)
     }
 
     /** The guest's room says it was removed, and is read-only. */
