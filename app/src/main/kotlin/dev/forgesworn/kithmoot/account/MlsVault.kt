@@ -347,16 +347,35 @@ class MlsVault(
     }
 
     /**
+     * The keys of the persona's removals of a compromised device (P3-05b
+     * part 3): each one's intent, recorded with its removal, holds the
+     * room's sends until its Remove is witnessed.
+     */
+    suspend fun compromisedRemovals(ctx: VaultContext): VaultResult<Set<String>> = refusing {
+        look(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            VaultResult.Ok(record?.compromised.orEmpty().toSet())
+        }
+    }
+
+    /**
      * Keeps [removal] under [key] (`<session>:<target>`, both 64 hex), replacing
      * what was there; written and witnessed with the rest of the record. At
      * most [MAX_REMOVALS] are kept: a new one past that is [VaultRefusal.Busy].
+     * [compromised] marks or unmarks the removal as a compromised device's in
+     * the same write; null leaves the mark as it was.
      */
-    suspend fun keepRemoval(ctx: VaultContext, key: String, removal: ByteArray): VaultResult<Unit> = refusing {
+    suspend fun keepRemoval(ctx: VaultContext, key: String, removal: ByteArray, compromised: Boolean? = null): VaultResult<Unit> = refusing {
         update(ctx.persona) { record ->
             if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
             if (!REMOVAL_KEY.matches(key) || removal.isEmpty() || removal.size > MAX_REMOVAL_BYTES) return@update refuse(VaultRefusal.Malformed)
             if (key !in record.removals && record.removals.size >= MAX_REMOVALS) return@update refuse(VaultRefusal.Busy)
             record.removals[key] = Base64.getEncoder().encodeToString(removal)
+            when (compromised) {
+                true -> record.compromised.add(key)
+                false -> record.compromised.remove(key)
+                null -> Unit
+            }
             null
         }
     }
@@ -367,6 +386,7 @@ class MlsVault(
             if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
             if (!REMOVAL_KEY.matches(key)) return@update refuse(VaultRefusal.Malformed)
             record.removals.remove(key)
+            record.compromised.remove(key)
             null
         }
     }
@@ -377,6 +397,7 @@ class MlsVault(
             if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
             if (!HEX64.matches(session)) return@update refuse(VaultRefusal.Malformed)
             record.removals.keys.removeAll { it.startsWith("$session:") }
+            record.compromised.removeAll { it.startsWith("$session:") }
             null
         }
     }
@@ -1401,6 +1422,8 @@ private class PersonaRecord(
     val journal: MutableList<JournalEntry> = mutableListOf(),
     /** The membership journal (P3-05b): each removal's engine record, base64, by key. */
     val removals: MutableMap<String, String> = linkedMapOf(),
+    /** The keys of [removals] that are a compromised device's (P3-05b part 3). */
+    val compromised: MutableSet<String> = linkedSetOf(),
 ) {
     fun entry(principal: String, handle: String, operation: String): JournalEntry? =
         journal.firstOrNull { it.principal == principal && it.handle == handle && it.operation == operation }
@@ -1436,6 +1459,7 @@ private class PersonaRecord(
             // Written only when there is one, so a record without removals keeps its bytes. An older build
             // reads past the key and drops it on its next write: a downgrade loses the journal.
             if (removals.isNotEmpty()) put("removals", buildJsonObject { removals.forEach { (key, value) -> put(key, value) } })
+            if (compromised.isNotEmpty()) put("compromised", buildJsonArray { compromised.forEach { add(it) } })
         }.toString().toByteArray(Charsets.UTF_8)
         val scalar = device?.scalar
         val out = ByteArray(2 + (scalar?.size ?: 0) + json.size)
@@ -1468,6 +1492,15 @@ private class PersonaRecord(
                 record
             }
             require(hasDevice == (device != null))
+            val removals = json["removals"]?.jsonObject.orEmpty().also { require(it.size <= MlsVault.MAX_REMOVALS) }.mapValuesTo(linkedMapOf()) { (key, value) ->
+                require(MlsVault.REMOVAL_KEY.matches(key))
+                value.jsonPrimitive.also { require(it.isString) }.content.also {
+                    require(Base64.getDecoder().decode(it).size in 1..MlsVault.MAX_REMOVAL_BYTES)
+                }
+            }
+            // Each mark names a kept removal, once.
+            val compromised = json["compromised"]?.jsonArray.orEmpty().map { it.jsonPrimitive.also { p -> require(p.isString) }.content }
+                .also { marks -> require(marks.all { it in removals } && marks.distinct().size == marks.size) }.toCollection(linkedSetOf())
             return PersonaRecord(
                 persona,
                 device,
@@ -1485,12 +1518,8 @@ private class PersonaRecord(
                     )
                 }.toMutableList(),
                 // A sealed, witnessed record that does not hold together is refused whole, as every other field is.
-                json["removals"]?.jsonObject.orEmpty().also { require(it.size <= MlsVault.MAX_REMOVALS) }.mapValuesTo(linkedMapOf()) { (key, value) ->
-                    require(MlsVault.REMOVAL_KEY.matches(key))
-                    value.jsonPrimitive.also { require(it.isString) }.content.also {
-                        require(Base64.getDecoder().decode(it).size in 1..MlsVault.MAX_REMOVAL_BYTES)
-                    }
-                },
+                removals,
+                compromised,
             )
         }
 

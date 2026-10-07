@@ -143,6 +143,9 @@ class VmlsTwoDeviceLabTest {
             "revoke" -> revoke()
             "renew" -> renew()
             "close" -> close()
+            "compromise" -> compromise()
+            "cut-off" -> cutOff()
+            "contain" -> contain()
             else -> throw AssertionError("unknown step $step")
         }
         log("step $step done: ${runtime.room(persona, session()).orGone()}")
@@ -326,6 +329,57 @@ class VmlsTwoDeviceLabTest {
         assertEquals("Both are done at this phone and box; other members' offline devices may not have caught up.", removal.claim)
     }
 
+    /**
+     * P3-05b part 3, M05 on devices: the keeper takes the guest's device as
+     * compromised. Its grant is revoked at once, with no grace and before any
+     * Remove (left to the next round here), and the journal claims box access
+     * ended and no more: the old leaf may still read the current epoch. The
+     * keeper's sends are held meanwhile.
+     */
+    private suspend fun compromise() {
+        check(role == KEEPER)
+        val box = room().box
+        val device = File(dir, "guest-device").readText()
+        val room = live()
+        File(dir, "epoch$number").writeText(checkNotNull(room.epoch).toString())
+        runtime.removing(persona, session(), room.members.values.single { it.device == device }.leaf, compromised = signer, propose = false)
+        assertEquals("revoked at once", VmlsGrantState.REVOKED, grants.get(box, device)?.state)
+        assertTrue("no Remove yet: ${room()}", room().members.values.any { it.device == device } && !room().sending)
+        val removal = runtime.removals(persona, session()).single()
+        assertTrue("MLS pending: $removal", removal.mls.contains("not yet applied"))
+        assertEquals(listOf("revoked at the box."), removal.grants.map { it.substringAfter(": ") })
+        assertEquals("Box access ended; the old leaf may still read current messages obtained elsewhere.", removal.claim)
+        assertTrue("held: $removal", removal.hold!!.contains("held until the Remove"))
+        val refused = runCatching { runtime.send(persona, session(), "while-the-device-is-compromised") }.exceptionOrNull()
+        assertEquals(VmlsRuntime.HELD, refused?.message)
+    }
+
+    /** The compromised guest's message, sent after its grant was revoked: the box takes nothing from it. */
+    private suspend fun cutOff() {
+        check(role == GUEST)
+        runCatching { runtime.send(persona, session(), "from-a-compromised-device") }.onFailure { log("send: $it") }
+        repeat(5) { runCatching { runtime.foregroundRounds(persona) }.onFailure { log("round: $it") }; delay(1_000) }
+        log("cut off: ${runtime.room(persona, session()).orGone()}")
+    }
+
+    /**
+     * The Remove follows the revocation: once it is applied and witnessed the
+     * claim is both done, the hold is lifted, and the keeper sends in the new
+     * epoch. The compromised device's later message never arrived.
+     */
+    private suspend fun contain() {
+        check(role == KEEPER)
+        val device = File(dir, "guest-device").readText()
+        val removal = journalled("the Remove committed after the revocation") { it.mls.contains("applied at this phone and witnessed") }
+        assertEquals("Both are done at this phone and box; other members' offline devices may not have caught up.", removal.claim)
+        assertTrue("resumed: $removal", removal.hold!!.contains("resumed"))
+        assertTrue("removed: ${room()}", room().members.values.none { it.device == device })
+        assertTrue("a later epoch", checkNotNull(room().epoch) > File(dir, "epoch$number").readText().toLong())
+        runtime.send(persona, session(), "after-the-compromise")
+        roundsUntil("sent in the new epoch", 30) { !room().sending && !room().retrying }
+        assertFalse("nothing from the compromised device", "from-a-compromised-device" in heard())
+    }
+
     /** The guest's room says it was removed, and is read-only. */
     private suspend fun removed() {
         check(role == GUEST)
@@ -372,7 +426,7 @@ class VmlsTwoDeviceLabTest {
         log("$what after $rounds rounds: ${room()}")
     }
 
-    private fun name() = if (number == "1") "Two-device kitchen" else "Two-device porch"
+    private fun name() = when (number) { "1" -> "Two-device kitchen"; "2" -> "Two-device porch"; else -> "Two-device hall" }
     private fun session() = File(dir, "room$number").readText()
     private fun room(): VmlsRoom = runtime.room(persona, session()) ?: throw AssertionError("$role: room $number is not kept")
     /** The room as the engine holds it: a new process holds it only after a round (the stored room has no epoch or members). */

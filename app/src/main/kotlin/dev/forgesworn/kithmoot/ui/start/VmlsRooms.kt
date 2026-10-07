@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -98,8 +102,8 @@ fun VmlsRoomScreen(
     onSay: (String) -> Unit,
     onInvite: () -> Unit,
     onRetire: () -> Unit,
-    onRemove: (target: String, person: Boolean) -> Unit,
-    plan: suspend (target: String, person: Boolean) -> VmlsRemovalPlan?,
+    onRemove: (target: String, person: Boolean, compromised: Boolean) -> Unit,
+    plan: suspend (target: String, person: Boolean, compromised: Boolean) -> VmlsRemovalPlan?,
     onLeave: () -> Unit,
     onClose: (force: Boolean) -> Unit,
     onForget: () -> Unit,
@@ -174,12 +178,14 @@ fun VmlsRoomScreen(
             }
             // Not saved to instance state: a draft is message plaintext, and belongs to its room.
             var draft by remember(room.session) { mutableStateOf("") }
+            // Held while a compromised device's Remove is not yet witnessed (P3-05b part 3); the send checks it again.
+            val sendable = room.canSend && !room.held
             Row(Modifier.fillMaxWidth().imePadding().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
-                    draft, { draft = it }, Modifier.weight(1f), enabled = room.canSend,
-                    label = { Text(if (room.canSend) "Message" else "Sending is off") },
+                    draft, { draft = it }, Modifier.weight(1f), enabled = sendable,
+                    label = { Text(if (room.held) "Held until the compromised device is removed" else if (room.canSend) "Message" else "Sending is off") },
                 )
-                TextButton({ onSay(draft); draft = "" }, enabled = room.canSend && draft.isNotBlank()) { Text("Send") }
+                TextButton({ onSay(draft); draft = "" }, enabled = sendable && draft.isNotBlank()) { Text("Send") }
             }
         }
     }
@@ -199,14 +205,36 @@ fun VmlsRoomScreen(
             "Finish", { confirming = null }) { confirming = null; onClose(true) }
         is Confirm.Remove -> {
             // What the removal touches, read before it is confirmed (P3-05b): every device and each one's grant here.
+            var compromised by remember(ask) { mutableStateOf(false) }
             var planned by remember(ask) { mutableStateOf<VmlsRemovalPlan?>(null) }
-            LaunchedEffect(ask) { planned = plan(ask.target, ask.person) }
+            LaunchedEffect(ask, compromised) { planned = null; planned = plan(ask.target, ask.person, compromised) }
             val touched = planned?.devices?.joinToString("\n") { "Device ${it.device}: ${it.grant}" } ?: "Reading what it touches…"
-            ConfirmDialog(
-                if (ask.person) "Remove this person?" else "Remove this device?",
-                "${ask.label} is removed from the room's next epoch, once the box accepts the change; the room tries again until it is. " +
-                    "The MLS Remove and each box grant are separate, and each shows its own state under Removals.\n\n$touched",
-                "Remove", { confirming = null }) { confirming = null; onRemove(ask.target, ask.person) }
+            AlertDialog(
+                onDismissRequest = { confirming = null },
+                title = { Text(if (ask.person) "Remove this person?" else "Remove this device?") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "${ask.label} is removed from the room's next epoch, once the box accepts the change; the room tries again until it is. " +
+                                "The MLS Remove and each box grant are separate, and each shows its own state under Removals.",
+                        )
+                        Row(Modifier.fillMaxWidth().toggleable(compromised, role = Role.Checkbox) { compromised = it }, verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(compromised, null)
+                            Text("It may be compromised", Modifier.padding(start = 8.dp))
+                        }
+                        if (compromised) Text(
+                            "Its box access ends now, without the usual grace, so it may never see that it was removed. " +
+                                "Your messages and new joins here wait until the Remove is applied and witnessed. " +
+                                "Until then it may still read what was already sent in this epoch.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(touched, style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+                // Not before the plan is read: what it touches is shown before it is confirmed.
+                confirmButton = { TextButton({ confirming = null; onRemove(ask.target, ask.person, compromised) }, enabled = planned != null) { Text("Remove") } },
+                dismissButton = { TextButton({ confirming = null }) { Text("Cancel") } },
+            )
         }
     }
 }
@@ -259,6 +287,7 @@ private fun Removals(removals: List<VmlsRemovalView>) {
             removal.credential?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             removal.grants.forEach { Text(it, style = MaterialTheme.typography.labelSmall) }
             removal.claim?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            removal.hold?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
