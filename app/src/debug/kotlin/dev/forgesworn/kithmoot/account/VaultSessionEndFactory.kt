@@ -12,7 +12,7 @@ fun vaultSessionEnd(context: Context): VaultSessionEnd {
     val bump = vaultSessionEnd { EngineCore.of(context).vault }
     return VaultSessionEnd {
         // Bumped first, so the ask withdrawn below cannot be answered into this session.
-        try { bump.end() } finally { (context.applicationContext as KithMootApplication).vmlsBoxes?.sessionEnded() }
+        try { bump.end() } finally { (context.applicationContext as? KithMootApplication)?.vmlsBoxes?.sessionEnded() }
     }
 }
 

@@ -91,6 +91,7 @@ import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -281,7 +282,11 @@ class VmlsRuntime(
         if (pairingNow.get() > 0) link.routeIds()
         else try { store.routes().mapTo(HashSet()) { it.routeId } } catch (_: RoomStorageException) { link.routeIds() }
 
-    override suspend fun foregroundRounds(persona: String?) {
+    /** Under the session the rounds began in, as every action is: a sign-out while one runs leaves it nothing to sign. */
+    override suspend fun foregroundRounds(persona: String?) =
+        withContext(persona?.let(::begun) ?: EmptyCoroutineContext) { roundsNow(persona) }
+
+    private suspend fun roundsNow(persona: String?) {
         rounding.withLock {
             // Signed out, or another account: the other personas' sessions are closed (SessionHost.closeAll).
             retain(persona)
