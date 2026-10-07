@@ -519,6 +519,7 @@ fun KithMootApp(
                         onPersistentGroupChanged = model::onPersistentGroupChanged,
                         onStartRoom = model::startRoom,
                         onConferenceLengthChanged = model::onConferenceLengthChanged,
+                        onRoomDestructChanged = model::onRoomDestructChanged,
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,

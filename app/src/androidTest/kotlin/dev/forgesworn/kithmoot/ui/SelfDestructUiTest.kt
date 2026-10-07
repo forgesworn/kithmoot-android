@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -99,5 +101,26 @@ class SelfDestructUiTest {
         show(dark = true)
         compose.onNodeWithText("Self-destructs in 4 days", useUnmergedTree = true).assertExists()
         screenshot("self-destruct-dark.png")
+    }
+
+    @Test fun whenItEndsIsOfferedOnlyForADatedRoomAndDefaultsToSelfDestruct() {
+        var length by androidx.compose.runtime.mutableStateOf(dev.forgesworn.kithmoot.session.ConferenceLength.NEVER)
+        var destruct by androidx.compose.runtime.mutableStateOf(StartState().roomDestruct)
+        compose.setContent {
+            KithMootTheme(darkTheme = false) {
+                dev.forgesworn.kithmoot.ui.start.NewRoomForm("", {}, false, {}, enabled = true, busy = false, error = null, onStartRoom = {},
+                    conferenceLength = length, onConferenceLengthChanged = { length = it },
+                    roomDestruct = destruct, onRoomDestructChanged = { destruct = it })
+            }
+        }
+        compose.onNodeWithText("When it ends").assertDoesNotExist()
+        compose.onNodeWithText("After 3 days").performClick()
+        compose.onNodeWithText("When it ends").assertExists()
+        compose.onNodeWithText(dev.forgesworn.kithmoot.session.DESTRUCT_PROMISE).assertExists()
+        compose.runOnIdle { assertEquals(true, destruct) }
+        compose.onNodeWithText("Keep it read-only").performClick()
+        compose.runOnIdle { assertEquals(false, destruct) }
+        compose.onNodeWithText(dev.forgesworn.kithmoot.session.DESTRUCT_PROMISE).assertDoesNotExist()
+        screenshot("when-it-ends.png")
     }
 }

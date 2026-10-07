@@ -59,6 +59,7 @@ fun StartScreen(
     onPersistentGroupChanged: (Boolean) -> Unit,
     onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit = {},
+    onRoomDestructChanged: (Boolean) -> Unit = {},
     onJoin: () -> Unit,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
@@ -180,7 +181,7 @@ fun StartScreen(
             !returning -> ColdContent(
                 layout = layout, state = state, enabled = enabled,
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
-                onConferenceLengthChanged = onConferenceLengthChanged,
+                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
             )
@@ -199,7 +200,7 @@ fun StartScreen(
                 now = now, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
-                onConferenceLengthChanged = onConferenceLengthChanged,
+                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
@@ -344,6 +345,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     layout: HomeLayout, state: StartState, enabled: Boolean,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
+    onRoomDestructChanged: (Boolean) -> Unit = {},
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
@@ -376,7 +378,8 @@ private fun BoxWithConstraintsScope.ColdContent(
             Column(Modifier.weight(1f).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom,
-                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
                 Foot()
             }
         }
@@ -392,7 +395,8 @@ private fun BoxWithConstraintsScope.ColdContent(
             vmlsRooms?.invoke()
             NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                 enabled, state.busy, state.error, onStartRoom,
-                conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
+                conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
             Foot()
         }
     }
@@ -409,6 +413,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
+    onRoomDestructChanged: (Boolean) -> Unit = {},
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
@@ -524,7 +529,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom,
-                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
             }
         }
     } else {
@@ -562,7 +568,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) },
-                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged)
+                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
             }
         }
     }

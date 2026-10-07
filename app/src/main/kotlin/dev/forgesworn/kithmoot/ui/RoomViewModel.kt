@@ -347,6 +347,11 @@ data class StartState(
     val persistentGroup: Boolean = true,
     /** How long a new room runs: Never, or a conference room that ends and is wiped from relays. */
     val conferenceLength: ConferenceLength = ConferenceLength.NEVER,
+    /** When a room with an end ends: self-destruct (owner decision D1, the
+     *  default) or keep a read-only copy. Offered only for a room with an end:
+     *  this phone cannot end a room early, so it never makes a room with no end
+     *  that could only be destroyed from another device. */
+    val roomDestruct: Boolean = true,
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
@@ -2889,6 +2894,10 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(conferenceLength = value, error = null) }
     }
 
+    fun onRoomDestructChanged(value: Boolean) {
+        _start.update { it.copy(roomDestruct = value, error = null) }
+    }
+
     /**
      * Opens a room.
      *
@@ -2914,6 +2923,7 @@ class RoomViewModel @JvmOverloads constructor(
         val name = _start.value.roomName
         val persistent = true
         val length = _start.value.conferenceLength
+        val destructChoice = _start.value.roomDestruct
         enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
             if (anonymous) holdForTorOnlyEntry()
@@ -2934,7 +2944,9 @@ class RoomViewModel @JvmOverloads constructor(
             // writes, fixed now and named in the signed invitation, so every
             // member uses them whatever else they use.
             val roomRelays = if (anonymous) emptyList() else invitationRelaysFrom(relays.filter { it in selectedReadRelays(relays) && it in selectedWriteRelays(relays) })
-            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays)
+            // Self-destruct rides beside the end, inside the invitation's encryption.
+            val destruct = ends != null && destructChoice
+            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays, destruct)
             open(
                 derived = derived,
                 secret = secret,
@@ -2949,6 +2961,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ends = ends,
                 roomRelays = roomRelays,
                 roomRelaysSigned = true,
+                destruct = destruct,
             )
         }
     }
@@ -3305,10 +3318,11 @@ class RoomViewModel @JvmOverloads constructor(
         return try { action(transport) } finally { transport.stop(); scope.cancel() }
     }
 
-    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null) {
+    private suspend fun publishGroup(host: RoomInvitationHost, secret: ByteArray, relays: List<String>, anonymous: Boolean = false, ends: Long? = null, roomRelays: List<String>? = null,
+                                     destruct: Boolean = false) {
         try {
             withGroupRelays(relays, anonymous) {
-                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }),
+                if (!it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = roomRelays?.takeIf { it.isNotEmpty() && !anonymous }, destruct = destruct),
                         if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else 15_000)) {
                     throw GroupInvitationException("The relays refused this group invitation. Try again or choose another relay.")
                 }
@@ -3331,10 +3345,11 @@ class RoomViewModel @JvmOverloads constructor(
      *  left to lapse: keeping its link alive would turn a chance expiry into a
      *  standing way back in. A conference room's invitation is signed with its
      *  end, and is no longer signed once the room has ended. */
-    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null, fixedRelays: List<String>? = null) {
+    private fun keepGroupInvitationAlive(scope: CoroutineScope, transport: RelayPool, host: RoomInvitationHost, secret: ByteArray, linkRelays: List<String>, roomRelays: List<String>, ends: Long? = null, fixedRelays: List<String>? = null,
+                                         destruct: Boolean = false) {
         scope.launch {
             while (!conferenceEnded(ends, epochSeconds())) {
-                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) }
+                try { transport.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays, destruct = destruct)) }
                 catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                 catch (_: Exception) { /* Retried next round. */ }
                 // The link that opened the room may name relays the room has
@@ -3344,7 +3359,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val circle = circleRelaySet()
                 val extra = linkOnlyRelays(roomRelays, linkRelays) { laneOfRelayUrl(it, circle) == Lane.SHELTERED }
                 if (extra.isNotEmpty()) {
-                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays)) } }
+                    try { withGroupRelays(extra) { it.publishConfirmed(encodePersistentInvitation(host, secret, epochSeconds(), ends = ends, relays = fixedRelays, destruct = destruct)) } }
                     catch (e: kotlinx.coroutines.CancellationException) { if (e !is kotlinx.coroutines.TimeoutCancellationException) throw e }
                     catch (_: Exception) { /* Retried next round. */ }
                 }
@@ -3841,8 +3856,9 @@ class RoomViewModel @JvmOverloads constructor(
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
                 val linkRelays = if (anonymousProfile || linkConsents.all().any { it.roomId == record.id }) emptyList() else record.invitation?.relays.orEmpty()
+                // Every copy says what the first said: self-destruct sticks, so a copy without it would only confuse.
                 keepGroupInvitationAlive(scope, transport, host, secret, linkRelays, activeRelays, record.ends,
-                    record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) })
+                    record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) }, record.destruct)
             }
         }
         readRoomRelaysOnce(scope, transport, record)
@@ -6172,7 +6188,7 @@ class RoomViewModel @JvmOverloads constructor(
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {
-                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned && !keepsOwnRelays(saved) }) }
+                    try { publishGroup(nextHost, secret, relayUrls, saved.anonymous, saved.ends, saved.roomRelays.takeIf { saved.roomRelaysSigned && !keepsOwnRelays(saved) }, saved.destruct) }
                     catch (e: GroupInvitationException) { return@withLock note(e.message ?: "The new group link could not be saved.") }
                 }
                 // The link names the room's own relays first, then the rest of
