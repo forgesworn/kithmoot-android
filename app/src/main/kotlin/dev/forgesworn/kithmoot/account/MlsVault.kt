@@ -198,6 +198,80 @@ class MlsVault(
         }
     }
 
+    /**
+     * Renews the persona's device credential under the same device key (§6.1:
+     * "renew with the same key only while authority and witness remain
+     * valid"): the leaf, the scalar and the journal stay, and only the
+     * credential event, its id and its expiry are replaced. Refused when the
+     * current credential has lapsed ([VaultRefusal.Expired]) or is revoked,
+     * when [expiresAt] is not later than the current expiry, and, in
+     * coordinated mode, unless the witness confirms the persona. The identity
+     * signer's approval is the consent, as at enrolment. The engine takes the
+     * new credential with its next Update.
+     */
+    suspend fun renewCredential(ctx: VaultContext, signer: ParticipantSigner, expiresAt: Long): VaultResult<EnrolledDevice> =
+        refusing { renewChecked(ctx, signer, expiresAt) }
+
+    private suspend fun renewChecked(ctx: VaultContext, signer: ParticipantSigner, expiresAt: Long): VaultResult<EnrolledDevice> {
+        if (!current(ctx)) return refuse(VaultRefusal.Stale)
+        if (!HEX64.matches(ctx.persona) || signer.pubkey != ctx.persona) return refuse(VaultRefusal.Unauthorised)
+        val at = now()
+        if (expiresAt <= at || expiresAt - at > LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS) return refuse(VaultRefusal.Malformed)
+        // Coordinated, this also needs the witness to confirm the persona now. No scalar leaves the record.
+        val seen = when (val first = look<VaultResult<EnrolledDevice>>(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            renewable(record, at, expiresAt)?.let { return@look it }
+            val device = record!!.device!!
+            VaultResult.Ok(EnrolledDevice(ctx.persona, device.device, device.credentialId, device.credentialExpiresAt, device.credential))
+        }) {
+            is VaultResult.Refused -> return first
+            is VaultResult.Ok -> first.value
+        }
+        val createdAt = now()
+        val tags = listOf(
+            listOf("d", ctx.persona),
+            listOf("device", seen.device),
+            listOf("expiration", expiresAt.toString()),
+            listOf("scope", "person"),
+        )
+        val event = try {
+            checkedSignedEvent(
+                signer.sign(LeafBinding.DEVICE_CREDENTIAL_KIND, createdAt, tags, ""),
+                ctx.persona, LeafBinding.DEVICE_CREDENTIAL_KIND, createdAt, tags, "",
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return refuse(VaultRefusal.Denied)
+        }
+        if (!current(ctx)) return refuse(VaultRefusal.Stale)
+        val credential = try {
+            LeafBinding.verifyPersonCredential(event, now(), ctx.persona)
+        } catch (error: BindingException) {
+            return refuse(refusalOf(error))
+        }
+        if (credential.device != seen.device) return refuse(VaultRefusal.Unauthorised)
+        return change(ctx.persona) { stored ->
+            if (!current(ctx)) return@change Change.Keep(refuse(VaultRefusal.Stale))
+            // Rechecked under the lock: still the device and credential seen before signing, and still valid.
+            renewable(stored, now(), expiresAt)?.let { return@change Change.Keep(it) }
+            val old = stored!!.device!!
+            if (old.device != seen.device || old.credentialId != seen.credentialId) return@change Change.Keep(refuse(VaultRefusal.Unauthorised))
+            // The scalar array is shared with the old record, not copied: change() wipes it once the record is sealed.
+            stored.device = DeviceRecord(old.scalar, old.device, event, credential.id, credential.expiresAt)
+            Change.Write(stored, VaultResult.Ok(EnrolledDevice(ctx.persona, old.device, credential.id, credential.expiresAt, event)))
+        }
+    }
+
+    /** The refusal for renewing [record]'s credential at [at] to [expiresAt], or null when it may be renewed. */
+    private fun renewable(record: PersonaRecord?, at: Long, expiresAt: Long): VaultResult.Refused? {
+        val device = record?.device ?: return refuse(VaultRefusal.Unauthorised)
+        if (device.credentialId in record.revoked) return refuse(VaultRefusal.Revoked)
+        if (device.credentialExpiresAt <= at) return refuse(VaultRefusal.Expired)
+        if (expiresAt <= device.credentialExpiresAt) return refuse(VaultRefusal.Malformed)
+        return null
+    }
+
     /** The persona's enrolled device, without its key. */
     suspend fun device(ctx: VaultContext): VaultResult<EnrolledDevice> {
         if (coordination != null) return coordinatedDevice(ctx)

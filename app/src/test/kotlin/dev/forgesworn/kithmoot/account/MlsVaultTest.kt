@@ -94,6 +94,72 @@ class MlsVaultTest {
         assertTrue(v.enrol(c, bob, now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS) is VaultResult.Ok)
     }
 
+    // ---- renewal ----
+
+    @Test fun `renewal keeps the device key and extends the credential, which verifies as a person credential`() = runBlocking<Unit> {
+        val before = (vault.device(ctx) as VaultResult.Ok).value
+        val until = now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS - 300
+        clock = now + 3600
+        val renewed = (vault.renewCredential(ctx, alice, until) as VaultResult.Ok).value
+        assertEquals(device, renewed.device)
+        assertEquals(until, renewed.credentialExpiresAt)
+        assertNotEquals(before.credentialId, renewed.credentialId)
+        assertEquals(renewed, (vault.device(ctx) as VaultResult.Ok).value)
+        val verified = LeafBinding.verifyPersonCredential(renewed.credential!!, clock, alice.pubkey)
+        assertEquals(device, verified.device)
+        assertEquals(until, verified.expiresAt)
+        assertTrue(listOf("scope", "person") in renewed.credential!!.tags)
+        // The scalar is kept: the device still signs a binding for the renewed credential's persona.
+        val homeBoxScope = ConsentScope(principal, alice.pubkey, device, homeBox, MlsVault.SIGN_METHOD)
+        assertTrue(vault.approve(ctx, homeBoxScope) is VaultResult.Ok)
+    }
+
+    @Test fun `renewal refuses a lapsed credential, without asking the signer`() = runBlocking<Unit> {
+        clock = now + 7 * 86_400 + 1
+        val asked = alice.signed.size
+        assertEquals(refused(VaultRefusal.Expired), vault.renewCredential(ctx, alice, clock + 3600))
+        assertEquals(asked, alice.signed.size)
+    }
+
+    @Test fun `renewal refuses a stale generation, another signer, a bad expiry, no device and no extension`() = runBlocking<Unit> {
+        val until = now + 14 * 86_400
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.renewCredential(ctx, RecordingSigner(), until))
+        assertEquals(refused(VaultRefusal.Malformed), vault.renewCredential(ctx, alice, now))
+        assertEquals(refused(VaultRefusal.Malformed), vault.renewCredential(ctx, alice, now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS + 1))
+        // Not later than the credential held: a renewal never shortens it.
+        assertEquals(refused(VaultRefusal.Malformed), vault.renewCredential(ctx, alice, now + 7 * 86_400))
+        val bob = RecordingSigner()
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.renewCredential(vault.context(principal, bob.pubkey), bob, until))
+        assertTrue(bob.signed.isEmpty())
+        vault.bump()
+        assertEquals(refused(VaultRefusal.Stale), vault.renewCredential(ctx, alice, until))
+    }
+
+    @Test fun `renewal that the session ends during signing is stale and leaves the credential`() = runBlocking<Unit> {
+        val slow = object : ParticipantSigner by alice {
+            override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent =
+                alice.sign(kind, createdAt, tags, content).also { vault.bump() }
+        }
+        assertEquals(refused(VaultRefusal.Stale), vault.renewCredential(ctx, slow, now + 14 * 86_400))
+        assertEquals(credential, (vault.device(vault.context(principal, alice.pubkey)) as VaultResult.Ok).value.credential)
+    }
+
+    @Test fun `a denied or altered renewal is Denied and leaves the credential`() = runBlocking<Unit> {
+        val sly = object : ParticipantSigner by alice {
+            override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent = throw SignerException("no")
+        }
+        assertEquals(refused(VaultRefusal.Denied), vault.renewCredential(ctx, sly, now + 14 * 86_400))
+        assertEquals(credential, (vault.device(ctx) as VaultResult.Ok).value.credential)
+        val altered = RecordingSigner(secret = alice.secret, alterTags = { tags -> tags.map { if (it.first() == "device") listOf("device", bytes(32).toHex()) else it } })
+        assertEquals(refused(VaultRefusal.Denied), vault.renewCredential(ctx, altered, now + 14 * 86_400))
+    }
+
+    @Test fun `renewal refuses a revoked credential`() = runBlocking<Unit> {
+        val id = (vault.device(ctx) as VaultResult.Ok).value.credentialId
+        vault.revokeCredential(ctx, id)
+        assertEquals(refused(VaultRefusal.Revoked), vault.renewCredential(ctx, alice, now + 14 * 86_400))
+    }
+
     @Test fun `refuses a credential the signer altered`() = runBlocking {
         val v = MlsVault(MemoryStores(), now = { clock })
         val sly = RecordingSigner(alterTags = { tags -> tags.filterNot { it.first() == "scope" } })

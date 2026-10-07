@@ -211,6 +211,43 @@ class CoordinatedMlsVaultTest {
         assertEquals(1, bobRequests)
     }
 
+    // ---- renewal ----
+
+    @Test fun `a renewal is a witnessed write that keeps the device and verifies`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        val before = server.advances
+        val until = now + LeafBinding.MAX_PERSON_CREDENTIAL_SECONDS - 300
+        val renewed = (vault.renewCredential(ctx, alice, until) as VaultResult.Ok).value
+        assertEquals(before + 1, server.advances)
+        assertEquals(device.device, renewed.device)
+        assertEquals(until, renewed.credentialExpiresAt)
+        assertEquals(renewed, (vault.device(ctx) as VaultResult.Ok).value)
+        assertEquals(until, LeafBinding.verifyPersonCredential(renewed.credential!!, clock, alice.pubkey).expiresAt)
+        // The promoted record still signs for the same device.
+        assertIs<VaultResult.Ok<SignLeafBindingReply>>(vault.signLeafBindingV1(ctx, request(renewed), approve))
+    }
+
+    @Test fun `a renewal is refused, and nothing signed, while the witness is not Ready`() = runBlocking<Unit> {
+        enrolAtBox(); val device = enrolDevice()
+        server.mode = FakeWitnessServer.Mode.Down
+        // Held: the credential is not renewed, and the stored one is still served.
+        assertEquals(refused(VaultRefusal.WitnessPending), vault.renewCredential(ctx, alice, now + 14 * 86_400))
+        assertEquals(device, (vault.device(ctx) as VaultResult.Ok).value)
+        server.mode = FakeWitnessServer.Mode.Up
+        // Fenced: a clone of the profile after the original advanced.
+        val clone = stores.copy()
+        assertIs<VaultResult.Ok<SignLeafBindingReply>>(vault.signLeafBindingV1(ctx, request(device), approve))
+        val copy = vault(clone)
+        val asked = alice.signed.size
+        assertEquals(refused(VaultRefusal.RestoreFenced), copy.renewCredential(copy.context(principal, alice.pubkey), alice, now + 14 * 86_400))
+        assertEquals(asked, alice.signed.size)
+    }
+
+    @Test fun `before genesis a renewal is held, with nothing asked of the signer`() = runBlocking<Unit> {
+        assertEquals(refused(VaultRefusal.WitnessPending), vault.renewCredential(ctx, alice, now + 3600))
+        assertTrue(alice.signed.isEmpty())
+    }
+
     // ---- fences ----
 
     @Test fun `a cloned profile is fenced when the original advanced`() = runBlocking<Unit> {
