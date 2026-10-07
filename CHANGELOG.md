@@ -3,7 +3,7 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
-## [0.6.63] - 2026-10-07
+## [0.6.63] - 2026-10-08
 
 - Rooms can self-destruct. A new room with an end date offers
   "Self-destruct" or "Keep it read-only", and shows a green, amber and red
@@ -18,7 +18,7 @@ version it publishes (`release_notes` in `zapstore.yaml`).
 - For people who run their own Bothy box: VMLS rooms and the restore
   witness, as a preview, off until turned on in Settings, Connections.
   They need a box that offers VMLS, which no Bothy release does yet; while
-  the preview is off, none of it runs or shows.
+  the preview is off, none of it shows and nothing contacts a box.
 - Settings show what is really happening: with notifications blocked, the
   notification and background options read off and say why, and signing
   out asks first.

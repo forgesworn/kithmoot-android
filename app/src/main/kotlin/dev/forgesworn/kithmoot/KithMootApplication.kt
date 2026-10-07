@@ -110,11 +110,16 @@ class KithMootApplication : Application() {
     val vmlsBoxes: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = if (vmlsPreview.value) vmlsEngine.value else null
 
     /**
-     * The runtime whatever the switch says, for the duties that must not lapse
-     * when the preview is turned off: keeping its boxes' routes, and ending its
-     * session with the account's.
+     * The Link routes VMLS boxes keep, whatever the switch says, so the route
+     * sweep never unpairs a box because the preview was turned off. A runtime
+     * that is running answers (it knows a pairing in progress); otherwise the
+     * saved routes are read without starting the engine. An unreadable store
+     * keeps every route, as the runtime does.
      */
-    val vmlsBoxesForHousekeeping: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = vmlsEngine.value
+    fun vmlsRouteIds(): Set<String> = vmlsBoxesIfStarted?.routeIds() ?: try {
+        dev.forgesworn.kithmoot.mls.VmlsRoomStore(EncryptedRoomStorage(this, "kithmoot.vmls-rooms.v1", 1024 * 1024))
+            .routes().mapTo(HashSet()) { it.routeId }
+    } catch (_: dev.forgesworn.kithmoot.storage.RoomStorageException) { linkEngine.routeIds() }
 
     /** The runtime only if something already started it. */
     val vmlsBoxesIfStarted: dev.forgesworn.kithmoot.mls.VmlsBoxes? get() = if (vmlsEngine.isInitialized()) vmlsEngine.value else null
