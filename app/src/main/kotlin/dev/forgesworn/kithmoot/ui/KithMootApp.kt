@@ -198,7 +198,9 @@ fun KithMootApp(
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
         // Only the signed-in account's ask is shown: another account's is never put to this one.
         if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
-            dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking) { vmlsBoxes.answer(asking, it) }
+            var askedBox by remember(asking) { mutableStateOf<String?>(null) }
+            LaunchedEffect(asking) { askedBox = vmlsBoxes.boxName(asking.persona, asking.homeBox) }
+            dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking, askedBox) { vmlsBoxes.answer(asking, it) }
         } else if (joinAsk != null && !lockedCallOnly && !callAnswering) {
             dev.forgesworn.kithmoot.ui.start.VmlsJoinDialog(joinAsk) { approve ->
                 accountModel.vmlsSigner()?.let { vmlsBoxes.admit(it, joinAsk, approve) }

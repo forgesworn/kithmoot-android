@@ -126,6 +126,25 @@ class BoxRequestAuthTest {
         assertEquals(3, asked)
     }
 
+    @Test fun `withdrawing both methods for a box asks again for each, and leaves another box's approvals`() = runBlocking<Unit> {
+        val other = bytes(32).toHex()
+        fun scope(b: String, method: String) = ConsentScope(principal, alice.pubkey, device.device, b, method)
+        for (b in listOf(box, other)) {
+            assertIs<VaultResult.Ok<Unit>>(vault.approve(ctx, scope(b, MlsVault.BOX_METHOD)))
+            assertIs<VaultResult.Ok<Unit>>(vault.approve(ctx, scope(b, MlsVault.SIGN_METHOD)))
+        }
+        asked = 0
+        // What forgetting a box does (D1 K3).
+        assertIs<VaultResult.Ok<Unit>>(vault.withdraw(ctx, scope(box, MlsVault.BOX_METHOD)))
+        assertIs<VaultResult.Ok<Unit>>(vault.withdraw(ctx, scope(box, MlsVault.SIGN_METHOD)))
+        assertIs<VaultResult.Ok<BoxRequestReply>>(vault.signBoxRequestV1(ctx, fetch(other), approve))
+        assertEquals(0, asked)
+        assertEquals(VaultResult.Refused(VaultRefusal.Denied), vault.signBoxRequestV1(ctx, fetch(), deny))
+        assertEquals(1, asked)
+        // Withdrawing what was never approved is harmless.
+        assertIs<VaultResult.Ok<Unit>>(vault.withdraw(ctx, scope(bytes(32).toHex(), MlsVault.BOX_METHOD)))
+    }
+
     @Test fun `an uncoordinated vault signs no box request`() = runBlocking<Unit> {
         val plain = MlsVault(MemoryCoordinatedStores(), now = { clock })
         assertEquals(VaultResult.Refused(VaultRefusal.Unsupported), plain.signBoxRequestV1(plain.context(principal, alice.pubkey), fetch(), approve))
