@@ -45,3 +45,12 @@ fun syncedSecret(room: AccountRoom): ByteArray? {
 }
 
 private val SECRET = Regex("[0-9a-f]{64}")
+
+/** Repair an older phone copy only from this account's verified membership in the same invitation. */
+fun dev.forgesworn.kithmoot.storage.SavedRoom.learnBookmarkLifetime(bookmark: AccountRoom, account: String): dev.forgesworn.kithmoot.storage.SavedRoom {
+    if (!viaAccount || participant != account || anonymous || secondary || bookmark.roomId != id) return this
+    val invite = invitation?.invitation ?: return this
+    val synced = syncedGroup(listOf(bookmark), invite) ?: return this
+    synced.admission.secret.fill(0)
+    return withRoomLifetime(bookmark.endsAt, bookmark.destruct, bookmark.startsAt)
+}

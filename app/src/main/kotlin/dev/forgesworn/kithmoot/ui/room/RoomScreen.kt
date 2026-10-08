@@ -361,14 +361,14 @@ fun RoomScreen(
                 }
             },
     ) {
+        // The countdown to a room's end, under its name: green, amber, red
+        // for one that self-destructs, grey for one that keeps a copy.
+        val countdownEnds = state.endsAt?.takeIf { !state.conferenceEnded && state.movedOn == null }
+        if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
         if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
-        // The countdown to a room's end, under its name: green, amber, red
-        // for one that self-destructs, grey for one that keeps a copy.
-        val countdownEnds = state.endsAt?.takeIf { !lockedCallOnly && !state.conferenceEnded && state.movedOn == null }
-        if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
         if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {

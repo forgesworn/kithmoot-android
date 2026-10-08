@@ -266,7 +266,7 @@ class RoomSession(
      * room's traffic when it ends. Null for a room that does not end, whose
      * events are unchanged. See `withRoomExpiration`.
      */
-    private val ends: Long? = null,
+    ends: Long? = null,
     /**
      * Epochs this device left before this session opened, rebuilt from the
      * epoch history it kept (`pastEpochsFor`), so a room reopened after a
@@ -287,6 +287,14 @@ class RoomSession(
     private val lock = Any()
     private val epochMutex = Mutex()
     private var activeEpoch = initialEpoch
+    @Volatile private var ends: Long? = ends
+
+    /** Apply a deadline learned during this visit to subsequent signed room traffic. */
+    fun learnRoomEnd(end: Long) = synchronized(lock) {
+        require(end > 0)
+        ends = minOf(ends ?: Long.MAX_VALUE, end)
+    }
+
     private val pendingRekeys = TreeMap<Int, NostrEvent>()
     /**
      * The rollback floor: the newest epoch an authority-signed rekey has been seen for on the
@@ -802,6 +810,7 @@ class RoomSession(
         if (text.isEmpty()) return
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
+        check(sentAt < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(
             body = text,
@@ -832,6 +841,7 @@ class RoomSession(
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
+        check(sentAt < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(
             body = text,
@@ -952,7 +962,7 @@ class RoomSession(
         if (verifyDeviceCredential(identity.credential, room.roomId, now()) !is CredentialCheck.Valid) return moved()
         policy?.let { if (!evaluateAccess(it, identity.participant, proof, now(), room.roomId).admitted) return moved() }
         if (event.createdAt < now() - CHAT_RETENTION_SECONDS) return moved()
-        if (ends != null && now() >= ends) return moved()
+        if (now() >= (ends ?: Long.MAX_VALUE)) return moved()
         val message = try { decodeOwnChat(event, event.createdAt, epoch) } catch (_: IllegalStateException) { return moved() }
         // Not offered while no relay is connected: it stays cleanly unsent.
         if (!transport.reachable()) return false

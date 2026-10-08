@@ -9,6 +9,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -23,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +41,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.forgesworn.kithmoot.session.countdownClock
+import dev.forgesworn.kithmoot.session.fuseRemaining
 import dev.forgesworn.kithmoot.session.CountdownStage
 import dev.forgesworn.kithmoot.session.countdown
 import dev.forgesworn.kithmoot.session.countdownAccessibleName
@@ -150,8 +159,54 @@ internal fun RoomCountdownLine(endsAt: Long, startsAt: Long?, destruct: Boolean,
         if (!destruct || before == null || before == stage) return@LaunchedEffect
         stageAnnouncement(stage, endsAt - epochSeconds())?.let { view.announceForAccessibility(it) }
     }
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        CountdownPill(endsAt, startsAt, destruct, now)
+    if (!destruct) {
+        Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            CountdownPill(endsAt, startsAt, destruct, now)
+        }
+        return
+    }
+    val colours = pillColours(stage, true)
+    val left = fuseRemaining(endsAt, startsAt, now)
+    val reduceMotion = rememberReduceMotion()
+    val glow = if (reduceMotion) 1f else {
+        val transition = rememberInfiniteTransition(label = "burning fuse")
+        val value by transition.animateFloat(0.6f, 1f, infiniteRepeatable(tween(if (stage == CountdownStage.FINAL) 600 else 1500), RepeatMode.Reverse), label = "spark glow")
+        value
+    }
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+            .background(Brush.horizontalGradient(listOf(colours.container, colours.container.copy(alpha = .7f))), RoundedCornerShape(14.dp))
+            .padding(12.dp)
+            .clearAndSetSemantics { contentDescription = countdownAccessibleName(endsAt, startsAt, true, now) },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Canvas(Modifier.size(52.dp)) {
+            val stroke = 3.dp.toPx()
+            drawCircle(colours.content.copy(alpha = .15f), style = Stroke(stroke))
+            drawArc(colours.content, -90f, 360f * left, false, style = Stroke(stroke, cap = StrokeCap.Round))
+            val angle = Math.toRadians((-90 + 360 * left).toDouble())
+            val point = center + Offset(kotlin.math.cos(angle).toFloat(), kotlin.math.sin(angle).toFloat()) * (size.minDimension / 2)
+            drawCircle(colours.content.copy(alpha = .2f * glow), 7.dp.toPx(), point)
+            drawCircle(colours.content, 3.dp.toPx(), point)
+            drawLine(colours.content, center - Offset(7.dp.toPx(), 0f), center + Offset(7.dp.toPx(), 0f), stroke, StrokeCap.Round)
+            drawLine(colours.content, center - Offset(0f, 7.dp.toPx()), center + Offset(0f, 7.dp.toPx()), stroke, StrokeCap.Round)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("ROOM SELF-DESTRUCT", color = colours.content, style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp))
+            Text(countdownClock(endsAt - now), color = colours.content,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"), maxLines = 1)
+            Text(if (stage == CountdownStage.FINAL) "Final seconds · save what you need" else "Save anything you want to keep",
+                color = colours.content, style = MaterialTheme.typography.labelSmall)
+            Canvas(Modifier.fillMaxWidth().height(8.dp)) {
+                val y = size.height / 2
+                drawLine(colours.content.copy(alpha = .15f), Offset(0f, y), Offset(size.width, y), 2.dp.toPx(), StrokeCap.Round)
+                val tip = Offset(size.width * left, y)
+                drawLine(colours.content, Offset(0f, y), tip, 2.dp.toPx(), StrokeCap.Round)
+                drawCircle(colours.content.copy(alpha = .2f * glow), 4.dp.toPx(), tip)
+                drawCircle(colours.content, 2.dp.toPx(), tip)
+            }
+        }
     }
 }
 

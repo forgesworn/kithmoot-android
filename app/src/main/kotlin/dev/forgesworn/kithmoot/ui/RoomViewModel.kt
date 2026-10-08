@@ -46,6 +46,7 @@ import dev.forgesworn.kithmoot.relay.combinedRelayHealth
 import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.account.RoomBookmarks
 import dev.forgesworn.kithmoot.account.RoomBookmarkSnapshot
+import dev.forgesworn.kithmoot.account.learnBookmarkLifetime
 import dev.forgesworn.kithmoot.account.SyncedGroup
 import dev.forgesworn.kithmoot.account.syncedGroup
 import dev.forgesworn.kithmoot.storage.RoomBookmarkVault
@@ -1257,7 +1258,10 @@ class RoomViewModel @JvmOverloads constructor(
             pool.start()
             val healthObserver = launch { pool.health.collect { value -> if (roomBookmarks === bookmarks) reportRelayHealth("rooms", value) } }
             val observer = launch { bookmarks.state.collect { value ->
-                if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = value) }
+                if (roomBookmarks === bookmarks) {
+                    _start.update { it.copy(roomBookmarks = value) }
+                    reconcileBookmarkedLifetimes(bookmarks, value)
+                }
             } }
             // Once the account's bookmarks have loaded, give any room it already
             // lists the secret this phone holds for it, so another device can open it.
@@ -1270,6 +1274,33 @@ class RoomViewModel @JvmOverloads constructor(
             catch (_: Exception) { if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = bookmarks.state.value) } }
             finally { withContext(NonCancellable) { bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel(); sharing.cancel() } }
         }
+    }
+
+    /** A locally saved room must learn an expiry that another device synced later. */
+    private suspend fun reconcileBookmarkedLifetimes(bookmarks: RoomBookmarks, snapshot: RoomBookmarkSnapshot) {
+        if (!snapshot.ready || bookmarks.identity != accountSigner?.pubkey) return
+        var changed = false
+        gate.withLock {
+            if (roomBookmarks !== bookmarks || bookmarks.identity != accountSigner?.pubkey) return@withLock
+            for (bookmark in snapshot.rooms) {
+                val saved = savedRooms.get(bookmark.roomId) ?: continue
+                val learned = saved.learnBookmarkLifetime(bookmark, bookmarks.identity)
+                if (learned === saved) continue
+                val updated = savedRooms.update(saved.id) { it.learnBookmarkLifetime(bookmark, bookmarks.identity) } ?: continue
+                changed = true
+                if (savedRoom?.id == updated.id) {
+                    savedRoom = updated
+                    _room.update { if (it.roomId == updated.id) it.copy(endsAt = updated.ends, destruct = updated.destruct, startsAt = updated.startsAt) else it }
+                    val live = session
+                    val scope = sessionScope
+                    if (live != null && scope != null && updated.ends != saved.ends) updated.ends?.let { end ->
+                        live.learnRoomEnd(end)
+                        endConferenceAt(live, scope, end, updated.id)
+                    }
+                }
+            }
+        }
+        if (changed) { refreshSavedRooms(); runDueDestructs() }
     }
 
     fun refreshRoomBookmarks() { AccountWriteHold.process.personActed(); viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
@@ -1345,7 +1376,10 @@ class RoomViewModel @JvmOverloads constructor(
             check(bookmarks.state.value.rooms.any { it.roomId == room.roomId && it.link == room.link }) { "This conversation changed. Choose it again." }
         }
         checkSelection(); RoomBookmarks.validateLink(room.link, room.roomId)
-        val saved = savedRooms.get(room.roomId)
+        val saved = savedRooms.get(room.roomId)?.let { existing ->
+            val learned = existing.learnBookmarkLifetime(room, actor.pubkey)
+            if (learned !== existing) savedRooms.update(room.roomId) { it.learnBookmarkLifetime(room, actor.pubkey) } else existing
+        }
         if (saved != null) {
             check(saved.participant == actor.pubkey) { "This room is saved under another identity. Open it with that identity first." }
             val who = saved.identity(epochSeconds(), actor); checkSelection()
@@ -1371,7 +1405,7 @@ class RoomViewModel @JvmOverloads constructor(
             val localUrl = selectedWebApp.joinBase + "#" + room.link.substringAfter('#')
             open(derived, secret, relays + foundFurther, who, false, localUrl, invitation, admission?.delegate,
                 invitation?.policy ?: legacy?.policy, localName = room.label, ends = admission?.endsAt, expectedEpoch = admission?.epoch,
-                destruct = admission?.destruct == true)
+                destruct = admission?.destruct == true, startsAt = room.startsAt)
         }
     }
 
@@ -1795,6 +1829,9 @@ class RoomViewModel @JvmOverloads constructor(
     // about: copies others kept, and relays that ignore deletion.
 
     private val destructor: dev.forgesworn.kithmoot.service.RoomSelfDestructor = (application as KithMootApplication).selfDestructor
+    private val _destructEffect = MutableStateFlow(0L)
+    val destructEffect: StateFlow<Long> = _destructEffect
+
     private val destructTombstones get() = destructor.tombstones
 
     /** Out of [roomId] on this screen, and off its call, saying it self-destructed. */
@@ -1824,6 +1861,7 @@ class RoomViewModel @JvmOverloads constructor(
         val saved = runCatching { savedRooms.get(roomId) }.getOrNull() ?: return
         if (!saved.destruct || !(force || destructor.due(saved))) return
         if (!destructor.claim(roomId)) return
+        val wasOnScreen = _room.value.roomId == roomId
         try {
             withContext(NonCancellable) { leaveForDestruct(roomId) }
             if (chatOnly) return
@@ -1831,7 +1869,10 @@ class RoomViewModel @JvmOverloads constructor(
                 // The room's own relays are read and written whatever this phone's relay choices say.
                 withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(room), room.anonymous, room.sharedRelays.toSet()) { delete(it) }
             }
-            if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) sendOwedBookmarkTombstones()
+            if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) {
+                if (wasOnScreen && outcome.left.isEmpty()) _destructEffect.update { it + 1 }
+                sendOwedBookmarkTombstones()
+            }
             val rooms = runCatching { savedRooms.list() }.getOrNull()
             _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
         } finally {
@@ -3469,6 +3510,7 @@ class RoomViewModel @JvmOverloads constructor(
         expectedEpoch: Int? = null,
         /** The room self-destructs, when this opening learnt so (`RoomAdmission.destruct`). */
         destruct: Boolean = false,
+        startsAt: Long? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3515,6 +3557,7 @@ class RoomViewModel @JvmOverloads constructor(
             destruct = destruct && invitation?.invitation?.persistent == true)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
             .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
+            .let { it.withRoomLifetime(ends, destruct, startsAt) }
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
             // A room saved before its authority was recorded never followed a
             // rekey; pin the one its link names, as a fresh join would.

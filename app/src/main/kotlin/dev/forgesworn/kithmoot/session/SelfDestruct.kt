@@ -76,6 +76,18 @@ fun remainingSpoken(remaining: Long): String {
     return plural(seconds, "second")
 }
 
+/** The prominent clock keeps seconds visible at every stage. */
+fun countdownClock(remaining: Long): String {
+    val seconds = maxOf(0, remaining)
+    val days = seconds / 86_400
+    val hours = seconds % 86_400 / 3_600
+    val minutes = seconds % 3_600 / 60
+    return (if (days > 0) "${days}d " else "") + listOf(hours, minutes, seconds % 60).joinToString(":") { it.toString().padStart(2, '0') }
+}
+
+fun fuseRemaining(endsAt: Long, startsAt: Long?, now: Long): Float =
+    ((endsAt - now).toDouble() / (roomLifetime(endsAt, startsAt) ?: 86_400L)).coerceIn(0.0, 1.0).toFloat()
+
 data class Countdown(
     val stage: CountdownStage,
     /** The pill's visible words: "Self-destructs in 5 h 12 m", "Ends in 4 days". */

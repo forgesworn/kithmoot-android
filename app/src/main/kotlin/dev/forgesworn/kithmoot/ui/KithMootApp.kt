@@ -106,6 +106,9 @@ fun KithMootApp(
     /** An answered call is opening or joining, over the lock screen or not: no prompt may cover it. */
     callAnswering: Boolean = false,
 ) {
+    val destructSequence by model.destructEffect.collectAsState()
+    var showingDestruct by remember { mutableStateOf(false) }
+    LaunchedEffect(destructSequence) { if (destructSequence > 0) showingDestruct = true }
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
@@ -797,6 +800,7 @@ fun KithMootApp(
                 )
             }
         }
+        if (showingDestruct) dev.forgesworn.kithmoot.ui.room.DestructEffect { showingDestruct = false }
         if (stage == Stage.ROOM) {
             val ringBanner by model.callRingBanner.collectAsState()
             // Answering here is the same as answering the notification:
