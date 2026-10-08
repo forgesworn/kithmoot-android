@@ -1900,6 +1900,22 @@ class VmlsRuntime(
         }
     }
 
+    /** Each outbox record of [session] deposited again, with the box's answer: the lab's view of a commit that will not leave. Lab hook: only androidTest calls it. */
+    internal suspend fun redeposit(persona: String, session: String): List<String> = rounding.withLock {
+        val engine = engine(persona) ?: return@withLock listOf("no engine")
+        val stored = store.room(persona, session) ?: return@withLock listOf("no room")
+        val route = store.route(persona, stored.box) ?: return@withLock listOf("no route")
+        val outbox = (engine.host.readback(persona, session.hexToBytes()) { s, _ -> s.outbox() } as? Hosted.Released)?.value ?: return@withLock listOf("outbox unread")
+        val client = client(engine, route)
+        outbox.map { out ->
+            when (val d = out.destination) {
+                is Destination.Slot -> "slot epoch ${d.epoch} attempt ${d.attempt}: ${client.depositSlot(out.mailbox, d.attempt, out.envelope)}"
+                is Destination.Leaf -> "leaf ${shortHex(d.leaf.toHex())}: ${client.deposit(out.mailbox, out.envelope)}"
+                else -> "${d::class.simpleName}: not deposited here"
+            }
+        }
+    }
+
     /** [persona]'s box [box]'s answer to its capabilities read, signed by this phone's device. Lab hook: only androidTest calls it. */
     internal suspend fun boxAnswer(persona: String, box: String): BoxAnswer<ByteArray> =
         client(persona, store.route(persona, box) ?: throw IllegalStateException("That box is not paired.")).capabilities()

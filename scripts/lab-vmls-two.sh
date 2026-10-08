@@ -12,9 +12,16 @@
 # removed device's grant revoked, the keeper's close of the first room, and a
 # third room whose guest device is taken as compromised: its grant revoked at
 # once, before the Remove (M05), the keeper's sends held until the Remove.
+# With THIRD_SERIAL it runs a separate three-device lab instead, on a fresh
+# box: a third emulator holds the guest's person on a second device; the
+# keeper removes that device alone while the guest's phone, offline across it,
+# sends under the old epoch (M06, M07); then a fifth room removes the whole
+# person, one removal naming both devices (M06). Separate, because the box
+# takes at most 8 new commits an hour from one grant
+# (`SLOT_DEPOSITS_PER_HOUR`), and the two-device rooms use the keeper's.
 #
-# Usage: KEEPER_SERIAL=emulator-PORT GUEST_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node \
-#        LAB_NOSTR_PORT=PORT [LAB_RELAY=wss://…] scripts/lab-vmls-two.sh
+# Usage: KEEPER_SERIAL=emulator-PORT GUEST_SERIAL=emulator-PORT [THIRD_SERIAL=emulator-PORT] \
+#        BOTHY_NODE=path/to/bothy-node LAB_NOSTR_PORT=PORT [LAB_RELAY=wss://…] scripts/lab-vmls-two.sh
 # LAB_NOSTR_PORT is a Nostr relay already listening on 127.0.0.1 (for example
 # `trott relay -p PORT` from trott-devtools). Build the debug app and
 # instrumentation APKs first.
@@ -25,7 +32,10 @@ set -euo pipefail
 adb_bin="${ANDROID_HOME:?Set ANDROID_HOME}/platform-tools/adb"
 keeper="${KEEPER_SERIAL:-}"
 guest="${GUEST_SERIAL:-}"
-for serial in "$keeper" "$guest"; do
+third="${THIRD_SERIAL:-}"
+devices=("$keeper" "$guest")
+[[ -n "$third" ]] && devices+=("$third")
+for serial in "${devices[@]}"; do
   case "$serial" in
     emulator-[0-9]*) ;;
     *) echo 'Set KEEPER_SERIAL and GUEST_SERIAL to disposable emulator serials (emulator-PORT).' >&2; exit 2 ;;
@@ -36,6 +46,7 @@ for serial in "$keeper" "$guest"; do
   fi
 done
 [[ "$keeper" != "$guest" ]] || { echo 'The keeper and the guest need two emulators.' >&2; exit 2; }
+[[ -z "$third" || ( "$third" != "$keeper" && "$third" != "$guest" ) ]] || { echo 'The third device needs its own emulator.' >&2; exit 2; }
 nc -z 127.0.0.1 "$LAB_NOSTR_PORT" || { echo "No relay on 127.0.0.1:$LAB_NOSTR_PORT." >&2; exit 2; }
 relay_url="${LAB_RELAY:-wss://link1.forgesworn.dev/link}"
 nostr="ws://127.0.0.1:$LAB_NOSTR_PORT"
@@ -52,7 +63,7 @@ online() { adb_on "$1" shell svc wifi enable >/dev/null 2>&1 || true; adb_on "$1
 cleanup() {
   trap - EXIT INT TERM
   online "$guest"
-  for serial in "$keeper" "$guest"; do
+  for serial in "${devices[@]}"; do
     [[ -n "$port" ]] && adb_on "$serial" reverse --remove "tcp:$port" >/dev/null 2>&1 || true
     adb_on "$serial" reverse --remove "tcp:$LAB_NOSTR_PORT" >/dev/null 2>&1 || true
   done
@@ -64,6 +75,7 @@ trap cleanup EXIT INT TERM
 failed() {
   adb_on "$keeper" logcat -d -t 20000 > "$reports/keeper-logcat.txt" || true
   adb_on "$guest" logcat -d -t 20000 > "$reports/guest-logcat.txt" || true
+  [[ -n "$third" ]] && { adb_on "$third" logcat -d -t 20000 > "$reports/third-logcat.txt" || true; }
   echo "The two-device lab did not pass: $1. Reports: $reports" >&2
   exit 1
 }
@@ -128,7 +140,7 @@ done
 curl -fsS "http://127.0.0.1:$port/ready" | tee "$reports/ready.json" | grep -q '"vmls":true'
 echo
 
-for serial in "$keeper" "$guest"; do
+for serial in "${devices[@]}"; do
   online "$serial"
   adb_on "$serial" reverse "tcp:$port" "tcp:$port"
   adb_on "$serial" reverse "tcp:$LAB_NOSTR_PORT" "tcp:$LAB_NOSTR_PORT"
@@ -139,6 +151,7 @@ for serial in "$keeper" "$guest"; do
   adb_on "$serial" logcat -c
 done
 
+if [[ -z "$third" ]]; then
 # The room, its link over the relay, and the guest let in.
 one "$keeper" keeper create room 1 || failed 'create'
 link="$(kept "$keeper" keeper link1)"
@@ -199,7 +212,42 @@ one "$keeper" keeper compromise room 3 || failed 'the compromised device revoked
 one "$guest" guest cut-off room 3 || failed 'the compromised device cut off'
 one "$keeper" keeper contain room 3 || failed 'the Remove after the revocation'
 one "$keeper" keeper close room 3 grant revoked || failed 'close the third room'
+fi
+
+if [[ -n "$third" ]]; then
+  # M06 and M07: the person's phone and tablet both let in; the tablet removed alone while the phone is offline.
+  one "$keeper" keeper create room 4 || failed 'create the fourth room'
+  link="$(kept "$keeper" keeper link4)"
+  both 20 "$keeper" keeper admit room 4 keep true -- "$guest" guest join room 4 link "$link" || failed 'the phone joins the fourth room'
+  # The guest's person on the third emulator: its persona key copied across, never printed.
+  if ! "$adb_bin" -s "$guest" exec-out run-as "$package" cat no_backup/vmls-two-guest/persona \
+    | "$adb_bin" -s "$third" shell "run-as $package sh -c 'mkdir -p no_backup/vmls-two-third && cat > no_backup/vmls-two-third/persona'" \
+    || [[ "$(kept "$third" third persona | wc -c | tr -d ' ')" != 64 ]]; then
+    failed 'copy the persona to the third device'
+  fi
+  both 20 "$keeper" keeper admit room 4 device tablet-device -- "$third" third join room 4 link "$link" || failed 'the tablet joins the fourth room'
+  # The phone first learns the tablet's Add: a message from the epoch before it, the tablet could never read.
+  one "$guest" guest talk room 4 rounds 4 || failed 'the phone catches up'
+  both 2 "$guest" guest talk room 4 say from-the-phone -- "$third" third talk room 4 expect from-the-phone || failed 'the phone to the tablet'
+  one "$keeper" keeper talk room 4 expect from-the-phone || failed 'the phone to the keeper'
+  one "$keeper" keeper remove-device room 4 || failed 'the tablet removed alone'
+  one "$guest" guest stale room 4 || failed 'the phone sends under the old epoch'
+  one "$keeper" keeper heard-stale room 4 || failed 'the keeper reads both epochs'
+  one "$third" third removed-reader room 4 || failed 'the removed tablet'
+  one "$keeper" keeper close room 4 grant revoked devices guest-device,tablet-device || failed 'close the fourth room'
+
+  # M06: the whole person removed, one removal naming both devices.
+  one "$keeper" keeper create room 5 || failed 'create the fifth room'
+  link="$(kept "$keeper" keeper link5)"
+  both 20 "$keeper" keeper admit room 5 keep true -- "$guest" guest join room 5 link "$link" || failed 'the phone joins the fifth room'
+  both 20 "$keeper" keeper admit room 5 device tablet-device -- "$third" third join room 5 link "$link" || failed 'the tablet joins the fifth room'
+  one "$keeper" keeper remove-person room 5 || failed 'the person removed'
+  one "$guest" guest removed room 5 || failed 'the phone removed'
+  one "$third" third removed room 5 || failed 'the tablet removed'
+  one "$keeper" keeper close room 5 grant revoked devices guest-device,tablet-device || failed 'close the fifth room'
+  adb_on "$third" logcat -d -s VmlsTwoDevice:I > "$reports/third-steps.txt" || true
+fi
 
 adb_on "$keeper" logcat -d -s VmlsTwoDevice:I > "$reports/keeper-steps.txt" || true
 adb_on "$guest" logcat -d -s VmlsTwoDevice:I > "$reports/guest-steps.txt" || true
-echo "Two-device lab passed. Reports: $reports"
+if [[ -n "$third" ]]; then echo "Three-device lab passed. Reports: $reports"; else echo "Two-device lab passed. Reports: $reports"; fi
