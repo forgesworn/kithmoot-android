@@ -94,8 +94,8 @@ run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAdd
 
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png" "$reports/"
 
-run_tests shared-projects-ui 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
-for picture in three-shared-projects project-room-admission restored-project-membership; do
+run_tests shared-projects-ui 2 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
+for picture in three-shared-projects project-room-admission restored-project-membership project-room-assignment; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png" "$reports/"
 done
 run_tests project-restart-prepare 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#a_prepare_pending

@@ -28,10 +28,25 @@ data class ProjectActions(
 /** @param showHeader false when a host page (ProjectsScreen) already shows
  *  the "Projects" title and its own Sync action in an app bar. */
 @Composable
-fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolean = true) {
+fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolean = true,
+    roomToAdd: String? = null, onSignIn: () -> Unit = {},
+) {
     val account = state.account
-    var editing by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<SharedProject?>(null) }
+    var editing by remember(account?.pubkey) { mutableStateOf(false) }
+    var selected by remember(account?.pubkey) { mutableStateOf<SharedProject?>(null) }
+    var candidate by remember(account?.pubkey, roomToAdd) { mutableStateOf<ProjectRoomChoice?>(null) }
+    var candidateLoading by remember(account?.pubkey, roomToAdd) { mutableStateOf(roomToAdd != null) }
+    var candidateError by remember(account?.pubkey, roomToAdd) { mutableStateOf<String?>(null) }
+    LaunchedEffect(account?.pubkey, roomToAdd) {
+        if (roomToAdd != null && account != null) {
+            try {
+                candidate = actions.rooms().find { it.room == roomToAdd }
+                if (candidate == null) candidateError = "This room cannot be shared through this account's projects. Choose a persistent room opened with this account, or use a local room group."
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { candidateError = "The room invitation could not be read. Try opening Projects again." }
+        }
+        candidateLoading = false
+    }
     val enabled = state.projects.ready && !state.projectsBusy && !state.busy
     Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
         if (showHeader) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -39,9 +54,12 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
             if (account != null) TextButton(actions.refresh, enabled = !state.projects.syncing && !state.projectsBusy) { Text("Sync") }
         }
         if (account == null) {
-            Text("Sign in below to bring your projects, people and rooms onto this phone.")
+            Text("Sign in to create projects and share rooms with your people, agents and other devices.")
+            Button(onSignIn, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sign in") }
         } else {
             Text("Your shared projects follow this account between devices.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            candidate?.let { Text("Add ${it.name} to a project below, or create a new project. Its invitation will be shared with the project's members.") }
+            candidateError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state.projects.syncing) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Syncing projects" })
             (state.projectError ?: state.projects.error)?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -55,7 +73,8 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
                 Text("${state.projects.pendingSends} project updates waiting to send", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 OutlinedButton(actions.retry, enabled = enabled) { Text("Retry project updates") }
             }
-            Button({ selected = null; editing = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("New project") }
+            Button({ selected = null; editing = true }, enabled = !state.projectsBusy && !state.busy && !candidateLoading,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("New project") }
             if (state.projects.ready && state.projects.projects.isEmpty()) Text("Start a project here, or ask its owner to invite this account.")
             for (project in state.projects.projects) {
                 var peopleShown by remember(project.key) { mutableStateOf(false) }
@@ -102,13 +121,20 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
                             else if (project.joined) TextButton({ actions.follow(project, false) }, enabled = enabled,
                                 modifier = Modifier.semantics { contentDescription = "Leave ${project.name}" }) { Text("Leave project") }
                             }
+                            if (project.reference.owner == account.pubkey && !project.archived && candidate != null) {
+                                val already = rooms.any { it.room == candidate?.room }
+                                Button({ selected = project; editing = true }, enabled = enabled,
+                                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Add room to ${project.name}" }) {
+                                    Text(if (already) "Review room in project" else "Add room to project")
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
-    if (editing && account != null) ProjectEditor(account.pubkey, selected, state, actions) { editing = false }
+    if (editing && account != null) ProjectEditor(account.pubkey, selected, state, actions, candidate) { editing = false }
 }
 
 /** Preserve known collaborator names and invitations that are not saved locally on this phone. */
@@ -135,7 +161,9 @@ internal fun projectDefinition(owner: String, original: SharedProject?, name: St
 }
 
 @Composable
-private fun ProjectEditor(owner: String, original: SharedProject?, state: StartState, actions: ProjectActions, dismiss: () -> Unit) {
+private fun ProjectEditor(owner: String, original: SharedProject?, state: StartState, actions: ProjectActions,
+    roomToAdd: ProjectRoomChoice? = null, dismiss: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val members = original?.definition?.get("members")?.jsonArray.orEmpty()
     fun initial(kind: String) = members.map { it.jsonObject }.filter { it["kind"] == JsonPrimitive(kind) && it["pubkey"] != JsonPrimitive(owner) }
@@ -144,7 +172,7 @@ private fun ProjectEditor(owner: String, original: SharedProject?, state: StartS
     var people by remember { mutableStateOf(initial("person")) }
     var agents by remember { mutableStateOf(initial("agent")) }
     var archived by remember { mutableStateOf(original?.archived == true) }
-    var options by remember { mutableStateOf(original?.roomChoices().orEmpty()) }
+    var options by remember { mutableStateOf((original?.roomChoices().orEmpty() + listOfNotNull(roomToAdd)).distinctBy { it.room }) }
     var selected by remember { mutableStateOf(options.map { it.room }.toSet()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -157,6 +185,8 @@ private fun ProjectEditor(owner: String, original: SharedProject?, state: StartS
     AlertDialog(onDismissRequest = { if (!state.projectsBusy) dismiss() }, title = { Text(if (original == null) "New project" else "Edit project") },
         text = {
             Column(Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!state.projects.ready) Text(state.projects.error ?: "Your project is a draft until your signer and project sync are ready. Finish connecting, then save it.",
+                    color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 OutlinedTextField(name, { name = it.take(64) }, label = { Text("Project name") }, singleLine = true, enabled = !state.projectsBusy)
                 Text("You remain the project owner. Invite people and agents by their public npub.")
                 OutlinedTextField(people, { people = it.take(5000) }, label = { Text("People's npubs") }, minLines = 2, maxLines = 4, enabled = !state.projectsBusy)

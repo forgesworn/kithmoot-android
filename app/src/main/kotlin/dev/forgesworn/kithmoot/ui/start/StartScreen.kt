@@ -83,6 +83,7 @@ fun StartScreen(
     callRoomId: String? = null,
     onStopOpening: () -> Unit = {},
     onOpenProjects: () -> Unit = {},
+    onAddRoomToProject: (String) -> Unit = {},
     onShareInvite: (String) -> Unit = {},
     onSignIn: () -> Unit = {},
     /** VMLS rooms (P3-03b-3 decision 21), shown beside saved rooms. */
@@ -154,7 +155,8 @@ fun StartScreen(
         val saved = savedById[room.id]
         if (saved != null) {
             add(0, ConversationAction(if (saved.pinned) "Unpin" else "Pin") { onPin(saved.id, !saved.pinned) })
-            add(ConversationAction(if (saved.project != null) "Change project" else "Add to a project") { filing = saved; filedAs = saved.project.orEmpty() })
+            add(ConversationAction("Add to a project") { onAddRoomToProject(saved.id) })
+            add(ConversationAction(if (saved.project != null) "Change local group" else "Group on this phone") { filing = saved; filedAs = saved.project.orEmpty() })
             if (!saved.anonymous && saved.account == state.account?.pubkey) {
                 if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
                 else add(ConversationAction("Connect Bothy") { pairingRoom = saved; pairingCode = "" })
@@ -182,7 +184,7 @@ fun StartScreen(
                 layout = layout, state = state, enabled = enabled,
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
                 onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged,
-                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onAddOfferedCard = onAddOfferedCard,
+                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
             )
 
@@ -270,11 +272,11 @@ fun StartScreen(
     }
     filing?.let { room ->
         val existing = state.savedRooms.mapNotNull { it.project }.distinct().sorted()
-        AlertDialog(onDismissRequest = { filing = null }, title = { Text("Project for ${room.name}") },
+        AlertDialog(onDismissRequest = { filing = null }, title = { Text("Local group for ${room.name}") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("A label on this device, so rooms for one piece of work sit together. Leave it empty to take the room out of its project.")
-                    OutlinedTextField(filedAs, { filedAs = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Project") })
+                    Text("A label on this device, so rooms for one piece of work sit together. Leave it empty to take the room out of its local group.")
+                    OutlinedTextField(filedAs, { filedAs = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Local group") })
                     if (existing.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (name in existing) OutlinedButton({ filedAs = name }) { Text(name) }
                     }
@@ -346,7 +348,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
-    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
 ) {
@@ -364,6 +366,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     @Composable
     fun Foot() {
         InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin)
+        TextButton(onOpenProjects, Modifier.heightIn(min = 48.dp)) { Text("Projects") }
         if (state.account == null) TextButton(onSignIn, Modifier.heightIn(min = 48.dp)) { Text("Already on Nostr? Sign in") }
     }
 
@@ -450,7 +453,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                         if (showSearch) IconButton({ if (searchOpen) onQueryChanged(""); searchOpen = !searchOpen }, Modifier.size(48.dp)) {
                             Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search rooms")
                         }
-                        if (state.account != null) TextButton(onOpenProjects) { Text("Projects") }
+                        TextButton(onOpenProjects) { Text("Projects") }
                         Box {
                             IconButton({ overflowOpen = true }, Modifier.size(48.dp)) { Icon(Icons.Filled.MoreVert, "More") }
                             DropdownMenu(overflowOpen, { overflowOpen = false }) {

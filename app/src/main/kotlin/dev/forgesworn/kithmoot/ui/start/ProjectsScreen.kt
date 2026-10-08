@@ -20,7 +20,9 @@ import dev.forgesworn.kithmoot.ui.StartState
  *  beside the Rooms heading (design-home-rooms.md Q7). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectsScreen(state: StartState, actions: ProjectActions, onBack: () -> Unit) {
+fun ProjectsScreen(state: StartState, actions: ProjectActions, onBack: () -> Unit,
+    roomToAdd: String? = null, onSignIn: () -> Unit = {},
+) {
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Projects", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -33,7 +35,7 @@ fun ProjectsScreen(state: StartState, actions: ProjectActions, onBack: () -> Uni
             // A room-open error started here (an admitted-but-wrong room, a
             // stale directory entry) must be visible here too, not only on home.
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-            ProjectsPanel(state, actions, showHeader = false)
+            ProjectsPanel(state, actions, showHeader = false, roomToAdd = roomToAdd, onSignIn = onSignIn)
         }
     }
 }
