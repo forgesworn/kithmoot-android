@@ -136,6 +136,21 @@ class SessionDriverTest {
         assertTrue(world.calls.none { it.startsWith("deposit_result") })
     }
 
+    @Test fun `a commit the box rate-limits waits in the outbox, and the round says so`() = runBlocking<Unit> {
+        val commit = Outgoing(bytes(32), bytes(32), Destination.Slot(box, 7, 4), bytes(64))
+        val message = Outgoing(bytes(32), bytes(32), Destination.Leaf(box, bytes(32)), bytes(64))
+        world.outbox += listOf(commit, message)
+        fake.refuseDeposit[commit.mailbox.toHex()] = 429 to "rate-limited"
+        assertEquals(Round.Done(1, 0, 0, limited = true), round())
+        assertEquals(listOf(commit.recordId.toHex()), world.outbox.map { it.recordId.toHex() })
+        // Another refusal of a commit, or the same code on a message, is not the limit.
+        fake.refuseDeposit[commit.mailbox.toHex()] = 429 to "quota"
+        assertEquals(Round.Done(0, 0, 0), round())
+        fake.refuseDeposit.clear()
+        assertEquals(Round.Done(1, 0, 0), round())
+        assertTrue(world.outbox.isEmpty())
+    }
+
     @Test fun `a Welcome a package took is delivered, and a keeper's acknowledgement also confirms the member`() = runBlocking<Unit> {
         // No package took it (none registered): stored as a plain record, so it waits.
         val unregistered = Outgoing(bytes(32), bytes(32), Destination.Welcome(bytes(32)), bytes(64))
@@ -494,7 +509,7 @@ internal class FakeBox(private val node: String, private val installation: ByteA
     /** The package's state in a deposit answer: null when no package took the record. */
     var welcomeAcknowledged: Boolean? = null
     var pageSize = 64
-    /** Mailbox hex -> (status, code) the box refuses a deposit there with. */
+    /** Mailbox or slot hex -> (status, code) the box refuses a deposit there with. */
     val refuseDeposit = mutableMapOf<String, Pair<Int, String>>()
     /** Mailbox hex the box gives no answer for. */
     val silent = mutableSetOf<String>()
@@ -534,7 +549,7 @@ internal class FakeBox(private val node: String, private val installation: ByteA
         return when {
             parts[0] == "mailboxes" && parts[1] in silent -> null
             parts[0] == "mailboxes" && parts[1] in malformedDeposit -> reply(201, """{"v":1,"code":"stored"}""")
-            parts[0] == "mailboxes" && parts[1] in refuseDeposit -> refuseDeposit.getValue(parts[1]).let { (st, code) -> reply(st, """{"v":1,"code":"$code","server_time":1}""") }
+            (parts[0] == "mailboxes" || (parts[0] == "slots" && parts.size == 3)) && parts[1] in refuseDeposit -> refuseDeposit.getValue(parts[1]).let { (st, code) -> reply(st, """{"v":1,"code":"$code","server_time":1}""") }
             parts[0] == "mailboxes" -> {
                 val list = records.getOrPut(parts[1]) { mutableListOf() }
                 val duplicate = list.any { it.contentEquals(request.body) }

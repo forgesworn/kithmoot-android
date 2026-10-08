@@ -314,6 +314,7 @@ private fun stateLabel(state: VmlsRoomState): String = when (state) {
     VmlsRoomState.READY -> "ready"
     VmlsRoomState.JOINING -> "waiting to be added"
     VmlsRoomState.SENDING -> "sending"
+    VmlsRoomState.LIMITED -> "waiting on the box"
     VmlsRoomState.RETRYING -> "retrying"
     VmlsRoomState.CHECKING -> "checking with the box"
     VmlsRoomState.STOPPED -> "stopped"
