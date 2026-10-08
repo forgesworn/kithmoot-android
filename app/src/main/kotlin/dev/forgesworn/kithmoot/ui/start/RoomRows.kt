@@ -33,6 +33,7 @@ internal data class HomeRoom(
     val destruct: Boolean = false,
     /** When this device first knew the room, for scaling the countdown. */
     val startsAt: Long? = null,
+    val privatePeer: String? = null,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -61,7 +62,7 @@ internal fun roomLabel(name: String?, id: String): String {
 
 /** One list of [HomeRoom]: every room saved on this phone, plus, when signed
  *  in, every account bookmark not already saved here. No second list. */
-internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean): List<HomeRoom> {
+internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null): List<HomeRoom> {
     val savedIds = saved.map { it.id }.toSet()
     val fromSaved = saved.map { room ->
         HomeRoom(
@@ -70,6 +71,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
             destruct = room.destruct, startsAt = room.startsAt,
+            privatePeer = room.privatePeer.takeIf { !room.anonymous && (room.account == null || room.account == account) },
         )
     }
     if (!signedIn) return fromSaved
@@ -79,6 +81,11 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             openedAt = bookmark.openedAt, project = null, account = null, anonymous = false,
             secondary = false, ended = false, canShareInvite = false,
             endsAt = bookmark.endsAt, destruct = bookmark.destruct, startsAt = bookmark.startsAt,
+            privatePeer = account?.let { self -> runCatching {
+                val policy = dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(bookmark.link)?.policy
+                    ?: dev.forgesworn.kithmoot.protocol.decodeJoinUrl(bookmark.link).policy
+                dev.forgesworn.kithmoot.session.dmPeer(policy, self)
+            }.getOrNull() },
         )
     }
     return fromSaved + fromBookmarks

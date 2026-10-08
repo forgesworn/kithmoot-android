@@ -40,6 +40,34 @@ class RoomRowsTest {
         assertEquals(listOf("a"), signedOut.map { it.id })
     }
 
+    @Test fun `private pictures are scoped to the saved account and exclude anonymous rooms`() {
+        val account = "1".repeat(64)
+        val peer = "2".repeat(64)
+        val saved = listOf(
+            SavedRoomSummary("local", "Peer", false, 10, privatePeer = peer),
+            SavedRoomSummary("account", "Peer", false, 10, account = account, privatePeer = peer),
+            SavedRoomSummary("anonymous", "Peer", false, 10, anonymous = true, privatePeer = peer),
+        )
+        val signedOut = mergeRooms(saved, emptyList(), false)
+        assertEquals(listOf(peer, null, null), signedOut.map { it.privatePeer })
+        assertEquals(listOf(peer, peer, null), mergeRooms(saved, emptyList(), true, account).map { it.privatePeer })
+        assertEquals(listOf(peer, null, null), mergeRooms(saved, emptyList(), true, "3".repeat(64)).map { it.privatePeer })
+        val state = dev.forgesworn.kithmoot.ui.StartState(savedRooms = saved)
+        assertEquals(listOf(peer), dev.forgesworn.kithmoot.ui.privateChatProfileScope(state).second)
+        assertTrue(dev.forgesworn.kithmoot.ui.privateChatProfileScope(state.copy(publicProfiles = false)).second.isEmpty())
+    }
+
+    @Test fun `account bookmark picture identifies the other member and rejects unrelated policies`() {
+        val account = "1".repeat(64)
+        val peer = "2".repeat(64)
+        val secret = ByteArray(32) { 1 }
+        val link = dev.forgesworn.kithmoot.protocol.encodeJoinUrl("https://example.test/j/", secret, emptyList(),
+            dev.forgesworn.kithmoot.session.dmPolicy(account, peer))
+        val bookmarks = listOf(AccountRoom("private", link, "Peer", 10), AccountRoom("broken", "bad", "Group", 10))
+        assertEquals(listOf(peer, null), mergeRooms(emptyList(), bookmarks, true, account).map { it.privatePeer })
+        assertTrue(mergeRooms(emptyList(), bookmarks, true, "3".repeat(64)).all { it.privatePeer == null })
+    }
+
     @Test fun `sortByActivity orders by time then label then id`() {
         val rooms = listOf(room(roomId = "z", label = "Zebra", openedAt = 100), room(roomId = "a", label = "apple", openedAt = 100),
             room(roomId = "b", label = "Apple", openedAt = 200))

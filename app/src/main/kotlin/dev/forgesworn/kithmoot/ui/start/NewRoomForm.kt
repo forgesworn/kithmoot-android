@@ -11,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import kotlin.math.roundToInt
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -42,6 +44,7 @@ internal fun NewRoomForm(
     /** When a room with an end ends: self-destruct (the default) or keep a read-only copy. */
     roomDestruct: Boolean = true,
     onRoomDestructChanged: ((Boolean) -> Unit)? = null,
+    durationSeconds: Int = 7200, onDurationChanged: (Int) -> Unit = {},
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OutlinedTextField(
@@ -50,7 +53,7 @@ internal fun NewRoomForm(
             label = { Text("Room name (optional)") }, placeholder = { Text("e.g. Saturday workshop") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { if (enabled) onStartRoom() }),
+            keyboardActions = KeyboardActions(onGo = { if (enabled && (conferenceLength != ConferenceLength.CUSTOM || durationSeconds >= 60)) onStartRoom() }),
         )
         Row(
             Modifier.fillMaxWidth().heightIn(min = 56.dp)
@@ -67,12 +70,15 @@ internal fun NewRoomForm(
             Switch(checked = anonymousMode, onCheckedChange = null, enabled = enabled)
         }
         if (onConferenceLengthChanged != null) ConferenceLengthChoice(conferenceLength, onConferenceLengthChanged, enabled)
+        if (onConferenceLengthChanged != null && conferenceLength == ConferenceLength.CUSTOM) {
+            RoomDurationSliders(durationSeconds, onDurationChanged, enabled, roomDestruct)
+        }
         if (onConferenceLengthChanged != null && onRoomDestructChanged != null && conferenceLength != ConferenceLength.NEVER) {
             WhenItEndsChoice(roomDestruct, onRoomDestructChanged, enabled)
         }
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onStartRoom, enabled = enabled && !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Start a room") }
+            Button(onStartRoom, enabled = enabled && !busy && (conferenceLength != ConferenceLength.CUSTOM || durationSeconds >= 60), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Start a room") }
             if (onCancel != null) TextButton(onCancel, Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -128,5 +134,32 @@ internal fun WhenItEndsChoice(destruct: Boolean, onSelected: (Boolean) -> Unit, 
             dev.forgesworn.kithmoot.session.DESTRUCT_PROMISE,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+
+@Composable
+internal fun RoomDurationSliders(seconds: Int, onChanged: (Int) -> Unit, enabled: Boolean, destruct: Boolean) {
+    val days = seconds / 86400
+    val hours = seconds % 86400 / 3600
+    val minutes = seconds % 3600 / 60
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for ((label, value, max) in listOf(Triple("Days", days, 30), Triple("Hours", hours, 23), Triple("Minutes", minutes, 59))) {
+            Text("$label: $value", style = MaterialTheme.typography.titleSmall)
+            Slider(value.toFloat(), onValueChange = { position ->
+                val next = position.roundToInt()
+                val total = when (label) {
+                    "Days" -> next * 86400 + hours * 3600 + minutes * 60
+                    "Hours" -> days * 86400 + next * 3600 + minutes * 60
+                    else -> days * 86400 + hours * 3600 + next * 60
+                }
+                onChanged(total.coerceAtMost(30 * 86400))
+            }, enabled = enabled && (label == "Days" || days < 30), valueRange = 0f..max.toFloat(), steps = max - 1,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = label })
+        }
+        val now = dev.forgesworn.kithmoot.ui.room.rememberNow()
+        Text(if (seconds >= 60) "${if (destruct) "Self-destructs" else "Ends"} ${dev.forgesworn.kithmoot.session.conferenceEndLabel(now + seconds)} · $days days, $hours hours, $minutes minutes from creation."
+            else "Choose at least one minute.", style = MaterialTheme.typography.bodySmall,
+            color = if (seconds >= 60) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
     }
 }

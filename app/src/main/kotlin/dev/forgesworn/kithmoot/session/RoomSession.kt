@@ -511,8 +511,12 @@ class RoomSession(
         // under them only once it is told (kithmoot-android #127, #128).
         if (synchronized(lock) { pastEpochs.isNotEmpty() }) handPastToTransport()
         if (authority != null) {
+            val replayed = CompletableDeferred<Unit>()
             jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                transport.subscribe(listOf(rekeyFilter())).collect(::onRekeyEvent)
+                transport.subscribeReplayed(listOf(rekeyFilter())) {
+                    replayed.complete(Unit)
+                    rekeysReplayed.complete(Unit)
+                }.collect(::onRekeyEvent)
             }
             jobs += scope.launch {
                 delay(REKEY_REPLAY_WAIT_MS)
@@ -529,7 +533,9 @@ class RoomSession(
             val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe)
             // Told where the room is, there is nothing to wait for; told
             // nothing, wait for the rekeys a relay replays.
-            if (opening !is EpochOpening.Recover && epochSettleMs > 0) delay(epochSettleMs)
+            if (opening !is EpochOpening.Recover && epochSettleMs > 0) {
+                withTimeoutOrNull(epochSettleMs) { replayed.await() }
+            }
             when (opening) {
                 is EpochOpening.Recover -> beginRecoveryAtOpen(opening.epoch)
                 EpochOpening.Probe -> jobs += scope.launch { probeAuthority() }

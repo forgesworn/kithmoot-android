@@ -1,3 +1,13 @@
+<!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
+
+## 0.6.69 (92): private chat pictures and room lifetime controls
+
+Private chat rows use the other member's verified kind-0 picture, including before the room is opened. The existing public-profile switch controls lookups and image loading; anonymous rooms and rooms belonging to another signed-in account are excluded. MySignet contact photos await its contact API.
+
+Choose a duration offers days, hours and minutes, an end-time preview and the existing self-destruct/read-only choice. Zero is refused and the protocol's 30-day maximum is enforced. The KithMoot home title is an accessible start-page button.
+
+Validation: focused peer/account-boundary and custom-deadline unit tests pass. The installed emulator's slider journey passes, including zero refusal, combined units and the maximum. Physical avatar acceptance and public publication are recorded separately.
+
 # Android release signing and device acceptance
 
 ## 0.6.68: create projects and add existing rooms

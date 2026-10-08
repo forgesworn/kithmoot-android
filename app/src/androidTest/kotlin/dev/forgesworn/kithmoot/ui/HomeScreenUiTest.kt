@@ -40,6 +40,29 @@ import org.junit.Test
 class HomeScreenUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun duration_sliders_preserve_days_hours_and_minutes_and_refuse_zero() {
+        var seconds by mutableStateOf(7200)
+        compose.setContent {
+            KithMootTheme {
+                dev.forgesworn.kithmoot.ui.start.NewRoomForm("Temporary", {}, false, {}, true, false, null, {},
+                    conferenceLength = dev.forgesworn.kithmoot.session.ConferenceLength.CUSTOM,
+                    onConferenceLengthChanged = {}, durationSeconds = seconds, onDurationChanged = { seconds = it })
+            }
+        }
+        compose.onNodeWithContentDescription("Hours").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        compose.onNodeWithText("Start a room").assertIsNotEnabled()
+        compose.onNodeWithText("Choose at least one minute.").assertExists()
+        compose.onNodeWithContentDescription("Days").performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        compose.onNodeWithContentDescription("Hours").performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+        compose.onNodeWithContentDescription("Minutes").performSemanticsAction(SemanticsActions.SetProgress) { it(5f) }
+        compose.runOnIdle { assertEquals(86400 + 7200 + 300, seconds) }
+        compose.onNodeWithText("Start a room").assertIsEnabled()
+        compose.onNodeWithContentDescription("Days").performSemanticsAction(SemanticsActions.SetProgress) { it(30f) }
+        compose.runOnIdle { assertEquals(30 * 86400, seconds) }
+        compose.onNodeWithContentDescription("Hours").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Minutes").assertIsNotEnabled()
+    }
+
     private fun room(
         id: String, name: String, openedAt: Long = 0, project: String? = null, account: String? = null,
         anonymous: Boolean = false, secondary: Boolean = false, ended: Boolean = false, canShareInvite: Boolean = false,
@@ -80,8 +103,8 @@ class HomeScreenUiTest {
         compose.onNodeWithText("A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.").assertIsDisplayed()
         compose.onNodeWithText("Room name (optional)").assertIsDisplayed()
         compose.onNodeWithText("Tor-only room (Orbot)").assertIsDisplayed()
-        compose.onNodeWithText("Start a room").assertIsDisplayed()
-        compose.onNodeWithText("Open an invite link").assertIsDisplayed()
+        compose.onNodeWithText("Start a room").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open an invite link").performScrollTo().assertIsDisplayed()
         // Below the fold of a 360 x 640 screen since the start form grew: reached by scrolling.
         compose.onNodeWithText("Already on Nostr? Sign in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("New room").assertDoesNotExist()
@@ -109,7 +132,7 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Invite link").assertDoesNotExist()
         val toggle = compose.onNodeWithText("Open an invite link")
         assertEquals("Collapsed", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
-        toggle.performClick()
+        toggle.performScrollTo().performClick()
         assertEquals("Expanded", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
         compose.onNodeWithText("Invite link").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Scan QR code").performScrollTo().assertIsDisplayed()
@@ -307,7 +330,7 @@ class HomeScreenUiTest {
     // AC 23
     @Test fun landscape_phone_cold_is_two_columns() {
         setHome(StartState(loadingRooms = false, savedRooms = emptyList()), widthDp = 760, heightDp = 360)
-        compose.onNodeWithText("Start a room").assertIsDisplayed()
+        compose.onNodeWithText("Start a room").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Start a room, then send the link.").assertIsDisplayed()
         val headingLeft = compose.onNodeWithText("Start a room, then send the link.").getUnclippedBoundsInRoot().left
         val buttonLeft = compose.onNodeWithText("Start a room").getUnclippedBoundsInRoot().left

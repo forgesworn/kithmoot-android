@@ -16,11 +16,12 @@ enum class ConferenceLength(val days: Int, val label: String) {
     NEVER(0, "Never"),
     ONE_DAY(1, "After 1 day"),
     THREE_DAYS(3, "After 3 days"),
-    SEVEN_DAYS(7, "After 7 days");
+    SEVEN_DAYS(7, "After 7 days"),
+    CUSTOM(-1, "Choose a duration");
 
     /** The end time a room started at [now] would have, or null for [NEVER]. */
-    fun endsFrom(now: Long): Long? =
-        if (this == NEVER) null else (now + days * 24L * 60 * 60).also { requireConferenceEnds(it, now) }
+    fun endsFrom(now: Long, durationSeconds: Int = 7200): Long? =
+        if (this == NEVER) null else (now + if (this == CUSTOM) durationSeconds.toLong() else days * 24L * 60 * 60).also { requireConferenceEnds(it, now) }
 }
 
 /** "Sat 4 Oct, 18:00": a conference room's end, in this device's zone. */

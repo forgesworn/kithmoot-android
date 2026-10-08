@@ -34,6 +34,15 @@ class ConferenceRoomsTest {
         assertTrue(ConferenceLength.entries.all { (it.endsFrom(now) ?: now) - now <= MAX_CONFERENCE_SECONDS })
     }
 
+    @Test fun `custom lifetimes preserve minute precision and enforce the protocol maximum`() {
+        val now = 1_800_000_000L
+        assertEquals(now + 60, ConferenceLength.CUSTOM.endsFrom(now, 60))
+        assertEquals(now + 86400 + 2 * 3600 + 5 * 60, ConferenceLength.CUSTOM.endsFrom(now, 86400 + 2 * 3600 + 5 * 60))
+        assertEquals(now + MAX_CONFERENCE_SECONDS, ConferenceLength.CUSTOM.endsFrom(now, MAX_CONFERENCE_SECONDS.toInt()))
+        assertFailsWith<IllegalArgumentException> { ConferenceLength.CUSTOM.endsFrom(now, 0) }
+        assertFailsWith<IllegalArgumentException> { ConferenceLength.CUSTOM.endsFrom(now, MAX_CONFERENCE_SECONDS.toInt() + 60) }
+    }
+
     @Test fun `every event a conference session publishes expires no later than the end`() = runTest {
         val ends = 10_000L
         val room = Fixtures.room()

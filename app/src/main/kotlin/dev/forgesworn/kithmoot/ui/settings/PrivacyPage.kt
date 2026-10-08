@@ -15,5 +15,5 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
 }
 
 /** Also the summary of the same switch in Room details, which writes the same preference. */
-const val PROFILES_SUMMARY = "Looks up each person's public Nostr profile. The room's relays see whose profiles you look up, " +
+const val PROFILES_SUMMARY = "Looks up public Nostr profiles for people in rooms and your private chat list. The room's relays see whose profiles you look up, " +
     "and pictures load from wherever each person keeps them. People choose their own names and pictures."
