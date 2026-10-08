@@ -74,7 +74,8 @@ class HomeScreenUiTest {
 
     // AC 13
     @Test fun cold_compact_shows_the_start_form_in_order_with_no_fab_or_tabs() {
-        setHome(StartState(loadingRooms = false, savedRooms = emptyList()))
+        var openedProjects = false
+        setHome(StartState(loadingRooms = false, savedRooms = emptyList()), onOpenProjects = { openedProjects = true })
         compose.onNodeWithText("Start a room, then send the link.").assertIsDisplayed()
         compose.onNodeWithText("A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.").assertIsDisplayed()
         compose.onNodeWithText("Room name (optional)").assertIsDisplayed()
@@ -85,7 +86,8 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Already on Nostr? Sign in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("New room").assertDoesNotExist()
         compose.onNodeWithText("Chats").assertDoesNotExist()
-        compose.onNodeWithText("Projects").assertDoesNotExist()
+        compose.onNodeWithText("Projects").performScrollTo().assertIsDisplayed().performClick()
+        assertTrue(openedProjects)
     }
 
     // AC 14

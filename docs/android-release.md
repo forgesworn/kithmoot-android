@@ -1,5 +1,13 @@
 # Android release signing and device acceptance
 
+## 0.6.68: create projects and add existing rooms
+
+Version code 91 makes Projects reachable even before signing in or saving a room, with a direct Sign in action. New project opens a draft while connection is pending; saving still requires the verified project history and signer to be ready, and the editor explains that requirement.
+
+The home room menu now opens the shared-project chooser. Choose an existing project you own or create one, with the selected room preselected and existing people, agents and invitations preserved. Device-only filing is separately labelled Group on this phone. Temporary rooms and rooms opened with another identity are still excluded from sharing through the account.
+
+Both installed-app shared-project journeys passed on a disposable API 35 emulator, including creating an empty project with a person and agent, adding a room from home, preserving membership and verifying the room was not merely assigned a local group. Physical-phone confirmation remains outstanding.
+
 ## Timed expiry and restart acceptance (8 October 2026)
 
 `RoomDestructJourneyUiTest` exercises the installed app's real activity, view model, encrypted saved identity, WebSocket relay and expiry clock. A synthetic room sends signed chat, learns a short deadline while open, shows the final countdown, then expires without calling the destructor from the test. The journey checks that the visible success burst follows saved-room deletion, that the device requests deletion of its own chat, and that the background inbox and pending outbox are cleared.

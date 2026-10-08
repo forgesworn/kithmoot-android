@@ -126,6 +126,7 @@ fun KithMootApp(
     // Settings and Projects are pushed over home; back returns to the rooms
     // list rather than leaving the app (design-home-rooms.md section 7).
     var homePage by rememberSaveable { mutableStateOf(HomePage.ROOMS) }
+    var projectRoomToAdd by rememberSaveable { mutableStateOf<String?>(null) }
     // Restore witness opens from Settings or from its banner; back returns there.
     var witnessFrom by rememberSaveable { mutableStateOf(HomePage.SETTINGS) }
     androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) {
@@ -581,7 +582,8 @@ fun KithMootApp(
                         modifier = Modifier.weight(1f),
                         callRoomId = callRoomId,
                         onStopOpening = model::stopOpening,
-                        onOpenProjects = { homePage = HomePage.PROJECTS },
+                        onOpenProjects = { projectRoomToAdd = null; homePage = HomePage.PROJECTS },
+                        onAddRoomToProject = { id -> projectRoomToAdd = id; homePage = HomePage.PROJECTS },
                         onSignIn = { signInSheetOpen = true },
                         onShareInvite = { id ->
                             homeCoroutines.launch {
@@ -669,7 +671,9 @@ fun KithMootApp(
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },
                         )
                     }
-                    HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions, onBack = { homePage = HomePage.ROOMS })
+                    HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions,
+                        onBack = { projectRoomToAdd = null; homePage = HomePage.ROOMS },
+                        roomToAdd = projectRoomToAdd, onSignIn = { signInSheetOpen = true })
                 }
                 if (signInSheetOpen) SignInSheet(startState, homeAccountActions, onDismiss = { signInSheetOpen = false })
             }

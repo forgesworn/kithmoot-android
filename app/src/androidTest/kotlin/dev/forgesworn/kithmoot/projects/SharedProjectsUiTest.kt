@@ -165,4 +165,38 @@ class SharedProjectsUiTest {
         ui.click("Join Kithmoot"); ui.await("renewed deliberate join") { project("Kithmoot").joined }; confirmed()
         screenshot("restored-project-membership.png")
     }
+
+    @Test fun a_room_can_be_added_to_an_existing_empty_project_from_home() {
+        val relay = ProjectTestRelay().also { server = it }
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        ui.home()
+        if (app.accounts.load() != null) {
+            ui.await("previous saved account") { model.start.value.account != null }
+            activity.scenario.onActivity { model.signOut() }
+            ui.await("previous account closed") { model.start.value.account == null }
+        }
+        resetProjectTestVault(app, owner)
+        app.savedRooms.reset()
+        activity.scenario.onActivity { model.refreshSavedRooms() }
+        asAccount(1, relay)
+        ui.click("Projects")
+        create("Empty project", member, agent)
+        val original = project("Empty project")
+        assertTrue(original.roomChoices().isEmpty())
+        ui.click("Back"); ui.home()
+        ui.click("New room"); ui.replace("Room name (optional)", "Build room")
+        ui.click("Start a room"); ui.room()
+        val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
+        ui.click("Leave room"); ui.home()
+        ui.click("More options for Build room"); ui.click("Add to a project")
+        ui.click("Add room to Empty project")
+        ui.click("Save project")
+        ui.await("room added to the existing shared project") { project("Empty project").roomChoices().singleOrNull()?.room == saved.id }
+        confirmed()
+        val updated = project("Empty project")
+        assertEquals(original.reference, updated.reference)
+        assertEquals(original.definition!!.getValue("members"), updated.definition!!.getValue("members"))
+        assertNull("Shared project assignment must not silently become a local label", app.savedRooms.get(saved.id)!!.project)
+        screenshot("project-room-assignment.png")
+    }
 }
