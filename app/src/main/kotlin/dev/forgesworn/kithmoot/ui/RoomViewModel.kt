@@ -1079,6 +1079,16 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // Account sync and the other chat/call instance can learn a deadline
+        // after this instance opened the room. Follow committed local lifetime
+        // changes in every instance, even when a bookmark needs no further write.
+        viewModelScope.launch(Dispatchers.IO) {
+            savedRooms.revision.collect {
+                try { reconcileOpenRoomLifetime() }
+                catch (e: CancellationException) { throw e }
+                catch (_: RoomStorageException) { storageFailed() }
+            }
+        }
         // Self-destructing rooms: those whose end came while this phone was
         // off go now, the rest when theirs comes; the heads-up at red; and the
         // tombstone rows, which age out by themselves.
@@ -1965,6 +1975,24 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     // --- start screen --------------------------------------------------------
+
+    private suspend fun reconcileOpenRoomLifetime() = gate.withLock {
+        val current = savedRoom ?: return@withLock
+        val stored = savedRooms.get(current.id) ?: return@withLock
+        if (stored.participant != current.participant || stored.devicePubkey != current.devicePubkey) return@withLock
+        val learned = current.withRoomLifetime(stored.ends, stored.destruct, stored.startsAt)
+        savedRoom = learned
+        _room.update { state ->
+            if (state.roomId != learned.id) state
+            else state.copy(endsAt = learned.ends, destruct = learned.destruct, startsAt = learned.startsAt)
+        }
+        val live = session
+        val scope = sessionScope
+        if (live != null && scope != null && learned.ends != current.ends) learned.ends?.let { end ->
+            live.learnRoomEnd(end)
+            endConferenceAt(live, scope, end, learned.id)
+        }
+    }
 
     fun onRoomNameChanged(value: String) {
         _start.update { it.copy(roomName = value.take(80)) }
