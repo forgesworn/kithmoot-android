@@ -45,6 +45,8 @@ enum class VmlsRoomState {
     /** A guest waiting for the keeper to add it. */
     JOINING,
     SENDING,
+    /** A commit waits on the box's hourly limit for new commits: [VmlsRoomView.reason] says so. */
+    LIMITED,
     RETRYING,
     /** "Checking with the box". */
     CHECKING,

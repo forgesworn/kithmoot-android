@@ -679,6 +679,7 @@ class VmlsRuntime(
             else -> VmlsRoomState.STOPPED
         }
         RoomStatus.Checking -> VmlsRoomState.CHECKING
+        RoomStatus.Limited -> VmlsRoomState.LIMITED
         RoomStatus.Retrying -> VmlsRoomState.RETRYING
         RoomStatus.Sending -> VmlsRoomState.SENDING
         RoomStatus.Joining -> VmlsRoomState.JOINING
@@ -687,7 +688,7 @@ class VmlsRuntime(
 
     /** Decision 22's words for why a room stopped; the exits are decision 23's. */
     private fun reasonOf(room: VmlsRoom): String? = when (val stop = room.stop) {
-        null -> null
+        null -> if (room.status == RoomStatus.Limited) LIMITED_WORDS + if (room.role == VmlsRole.KEEPER && heldNow(room.persona, room.session)) LIMITED_HELD else "" else null
         is RoomStop.Recovery -> "This room stopped sending: it needs a recovery this app cannot make yet (${stop.reason})."
         is RoomStop.Unknown -> "This room stopped sending on an event this app does not know (${stop.event})."
         RoomStop.KeyCompromise -> "This room stopped sending: this phone's MLS device may be compromised (${engines[room.persona]?.device?.device?.let(::shortHex) ?: "this device"})."
@@ -1466,7 +1467,7 @@ class VmlsRuntime(
         val events = synchronized(driven.events) { driven.events.toList().also { driven.events.clear() } }
         room = apply(room, events)
         when (round) {
-            is Round.Done -> room = room.settled()
+            is Round.Done -> room = room.settled(round.limited)
             // The phase moved under the round: the engine's word is taken again.
             is Round.Stopped, is Round.Fenced -> room = seed(engine, room) ?: room
             else -> Unit
@@ -1801,7 +1802,7 @@ class VmlsRuntime(
         val target = person?.let { "Person ${shortHex(it)} (${leaves.size} device${if (leaves.size == 1) "" else "s"})" }
             ?: "Device ${shortHex(room.members[leaves.single()]?.device ?: leaves.single())}"
         val mls = when (removal.mls()) {
-            VmlsMlsState.PENDING -> "MLS Remove: not yet applied and witnessed."
+            VmlsMlsState.PENDING -> if (room.limited) "MLS Remove: waiting on the box's hourly limit for changes; it goes out by itself." else "MLS Remove: not yet applied and witnessed."
             VmlsMlsState.COMMITTED -> "MLS Remove: applied at this phone and witnessed."
             VmlsMlsState.FAILED -> "MLS Remove: refused by the engine and stopped. Try it again, or close the room."
         }
@@ -2132,6 +2133,10 @@ class VmlsRuntime(
         private const val RECHECK_SECONDS = 60L
         const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
+        /** A commit the box refused as rate-limited: its limit is per grant over the last hour, so no time is promised. */
+        private const val LIMITED_WORDS = "The box takes only a few changes to members or keys an hour from this phone, across all its rooms there, " +
+            "and has had them. This one waits and goes out by itself within the hour; nothing needs doing."
+        private const val LIMITED_HELD = " Messages stay held until the compromised device's removal goes out."
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
         /** Refusals that clear by themselves: tried again later, not abandoned (an outbox over its limits empties as it is delivered). */
         private val DEFERRED = setOf("CommitInFlight", "UpdateRequired", "AwaitingCommitAck", "OutboxFull", "Callback")

@@ -54,6 +54,20 @@ class VmlsRoomTest {
         assertEquals(4, room.epoch)
     }
 
+    @Test fun `a rate-limited commit waits on the box until a round no longer says so, or it lands`() {
+        var room = keeper().committing().settled(limited = true)
+        assertEquals(RoomStatus.Limited, room.status)
+        room = room.on(now, RoomSignal.CommitRedeposited)
+        assertEquals(RoomStatus.Limited, room.status)
+        assertEquals(RoomStatus.Retrying, room.settled().status)
+        room = room.on(now, RoomSignal.CommitAccepted(CommitKind.REMOVE, 5))
+        assertEquals(RoomStatus.Ready, room.status)
+        assertEquals(RoomStatus.Retrying, keeper().committing().settled(limited = true).on(now, RoomSignal.CommitLost(CommitKind.REMOVE)).status)
+        // Checking with the box outranks it, and an open's seed clears it.
+        assertEquals(RoomStatus.Checking, keeper().settled(limited = true).on(now, RoomSignal.OrderingUnconfirmed).status)
+        assertFalse(keeper().settled(limited = true).seed(Phase.Active, 4, emptyList()).limited)
+    }
+
     @Test fun `checking with the box lasts until the round settles`() {
         var room = keeper().on(now, RoomSignal.OrderingUnconfirmed)
         assertEquals(RoomStatus.Checking, room.status)

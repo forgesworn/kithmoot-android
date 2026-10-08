@@ -112,8 +112,13 @@ sealed class Round {
      * (P3-03b-3b); [stalled] is true when a deposit had no answer, so the
      * rest of the outbox waits for the next round. [leafHeld] counts records
      * left behind an earlier record to the same leaf the box did not take.
+     * [limited] is true when the box refused a commit as `rate-limited`: it
+     * takes a few new commits an hour from one grant, and this one waits.
      */
-    data class Done(val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false, val leafHeld: Int = 0) : Round()
+    data class Done(
+        val delivered: Int, val processed: Int, val held: Int, val stalled: Boolean = false, val leafHeld: Int = 0,
+        val limited: Boolean = false,
+    ) : Round()
     /** The session is removed, expired or in a recovery other than a gap: nothing is driven (the room shows why). */
     data class Stopped(val phase: Phase) : Round()
     /** The box gave no capabilities reply: nothing was sent or fetched (no reply holds, P2-R-02). */
@@ -194,6 +199,7 @@ class SessionDriver<S : DriverSession>(
         val outgoing = read(persona, session) { it.outbox() }.let { r -> r.stop?.let { return it }; r.value!! }
         var held = 0
         var stalled = false
+        var limited = false
         val sent = mutableListOf<ByteArray>()
         // A leaf's records keep the engine's order (vennel contract §5.2): one not taken holds the later ones to the
         // same recipient leaf (a different mailbox each epoch) until the next round, so a send under a departed epoch
@@ -230,6 +236,7 @@ class SessionDriver<S : DriverSession>(
                 // never take (its package expired, gone or consumed) leaves the outbox.
                 is BoxAnswer.Refused -> {
                     if (d is Destination.Welcome && answer.code in WELCOME_GONE) sent += out.recordId
+                    if (d is Destination.Slot && answer.code == RATE_LIMITED) limited = true
                     leaf?.let(heldLeaves::add)
                     continue
                 }
@@ -333,7 +340,7 @@ class SessionDriver<S : DriverSession>(
             // Taken, or refused as unrelated or departed for good: either way the query is answered.
             synchronized(pendingQueries) { queries -= slot to attempt }
         }
-        return Round.Done(delivered, processed, held, stalled, leafHeld)
+        return Round.Done(delivered, processed, held, stalled, leafHeld, limited)
     }
 
     private suspend fun ack(items: List<AckItem>) {
@@ -344,6 +351,8 @@ class SessionDriver<S : DriverSession>(
     private class Stepped<T>(val value: T?, val stop: Round?)
 
     private companion object {
+        /** The box's refusal of a new commit slot past its hourly limit for the grant. */
+        const val RATE_LIMITED = "rate-limited"
         /** Bothy's refusals for a Welcome mailbox whose package can never take it. */
         val WELCOME_GONE = setOf("expired", "consumed", "withdrawn", "not-found")
 

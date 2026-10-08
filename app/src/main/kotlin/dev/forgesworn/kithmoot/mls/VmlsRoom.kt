@@ -94,6 +94,8 @@ sealed class RoomStatus {
     data object Checking : RoomStatus()
     /** `CommitLost` or `CommitRedeposited`: "retrying". */
     data object Retrying : RoomStatus()
+    /** A commit of this phone's waits on the box's hourly limit for new commits. */
+    data object Limited : RoomStatus()
     /** A commit of this phone's is on its way. */
     data object Sending : RoomStatus()
     /** A guest waiting for its Welcome. */
@@ -160,6 +162,8 @@ data class VmlsRoom(
     val sending: Boolean = false,
     val retrying: Boolean = false,
     val checking: Boolean = false,
+    /** The box refused this phone's commit as rate-limited in the last round: it waits, and goes out by itself. */
+    val limited: Boolean = false,
 ) {
     init {
         require(ROOM_HEX64.matches(persona) && ROOM_HEX64.matches(session) && ROOM_HEX64.matches(box))
@@ -180,6 +184,7 @@ data class VmlsRoom(
         closing != null -> RoomStatus.Closing
         stop != null -> RoomStatus.Stopped(stop)
         checking -> RoomStatus.Checking
+        limited -> RoomStatus.Limited
         retrying -> RoomStatus.Retrying
         sending -> RoomStatus.Sending
         !joined -> RoomStatus.Joining
@@ -222,7 +227,7 @@ data class VmlsRoom(
             grace = grace.filterKeys(roster::containsKey),
             removing = emptySet(),
             evicting = evicting.filterTo(HashSet(), roster::containsKey),
-            sending = false, retrying = false, checking = false,
+            sending = false, retrying = false, checking = false, limited = false,
         )
     }
 
@@ -252,10 +257,10 @@ data class VmlsRoom(
                     evicting = room.evicting - signal.leaf,
                 )
                 // The commit merged; a Remove's leaves leave by MemberRemoved.
-                is RoomSignal.CommitAccepted -> room.copy(sending = false, retrying = false, epoch = signal.epoch)
+                is RoomSignal.CommitAccepted -> room.copy(sending = false, retrying = false, limited = false, epoch = signal.epoch)
                 // Gone: the platform proposes it again. A lost Remove is offered again by [dueRemovals], its grace unchanged.
                 is RoomSignal.CommitLost -> room.copy(
-                    sending = false, retrying = true, removing = if (signal.kind == CommitKind.REMOVE) emptySet() else room.removing,
+                    sending = false, retrying = true, limited = false, removing = if (signal.kind == CommitKind.REMOVE) emptySet() else room.removing,
                 )
                 // Still the engine's, at a later attempt.
                 RoomSignal.CommitRedeposited -> room.copy(sending = true, retrying = true)
@@ -276,8 +281,14 @@ data class VmlsRoom(
     /** The keeper offers [link] as the room's live invite, or retires it with null: a new link asks devices afresh. */
     fun invited(link: String?): VmlsRoom = if (link == invite) this else copy(invite = link, asked = emptySet())
 
-    /** The driver's round ended with nothing left to check: "checking with the box" ends. */
-    fun settled(): VmlsRoom = copy(checking = false)
+    /**
+     * The driver's round ended with nothing left to check: "checking with the
+     * box" ends. [limited] is whether the box refused this phone's commit as
+     * rate-limited in that round; a round it took or did not ask clears it.
+     * A round that never reached the commit (an earlier deposit had no
+     * answer) shows "sending" for that round, then the limit again.
+     */
+    fun settled(limited: Boolean = false): VmlsRoom = copy(checking = false, limited = limited)
 
     /** A commit of this phone's was handed to the engine. */
     fun committing(): VmlsRoom = copy(sending = true)
