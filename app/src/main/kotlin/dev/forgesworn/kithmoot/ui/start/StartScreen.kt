@@ -60,6 +60,7 @@ fun StartScreen(
     onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit = {},
     onRoomDestructChanged: (Boolean) -> Unit = {},
+    onRoomDurationChanged: (Int) -> Unit = {},
     onJoin: () -> Unit,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
@@ -119,8 +120,8 @@ fun StartScreen(
     val enabled = !state.busy && !state.loadingRooms && !state.storageError
     val signedIn = state.account != null
 
-    val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn) {
-        mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn)
+    val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey) {
+        mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey)
     }
     val returning = isReturning(homeRooms, signedIn, state.destructTombstones.size)
     val sortedIds = remember(homeRooms) { sortByActivity(homeRooms) { null }.map { it.id } }
@@ -183,7 +184,7 @@ fun StartScreen(
             !returning -> ColdContent(
                 layout = layout, state = state, enabled = enabled,
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
-                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged,
+                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
             )
@@ -202,7 +203,7 @@ fun StartScreen(
                 now = now, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
-                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged,
+                onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
@@ -348,6 +349,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
+    onRoomDurationChanged: (Int) -> Unit = {},
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
@@ -382,7 +384,8 @@ private fun BoxWithConstraintsScope.ColdContent(
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom,
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
-                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
+                    durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
                 Foot()
             }
         }
@@ -399,7 +402,8 @@ private fun BoxWithConstraintsScope.ColdContent(
             NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                 enabled, state.busy, state.error, onStartRoom,
                 conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
-                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
+                    durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
             Foot()
         }
     }
@@ -417,6 +421,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
+    onRoomDurationChanged: (Int) -> Unit = {},
     onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
@@ -511,6 +516,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
                     RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
                         pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
+                        privatePeer = room.privatePeer.takeIf { state.publicProfiles },
+                        profile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null,
                         countdown = if (showsCountdown(room, now)) ({
                             dev.forgesworn.kithmoot.ui.room.CountdownPill(room.endsAt!!, room.startsAt, room.destruct,
                                 dev.forgesworn.kithmoot.ui.room.rememberNow())
@@ -533,7 +540,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom,
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
-                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
+                    durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
             }
         }
     } else {
@@ -572,7 +580,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
                     enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) },
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
-                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged)
+                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
+                    durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
             }
         }
     }

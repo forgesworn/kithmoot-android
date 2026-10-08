@@ -42,7 +42,8 @@ internal data class ConversationAction(val label: String, val destructive: Boole
 internal fun RoomRow(roomId: String, name: String, status: String?, time: String, timeSpoken: String, enabled: Boolean,
     open: () -> Unit, actions: List<ConversationAction>, pinned: Boolean = false, ended: Boolean = false, unread: Int = 0,
     /** The room's countdown pill, for a room with an end still to come. */
-    countdown: (@Composable () -> Unit)? = null) {
+    countdown: (@Composable () -> Unit)? = null,
+    privatePeer: String? = null, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
     // "No messages yet" says nothing the row does not already show, so the
@@ -67,7 +68,10 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
-            RoomAvatar(roomId, name, ended)
+            if (privatePeer != null && profile?.picture != null) {
+                dev.forgesworn.kithmoot.ui.room.ProfileAvatar(privatePeer, name, profile,
+                    Modifier.size(40.dp).clearAndSetSemantics {})
+            } else RoomAvatar(roomId, name, ended)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
                 if (stacked) {
                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurface)

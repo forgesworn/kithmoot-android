@@ -40,6 +40,29 @@ import org.junit.Test
 class HomeScreenUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun duration_sliders_preserve_days_hours_and_minutes_and_refuse_zero() {
+        var seconds by mutableStateOf(7200)
+        compose.setContent {
+            KithMootTheme {
+                dev.forgesworn.kithmoot.ui.start.NewRoomForm("Temporary", {}, false, {}, true, false, null, {},
+                    conferenceLength = dev.forgesworn.kithmoot.session.ConferenceLength.CUSTOM,
+                    onConferenceLengthChanged = {}, durationSeconds = seconds, onDurationChanged = { seconds = it })
+            }
+        }
+        compose.onNodeWithContentDescription("Hours").performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        compose.onNodeWithText("Start a room").assertIsNotEnabled()
+        compose.onNodeWithText("Choose at least one minute.").assertExists()
+        compose.onNodeWithContentDescription("Days").performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        compose.onNodeWithContentDescription("Hours").performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+        compose.onNodeWithContentDescription("Minutes").performSemanticsAction(SemanticsActions.SetProgress) { it(5f) }
+        compose.runOnIdle { assertEquals(86400 + 7200 + 300, seconds) }
+        compose.onNodeWithText("Start a room").assertIsEnabled()
+        compose.onNodeWithContentDescription("Days").performSemanticsAction(SemanticsActions.SetProgress) { it(30f) }
+        compose.runOnIdle { assertEquals(30 * 86400, seconds) }
+        compose.onNodeWithContentDescription("Hours").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Minutes").assertIsNotEnabled()
+    }
+
     private fun room(
         id: String, name: String, openedAt: Long = 0, project: String? = null, account: String? = null,
         anonymous: Boolean = false, secondary: Boolean = false, ended: Boolean = false, canShareInvite: Boolean = false,

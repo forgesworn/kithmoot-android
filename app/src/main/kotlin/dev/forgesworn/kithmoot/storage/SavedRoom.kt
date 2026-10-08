@@ -58,7 +58,9 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** The room self-destructs when it ends: see [SavedRoom.destruct]. */
     val destruct: Boolean = false,
     /** When this device first knew the room, for scaling its countdown: see [SavedRoom.startsAt]. */
-    val startsAt: Long? = null)
+    val startsAt: Long? = null,
+    /** The other member of a two-person policy this saved identity belongs to. */
+    val privatePeer: String? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -134,7 +136,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
             ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
-            pinned = pinned, destruct = destruct, startsAt = startsAt)
+            pinned = pinned, destruct = destruct, startsAt = startsAt,
+            privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant))
     }
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */

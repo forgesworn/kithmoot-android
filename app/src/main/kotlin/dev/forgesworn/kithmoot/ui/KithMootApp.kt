@@ -483,7 +483,7 @@ fun KithMootApp(
                 // Settings and Projects bring their own app bar; home's stays
                 // hidden underneath so there is only ever one visible.
                 if (stage == Stage.START && homePage == HomePage.ROOMS) TopAppBar(
-                    title = { Text("KithMoot", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                    title = { TextButton({ projectRoomToAdd = null; homePage = HomePage.ROOMS }, modifier = Modifier.semantics { contentDescription = "Go to start page" }) { Text("KithMoot", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) } },
                     actions = {
                         androidx.compose.material3.IconButton({ homePage = HomePage.SETTINGS }) {
                             androidx.compose.material3.Icon(Icons.Filled.Settings, "Settings")
@@ -560,6 +560,7 @@ fun KithMootApp(
                         onStartRoom = model::startRoom,
                         onConferenceLengthChanged = model::onConferenceLengthChanged,
                         onRoomDestructChanged = model::onRoomDestructChanged,
+                        onRoomDurationChanged = model::onRoomDurationChanged,
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
                         onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
                         onForget = model::forgetRoom,

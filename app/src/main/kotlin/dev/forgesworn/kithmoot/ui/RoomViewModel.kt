@@ -348,6 +348,7 @@ data class StartState(
     val persistentGroup: Boolean = true,
     /** How long a new room runs: Never, or a conference room that ends and is wiped from relays. */
     val conferenceLength: ConferenceLength = ConferenceLength.NEVER,
+    val roomDurationSeconds: Int = 7200,
     /** When a room with an end ends: self-destruct (owner decision D1, the
      *  default) or keep a read-only copy. Offered only for a room with an end:
      *  this phone cannot end a room early, so it never makes a room with no end
@@ -378,9 +379,16 @@ data class StartState(
     val circleBoxes: String = "",
     /** Whether public Nostr profiles (names, pictures) are looked up and shown. Device-wide; Settings reads it with no room open. */
     val publicProfiles: Boolean = true,
+    /** Verified kind-0 decoration for private conversation peers, memory only. */
+    val privateChatProfiles: Map<String, PublicProfile> = emptyMap(),
     /** Whether the person's own camera is shown mirrored. Device-wide, like [publicProfiles]. */
     val mirrorSelf: Boolean = true,
 )
+
+internal fun privateChatProfileScope(state: StartState): Pair<String?, List<String>> =
+    state.account?.pubkey to if (!state.publicProfiles) emptyList() else
+        dev.forgesworn.kithmoot.ui.start.mergeRooms(state.savedRooms, state.roomBookmarks.rooms,
+            state.account != null, state.account?.pubkey).mapNotNull { it.privatePeer }.distinct().sorted().take(500)
 
 /** A contact card met at the door, before anything is kept. */
 data class CardOffer(
@@ -1079,6 +1087,39 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // The list needs pictures before a conversation is opened. Keep the
+        // same public-profile switch and account boundary as the room itself.
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.flow.combine(start, stage) { state, currentStage ->
+                if (currentStage == Stage.START) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
+            }.distinctUntilChanged().collectLatest { selection ->
+                _start.update { state -> state.copy(privateChatProfiles =
+                    if (privateChatProfileScope(state) == selection) state.privateChatProfiles.filterKeys { it in selection.second }
+                    else emptyMap()) }
+                val authors = selection.second
+                if (authors.isEmpty()) return@collectLatest
+                kotlinx.coroutines.coroutineScope {
+                    val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
+                    val transport = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope, writeRelays = emptySet())
+                    try {
+                        transport.start()
+                        kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                            transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                                val profile = decodePublicProfile(event, authors.toSet(), epochSeconds()) ?: return@collect
+                                _start.update { state ->
+                                    if (stage.value != Stage.START || privateChatProfileScope(state) != selection) state else {
+                                        val old = state.privateChatProfiles[event.pubkey]
+                                        if (old != null && (old.createdAt > profile.createdAt ||
+                                            old.createdAt == profile.createdAt && old.eventId >= profile.eventId)) state
+                                        else state.copy(privateChatProfiles = state.privateChatProfiles + (event.pubkey to profile))
+                                    }
+                                }
+                            }
+                        }
+                    } finally { transport.stop() }
+                }
+            }
+        }
         // Account sync and the other chat/call instance can learn a deadline
         // after this instance opened the room. Follow committed local lifetime
         // changes in every instance, even when a bookmark needs no further write.
@@ -2969,6 +3010,10 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(conferenceLength = value, error = null) }
     }
 
+    fun onRoomDurationChanged(value: Int) {
+        _start.update { it.copy(roomDurationSeconds = value.coerceIn(0, 30 * 86400), error = null) }
+    }
+
     fun onRoomDestructChanged(value: Boolean) {
         _start.update { it.copy(roomDestruct = value, error = null) }
     }
@@ -2998,6 +3043,11 @@ class RoomViewModel @JvmOverloads constructor(
         val name = _start.value.roomName
         val persistent = true
         val length = _start.value.conferenceLength
+        val durationSeconds = _start.value.roomDurationSeconds
+        if (length == ConferenceLength.CUSTOM && durationSeconds < 60) {
+            _start.update { it.copy(error = "Choose at least one minute for the room lifetime.") }
+            return
+        }
         val destructChoice = _start.value.roomDestruct
         enter(label = name.takeIf { it.isNotBlank() } ?: "The new room",
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
@@ -3014,7 +3064,7 @@ class RoomViewModel @JvmOverloads constructor(
                     createdAt = at,
                 )
             // A conference room ends at a fixed time; only a group room can.
-            val ends = if (persistent) length.endsFrom(at) else null
+            val ends = if (persistent) length.endsFrom(at, durationSeconds) else null
             // The room's own relays: the ones this device both reads and
             // writes, fixed now and named in the signed invitation, so every
             // member uses them whatever else they use.
@@ -5264,7 +5314,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (anonymousRoom && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
-        _start.update { it.copy(publicProfiles = enabled) }
+        _start.update { it.copy(publicProfiles = enabled, privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap()) }
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
     }
 
