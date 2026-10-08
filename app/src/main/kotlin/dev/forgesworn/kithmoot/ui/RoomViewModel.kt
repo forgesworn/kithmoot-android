@@ -2585,7 +2585,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    fun reopenRoom(id: String) = savedRooms.runCatching { get(id)?.name }.getOrNull().let { name ->
+    fun reopenRoom(id: String) = _start.value.savedRooms.firstOrNull { it.id == id }?.name.let { name ->
         enter(label = name?.takeIf { it.isNotBlank() } ?: "That room", opening = openingLine(name, "the room")) {
             openSaved(savedRooms.get(id) ?: throw RoomRecoveryException("This room is no longer saved on this device."))
         }

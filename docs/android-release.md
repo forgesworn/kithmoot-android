@@ -1,3 +1,5 @@
+<!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
+
 ## 0.6.69 (92): private chat pictures and room lifetime controls
 
 Private chat rows use the other member's verified kind-0 picture, including before the room is opened. The existing public-profile switch controls lookups and image loading; anonymous rooms and rooms belonging to another signed-in account are excluded. MySignet contact photos await its contact API.

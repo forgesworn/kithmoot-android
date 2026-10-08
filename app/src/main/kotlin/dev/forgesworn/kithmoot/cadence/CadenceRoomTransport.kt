@@ -48,6 +48,8 @@ class CadenceRoomTransport(
     override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long) = inner.queryStored(filters, timeoutMs)
     override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long) = inner.queryAvailable(filters, timeoutMs)
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = inner.subscribe(filters)
+    override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
+        inner.subscribeReplayed(filters, onReplayComplete)
     override fun describe(): List<String> = inner.describe()
     override fun circleRelays(): Set<String> = inner.circleRelays()
     override suspend fun beginRekey() = inner.beginRekey()

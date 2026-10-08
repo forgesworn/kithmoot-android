@@ -440,6 +440,11 @@ class QuietTransport(
         }
     }
 
+    override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
+        if (filters.all { it.kinds != null && it.kinds.none { kind -> kind in quietKinds } })
+            inner.subscribeReplayed(filters, onReplayComplete)
+        else subscribe(filters)
+
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
         val quiet = ArrayList<Filter>()
         val plain = ArrayList<Filter>()

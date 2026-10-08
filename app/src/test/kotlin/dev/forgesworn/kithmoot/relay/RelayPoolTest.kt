@@ -7,6 +7,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -781,6 +782,31 @@ class RelayPoolTest {
         // A reconnect must re-request with whatever `since` the caller has
         // advanced to by then, not the value captured at the original send.
         assertTrue(second.sent.single { it.startsWith("[\"REQ\"") }.contains("\"since\":200"))
+    }
+
+    @Test
+    fun `replay completion waits for every relay and for queued events to be processed`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll()
+        val order = mutableListOf<String>()
+        backgroundScope.launch {
+            pool.subscribeReplayed(listOf(Filter(kinds = listOf(1460)))) { order += "replayed" }.collect {
+                delay(100)
+                order += "checked"
+            }
+        }
+        runCurrent()
+        val id = sockets.opened.first().requestedSubscriptions().single()
+        sockets.opened.first().deliverRaw("[\"EVENT\",\"$id\",${event("ab".repeat(32), 1460).toCompactJson()}]")
+        for (socket in sockets.opened.take(2)) socket.deliverRaw("[\"EOSE\",\"$id\"]")
+        runCurrent()
+        assertTrue(order.isEmpty())
+        advanceTimeBy(100); runCurrent()
+        assertEquals(listOf("checked"), order)
+        sockets.opened.last().deliverRaw("[\"EOSE\",\"$id\"]")
+        runCurrent()
+        assertEquals(listOf("checked", "replayed"), order)
     }
 
     @Test

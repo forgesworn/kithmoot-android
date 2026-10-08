@@ -19,6 +19,8 @@ import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -65,6 +67,35 @@ class LeftEpochTest {
         stable, me, relay, authority = authority, initialEpoch = keys(initial), expectedEpoch = expected,
         epochGate = { _, _ -> EpochGateResult.COMMITTED }, transport = transport,
     )
+
+    @Test fun `completed replay joins immediately after applying its rekey`() = runTest {
+        val relay = FakeRelay()
+        val transport = object : RoomTransport by relay.transport() {
+            override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit) = flow {
+                emit(rekey(1))
+                onReplayComplete()
+                awaitCancellation()
+            }
+        }
+        val live = session(stable, me, relay, authority = authority, epochSettleMs = 1_500,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED }, transport = transport)
+        val joining = launch { live.join() }
+        runCurrent()
+        assertTrue(joining.isCompleted)
+        assertEquals(1, live.epochKeys().epoch)
+    }
+
+    @Test fun `a transport without replay completion retains the settling delay`() = runTest {
+        val relay = FakeRelay()
+        val live = session(stable, me, relay, authority = authority, epochSettleMs = 1_500)
+        val joining = launch { live.join() }
+        runCurrent()
+        assertTrue(joining.isActive)
+        advanceTimeBy(1_499); runCurrent()
+        assertTrue(joining.isActive)
+        advanceTimeBy(1); runCurrent()
+        assertTrue(joining.isCompleted)
+    }
 
     @Test fun `in a quiet room a drop sealed under the epoch just left is still read, unless its sender was removed`() = runTest {
         val relay = FakeRelay()

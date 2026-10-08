@@ -103,8 +103,8 @@ class HomeScreenUiTest {
         compose.onNodeWithText("A workspace nobody owns: messages, files and calls for your people and your agents. No account needed.").assertIsDisplayed()
         compose.onNodeWithText("Room name (optional)").assertIsDisplayed()
         compose.onNodeWithText("Tor-only room (Orbot)").assertIsDisplayed()
-        compose.onNodeWithText("Start a room").assertIsDisplayed()
-        compose.onNodeWithText("Open an invite link").assertIsDisplayed()
+        compose.onNodeWithText("Start a room").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Open an invite link").performScrollTo().assertIsDisplayed()
         // Below the fold of a 360 x 640 screen since the start form grew: reached by scrolling.
         compose.onNodeWithText("Already on Nostr? Sign in").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("New room").assertDoesNotExist()
@@ -132,7 +132,7 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Invite link").assertDoesNotExist()
         val toggle = compose.onNodeWithText("Open an invite link")
         assertEquals("Collapsed", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
-        toggle.performClick()
+        toggle.performScrollTo().performClick()
         assertEquals("Expanded", toggle.fetchSemanticsNode().config.getOrNull(SemanticsProperties.StateDescription))
         compose.onNodeWithText("Invite link").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Scan QR code").performScrollTo().assertIsDisplayed()
@@ -330,7 +330,7 @@ class HomeScreenUiTest {
     // AC 23
     @Test fun landscape_phone_cold_is_two_columns() {
         setHome(StartState(loadingRooms = false, savedRooms = emptyList()), widthDp = 760, heightDp = 360)
-        compose.onNodeWithText("Start a room").assertIsDisplayed()
+        compose.onNodeWithText("Start a room").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Start a room, then send the link.").assertIsDisplayed()
         val headingLeft = compose.onNodeWithText("Start a room, then send the link.").getUnclippedBoundsInRoot().left
         val buttonLeft = compose.onNodeWithText("Start a room").getUnclippedBoundsInRoot().left

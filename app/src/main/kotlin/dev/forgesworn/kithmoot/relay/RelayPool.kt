@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.first
@@ -72,6 +73,10 @@ interface RoomTransport {
      * the collector closes the subscription on every relay.
      */
     fun subscribe(filters: List<Filter>): Flow<NostrEvent>
+
+    /** Completion follows delivery of stored events from every read relay.
+     * Unsupported transports leave the caller on its existing timeout. */
+    fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> = subscribe(filters)
 
     /**
      * The relay URLs this transport reads from and writes to, when it has
@@ -564,6 +569,9 @@ class RelayPool(
     /** Every relay in the pool subscribes with the same, fixed filter set. */
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = subscribe({ filters })
 
+    override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
+        subscribe({ filters }, onReplayComplete = onReplayComplete)
+
     /**
      * A cold flow of matching events, de-duplicated across relays, with two
      * additions the fixed-filter overload cannot offer:
@@ -581,15 +589,27 @@ class RelayPool(
      *   EOSE for this subscription, so a caller can tell "at least one
      *   relay has answered" apart from "every relay has".
      */
-    fun subscribe(filters: () -> List<Filter>, only: Set<String>? = null, onEose: (url: String) -> Unit = {}): Flow<NostrEvent> {
+    fun subscribe(filters: () -> List<Filter>, only: Set<String>? = null, onEose: (url: String) -> Unit = {}, onReplayComplete: () -> Unit = {}): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
         val subscription = PoolSubscription(id, filters, only, onEose)
         // The REQ goes out only once the collector is attached. Sending it in
         // `subscribe` instead would open a window where events arrive with
         // nobody listening, and a shared flow drops those on the floor - which
         // is exactly the roster entry that tells you somebody is already here.
+        val replayed = mutableSetOf<String>()
+        var complete = false
         return subscription.events
             .onSubscription { open(subscription) }
+            .transform { item ->
+                item.event?.let { emit(it) }
+                item.eose?.let { replayed += it }
+                // EOSE travels through the same flow as events: signature and
+                // epoch checks in the collector finish before this callback.
+                if (!complete && !subscription.lostEvents && readRelays.isNotEmpty() && replayed.containsAll(readRelays)) {
+                    complete = true
+                    onReplayComplete()
+                }
+            }
             .onCompletion { close(subscription) }
     }
 
@@ -624,6 +644,7 @@ class RelayPool(
 
     private fun subscriptionEose(url: String, subscriptionId: String) {
         val subscription = synchronized(lock) { subscriptions[subscriptionId] } ?: return
+        subscription.eose(url)
         subscription.onEose(url)
     }
 
@@ -1068,6 +1089,8 @@ class RelayPool(
      * The [SeenEvents] here is what makes "publish everywhere" survivable: the
      * same event arrives once per relay, and the room must see it once.
      */
+    private data class SubscriptionItem(val event: NostrEvent? = null, val eose: String? = null)
+
     private class PoolSubscription(
         val id: String,
         val filters: () -> List<Filter>,
@@ -1075,12 +1098,18 @@ class RelayPool(
         val onEose: (url: String) -> Unit,
     ) {
         private val seen = SeenEvents()
-        private val _events = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 256)
-        val events: SharedFlow<NostrEvent> = _events.asSharedFlow()
+        private val _events = MutableSharedFlow<SubscriptionItem>(replay = 0, extraBufferCapacity = 256)
+        val events: SharedFlow<SubscriptionItem> = _events.asSharedFlow()
+        @Volatile var lostEvents = false
+            private set
 
         fun offer(event: NostrEvent) {
             if (!seen.admit(event.id)) return
-            _events.tryEmit(event)
+            if (!_events.tryEmit(SubscriptionItem(event = event))) lostEvents = true
+        }
+
+        fun eose(url: String) {
+            if (!_events.tryEmit(SubscriptionItem(eose = url))) lostEvents = true
         }
     }
 }
