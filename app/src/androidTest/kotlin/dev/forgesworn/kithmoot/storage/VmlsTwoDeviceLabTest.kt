@@ -66,7 +66,9 @@ import org.junit.runner.RunWith
  * app's [RelayCarrier]. Each `am instrument` runs one [step] in a new
  * process; the persona, vault, witness and stores persist on the device
  * between steps, so every step is also a restart. `scripts/lab-vmls-two.sh`
- * orders the steps and passes what one device learnt to the other.
+ * orders the steps and passes what one device learnt to the other. With a
+ * third emulator (`third`), the guest's person on a second device, it also
+ * runs M06 and M07 (P3-05b follow-ups).
  *
  * Skipped without `fixture_control` and `role`.
  */
@@ -91,7 +93,7 @@ class VmlsTwoDeviceLabTest {
     private val number get() = arg("room") ?: "1"
 
     @Before fun setup() {
-        assumeTrue("run by scripts/lab-vmls-two.sh", control != null && role in setOf(KEEPER, GUEST))
+        assumeTrue("run by scripts/lab-vmls-two.sh", control != null && role in setOf(KEEPER, GUEST, THIRD))
         context = ApplicationProvider.getApplicationContext()
         dir = File(context.noBackupFilesDir, "vmls-two-$role").apply { mkdirs() }
         lab = VmlsLab(app, control!!, arg("persona") ?: "alice")
@@ -147,6 +149,11 @@ class VmlsTwoDeviceLabTest {
             "compromise" -> compromise()
             "cut-off" -> cutOff()
             "contain" -> contain()
+            "remove-device" -> removeDevice()
+            "stale" -> stale()
+            "heard-stale" -> heardStale()
+            "removed-reader" -> removedReader()
+            "remove-person" -> removePerson()
             else -> throw AssertionError("unknown step $step")
         }
         log("step $step done: ${runtime.room(persona, session()).orGone()}")
@@ -174,15 +181,16 @@ class VmlsTwoDeviceLabTest {
         log("asked: ${ask.room} by ${ask.guest.take(8)}…, device ${ask.device.take(8)}…")
         assertEquals(name(), ask.room)
         runtime.admitting(signer, ask, approve = true)
-        File(dir, "guest-device").writeText(ask.device)
+        File(dir, arg("device") ?: "guest-device").writeText(ask.device)
         roundsUntil("the guest confirmed", 120) { room().members.values.any { it.device == ask.device && !it.pending } }
-        runtime.retire(persona, session())
+        // Kept for a second device's ask (M06).
+        if (arg("keep") != "true") runtime.retire(persona, session())
         serving.cancelAndJoin()
     }
 
     /** The guest pairs with the link's box by a fresh code, asks over the relay, joins and sends its first Update. */
     private suspend fun join() {
-        check(role == GUEST)
+        check(role != KEEPER)
         val joined = withTimeout(600_000) { runtime.joining(signer, arg("link")!!, lab.pairingCode()) }
         assertEquals(VmlsRole.GUEST, joined.role)
         assertEquals(name(), joined.name)
@@ -308,7 +316,9 @@ class VmlsTwoDeviceLabTest {
         while (true) {
             val seen = runtime.removals(persona, session()).singleOrNull()
             if (seen != null && test(seen)) return seen.also { log("$what after $rounds rounds: $it") }
-            if (rounds++ >= 30) throw AssertionError("$role: $what not reached after 30 rounds: $seen")
+            if (rounds >= 30) log("$what: the outbox deposited again: ${runtime.redeposit(persona, session())}")
+            if (rounds++ >= 30) throw AssertionError("$role: $what not reached after 30 rounds: $seen; room ${room()}")
+            if (rounds % 5 == 1) log("$what, round $rounds: ${room().orGone()}, sending ${room().sending}, retrying ${room().retrying}, members ${room().members.values.map { it.device.take(8) }}, box ${runtime.boxAnswer(persona, room().box).let { if (it is BoxAnswer.Ok) "Ok" else it.toString() }}")
             runtime.foregroundRounds(persona, if (revoking) signer else null)
             delay(1_000)
         }
@@ -395,7 +405,7 @@ class VmlsTwoDeviceLabTest {
 
     /** The guest's room says it was removed, and is read-only. */
     private suspend fun removed() {
-        check(role == GUEST)
+        check(role != KEEPER)
         roundsUntil("removed", 60) { room().stop == RoomStop.Removed }
         assertFalse(room().canSend)
     }
@@ -408,7 +418,7 @@ class VmlsTwoDeviceLabTest {
     private suspend fun close() {
         check(role == KEEPER)
         val box = room().box
-        val device = File(dir, "guest-device").readText()
+        val devices = (arg("devices") ?: "guest-device").split(',').map { File(dir, it).readText() }
         runtime.closing(signer, session())
         assertNull(runtime.store.room(persona, session()))
         assertTrue(session() !in runtime.witnessed(persona)!!)
@@ -416,7 +426,92 @@ class VmlsTwoDeviceLabTest {
         assertEquals(VmlsGrantState.ACTIVE, grants.get(box, keeperDevice)!!.state)
         val expected = if (arg("grant") == "active") VmlsGrantState.ACTIVE else VmlsGrantState.REVOKED
         // A grant revoked earlier (D1 R2) is pruned by the close: gone from the ledger is revoked.
-        assertEquals(expected, grants.get(box, device)?.state ?: VmlsGrantState.REVOKED)
+        for (device in devices) assertEquals(expected, grants.get(box, device)?.state ?: VmlsGrantState.REVOKED)
+    }
+
+    /**
+     * M06 on devices: the guest's person holds two devices here, its phone and
+     * its tablet. The keeper removes the tablet alone (a device, not the
+     * person); the phone stays a member. The Remove is committed with the
+     * rounds unsigned, so the tablet's grant stays live for M07.
+     */
+    private suspend fun removeDevice() {
+        check(role == KEEPER)
+        val phone = File(dir, "guest-device").readText()
+        val tablet = File(dir, "tablet-device").readText()
+        val room = live()
+        val person = room.members.values.single { it.device == tablet }.identity
+        assertEquals("one person on both devices", person, room.members.values.single { it.device == phone }.identity)
+        File(dir, "epoch$number").writeText(checkNotNull(room.epoch).toString())
+        runtime.removing(persona, session(), room.members.values.single { it.device == tablet }.leaf)
+        val removal = journalled("the tablet's Remove committed") { it.mls.contains("applied at this phone and witnessed") }
+        assertTrue("a device, not the person: ${removal.target}", removal.target.startsWith("Device "))
+        assertTrue("the tablet gone: ${room()}", room().members.values.none { it.device == tablet })
+        assertTrue("the person's phone still a member: ${room()}", room().members.values.any { it.device == phone && it.identity == person })
+        log("the tablet removed: epoch ${room.epoch} to ${room().epoch}")
+    }
+
+    /**
+     * M07 on devices: the phone, offline across the tablet's Remove (it ran no
+     * step since), sends under the old epoch. Its round deposits before it
+     * fetches, so the message leaves under the old epoch, and the same round
+     * then learns the Remove. Its next message is in the new epoch.
+     */
+    private suspend fun stale() {
+        check(role == GUEST)
+        runtime.send(persona, session(), STALE)
+        // The engine's word, read for the send without a round: the old epoch.
+        val old = checkNotNull(room().epoch)
+        roundsUntil("the Remove learnt", 30) { (room().epoch ?: 0) > old && !room().sending && !room().retrying }
+        assertNull("still a member: ${room()}", room().stop)
+        runtime.send(persona, session(), FRESH)
+        // A message leaves with the next round: rounds after it, as talk's.
+        repeat(3) { runtime.foregroundRounds(persona); delay(1_000) }
+        roundsUntil("sent in the new epoch", 30) { !room().sending && !room().retrying }
+    }
+
+    /** The keeper reads both: the stale message in the epoch before the Remove (its mailbox kept), the fresh one after. */
+    private suspend fun heardStale() {
+        check(role == KEEPER)
+        val before = File(dir, "epoch$number").readText().toLong()
+        try {
+            roundsUntil("heard both", 60) { heard().containsAll(listOf(STALE, FRESH)) }
+        } finally {
+            log("heard: ${runtime.messages(persona, session()).map { "${String(it.body)}@${it.epoch}" }}")
+        }
+        val epochs = runtime.messages(persona, session()).associate { String(it.body) to it.epoch }
+        assertEquals("the stale message under the old epoch", before, epochs[STALE])
+        assertEquals("the fresh message under the new epoch", before + 1, epochs[FRESH])
+    }
+
+    /**
+     * The removed tablet, back online: it ends removed and never reads the
+     * fresh message. Whether it reads the stale one depends on the order it
+     * meets the Remove and the message; the engine oracle shows the exposure,
+     * and this logs which happened here.
+     */
+    private suspend fun removedReader() {
+        check(role == THIRD)
+        roundsUntil("removed", 60) { room().stop == RoomStop.Removed }
+        val heard = runtime.messages(persona, session()).associate { String(it.body) to it.epoch }
+        log("M07: the removed tablet ${if (STALE in heard) "read the stale message (epoch ${heard[STALE]})" else "did not read the stale message"}; heard ${heard.keys}")
+        assertFalse("nothing from the new epoch", FRESH in heard)
+    }
+
+    /** M06: the keeper removes the guest's person. The one removal names both devices, both go, and no member is left. */
+    private suspend fun removePerson() {
+        check(role == KEEPER)
+        val phone = File(dir, "guest-device").readText()
+        val tablet = File(dir, "tablet-device").readText()
+        val room = live()
+        val person = room.members.values.single { it.device == phone }.identity
+        assertEquals("both devices, one person", setOf(phone, tablet), room.members.values.filter { it.identity == person }.map { it.device }.toSet())
+        runtime.removing(persona, session(), person, person = true)
+        val removal = journalled("the person's Remove committed") { it.mls.contains("applied at this phone and witnessed") }
+        assertTrue("the person, both devices: ${removal.target}", removal.target.startsWith("Person ") && removal.target.endsWith("(2 devices)"))
+        assertTrue("no member left: ${room()}", room().members.isEmpty())
+        // One Remove names both leaves (the engine oracle shows one Commit); another member's commit may land first.
+        log("the person's devices removed: epoch ${room.epoch} to ${room().epoch}")
     }
 
     private suspend fun openVault(prefix: String, witness: FakeEd25519Witness): MlsVault {
@@ -439,7 +534,7 @@ class VmlsTwoDeviceLabTest {
         log("$what after $rounds rounds: ${room()}")
     }
 
-    private fun name() = when (number) { "1" -> "Two-device kitchen"; "2" -> "Two-device porch"; else -> "Two-device hall" }
+    private fun name() = when (number) { "1" -> "Two-device kitchen"; "2" -> "Two-device porch"; "4" -> "Three-device study"; "5" -> "Three-device attic"; else -> "Two-device hall" }
     private fun session() = File(dir, "room$number").readText()
     private fun room(): VmlsRoom = runtime.room(persona, session()) ?: throw AssertionError("$role: room $number is not kept")
     /** The room as the engine holds it: a new process holds it only after a round (the stored room has no epoch or members). */
@@ -464,6 +559,10 @@ class VmlsTwoDeviceLabTest {
         const val TAG = "VmlsTwoDevice"
         const val KEEPER = "keeper"
         const val GUEST = "guest"
+        /** The guest's person on a second device (its persona copied by the script). */
+        const val THIRD = "third"
+        const val STALE = "stale-after-the-remove"
+        const val FRESH = "fresh-after-the-remove"
         /** The lab's grace before a removed device's grant is revoked (the app's is a day). */
         const val REMOVED_GRACE_SECONDS = 30L
         /** Wider than the 30-day lifetimes: a pass renews the credential and grants at once. */
