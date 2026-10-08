@@ -208,6 +208,17 @@ class VmlsTwoDeviceLabTest {
         runtime.requestRound(signer)
         assertTrue("no repeated prompt after process restart", runtime.revocationAsks.value.isEmpty())
         assertEquals(VmlsGrantState.REVOKED, grants.get(room().box, File(dir, "tablet-device").readText())!!.state)
+        // Crash boundary: box/ledger effects completed, but the witnessed DONE write was lost.
+        val ctx = vault.context("dev.forgesworn.kithmoot", persona)
+        val book = dev.forgesworn.kithmoot.mls.RevocationBook.decode((vault.revocationRequests(ctx) as VaultResult.Ok).value)
+        val key = book.inbox.keys.single()
+        book.inbox[key] = book.inbox.getValue(key).copy(decision = dev.forgesworn.kithmoot.mls.RevocationDecision.APPROVED)
+        assertTrue(vault.keepRevocationRequests(ctx, book.encode()) is VaultResult.Ok)
+        grants.prune(epochSeconds(), epochSeconds())
+        runtime.requestRound(signer)
+        val repaired = dev.forgesworn.kithmoot.mls.RevocationBook.decode((vault.revocationRequests(ctx) as VaultResult.Ok).value)
+        assertEquals(dev.forgesworn.kithmoot.mls.RevocationDecision.DONE, repaired.inbox.getValue(key).decision)
+        assertTrue("a pruned grant cannot strand an approved prompt", runtime.revocationAsks.value.isEmpty())
     }
 
     private suspend fun create() {

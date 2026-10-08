@@ -59,12 +59,12 @@ class VmlsRevocationTest {
     @Test fun `sent means one OK true and no list publishes nothing`() = runBlocking<Unit> {
         val vault = vault(); val ctx = vault.context("test", member.pubkey)
         val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://keeper.example")), "")
-        var accepted = false; var offered = 0; var hasList = true
-        val channel = VmlsRevocationChannel(vault, { urls, _ -> object : VmlsCarrier {
+        var accepted = false; var offered = 0; var hasList = true; var clock = at
+        val channel = VmlsRevocationChannel(vault, { urls, auth -> assertNull(auth, "Sending never offers identity AUTH"); object : VmlsCarrier {
             override suspend fun publish(event: NostrEvent): Boolean { assertEquals(listOf("wss://keeper.example/"), urls); offered++; return accepted }
             override fun subscribe(filters: List<Filter>) = if (hasList) flowOf(list) else emptyFlow()
             override fun close() {}
-        } }, { listOf("wss://directory.example") }, { true }, { at })
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
         assertFalse(channel.send(ctx, member, request()))
         assertFalse(channel.entries(ctx).outbox.values.single().sent)
         accepted = true
@@ -75,7 +75,7 @@ class VmlsRevocationTest {
         assertEquals(2, offered) // confirmed retry is not published twice
         assertTrue(channel.send(ctx, member, request(), resend = true))
         assertEquals(3, offered) // explicit retry creates a fresh wrap; the keeper dedups the request
-        hasList = false
+        hasList = false; clock += 901
         assertFailsWith<IllegalStateException> { channel.send(ctx, member, request().copy(device = "13".repeat(32))) }
         assertEquals(3, offered)
     }
@@ -123,4 +123,93 @@ class VmlsRevocationTest {
         val book = RevocationBook(outbox = linkedMapOf(key to RevocationEntry(r, sent = true)))
         assertEquals(book.outbox, RevocationBook.decode(book.encode()).outbox)
     }
+    @Test fun `paged scan reaches a backdated request below 64 wraps across restarts and ignores forged IDs`() = runBlocking<Unit> {
+        val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
+        var clock = at
+        val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://keeper.example")), "")
+        val target = VmlsRequestEnvelope.wrap(request(), member, { true })
+        // Valid signed noise forces the same pagination as ordinary gift-wrapped DMs.
+        val noise = (1..72).map { third.sign(1059, at - it, listOf(listOf("p", keeper.pubkey)), "not-encrypted") }
+        val backdated = Events.sign(Digests.sha256("outer".toByteArray()), 1059, at - 172801, target.tags,
+            Nip44.encrypt(member.sign(13, at, emptyList(), member.nip44Encrypt(keeper.pubkey, request().rumor().toString())).toCompactJson(),
+                Nip44.conversationKey(Digests.sha256("outer".toByteArray()), keeper.pubkey.hexToBytes())))
+        val forged = backdated.copy(content = "corrupted")
+        val future = third.sign(1059, at + 86400, target.tags, "future")
+        val source = noise + forged + backdated + future
+        val untils = mutableListOf<Long>()
+        fun channel() = VmlsRevocationChannel(vault, { _, _ -> object : VmlsCarrier {
+            override suspend fun publish(event: NostrEvent) = false
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+                val f = filters.single()
+                if (f.kinds == listOf(KIND_DM_RELAYS)) return flowOf(list)
+                untils += f.until!!
+                return source.filter { it.createdAt <= f.until && it.createdAt >= f.since!! }
+                    .sortedByDescending { it.createdAt }.take(f.limit!!).asFlow()
+            }
+            override fun close() {}
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
+        repeat(12) { channel().poll(ctx, keeper) { it == request() }; clock += 61 }
+        val book = channel().entries(ctx)
+        assertEquals(request(), book.inbox.values.single().request)
+        assertTrue(backdated.id in book.seen)
+        assertFalse(future.id in book.seen)
+        assertTrue(untils.any { it < at - 60 })
+    }
+
+    @Test fun `full seen set keeps progressing and deferred or declined requests survive newer resends`() = runBlocking<Unit> {
+        val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
+        var clock = at
+        var current = request()
+        var wraps = listOf(VmlsRequestEnvelope.wrap(current, member, { true }))
+        val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://keeper.example")), "")
+        val full = RevocationBook(seen = (1..1024).associateTo(linkedMapOf()) { it.toString(16).padStart(64, '0') to at })
+        assertTrue(vault.keepRevocationRequests(ctx, full.encode()) is VaultResult.Ok)
+        fun channel() = VmlsRevocationChannel(vault, { _, _ -> object : VmlsCarrier {
+            override suspend fun publish(event: NostrEvent) = false
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+                val f = filters.single()
+                return if (f.kinds == listOf(KIND_DM_RELAYS)) flowOf(list) else wraps.filter { it.createdAt <= f.until!! }.asFlow()
+            }
+            override fun close() {}
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
+        var c = channel()
+        val key = RevocationBook.key(current)
+        assertEquals(1, c.poll(ctx, keeper) { true }.inbox.size)
+        c.defer(ctx, key)
+        c.decide(ctx, key, RevocationDecision.DENIED)
+        clock += 61
+        current = current.copy(createdAt = clock, expiration = clock + 86400)
+        wraps = listOf(VmlsRequestEnvelope.wrap(current, member, { true }))
+        // Finish the old scan, then restart at the head, retaining all state through a new channel.
+        repeat(3) { c = channel(); c.poll(ctx, keeper) { true }; clock += 61 }
+        val book = c.entries(ctx)
+        assertEquals(1024, book.seen.size)
+        assertEquals(RevocationDecision.PENDING, book.inbox.getValue(key).decision)
+        assertEquals(current.expiration, book.inbox.getValue(key).request.expiration)
+        assertTrue(book.inbox.getValue(key).deferredUntil > clock)
+    }
+
+    @Test fun `inbox storage budget cannot wedge decisions`() = runBlocking<Unit> {
+        val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
+        var clock = at
+        val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://keeper.example")), "")
+        val hints = (1..64).map { it.toString(16).padStart(64, '0') }
+        val large = (1..20).map { request().copy(device = (2000 + it).toString(16).padStart(64, '0'), sessions = hints, boxes = hints) }
+        val wraps = large.map { VmlsRequestEnvelope.wrap(it, member, { true }) }
+        val channel = VmlsRevocationChannel(vault, { _, _ -> object : VmlsCarrier {
+            override suspend fun publish(event: NostrEvent) = true
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+                val f = filters.single()
+                return if (f.kinds == listOf(KIND_DM_RELAYS)) flowOf(list) else wraps.filter { it.createdAt <= f.until!! }.asFlow()
+            }
+            override fun close() {}
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
+        repeat(4) { channel.poll(ctx, keeper) { true }; clock += 61 }
+        val book = channel.entries(ctx)
+        assertTrue(book.inbox.size in 1..19)
+        channel.decide(ctx, book.inbox.keys.first(), RevocationDecision.APPROVED)
+        channel.decide(ctx, book.inbox.keys.first(), RevocationDecision.UNAVAILABLE)
+        assertTrue(channel.entries(ctx).encode().size < MlsVault.MAX_REQUEST_BYTES)
+    }
+
 }

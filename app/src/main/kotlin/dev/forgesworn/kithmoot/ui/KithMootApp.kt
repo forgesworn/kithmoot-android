@@ -216,7 +216,7 @@ fun KithMootApp(
             dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking, askedBox) { vmlsBoxes.answer(asking, it) }
         } else if (revocationAsk != null && !lockedCallOnly && !callAnswering) {
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = {},
+                onDismissRequest = { vmlsBoxes.deferRevocation(revocationAsk.persona, revocationAsk.key) },
                 title = { androidx.compose.material3.Text(if (revocationAsk.pending) "Revocation awaiting the box" else "Compromised-device request") },
                 text = { androidx.compose.material3.Text(
                     "${revocationAsk.sender.take(12)}… asks you to remove their device ${revocationAsk.device.take(12)}… as compromised. " +
@@ -227,10 +227,14 @@ fun KithMootApp(
                 confirmButton = { androidx.compose.material3.TextButton({ vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, true) }) {
                     androidx.compose.material3.Text(if (revocationAsk.pending) "Retry" else "Revoke and remove")
                 } },
-                dismissButton = { if (!revocationAsk.pending) androidx.compose.material3.TextButton({
-                    vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, false)
-                }) { androidx.compose.material3.Text("Decline") } else androidx.compose.material3.TextButton({ deferredRevocation = revocationAsk.key }) {
-                    androidx.compose.material3.Text("Later")
+                dismissButton = { androidx.compose.foundation.layout.Row {
+                    if (!revocationAsk.pending) androidx.compose.material3.TextButton({
+                        vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, false)
+                    }) { androidx.compose.material3.Text("Decline") }
+                    androidx.compose.material3.TextButton({
+                        deferredRevocation = revocationAsk.key
+                        vmlsBoxes.deferRevocation(revocationAsk.persona, revocationAsk.key)
+                    }) { androidx.compose.material3.Text("Later") }
                 } },
             )
         } else if (joinAsk != null && !lockedCallOnly && !callAnswering) {

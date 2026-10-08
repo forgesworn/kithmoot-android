@@ -124,6 +124,7 @@ data class VmlsRoomView(
     val ownIdentity: String? = null,
     val ownDevice: String? = null,
     val requestDevices: List<String> = emptyList(),
+    val requestUnavailable: String? = null,
     val requests: List<String> = emptyList(),
 )
 
@@ -162,6 +163,7 @@ interface VmlsBoxes {
     val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
     fun requestDirectory(relays: List<String>) {}
     fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) {}
+    fun deferRevocation(persona: String, key: String) {}
     fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) {}
 
 

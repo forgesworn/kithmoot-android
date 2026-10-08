@@ -171,6 +171,7 @@ fun VmlsRoomScreen(
                     TextButton({ requesting = device }, enabled = !quiet) { Text("Report device ${short(device)} as compromised") }
                 }
             }
+            room.requestUnavailable?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             room.requests.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (room.removals.isNotEmpty()) Removals(room.removals, onRetryRemoval)
             HorizontalDivider()
@@ -207,7 +208,7 @@ fun VmlsRoomScreen(
         ConfirmDialog("Report your device as compromised?",
             "Device ${short(device)}: this phone removes it where the room can change and holds new sends until that Remove is witnessed. " +
                 "It also asks the keeper to revoke its box access now. Sent means a relay accepted the request, not that the keeper read or acted on it. " +
-                "If this room has ended, only the request is sent. The keeper must confirm the action.",
+                "If this room cannot change now, only the request is sent; try the Remove again when it can. The keeper must confirm the action.",
             "Remove and request", { requesting = null }) { requesting = null; onRequestDevice(device) }
     }
     when (val ask = confirming) {
