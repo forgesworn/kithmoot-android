@@ -1,5 +1,11 @@
 # Android release signing and device acceptance
 
+## 0.6.67: keep the countdown inside an open room
+
+Version code 90 makes every open room follow committed changes to its saved deadline, including the separate chat instance beside a call. Previously the home list could learn an expiry while the open room kept its older state and showed no countdown. The live session adopts the earlier deadline too; a later update cannot extend it or undo self-destruction.
+
+An installed-app regression test reproduced the missing countdown before the fix. Both opening an already-dated room and learning its deadline while it is open now pass through the real activity and view model, checking Chat, Work and Call. The five countdown and destruction-effect component tests pass too. Physical-phone confirmation remains outstanding.
+
 ## 0.6.66: room expiry and destruction visuals
 
 Version code 89 fixes an older saved room masking the expiry in a newer account bookmark. A matching account, invitation and room secret are required before the phone learns the deadline, which cannot be extended or have self-destruction removed by a stale bookmark. Already-open rooms learn the deadline too.

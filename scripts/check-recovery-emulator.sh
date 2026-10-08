@@ -65,6 +65,8 @@ run_tests group-refusals 1 -e class dev.forgesworn.kithmoot.storage.PersistentGr
 
 run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTest
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png" "$reports/"
+run_tests room-countdown-journey 2 -e class dev.forgesworn.kithmoot.storage.RoomCountdownJourneyUiTest
+adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-room-journey.png" "$reports/"
 run_tests chat-and-screen-share 2 -e class dev.forgesworn.kithmoot.ui.ChatAndShareUiTest
 for picture in chat viewer pip; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"

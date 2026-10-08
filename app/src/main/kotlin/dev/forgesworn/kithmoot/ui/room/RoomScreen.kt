@@ -345,10 +345,12 @@ fun RoomScreen(
             }
         }
     }
+    val countdownEnds = state.endsAt?.takeIf { !state.conferenceEnded && state.movedOn == null }
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .then(if (countdownEnds != null) Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout)) else Modifier)
             // Any touch on the call, handled or not, starts the controls'
             // timer again. Observed on the way down, never consumed.
             .pointerInput(callShowing) {
@@ -363,7 +365,6 @@ fun RoomScreen(
     ) {
         // The countdown to a room's end, under its name: green, amber, red
         // for one that self-destructs, grey for one that keeps a copy.
-        val countdownEnds = state.endsAt?.takeIf { !state.conferenceEnded && state.movedOn == null }
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {

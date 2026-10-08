@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.storage
 
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** Implementations must commit a whole value or leave the previous one intact. */
 interface RoomStorage {
@@ -13,6 +16,9 @@ class RoomStorageException(cause: Exception) : Exception("Saved rooms are unavai
 
 /** One instance per application. All read/modify/write operations share this lock. */
 class RoomRepository(private val storage: RoomStorage) {
+    private val _revision = MutableStateFlow(0L)
+    /** Successful local writes, with no room identifiers or keys in the notification. */
+    val revision = _revision.asStateFlow()
     @Synchronized fun list(): List<SavedRoomSummary> = read().map { it.summary() }.sortedByDescending { it.openedAt }
     @Synchronized fun get(id: String): SavedRoom? = read().firstOrNull { it.id == id }
     @Synchronized fun findInvitation(url: String): SavedRoom? {
@@ -34,7 +40,7 @@ class RoomRepository(private val storage: RoomStorage) {
     }
     @Synchronized fun forget(id: String) = write(read().filterNot { it.id == id })
     /** Only used after an explicit destructive confirmation in the UI. */
-    @Synchronized fun reset() = guarded { storage.reset() }
+    @Synchronized fun reset() = guarded { storage.reset(); _revision.update { it + 1 } }
 
     private fun read(): List<SavedRoom> = guarded {
         val bytes = storage.read() ?: return@guarded emptyList()
@@ -56,6 +62,7 @@ class RoomRepository(private val storage: RoomStorage) {
         try {
             require(bytes.size <= 4 * 1024 * 1024)
             storage.write(bytes)
+            _revision.update { it + 1 }
         } finally { bytes.fill(0) }
     }
 
