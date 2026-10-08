@@ -220,8 +220,11 @@ if [[ -n "$third" ]]; then
   link="$(kept "$keeper" keeper link4)"
   both 20 "$keeper" keeper admit room 4 keep true -- "$guest" guest join room 4 link "$link" || failed 'the phone joins the fourth room'
   # The guest's person on the third emulator: its persona key copied across, never printed.
-  "$adb_bin" -s "$guest" exec-out run-as "$package" cat no_backup/vmls-two-guest/persona \
-    | "$adb_bin" -s "$third" shell "run-as $package sh -c 'mkdir -p no_backup/vmls-two-third && cat > no_backup/vmls-two-third/persona'"
+  if ! "$adb_bin" -s "$guest" exec-out run-as "$package" cat no_backup/vmls-two-guest/persona \
+    | "$adb_bin" -s "$third" shell "run-as $package sh -c 'mkdir -p no_backup/vmls-two-third && cat > no_backup/vmls-two-third/persona'" \
+    || [[ "$(kept "$third" third persona | wc -c | tr -d ' ')" != 64 ]]; then
+    failed 'copy the persona to the third device'
+  fi
   both 20 "$keeper" keeper admit room 4 device tablet-device -- "$third" third join room 4 link "$link" || failed 'the tablet joins the fourth room'
   # The phone first learns the tablet's Add: a message from the epoch before it, the tablet could never read.
   one "$guest" guest talk room 4 rounds 4 || failed 'the phone catches up'

@@ -181,6 +181,8 @@ class VmlsTwoDeviceLabTest {
         log("asked: ${ask.room} by ${ask.guest.take(8)}…, device ${ask.device.take(8)}…")
         assertEquals(name(), ask.room)
         runtime.admitting(signer, ask, approve = true)
+        // A second device's ask (M06) is never the first one's, replayed.
+        arg("device")?.let { assertTrue("a second device", ask.device != File(dir, "guest-device").readText()) }
         File(dir, arg("device") ?: "guest-device").writeText(ask.device)
         roundsUntil("the guest confirmed", 120) { room().members.values.any { it.device == ask.device && !it.pending } }
         // Kept for a second device's ask (M06).
@@ -318,7 +320,7 @@ class VmlsTwoDeviceLabTest {
             if (seen != null && test(seen)) return seen.also { log("$what after $rounds rounds: $it") }
             if (rounds >= 30) log("$what: the outbox deposited again: ${runtime.redeposit(persona, session())}")
             if (rounds++ >= 30) throw AssertionError("$role: $what not reached after 30 rounds: $seen; room ${room()}")
-            if (rounds % 5 == 1) log("$what, round $rounds: ${room().orGone()}, sending ${room().sending}, retrying ${room().retrying}, members ${room().members.values.map { it.device.take(8) }}, box ${runtime.boxAnswer(persona, room().box).let { if (it is BoxAnswer.Ok) "Ok" else it.toString() }}")
+            if (rounds % 5 == 1) log("$what, round $rounds: ${room().orGone()}, sending ${room().sending}, retrying ${room().retrying}, members ${room().members.values.map { it.device.take(8) }}, box ${runCatching { runtime.boxAnswer(persona, room().box) }.map { if (it is BoxAnswer.Ok) "Ok" else it.toString() }.getOrElse { it.toString() }}")
             runtime.foregroundRounds(persona, if (revoking) signer else null)
             delay(1_000)
         }
