@@ -11,7 +11,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -69,10 +71,10 @@ class SelfDestructUiTest {
     private fun screenshot(name: String) {
         compose.waitForIdle()
         compose.onRoot().printToLog("SelfDestructUiTest")
-        // The window is drawn after composition settles; give the frame time to reach the screen.
-        Thread.sleep(1_000)
+        // Capture this app's window, so emulator notifications or system ANR
+        // dialogues cannot obscure the component being checked.
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val shot = instrumentation.uiAutomation.takeScreenshot() ?: return
+        val shot = compose.onRoot().captureToImage().asAndroidBitmap()
         File(instrumentation.targetContext.getExternalFilesDir("ui-proof"), name).outputStream().use {
             shot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
         }
@@ -101,6 +103,37 @@ class SelfDestructUiTest {
         show(dark = true)
         compose.onNodeWithText("Self-destructs in 4 days", useUnmergedTree = true).assertExists()
         screenshot("self-destruct-dark.png")
+    }
+
+    @Test fun prominentCountdownShowsHoursMinutesAndSeconds() {
+        val ends = epochSeconds() + 3 * hour + 60
+        compose.setContent {
+            KithMootTheme(darkTheme = true) {
+                Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
+                    dev.forgesworn.kithmoot.ui.room.RoomCountdownLine(ends, ends - 7 * day, true)
+                }
+            }
+        }
+        compose.onNodeWithText("ROOM SELF-DESTRUCT", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Self-destructs in 3 hours", substring = true).assertIsDisplayed()
+        screenshot("self-destruct-prominent-phone.png")
+    }
+
+    @Test fun cleanupEffectSaysTheRoomIsGoneThenDismissesItself() {
+        var visible by androidx.compose.runtime.mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            KithMootTheme(darkTheme = true) {
+                if (visible) dev.forgesworn.kithmoot.ui.room.DestructEffect { visible = false }
+            }
+        }
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithText("Room self-destructed").assertIsDisplayed()
+        compose.onNodeWithText("The room is gone from this device").assertIsDisplayed()
+        screenshot("self-destruct-burst-phone.png")
+        compose.mainClock.autoAdvance = true
+        compose.waitUntil(6000) { !visible }
+        compose.onNodeWithText("Room self-destructed").assertDoesNotExist()
     }
 
     @Test fun whenItEndsIsOfferedOnlyForADatedRoomAndDefaultsToSelfDestruct() {

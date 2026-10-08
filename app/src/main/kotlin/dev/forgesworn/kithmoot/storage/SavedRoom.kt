@@ -273,6 +273,20 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     /** Learnt that the room self-destructs: from its closing rekey, or a
      *  later copy of its invitation. Sticky, so there is no way back. */
     fun withDestruct(): SavedRoom = if (destruct) this else changed { put("destruct", true) }.also { it.validate() }
+    /** Lifetime learned from another admitted copy. Never extend an end or undo destruction. */
+    fun withRoomLifetime(end: Long?, selfDestruct: Boolean, start: Long?): SavedRoom {
+        if (invitation?.invitation?.persistent != true) return this
+        val nextEnd = listOfNotNull(ends, end).minOrNull()
+        val nextStart = listOfNotNull(startsAt, start).minOrNull()
+        val nextDestruct = destruct || selfDestruct
+        if (nextEnd == ends && nextStart == startsAt && nextDestruct == destruct) return this
+        return changed {
+            nextEnd?.let { put("ends", it) }
+            nextStart?.let { put("startsAt", it) }
+            if (nextDestruct) put("destruct", true)
+        }.also { it.validate() }
+    }
+
     fun withDestructHeadsUp(): SavedRoom = if (destructHeadsUp) this else changed { put("destructHeadsUp", true) }
     fun withPinned(pinned: Boolean): SavedRoom = changed { if (pinned) put("pinned", JsonPrimitive(true)) else remove("pinned") }
     fun withRelays(relays: List<String>): SavedRoom = changed {

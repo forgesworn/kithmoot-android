@@ -58,6 +58,25 @@ class ConferenceRoomsTest {
         assertEquals("Welcome to the conference", bob.chat.value.single().body)
     }
 
+    @Test fun `a deadline learned while open binds later traffic and cannot be extended`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val alice = session(room, Fixtures.primary(room, 1, 2), relay)
+        alice.join(); advanceTimeBy(100); runCurrent()
+        alice.learnRoomEnd(100)
+        alice.learnRoomEnd(10_000)
+        relay.published.clear()
+        alice.sendChat("Expiry learned from the Mac")
+        runCurrent()
+        assertTrue(relay.published.any { it.kind == KIND_CHAT })
+        assertTrue(relay.published.filter { it.kind == KIND_CHAT }.all { it.tagValue("expiration") == "100" })
+        advanceTimeBy(101_000); runCurrent()
+        relay.published.clear()
+        assertFailsWith<IllegalStateException> { alice.sendChat("Too late") }
+        runCurrent()
+        assertTrue(relay.published.none { it.kind == KIND_CHAT })
+    }
+
     @Test fun `a room without an end publishes its roster and chat untagged`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
