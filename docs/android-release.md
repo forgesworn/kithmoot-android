@@ -1,5 +1,13 @@
 # Android release signing and device acceptance
 
+## 0.6.66: room expiry and destruction visuals
+
+Version code 89 fixes an older saved room masking the expiry in a newer account bookmark. A matching account, invitation and room secret are required before the phone learns the deadline, which cannot be extended or have self-destruction removed by a stale bookmark. Already-open rooms learn the deadline too.
+
+The prominent countdown stays visible during calls, with a ticking clock, burning fuse and final-minute warning. A brief ring and spark burst appears only after successful local cleanup; reduced motion uses static confirmation. Relay deletion still depends on relay behaviour and cannot erase copies another person kept.
+
+Before rebasing onto the latest inbox-auth and revocation changes, 1,538 app unit tests, five disposable-emulator UI tests, debug/release lint and debug APK builds passed. Release CI and the signed publication must be verified independently. The countdown and actual expiry on a physical phone remain to be checked.
+
 The public website currently offers production-signed 0.6.7 (30), Android 13 or later. Signing, publication and physical acceptance are recorded separately.
 
 ## 0.6.20 home is your rooms
