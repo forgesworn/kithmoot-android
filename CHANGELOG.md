@@ -3,6 +3,23 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.65] - 2026-10-08
+
+For people using the optional VMLS rooms preview on their own Bothy box:
+
+- Report another of your own devices as lost or compromised. This phone
+  starts its removal where the room can change and asks the keeper to
+  revoke its box access immediately.
+- Keepers can review, defer or decline requests. An approved request revokes
+  that device's grants at the keeper's boxes without the usual removal grace,
+  including after the requesting phone has left the room.
+- Sent means a relay accepted the request, not that the keeper has acted.
+  Publishing the request does not authenticate as the member to the relay.
+
+The VMLS preview remains off by default. Requests need a verified keeper
+identity and the keeper's DM relay list. Delivery and keeper action depend
+on the relay and the keeper opening the app with their signer.
+
 ## [0.6.64] - 2026-10-08
 
 For people trying the VMLS rooms preview on their own Bothy box (off until
