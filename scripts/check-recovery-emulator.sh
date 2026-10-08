@@ -67,6 +67,12 @@ run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTe
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png" "$reports/"
 run_tests room-countdown-journey 2 -e class dev.forgesworn.kithmoot.storage.RoomCountdownJourneyUiTest
 adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-room-journey.png" "$reports/"
+run_tests room-destruct-journey 1 -e class dev.forgesworn.kithmoot.storage.RoomDestructJourneyUiTest#a_expiry_deletes_the_open_room_and_shows_the_burst
+adb_device shell am force-stop dev.forgesworn.kithmoot
+run_tests room-destruct-restarted 1 -e class dev.forgesworn.kithmoot.storage.RoomDestructJourneyUiTest#b_the_deleted_room_stays_gone_after_a_process_restart -e requireRestart true
+for picture in final-minute burst restarted; do
+  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-journey-$picture.png" "$reports/"
+done
 run_tests chat-and-screen-share 2 -e class dev.forgesworn.kithmoot.ui.ChatAndShareUiTest
 for picture in chat viewer pip; do
   adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
