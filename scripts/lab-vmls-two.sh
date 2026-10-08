@@ -53,8 +53,7 @@ nostr="ws://127.0.0.1:$LAB_NOSTR_PORT"
 package=dev.forgesworn.kithmoot
 
 cd "$(dirname "$0")/.."
-reports="$PWD/app/build/reports/vmls-two-lab"
-rm -rf "$reports"
+reports="${LAB_REPORTS:-$PWD/app/build/reports/vmls-two-lab-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$reports"
 fixture_pid=""
 port=""
@@ -96,7 +95,7 @@ step() {
   out="$reports/$(printf "%02d" "$count")-$role-$name.txt"
   echo "==> $role: $name ${shown[*]:-}"
   adb_on "$serial" shell am instrument -w -e fixture_control "http://127.0.0.1:$port" -e persona alice \
-    -e role "$role" -e step "$name" -e relay "$nostr" ${extra[@]+"${extra[@]}"} \
+    -e role "$role" -e step "$name" -e p308 "${P308_ONLY:-false}" -e relay "$nostr" ${extra[@]+"${extra[@]}"} \
     -e class dev.forgesworn.kithmoot.storage.VmlsTwoDeviceLabTest \
     "$package.test/androidx.test.runner.AndroidJUnitRunner" | tr -d '\r' > "$out"
   grep -Eq '^OK \(1 test\)$' "$out"
@@ -230,6 +229,13 @@ if [[ -n "$third" ]]; then
   one "$guest" guest talk room 4 rounds 4 || failed 'the phone catches up'
   both 2 "$guest" guest talk room 4 say from-the-phone -- "$third" third talk room 4 expect from-the-phone || failed 'the phone to the tablet'
   one "$keeper" keeper talk room 4 expect from-the-phone || failed 'the phone to the keeper'
+  if [[ "${P308_ONLY:-false}" == true ]]; then
+    one "$keeper" keeper request-setup room 4 || failed 'publish keeper DM relays'
+    one "$guest" guest self-request room 4 || failed 'member removes own tablet and requests revocation'
+    one "$keeper" keeper accept-request room 4 || failed 'keeper accepts and revokes without grace'
+    one "$third" third cut-off room 4 || failed 'tablet refused at box'
+    one "$keeper" keeper request-replay room 4 || failed 'request replay after restart'
+  else
   one "$keeper" keeper remove-device room 4 || failed 'the tablet removed alone'
   one "$guest" guest stale room 4 || failed 'the phone sends under the old epoch'
   one "$keeper" keeper heard-stale room 4 || failed 'the keeper reads both epochs'
@@ -245,6 +251,7 @@ if [[ -n "$third" ]]; then
   one "$guest" guest removed room 5 || failed 'the phone removed'
   one "$third" third removed room 5 || failed 'the tablet removed'
   one "$keeper" keeper close room 5 grant revoked devices guest-device,tablet-device || failed 'close the fifth room'
+  fi
   adb_on "$third" logcat -d -s VmlsTwoDevice:I > "$reports/third-steps.txt" || true
 fi
 

@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.mls
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.account.ParticipantSigner
+import dev.forgesworn.kithmoot.relay.RelayAuthenticator
+import dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import dev.forgesworn.kithmoot.relay.RelayPool
@@ -23,9 +26,15 @@ interface VmlsCarrier : AutoCloseable {
 }
 
 /** The link's relays, as today's invitations reach them (`requestAdmission`, `serveInvitation`). */
-class RelayCarrier(relays: List<String>, parent: CoroutineScope) : VmlsCarrier {
+class RelayCarrier(relays: List<String>, parent: CoroutineScope, signer: ParticipantSigner? = null) : VmlsCarrier {
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob())
-    private val pool = RelayPool(relays, OkHttpRelaySockets(), scope).also { it.start() }
+    private val pool = RelayPool(relays, OkHttpRelaySockets(), scope, authenticators = RelayAuthenticatorProvider { url ->
+        signer?.takeIf { url in relays }?.let { actor -> object : RelayAuthenticator {
+            override val pubkey = actor.pubkey
+            override suspend fun sign(url: String, challenge: String) = actor.sign(22242, System.currentTimeMillis() / 1000,
+                listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+        } }
+    }, publicAuthOnChallenge = signer != null).also { it.start() }
 
     override suspend fun publish(event: NostrEvent): Boolean {
         withTimeoutOrNull(READY_MILLIS) { pool.connected.first { it.isNotEmpty() } } ?: return false

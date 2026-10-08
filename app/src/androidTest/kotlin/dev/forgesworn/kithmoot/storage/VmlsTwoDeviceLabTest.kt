@@ -117,11 +117,13 @@ class VmlsTwoDeviceLabTest {
             scope = scope,
             prompt = ConsentPrompt { ConsentDecision.Approve },
             // A short grace: settle checks the grant outlives a pass before it, revoke one after it.
-            removedGraceSeconds = REMOVED_GRACE_SECONDS,
+            removedGraceSeconds = if (arg("p308") == "true") 86400 else REMOVED_GRACE_SECONDS,
             // The renew step widens the windows past the 30-day lifetimes, so the credential and grants renew now.
             credentialRenewSeconds = if (arg("step") == "renew") RENEW_NOW_SECONDS else VmlsRenewal.CREDENTIAL_RENEW_SECONDS,
             grantRenewSeconds = if (arg("step") == "renew") RENEW_NOW_SECONDS else VmlsRuntime.GRANT_RENEW_SECONDS,
+            requestCarriers = { relays, actor -> RelayCarrier(relays, scope, actor) },
         )
+        runtime.requestDirectory(listOfNotNull(arg("relay")))
     }
 
     @After fun teardown() {
@@ -154,12 +156,60 @@ class VmlsTwoDeviceLabTest {
             "heard-stale" -> heardStale()
             "removed-reader" -> removedReader()
             "remove-person" -> removePerson()
+            "request-setup" -> requestSetup()
+            "self-request" -> selfRequest()
+            "accept-request" -> acceptRequest()
+            "request-replay" -> requestReplay()
             else -> throw AssertionError("unknown step $step")
         }
         log("step $step done: ${runtime.room(persona, session()).orGone()}")
     }
 
     /** The keeper pairs (once), creates the room and shares its link over the relay. */
+    private suspend fun requestSetup() {
+        check(role == KEEPER)
+        val relay = arg("relay")!!
+        val event = signer.sign(dev.forgesworn.kithmoot.protocol.KIND_DM_RELAYS, epochSeconds(), listOf(listOf("relay", relay)), "")
+        RelayCarrier(listOf(relay), scope).use { assertTrue("DM relay list accepted", it.publish(event)) }
+    }
+
+    private suspend fun selfRequest() {
+        check(role == GUEST)
+        live()
+        val own = (vault.device(vault.context("dev.forgesworn.kithmoot", persona)) as VaultResult.Ok).value.device
+        val tablet = room().members.values.single { it.identity == persona && it.device != own }
+        runtime.requestDevice(signer, session(), tablet.device)
+        roundsUntil("the member's own Remove", 90) { room().members.values.none { it.device == tablet.device } }
+        val entry = runtime.removals(persona, session()).single()
+        assertTrue(entry.grants.single().contains("requested"))
+        assertFalse(entry.grants.single().contains("revoked at the box"))
+        assertTrue(entry.mls.contains("applied"))
+        // A user can explicitly resend after a missed/declined signer prompt at the keeper.
+        runtime.requestDevice(signer, session(), tablet.device)
+        log("member Remove witnessed; grant requested only; explicit resend accepted")
+    }
+
+    private suspend fun acceptRequest() {
+        check(role == KEEPER)
+        live()
+        runtime.requestRound(signer)
+        val ask = runtime.revocationAsks.value.single()
+        val tablet = File(dir, "tablet-device").readText()
+        assertEquals(tablet, ask.device)
+        assertEquals(VmlsGrantState.ACTIVE, grants.get(room().box, tablet)!!.state)
+        runtime.acceptRequest(signer, ask.key, true)
+        assertEquals(VmlsGrantState.REVOKED, grants.get(room().box, tablet)!!.state)
+        assertTrue(runtime.revocationAsks.value.isEmpty())
+        log("keeper accepted; tablet grant revoked before 24-hour grace")
+    }
+
+    private suspend fun requestReplay() {
+        check(role == KEEPER)
+        runtime.requestRound(signer)
+        assertTrue("no repeated prompt after process restart", runtime.revocationAsks.value.isEmpty())
+        assertEquals(VmlsGrantState.REVOKED, grants.get(room().box, File(dir, "tablet-device").readText())!!.state)
+    }
+
     private suspend fun create() {
         check(role == KEEPER)
         lab.ready()
@@ -374,7 +424,7 @@ class VmlsTwoDeviceLabTest {
      * read with `authority`, which is where its rounds stop, so nothing it sends is deposited.
      */
     private suspend fun cutOff() {
-        check(role == GUEST)
+        check(role == GUEST || role == THIRD)
         val box = room().box
         // Only the grant's refusal is waited for: a passing clock or busy refusal is asked again.
         val refused = VmlsLab.eventually(60) {

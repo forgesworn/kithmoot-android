@@ -156,6 +156,10 @@ data class VmlsRoom(
      * session's removal; a keeper's, once the box has taken its revocations.
      */
     val closing: Closing? = null,
+    /** Authenticated admission answer; old rooms with no keeper cannot request revocation. */
+    val keeperIdentity: String? = null,
+    /** Own devices observed in the roster, retained for a request after this phone is removed. */
+    val knownOwnDevices: Map<String, String> = emptyMap(),
     // ---- rebuilt, never stored ----
     val members: Map<String, VmlsRoomMember> = emptyMap(),
     val epoch: Long? = null,
@@ -171,6 +175,8 @@ data class VmlsRoom(
         require(role == VmlsRole.KEEPER || (grace.isEmpty() && removing.isEmpty() && evicting.isEmpty() && invite == null && asked.isEmpty() && prompted.isEmpty())) {
             "Only a keeper invites and removes members."
         }
+        require(keeperIdentity == null || ROOM_HEX64.matches(keeperIdentity))
+        require(knownOwnDevices.size <= 64 && knownOwnDevices.all { ROOM_HEX64.matches(it.key) && ROOM_HEX64.matches(it.value) })
         require(invite == null || ROOM_HEX64.matches(invite))
         require(invite != null || asked.isEmpty())
         require(asked.size <= MAX_ASKED && asked.all(ROOM_HEX_ID::matches))
