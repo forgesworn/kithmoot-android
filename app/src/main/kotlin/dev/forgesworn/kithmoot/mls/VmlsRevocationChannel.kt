@@ -169,10 +169,11 @@ class VmlsRevocationChannel(
                 val page = carrier.readPage(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(ctx.persona)), since = since, until = until, limit = 64))
                     ?: return@use
                 check(ctx)
-                val events = page.filter { event -> event.createdAt in since..until && event.kind == 1059 &&
-                    event.tags == listOf(listOf("p", ctx.persona)) && event.content.length <= 40_000 && Events.verify(event) }.distinctBy { it.id }
-                val ordered = events.sortedWith(compareByDescending<NostrEvent> { it.createdAt }.thenBy { it.id })
-                val unseen = ordered.filter { it.id !in book.seen }
+                // All verified in-window events advance paging, even unsupported/oversized request shapes.
+                val ordered = page.filter { it.createdAt in since..until && Events.verify(it) }.distinctBy { it.id }
+                    .sortedWith(compareByDescending<NostrEvent> { it.createdAt }.thenBy { it.id })
+                val unseen = ordered.filter { it.kind == 1059 && it.tags == listOf(listOf("p", ctx.persona)) &&
+                    it.content.length <= 40_000 && it.id !in book.seen }
                 for (wrap in unseen.take(8)) {
                     check(ctx)
                     // Bounded FIFO: keep making progress rather than stopping all requests for nine days.
