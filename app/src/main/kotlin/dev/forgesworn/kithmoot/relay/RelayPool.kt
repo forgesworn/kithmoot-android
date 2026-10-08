@@ -136,6 +136,8 @@ class RelayPool(
     private val authenticators: RelayAuthenticatorProvider = RelayAuthenticatorProvider { null },
     @Volatile private var readRelays: Set<String> = urls.toSet(),
     @Volatile private var writeRelays: Set<String> = urls.toSet(),
+    /** Public DM relays may challenge with NIP-42 but need not. Never weakens a Link or circle route. */
+    private val publicAuthOnChallenge: Boolean = false,
 ) : RoomTransport {
 
     private val lock = Any()
@@ -231,6 +233,12 @@ class RelayPool(
     override fun describe(): List<String> = urls.toList()
 
     override fun circleRelays(): Set<String> = circle()
+
+    /** Wait for this connection's verified NIP-42 OK, not merely its public socket open. */
+    suspend fun awaitAuthentication(url: String, timeoutMs: Long): Boolean = withTimeoutOrNull(timeoutMs) {
+        connected.first { open -> url in open && synchronized(lock) { links[url]?.authState == AuthState.READY } }
+        true
+    } ?: false
 
     /**
      * Compare a small local index with one verified circle box. This accepts
@@ -654,6 +662,8 @@ class RelayPool(
             generation = link.socketGeneration
             link.authJob?.cancel()
             link.authState = AuthState.SIGNING
+            link.isOpen = false
+            _connected.value = links.values.filter { it.isOpen }.map { it.url }.toSet()
         }
         link.authJob = scope.launch {
             val event = runCatching { authenticator.sign(link.url, challenge) }.getOrNull()
@@ -723,10 +733,11 @@ class RelayPool(
                         return
                     }
                     connectedAt = now()
-                    val requiresAuth = authenticators.forUrl(link.url) != null
+                    val hasAuthenticator = authenticators.forUrl(link.url) != null
+                    val requiresAuth = hasAuthenticator && !(publicAuthOnChallenge && !LinkRelayAddress.looksLikeLink(link.url) && link.url !in circle())
                     synchronized(lock) {
                         link.socketGeneration += 1
-                        link.authState = if (requiresAuth) AuthState.AWAITING_CHALLENGE else AuthState.READY
+                        link.authState = if (hasAuthenticator) AuthState.AWAITING_CHALLENGE else AuthState.READY
                         link.isOpen = !requiresAuth
                     }
                     if (!requiresAuth) onLinkOpen(link)

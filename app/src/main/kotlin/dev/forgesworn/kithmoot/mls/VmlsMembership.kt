@@ -25,6 +25,10 @@ object VmlsMembership {
     fun grantRef(box: String, grantId: String): String =
         Digests.sha256(REF_LABEL + box.hexToBytes() + grantId.hexToBytes()).toHex()
 
+    /** Member has no grant id: stable reference in a separate domain. */
+    fun memberGrant(box: String, device: String) = RemovalGrant(box,
+        Digests.sha256("kithmoot/vmls-member-grant/v1".toByteArray() + box.hexToBytes() + device.hexToBytes()).toHex(), device, false)
+
     /**
      * The grants a removal of [devices] from [persona]'s room at [box] lists
      * (P3-05 decision 5): each device's live grant there. A grant [persona]

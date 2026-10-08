@@ -28,6 +28,8 @@ import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.account.admissible
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.JoinUrlException
+import dev.forgesworn.kithmoot.protocol.VmlsRevocationRequest
+import dev.forgesworn.kithmoot.protocol.VMLS_REQUEST_SECONDS
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_INVITATION_REQUEST
 import dev.forgesworn.kithmoot.protocol.RoomInvitation
@@ -137,7 +139,17 @@ class VmlsRuntime(
     /** How long a removed device keeps its grant, to fetch its own removal (D1 R2). */
     private val removedGraceSeconds: Long = REMOVED_GRACE_SECONDS,
     private val random: SecureRandom = SecureRandom(),
+    private val requestCarriers: ((List<String>, ParticipantSigner?) -> VmlsCarrier)? = null,
 ) : VmlsBoxes {
+    @Volatile private var requestRelays: List<String> = emptyList()
+    private val requests = VmlsRevocationChannel(vault,
+        { relays, signer -> requestCarriers?.invoke(relays, signer) ?: carriers(relays) },
+        { requestRelays }, { !quiet.get() }, now)
+    private val _revocationAsks = MutableStateFlow<List<VmlsRevocationAsk>>(emptyList())
+    override val revocationAsks = _revocationAsks.asStateFlow()
+    private val requestBooks = HashMap<String, RevocationBook>()
+    override fun requestDirectory(relays: List<String>) { requestRelays = relays.distinct().take(12) }
+
     private val _state = MutableStateFlow(VmlsBoxesState())
     override val state: StateFlow<VmlsBoxesState> = _state.asStateFlow()
 
@@ -213,6 +225,8 @@ class VmlsRuntime(
 
     /** The account changed (§6.2): an ask still showing is withdrawn, not answered, so it is never shown to the next account. */
     override fun sessionEnded() {
+        _revocationAsks.value = emptyList()
+        synchronized(this) { requestBooks.clear() }
         synchronized(this) { waiting?.cancel() }
     }
 
@@ -330,11 +344,13 @@ class VmlsRuntime(
             val keeper = signer?.takeIf { persona != null && it.pubkey == persona }
             // Before the rounds, so they run on the engine the new credential makes (see renewCredential).
             if (keeper != null) renewCredential(keeper)
+            if (persona != null) ownDevice(persona)
             roundsNow(persona)
             if (keeper != null) {
                 revokeCompromised(keeper)
                 revokeRemoved(keeper)
                 renewGrants(keeper)
+                requestRound(keeper)
             }
         }
 
@@ -599,7 +615,7 @@ class VmlsRuntime(
             if (created is Hosted.Held) "Your box has not confirmed this account's vault yet. Try again shortly." else "This account's vault refused the new room.",
         )
         val id = session ?: throw IllegalStateException("The engine made no session.")
-        VmlsRoom(persona, id, name, box, VmlsRole.KEEPER, joined = true).also { store.put(it) }
+        VmlsRoom(persona, id, name, box, VmlsRole.KEEPER, joined = true, keeperIdentity = persona).also { store.put(it) }
     }
 
     /** What [persona]'s room [session] received while the app ran, oldest first. */
@@ -632,6 +648,171 @@ class VmlsRuntime(
         publishRooms()
     }
 
+    // ---- P3-08: a member's identity-sealed request to the keeper ----
+
+    override fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) = act(persona) { p ->
+        requestDevice(checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }, session, device)
+    }
+
+    internal suspend fun requestDevice(signer: ParticipantSigner, session: String, device: String) {
+        val persona = signer.pubkey
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        check(!quiet.get() && vault.isCurrent(ctx)) { "Close the Tor-only room first." }
+        val observed = rounding.withLock {
+            val stored = store.room(persona, session) ?: error("This room is no longer kept.")
+            check(stored.role == VmlsRole.GUEST) { "A keeper revokes its grants directly." }
+            val keeper = checkNotNull(stored.keeperIdentity) { "This older room has no verified keeper identity. Ask its keeper directly." }
+            check(device != checkNotNull(ownDevice(persona)) { "This phone must confirm its own device before reporting another one." }) { "Use another device to request removal of this phone." }
+            val engine = engine(persona)
+            val room = synchronized(this) { live[key(persona, session)] } ?: engine?.let { seed(it, stored) } ?: stored
+            val member = room.members.values.singleOrNull { it.device == device && it.identity == persona }
+            check(member != null || device in room.knownOwnDevices) { "This phone has never seen that device as yours in this room." }
+            Triple(keeper, room.box, member?.leaf?.takeIf { room.canSend })
+        }
+        // Intent and send hold are witnessed before attempting either network path.
+        observed.third?.let { leaf ->
+            val existing = journal(persona)?.get(VmlsMembership.key(session, leaf))
+            if (existing == null) try { removing(persona, session, leaf, memberRequest = true) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { if (journal(persona)?.containsKey(VmlsMembership.key(session, leaf)) != true) throw error }
+        }
+        val at = now()
+        val request = VmlsRevocationRequest(persona, observed.first, device, listOf(session), listOf(observed.second), at, at + VMLS_REQUEST_SECONDS)
+        val sent = requests.send(ctx, signer, request, resend = true)
+        if (sent) markRequested(persona, request)
+        val book = requests.entries(ctx)
+        synchronized(this) { requestBooks[persona] = book }
+        publishRooms()
+        check(sent) { "No keeper relay accepted the revocation request. Try again; the Remove continues separately." }
+        _state.update { it.copy(notice = "Revocation request sent to a relay; not confirmed by the keeper.") }
+    }
+
+    /** Only relay-confirmed sends may set NotAuthorised.requested; never Revoked. Also repairs an interrupted local write. */
+    private suspend fun markRequested(persona: String, request: VmlsRevocationRequest) = rounding.withLock {
+        for ((key, stored) in journal(persona).orEmpty().filterKeys { VmlsMembership.session(it) in request.sessions }) {
+            val next = removalDecode(stored).use { removal ->
+                for (grant in removal.grants()) {
+                    val ref = VmlsMembership.memberGrant(grant.grant.node.toHex(), request.device).ref
+                    if (!grant.grant.keeper && grant.grant.grant.toHex() == ref && grant.state == JournalGrant.NotAuthorised(false))
+                        removal.setGrant(grant.grant.grant, JournalGrant.NotAuthorised(true))
+                }
+                removal.encode()
+            }
+            if (!next.contentEquals(stored)) check(keepRemoval(persona, key, next)) { "The request was sent; its removal journal is waiting for the witness." }
+        }
+    }
+
+    private suspend fun requestMembers(persona: String): List<VmlsRoomMember> = rounding.withLock {
+        val engine = engine(persona)
+        store.rooms().filter { it.persona == persona && it.role == VmlsRole.KEEPER }.flatMap { room ->
+            (synchronized(this) { live[key(persona, room.session)] } ?: engine?.let { seed(it, room) } ?: room).members.values
+        }
+    }
+
+    internal suspend fun requestRound(signer: ParticipantSigner) {
+        if (quiet.get()) return
+        val persona = signer.pubkey
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        // Guests need their outbox, not unsolicited identity decryption. Only an issuer with a live guest grant polls.
+        val book = if (ledger.all().any { it.issuer == persona && it.persona != persona && it.state != VmlsGrantState.REVOKED }) {
+            requests.poll(ctx, signer) { request ->
+                ledger.all().any { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED } &&
+                    authorisedRevocation(request, persona, ledger.all(), requestMembers(persona))
+            }
+        } else requests.entries(ctx)
+        for (entry in book.outbox.values.filter { it.sent }) markRequested(persona, entry.request)
+        // Only a previously persisted, explicit acceptance is resumed automatically.
+        for ((key, entry) in book.inbox.filterValues { it.decision == RevocationDecision.APPROVED }) {
+            val outcome = performRequest(signer, entry.request)
+            if (outcome != RevocationDecision.APPROVED) { requests.decide(ctx, key, outcome); requestOutcome(outcome) }
+        }
+        showRequests(persona, requests.entries(ctx))
+    }
+
+    private fun showRequests(persona: String, book: RevocationBook) {
+        synchronized(this) { requestBooks[persona] = book }
+        _revocationAsks.value = book.inbox.filterValues { (it.decision == RevocationDecision.PENDING || it.decision == RevocationDecision.APPROVED) && it.deferredUntil <= now() && (it.request.expiration > now() || it.decision == RevocationDecision.APPROVED) }.map { (key, entry) ->
+            val request = entry.request
+            val grants = ledger.all().filter { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED }
+            val rooms = store.rooms().filter { it.persona == persona && it.role == VmlsRole.KEEPER && grants.any { g -> g.box == it.box } }
+            VmlsRevocationAsk(persona, key, request.sender, request.device,
+                grants.map { "Revoke its grant now at ${store.route(persona, it.box)?.boxName ?: shortHex(it.box)}; this ends its access for every room on that box." } +
+                    rooms.map { "${it.name}: remove the device if it is still a member and the room can change; otherwise revoke box access only." },
+                book.inbox.values.any { it.request.sender == request.sender && it.request.device != request.device && it.request.expiration > now() },
+                entry.decision == RevocationDecision.APPROVED,
+                book.inbox.values.filter { it.request.sender == request.sender && it.request.expiration > now() }.map { it.request.device }.distinct())
+        }
+        publishRooms()
+    }
+
+    private fun requestOutcome(outcome: RevocationDecision) {
+        if (outcome == RevocationDecision.UNAVAILABLE) _state.update { it.copy(notice =
+            "This revocation could not finish: a box route is unavailable or the device identity no longer agrees with the roster. Unconfirmed grants may remain live until expiry; contact the box's keeper.") }
+    }
+
+    override fun deferRevocation(persona: String, key: String) = act(persona) { p ->
+        val ctx = vault.sessionContext(PRINCIPAL, p)
+        requests.defer(ctx, key)
+        showRequests(p, requests.entries(ctx))
+    }
+
+    override fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) = act(persona) { p ->
+        acceptRequest(checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }, key, approve)
+    }
+
+    internal suspend fun acceptRequest(signer: ParticipantSigner, key: String, approve: Boolean) {
+        val persona = signer.pubkey
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        val entry = requests.entries(ctx).inbox[key] ?: error("This request is no longer kept.")
+        check(entry.decision == RevocationDecision.APPROVED || authorisedRevocation(entry.request, persona, ledger.all(), requestMembers(persona))) { "This request no longer matches your grant ledger." }
+        requests.decide(ctx, key, if (approve) RevocationDecision.APPROVED else RevocationDecision.DENIED)
+        if (approve) {
+            val outcome = performRequest(signer, entry.request)
+            if (outcome != RevocationDecision.APPROVED) { requests.decide(ctx, key, outcome); requestOutcome(outcome) }
+            if (outcome == RevocationDecision.DONE) _state.update { it.copy(notice = "No live grants remain in this keeper's ledger for the device. MLS removal is separate; a stopped or already-ended room was not changed by this phone.") }
+        }
+        showRequests(persona, requests.entries(ctx))
+    }
+
+    /** Ledger-only path deliberately has no 24-hour grace and needs no active MLS room. */
+    private suspend fun performRequest(signer: ParticipantSigner, request: VmlsRevocationRequest): RevocationDecision {
+        val persona = signer.pubkey
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        check(!quiet.get() && vault.isCurrent(ctx))
+        val records = ledger.all().filter { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED }
+        // Approval is durable. Pruning completed/lapsed grants must not resurrect a permanently pending prompt.
+        if (records.isEmpty()) return RevocationDecision.DONE
+        if (!authorisedRevocation(request, persona, records, requestMembers(persona))) return RevocationDecision.UNAVAILABLE
+        var complete = true
+        var unavailable = false
+        for (stored in store.rooms().filter { it.persona == persona && it.role == VmlsRole.KEEPER && records.any { r -> r.box == it.box } }) {
+            val room = room(persona, stored.session) ?: continue
+            val member = room.members.values.singleOrNull { it.device == request.device && it.identity == request.sender }
+            if (member != null && room.canSend) {
+                // Upgrade a normal removal already under way too: acceptance must establish the send hold.
+                try {
+                    removing(persona, room.session, member.leaf, compromised = signer)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { complete = false }
+            }
+        }
+        rounding.withLock {
+            for (record in records) {
+                check(!quiet.get() && vault.isCurrent(ctx))
+                if (ledger.get(record.box, record.device)?.state == VmlsGrantState.REVOKED) continue
+                val route = store.route(persona, record.box)
+                if (route == null) { unavailable = true; continue }
+                val revocation = ledger.revoke(record.box, record.device) ?: continue
+                try {
+                    publish(route, signer, listOf(revocation))
+                    ledger.revoked(record.box, record.device, revocation)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { complete = false }
+            }
+        }
+        return if (unavailable) RevocationDecision.UNAVAILABLE else if (complete) RevocationDecision.DONE else RevocationDecision.APPROVED
+    }
+
     // ---- the room screens (P3-03b-3 PR 4) ----
 
     private val _rooms = MutableStateFlow<List<VmlsRoomView>>(emptyList())
@@ -658,14 +839,22 @@ class VmlsRuntime(
             stored.map { kept ->
                 val room = live[key(persona, kept.session)]?.copy(closing = kept.closing) ?: kept
                 val under = roomUnder(coordination[persona], stateOf(room))
+                val thisDevice = engines[persona]?.device?.device ?: ownDevices[persona]
                 VmlsRoomView(
                     session = room.session, name = room.name, box = room.box, boxName = routes[room.box]?.boxName ?: "Bothy box",
                     keeper = room.role == VmlsRole.KEEPER, state = under?.state ?: stateOf(room), reason = under?.reason ?: reasonOf(room),
                     members = room.members.values.sortedBy { it.leaf }.map { VmlsMemberView(it.leaf, it.identity, it.device, it.pending) },
                     invite = room.invite != null, canSend = room.canSend && under == null,
                     messages = chat[key(persona, room.session)]?.toList().orEmpty(),
-                    removals = if (room.role == VmlsRole.KEEPER) removalViews(persona, room) else emptyList(),
-                    held = room.role == VmlsRole.KEEPER && heldNow(persona, room.session),
+                    removals = removalViews(persona, room),
+                    held = heldNow(persona, room.session),
+                    ownIdentity = persona, ownDevice = thisDevice,
+                    requestDevices = if (room.role == VmlsRole.GUEST && room.keeperIdentity != null && thisDevice != null)
+                        (room.knownOwnDevices.keys + room.members.values.filter { it.identity == persona }.map { it.device }).distinct().filter { it != thisDevice } else emptyList(),
+                    requestUnavailable = if (room.role == VmlsRole.GUEST && room.keeperIdentity == null) "This older room has no verified keeper identity. Ask its keeper directly." else null,
+                    requests = requestBooks[persona]?.outbox?.values.orEmpty().filter { room.session in it.request.sessions }.map {
+                        "Device ${shortHex(it.request.device)}: " + if (it.sent) "revocation request sent to a relay; not confirmed by the keeper." else "latest revocation request not sent; try again."
+                    },
                 )
             }
         }
@@ -766,14 +955,17 @@ class VmlsRuntime(
      */
     internal suspend fun removing(
         persona: String, session: String, target: String, person: Boolean = false,
-        compromised: ParticipantSigner? = null, propose: Boolean = true,
+        compromised: ParticipantSigner? = null, propose: Boolean = true, memberRequest: Boolean = false,
     ): Unit = rounding.withLock {
         check(compromised == null || compromised.pubkey == persona) { "Only the room's keeper removes members." }
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val stored = store.room(persona, session) ?: throw IllegalStateException("This room is no longer kept on this phone.")
         check(stored.closing == null) { "This room is closing." }
         val room = synchronized(this) { live[key(persona, session)] } ?: seed(engine, stored) ?: throw IllegalStateException("This room waits for this account's vault.")
-        check(room.role == VmlsRole.KEEPER) { "Only the room's keeper removes members." }
+        val member = room.role == VmlsRole.GUEST
+        check(!member || (memberRequest && !person && room.members[target]?.identity == persona && room.members[target]?.device != ownDevice(persona))) {
+            "A member can request removal only of another of their own devices."
+        }
         check(room.canSend) { "This room cannot change now. Try again shortly." }
         val devices = if (person) room.members.values.filter { it.identity == target }.map { it.device } else listOfNotNull(room.members[target]?.device)
         check(devices.isNotEmpty()) { "That member is not in the room." }
@@ -803,7 +995,7 @@ class VmlsRuntime(
             check(vault.forgetRemoval(vault.sessionContext(PRINCIPAL, persona), oldest) is VaultResult.Ok) { "The removal could not be recorded. Try again shortly." }
             synchronized(this) { journals.remove(persona); this@VmlsRuntime.compromised.remove(persona) }
         }
-        val grants = VmlsMembership.grants(persona, room.box, devices, ledger.all())
+        val grants = if (member) devices.map { VmlsMembership.memberGrant(room.box, it) } else VmlsMembership.grants(persona, room.box, devices, ledger.all())
         val opened = try {
             engine.host.readback(persona, session.hexToBytes()) { s, _ ->
                 val refs = grants.map { VmlsGrantRef(it.box.hexToBytes(), it.ref.hexToBytes(), it.keeper) }
@@ -814,7 +1006,7 @@ class VmlsRuntime(
             throw IllegalStateException("The engine refused that removal (${refused.message}).")
         }
         val bytes = (opened as? Hosted.Released)?.value ?: throw IllegalStateException("This room cannot change now. Try again shortly.")
-        check(keepRemoval(persona, key, bytes, compromised = compromised != null)) { "The removal could not be recorded. Try again shortly." }
+        check(keepRemoval(persona, key, bytes, compromised = compromised != null || memberRequest)) { "The removal could not be recorded. Try again shortly." }
         // The Remove first, so it never waits on the box's answers to the revocations (decision 6).
         removeThenRevoke(compromised, persona, key) { if (propose) save(advanceRemovals(engine, room)) else publishRooms() }
     }
@@ -1422,7 +1614,7 @@ class VmlsRuntime(
                 if (hosted is Hosted.Held) "Your box has not confirmed this account's vault yet. Ask to join again shortly." else "This account's vault refused the join.",
             )
             val session = hosted.value.snapshot?.session ?: throw IllegalStateException("The engine made no session.")
-            VmlsRoom(persona, session.toHex(), admitted.name, payload.box, VmlsRole.GUEST, joined = false).also { store.put(it) }
+            VmlsRoom(persona, session.toHex(), admitted.name, payload.box, VmlsRole.GUEST, joined = false, keeperIdentity = admitted.keeper).also { store.put(it) }
         }
     }
 
@@ -1472,11 +1664,11 @@ class VmlsRuntime(
             is Round.Stopped, is Round.Fenced -> room = seed(engine, room) ?: room
             else -> Unit
         }
-        if (room.canSend && round is Round.Done && room.role == VmlsRole.KEEPER) {
-            room = removeDue(engine, room)
+        if (room.canSend && round is Round.Done) {
+            if (room.role == VmlsRole.KEEPER) room = removeDue(engine, room)
             room = advanceRemovals(engine, room)
             // No one is let in while a compromised device may still read the epoch that admits them.
-            if (!held(persona, stored.session)) room = addJoins(engine, route, room)
+            if (room.role == VmlsRole.KEEPER && !held(persona, stored.session)) room = addJoins(engine, route, room)
         }
         save(room)
     }

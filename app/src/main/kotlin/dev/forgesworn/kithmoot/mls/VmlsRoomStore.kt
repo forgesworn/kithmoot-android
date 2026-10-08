@@ -74,7 +74,7 @@ class VmlsRoomStore(private val storage: RoomStorage) {
      * forgotten meanwhile stays forgotten.
      */
     fun saveDriven(room: VmlsRoom): VmlsRoom? = update(room.persona, room.session) { stored ->
-        room.copy(invite = stored.invite, asked = stored.asked, prompted = stored.prompted, closing = laterClosing(stored.closing, room.closing))
+        room.copy(knownOwnDevices = (stored.knownOwnDevices + room.members.values.filter { it.identity == room.persona }.associate { it.device to it.leaf }).entries.toList().takeLast(64).associate { it.toPair() }, invite = stored.invite, asked = stored.asked, prompted = stored.prompted, closing = laterClosing(stored.closing, room.closing))
     }
 
     /** A page action's closing is never undone by the driver's older copy. */
@@ -141,6 +141,8 @@ class VmlsRoomStore(private val storage: RoomStorage) {
     private fun jsonOf(room: VmlsRoom) = buildJsonObject {
         put("persona", room.persona); put("session", room.session); put("name", room.name); put("box", room.box)
         put("role", room.role.name); put("joined", room.joined)
+        room.keeperIdentity?.let { put("keeper", it) }
+        if (room.knownOwnDevices.isNotEmpty()) put("knownOwnDevices", buildJsonObject { room.knownOwnDevices.forEach { (device, leaf) -> put(device, leaf) } })
         room.stop?.let { put("stop", it.code) }
         room.invite?.let { put("invite", it) }
         put("asked", buildJsonArray { room.asked.sorted().forEach { add(JsonPrimitive(it)) } })
@@ -154,6 +156,8 @@ class VmlsRoomStore(private val storage: RoomStorage) {
     private fun roomOf(o: JsonObject) = VmlsRoom(
         persona = o.text("persona"), session = o.text("session"), name = o.text("name"), box = o.text("box"),
         role = VmlsRole.valueOf(o.text("role")),
+        keeperIdentity = o["keeper"]?.jsonPrimitive?.content,
+        knownOwnDevices = o["knownOwnDevices"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content }.orEmpty(),
         joined = o.getValue("joined").jsonPrimitive.content.toBooleanStrict(),
         stop = o["stop"]?.jsonPrimitive?.content?.let(RoomStop::parse),
         invite = o["invite"]?.jsonPrimitive?.content,

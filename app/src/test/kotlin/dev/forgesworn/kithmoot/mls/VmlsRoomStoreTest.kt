@@ -48,6 +48,20 @@ class VmlsRoomStoreTest {
         assertEquals(RoomStatus.Closing, store.room(persona, room.session)!!.status)
     }
 
+    @Test fun `keeper and observed own device survive removal and restart, with no invented keeper for old rooms`() {
+        val storage = MemoryStorage(); val store = VmlsRoomStore(storage)
+        val guest = room.copy(role = VmlsRole.GUEST, keeperIdentity = "ee".repeat(32))
+        store.put(guest)
+        val member = VmlsRoomMember(leaf, persona, "44".repeat(32), false)
+        val driven = store.saveDriven(guest.copy(members = mapOf(leaf to member)))!!
+        store.saveDriven(driven.copy(stop = RoomStop.Removed, members = emptyMap()))
+        val restored = VmlsRoomStore(storage).room(persona, room.session)!!
+        assertEquals(guest.keeperIdentity, restored.keeperIdentity)
+        assertEquals(mapOf(member.device to member.leaf), restored.knownOwnDevices)
+        store.put(guest.copy(keeperIdentity = null))
+        assertNull(store.room(persona, room.session)!!.keeperIdentity)
+    }
+
     @Test fun `every stop is read back`() {
         val storage = MemoryStorage()
         for (stop in listOf(RoomStop.Recovery("Fork"), RoomStop.Unknown("NewEvent"), RoomStop.KeyCompromise, RoomStop.Removed, RoomStop.JoinLapsed)) {

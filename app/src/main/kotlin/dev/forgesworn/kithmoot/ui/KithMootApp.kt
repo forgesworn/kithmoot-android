@@ -205,11 +205,36 @@ fun KithMootApp(
         // The vault's consent ask, then a join request: no prompt may cover an answered call or the lock screen's call.
         val asking = vmlsBoxes.consent.collectAsState().value
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
+        val revocationAsk = vmlsBoxes.revocationAsks.collectAsState().value.firstOrNull { it.persona == witnessPersona }
+        val requestDirectories = accountModel.accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS
+        LaunchedEffect(vmlsBoxes, requestDirectories) { vmlsBoxes.requestDirectory(requestDirectories) }
         // Only the signed-in account's ask is shown: another account's is never put to this one.
         if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
             var askedBox by remember(asking) { mutableStateOf<String?>(null) }
             LaunchedEffect(asking) { askedBox = vmlsBoxes.boxName(asking.persona, asking.homeBox) }
             dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking, askedBox) { vmlsBoxes.answer(asking, it) }
+        } else if (revocationAsk != null && !lockedCallOnly && !callAnswering) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { vmlsBoxes.deferRevocation(revocationAsk.persona, revocationAsk.key) },
+                title = { androidx.compose.material3.Text(if (revocationAsk.pending) "Revocation awaiting the box" else "Compromised-device request") },
+                text = { androidx.compose.material3.Text(
+                    "${revocationAsk.sender.take(12)}… asks you to remove their device ${revocationAsk.device.take(12)}… as compromised. " +
+                        "The identity signed this request; which device sent it is not proven. Verify it with the person before accepting.\n\n" +
+                        (if (revocationAsk.conflict) "Conflicting requests name these devices of this person: ${revocationAsk.conflictDevices.joinToString { it.take(12) + "…" }}. Consider removing both and rejoining with new devices.\n\n" else "") +
+                        revocationAsk.effects.joinToString("\n")
+                ) },
+                confirmButton = { androidx.compose.material3.TextButton({ vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, true) }) {
+                    androidx.compose.material3.Text(if (revocationAsk.pending) "Retry" else "Revoke and remove")
+                } },
+                dismissButton = { androidx.compose.foundation.layout.Row {
+                    if (!revocationAsk.pending) androidx.compose.material3.TextButton({
+                        vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, false)
+                    }) { androidx.compose.material3.Text("Decline") }
+                    androidx.compose.material3.TextButton({
+                        vmlsBoxes.deferRevocation(revocationAsk.persona, revocationAsk.key)
+                    }) { androidx.compose.material3.Text("Later") }
+                } },
+            )
         } else if (joinAsk != null && !lockedCallOnly && !callAnswering) {
             dev.forgesworn.kithmoot.ui.start.VmlsJoinDialog(joinAsk) { approve ->
                 accountModel.vmlsSigner()?.let { vmlsBoxes.admit(it, joinAsk, approve) }
@@ -635,6 +660,7 @@ fun KithMootApp(
                                 if (persona != null && session != null) boxes.removalPlan(persona, session, target, person, compromised) else null
                             },
                             onRetryRemoval = { key -> if (persona != null) boxes.retryRemoval(persona, key) },
+                            onRequestDevice = { device -> if (persona != null && session != null) boxes.requestOwnDevice(persona, accountModel.vmlsSigner(), session, device) },
                             onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
                             onClose = { force -> if (persona != null && session != null) boxes.close(persona, accountModel.vmlsSigner(), session, force) },
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },

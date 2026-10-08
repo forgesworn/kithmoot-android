@@ -402,6 +402,23 @@ class MlsVault(
         }
     }
 
+    /** P3-08 channel state: sealed and witnessed with this persona, never a public event. */
+    suspend fun revocationRequests(ctx: VaultContext): VaultResult<ByteArray?> = refusing {
+        look(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            VaultResult.Ok(record?.requests?.let { Base64.getDecoder().decode(it) })
+        }
+    }
+
+    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray): VaultResult<Unit> = refusing {
+        update(ctx.persona) { record ->
+            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (bytes.size !in 1..MAX_REQUEST_BYTES) return@update refuse(VaultRefusal.Malformed)
+            record.requests = Base64.getEncoder().encodeToString(bytes)
+            null
+        }
+    }
+
     // ---- signLeafBindingV1 (§6.2) ----
 
     suspend fun signLeafBindingV1(ctx: VaultContext, request: JsonElement, consent: ConsentPrompt): VaultResult<SignLeafBindingReply> =
@@ -1124,6 +1141,7 @@ class MlsVault(
         const val MAX_REMOVALS = 64
         /** The engine's own bound on a removal's bytes (`MAX_REMOVAL_BYTES`). */
         const val MAX_REMOVAL_BYTES = 64 * 1024
+        const val MAX_REQUEST_BYTES = 256 * 1024
 
         /** The replies a vault made, by identity, and what each was made for. */
         private val made: MutableMap<Any, Origin> = Collections.synchronizedMap(WeakHashMap())
@@ -1424,6 +1442,7 @@ private class PersonaRecord(
     val removals: MutableMap<String, String> = linkedMapOf(),
     /** The keys of [removals] that are a compromised device's (P3-05b part 3). */
     val compromised: MutableSet<String> = linkedSetOf(),
+    var requests: String? = null,
 ) {
     fun entry(principal: String, handle: String, operation: String): JournalEntry? =
         journal.firstOrNull { it.principal == principal && it.handle == handle && it.operation == operation }
@@ -1461,6 +1480,7 @@ private class PersonaRecord(
             if (removals.isNotEmpty()) put("removals", buildJsonObject { removals.forEach { (key, value) -> put(key, value) } })
             // The same for the compromised marks: a downgrade lifts their holds and their revocations' retries.
             if (compromised.isNotEmpty()) put("compromised", buildJsonArray { compromised.forEach { add(it) } })
+            requests?.let { put("revocation_requests", it) }
         }.toString().toByteArray(Charsets.UTF_8)
         val scalar = device?.scalar
         val out = ByteArray(2 + (scalar?.size ?: 0) + json.size)
@@ -1521,6 +1541,9 @@ private class PersonaRecord(
                 // A sealed, witnessed record that does not hold together is refused whole, as every other field is.
                 removals,
                 compromised,
+                json["revocation_requests"]?.jsonPrimitive?.content?.also {
+                    require(Base64.getDecoder().decode(it).size in 1..MlsVault.MAX_REQUEST_BYTES)
+                },
             )
         }
 

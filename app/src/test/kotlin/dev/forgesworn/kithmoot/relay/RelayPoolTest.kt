@@ -129,6 +129,39 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `public DM relay works without AUTH, then pauses for a challenge and resumes after OK`() = runTest {
+        val sockets = FakeSocketFactory()
+        val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 9 }), { currentTime })
+        val url = "wss://dm.example"
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1),
+            authenticators = RelayAuthenticatorProvider { auth }, publicAuthOnChallenge = true)
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        assertEquals(setOf(url), pool.connected.value)
+        pool.publish(event("a1".repeat(32))); runCurrent()
+        assertEquals(1, socket.publishedFrames().size)
+        socket.deliverAuth("dm-challenge"); runCurrent()
+        assertTrue(pool.connected.value.isEmpty())
+        val signed = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single().substringAfter("[\"AUTH\",").dropLast(1)).jsonObject)
+        socket.deliverOk(signed.id, true); runCurrent()
+        assertEquals(setOf(url), pool.connected.value)
+    }
+
+    @Test
+    fun `public challenge option never releases a Link or known circle route without AUTH`() = runTest {
+        for (url in listOf(LinkRelayAddress.canonicalForNode("11".repeat(32)), "wss://circle.example")) {
+            val sockets = FakeSocketFactory()
+            val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 9 }), { currentTime })
+            val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1),
+                circle = { setOf("wss://circle.example") }, authenticators = RelayAuthenticatorProvider { auth }, publicAuthOnChallenge = true)
+            pool.start(); runCurrent(); sockets.opened.single().open(); runCurrent()
+            assertTrue(pool.connected.value.isEmpty())
+            assertTrue(sockets.opened.single().sent.isEmpty())
+            pool.stop()
+        }
+    }
+
+    @Test
     fun `NIP-77 is Link and NIP-42 gated, returns IDs only, then closes`() = runTest {
         val sockets = FakeSocketFactory()
         val auth = TestAuthenticator(LocalSigner(ByteArray(32) { 7 }), { currentTime })

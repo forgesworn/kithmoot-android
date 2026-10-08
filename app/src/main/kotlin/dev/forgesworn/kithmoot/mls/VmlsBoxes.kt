@@ -96,6 +96,9 @@ data class VmlsRemovalPlan(val devices: List<VmlsPlannedDevice>)
  */
 data class VmlsPlannedDevice(val device: String, val grant: String)
 
+data class VmlsRevocationAsk(val persona: String, val key: String, val sender: String, val device: String,
+    val effects: List<String>, val conflict: Boolean, val pending: Boolean, val conflictDevices: List<String> = emptyList())
+
 /** One message while the app ran: not kept (P3-05 decides history). */
 data class VmlsMessageView(val mine: Boolean, val sender: String, val body: String, val at: Long)
 
@@ -118,6 +121,11 @@ data class VmlsRoomView(
     val removals: List<VmlsRemovalView> = emptyList(),
     /** A compromised device's Remove is not yet witnessed: this phone's sends here are held (P3-05b part 3). */
     val held: Boolean = false,
+    val ownIdentity: String? = null,
+    val ownDevice: String? = null,
+    val requestDevices: List<String> = emptyList(),
+    val requestUnavailable: String? = null,
+    val requests: List<String> = emptyList(),
 )
 
 /** How a room is left from its menu. */
@@ -152,6 +160,12 @@ data class VmlsBoxesState(
  */
 interface VmlsBoxes {
     val state: StateFlow<VmlsBoxesState>
+    val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
+    fun requestDirectory(relays: List<String>) {}
+    fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) {}
+    fun deferRevocation(persona: String, key: String) {}
+    fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) {}
+
 
     /**
      * A vault consent ask waiting on the person (§6.2): once per persona,

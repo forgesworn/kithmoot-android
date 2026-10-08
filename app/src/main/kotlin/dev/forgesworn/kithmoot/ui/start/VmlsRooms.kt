@@ -105,12 +105,14 @@ fun VmlsRoomScreen(
     onRemove: (target: String, person: Boolean, compromised: Boolean) -> Unit,
     plan: suspend (target: String, person: Boolean, compromised: Boolean) -> VmlsRemovalPlan?,
     onRetryRemoval: (key: String) -> Unit,
+    onRequestDevice: (device: String) -> Unit = {},
     onLeave: () -> Unit,
     onClose: (force: Boolean) -> Unit,
     onForget: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     var confirming by remember { mutableStateOf<Confirm?>(null) }
+    var requesting by remember(room?.session) { mutableStateOf<String?>(null) }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(room?.name ?: "VMLS room") },
@@ -163,6 +165,14 @@ fun VmlsRoomScreen(
             if (quiet) Text("Paused while a Tor-only room is open.", style = MaterialTheme.typography.bodySmall)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             Members(room.members, removable = room.keeper && room.canSend) { confirming = it }
+            if (room.requestDevices.isNotEmpty()) {
+                Text("Your other devices", style = MaterialTheme.typography.titleSmall)
+                room.requestDevices.forEach { device ->
+                    TextButton({ requesting = device }, enabled = !quiet) { Text("Report device ${short(device)} as compromised") }
+                }
+            }
+            room.requestUnavailable?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            room.requests.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (room.removals.isNotEmpty()) Removals(room.removals, onRetryRemoval)
             HorizontalDivider()
             val list = rememberLazyListState()
@@ -193,6 +203,13 @@ fun VmlsRoomScreen(
                 TextButton({ onSay(draft); draft = "" }, enabled = sendable && draft.isNotBlank()) { Text("Send") }
             }
         }
+    }
+    requesting?.let { device ->
+        ConfirmDialog("Report your device as compromised?",
+            "Device ${short(device)}: this phone removes it where the room can change and holds new sends until that Remove is witnessed. " +
+                "It also asks the keeper to revoke its box access now. Sent means a relay accepted the request, not that the keeper read or acted on it. " +
+                "If this room cannot change now, only the request is sent; try the Remove again when it can. The keeper must confirm the action.",
+            "Remove and request", { requesting = null }) { requesting = null; onRequestDevice(device) }
     }
     when (val ask = confirming) {
         null -> Unit
