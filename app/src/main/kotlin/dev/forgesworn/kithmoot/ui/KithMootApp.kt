@@ -205,8 +205,7 @@ fun KithMootApp(
         // The vault's consent ask, then a join request: no prompt may cover an answered call or the lock screen's call.
         val asking = vmlsBoxes.consent.collectAsState().value
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
-        var deferredRevocation by remember(witnessPersona) { mutableStateOf<String?>(null) }
-        val revocationAsk = vmlsBoxes.revocationAsks.collectAsState().value.firstOrNull { it.persona == witnessPersona && it.key != deferredRevocation }
+        val revocationAsk = vmlsBoxes.revocationAsks.collectAsState().value.firstOrNull { it.persona == witnessPersona }
         val requestDirectories = accountModel.accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS
         LaunchedEffect(vmlsBoxes, requestDirectories) { vmlsBoxes.requestDirectory(requestDirectories) }
         // Only the signed-in account's ask is shown: another account's is never put to this one.
@@ -232,7 +231,6 @@ fun KithMootApp(
                         vmlsBoxes.answerRevocation(revocationAsk.persona, accountModel.vmlsSigner(), revocationAsk.key, false)
                     }) { androidx.compose.material3.Text("Decline") }
                     androidx.compose.material3.TextButton({
-                        deferredRevocation = revocationAsk.key
                         vmlsBoxes.deferRevocation(revocationAsk.persona, revocationAsk.key)
                     }) { androidx.compose.material3.Text("Later") }
                 } },
