@@ -26,7 +26,10 @@ The keeper checks its own ledger's issuer, persona and device, and any current
 roster identity. Sender-supplied scope cannot authorise or exclude boxes. Its
 foreground inbox processes at most eight wraps per minute, deduplicating before
 signer use. Outer signatures are verified before an attempt is recorded. A witnessed
-`until` cursor scans up to four 64-event pages per pass, ignoring future events.
+`until` cursor per relay reads one 64-event page per minute, rotating relays and
+ignoring future events. Stored queries verify before pool dedup, end on EOSE,
+and time out after five seconds without moving an incomplete cursor. The
+boundary second is read inclusively so a split page does not discard it.
 At most 1024 attempted wrap IDs are retained for up to nine days, with FIFO
 eviction at capacity. Processing and its one-minute limit survive restart. Requests and approvals are sealed in the
 witnessed persona record. Expired outbox entries are pruned, and request byte budgets reserve room for

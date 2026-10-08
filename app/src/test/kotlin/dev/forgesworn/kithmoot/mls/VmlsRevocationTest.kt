@@ -212,4 +212,47 @@ class VmlsRevocationTest {
         assertTrue(channel.entries(ctx).encode().size < MlsVault.MAX_REQUEST_BYTES)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun `real carrier ends a small page on EOSE and verifies before pool dedup`() = kotlinx.coroutines.test.runTest {
+        val sockets = dev.forgesworn.kithmoot.support.FakeSocketFactory()
+        val carrier = RelayCarrier(listOf("wss://keeper.example"), backgroundScope, sockets = sockets)
+        try {
+            val result = async { carrier.readPage(Filter(kinds = listOf(1059), limit = 64)) }
+            testScheduler.runCurrent(); sockets.openAll(); testScheduler.runCurrent()
+            val socket = sockets.opened.single()
+            val id = socket.requestedSubscriptions().single()
+            val good = VmlsRequestEnvelope.wrap(request(), member, { true })
+            socket.deliverEvent(id, good.copy(content = "forged copy under the same id"))
+            socket.deliverEvent(id, good)
+            socket.deliverRaw("[\"EOSE\",\"$id\"]")
+            testScheduler.runCurrent()
+            assertEquals(listOf(good), result.await())
+            assertEquals(0, testScheduler.currentTime)
+        } finally { carrier.close() }
+    }
+
+    @Test fun `a busy relay cannot advance another relay's cursor past a request`() = runBlocking<Unit> {
+        val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
+        var clock = at
+        val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://busy.example"), listOf("relay", "wss://quiet.example")), "")
+        val target = VmlsRequestEnvelope.wrap(request(), member, { true })
+        val noise = (1..72).map { third.sign(1059, at - it, listOf(listOf("p", keeper.pubkey)), "noise") }
+        val queried = mutableListOf<String>()
+        val channel = VmlsRevocationChannel(vault, { urls, _ -> object : VmlsCarrier {
+            override suspend fun publish(event: NostrEvent) = false
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+                val f = filters.single()
+                if (f.kinds == listOf(KIND_DM_RELAYS)) return flowOf(list)
+                assertEquals(1, urls.size); queried += urls.single()
+                return (if (urls.single().contains("busy")) noise else listOf(target))
+                    .filter { it.createdAt <= f.until!! }.sortedByDescending { it.createdAt }.take(f.limit!!).asFlow()
+            }
+            override fun close() {}
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
+        channel.poll(ctx, keeper) { true }; clock += 61
+        val book = channel.poll(ctx, keeper) { true }
+        assertEquals(listOf("wss://busy.example/", "wss://quiet.example/"), queried)
+        assertEquals(request(), book.inbox.values.single().request)
+    }
+
 }

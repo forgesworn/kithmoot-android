@@ -22,7 +22,8 @@ class RevocationBook(
     val inbox: MutableMap<String, RevocationEntry> = linkedMapOf(),
     val outbox: MutableMap<String, RevocationEntry> = linkedMapOf(),
     val seen: MutableMap<String, Long> = linkedMapOf(),
-    var scanUntil: Long? = null,
+    val scanUntil: MutableMap<String, Long> = linkedMapOf(),
+    var nextRelay: Int = 0,
     var nextPollAt: Long = 0,
     val promptAfter: MutableMap<String, Long> = linkedMapOf(),
 ) {
@@ -34,7 +35,8 @@ class RevocationBook(
             }) }
         }
         put("inbox", entries(inbox)); put("outbox", entries(outbox))
-        scanUntil?.let { put("scanUntil", it) }; put("nextPollAt", nextPollAt)
+        put("scanUntil", buildJsonObject { scanUntil.forEach { (relay, until) -> put(relay, until) } })
+        put("nextRelay", nextRelay); put("nextPollAt", nextPollAt)
         put("promptAfter", buildJsonObject { promptAfter.forEach { (sender, at) -> put(sender, at) } })
         put("seen", buildJsonObject { seen.forEach { (id, at) -> put(id, at) } })
     }.toString().encodeToByteArray()
@@ -60,7 +62,10 @@ class RevocationBook(
             val prompts = o["promptAfter"]?.jsonObject.orEmpty().also { require(it.size <= 128) }.mapValuesTo(linkedMapOf()) { (sender, at) ->
                 require(Regex("[0-9a-f]{64}").matches(sender)); at.jsonPrimitive.long
             }
-            return RevocationBook(entries("inbox"), entries("outbox"), seen, o["scanUntil"]?.jsonPrimitive?.long,
+            val cursors = (o["scanUntil"] as? JsonObject).orEmpty().also { require(it.size <= MAX_DM_RELAYS) }
+                .mapValuesTo(linkedMapOf()) { (_, until) -> until.jsonPrimitive.long }
+            return RevocationBook(entries("inbox"), entries("outbox"), seen, cursors,
+                (o["nextRelay"]?.jsonPrimitive?.int ?: 0).also { require(it in 0 until MAX_DM_RELAYS) },
                 o["nextPollAt"]?.jsonPrimitive?.long ?: 0, prompts)
         }
     }
@@ -141,6 +146,10 @@ class VmlsRevocationChannel(
     suspend fun poll(ctx: VaultContext, signer: ParticipantSigner, authorise: suspend (VmlsRevocationRequest) -> Boolean): RevocationBook = lock.withLock {
         check(signer.pubkey == ctx.persona)
         val book = read(ctx)
+        // A corrected fast clock must not suppress requests indefinitely.
+        if (book.nextPollAt > now() + 60) book.nextPollAt = 0
+        book.inbox.replaceAll { _, entry -> if (entry.deferredUntil > now() + 3600) entry.copy(deferredUntil = now() + 3600) else entry }
+        book.promptAfter.replaceAll { _, at -> at.coerceAtMost(now() + 3600) }
         if (book.nextPollAt > now()) return@withLock book
         book.nextPollAt = now() + 60
         val relays = dmRelays(ctx, ctx.persona)
@@ -150,30 +159,26 @@ class VmlsRevocationChannel(
         book.inbox.entries.removeAll { it.value.request.expiration <= now() && it.value.decision != RevocationDecision.APPROVED }
         book.outbox.entries.removeAll { it.value.request.expiration <= now() }
         book.promptAfter.entries.removeAll { it.value <= now() }
-        var remaining = 8
-        // Resume the descending scan after restart. Seen events do not consume the decryption allowance.
-        // NIP-01 has no cursor within a timestamp: a relay hiding >64 events at one second remains a delivery limit.
-        carriers(relays, guarded(ctx, signer)).use { carrier ->
-            for (page in 0 until 4) {
+        // One relay/page per minute: independent cursors cannot skip a slower relay's events.
+        book.scanUntil.keys.retainAll(relays.toSet())
+        val relay = relays[book.nextRelay % relays.size]
+        book.nextRelay = (book.nextRelay + 1) % relays.size
+        val until = book.scanUntil[relay]?.coerceAtMost(now())?.takeIf { it >= since } ?: now()
+        write(ctx, book) // Also persist rate/fairness before a timeout or cancellation.
+        carriers(listOf(relay), guarded(ctx, signer)).use { carrier ->
+                val page = carrier.readPage(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(ctx.persona)), since = since, until = until, limit = 64))
+                    ?: return@use
                 check(ctx)
-                val until = book.scanUntil?.coerceAtMost(now())?.takeIf { it >= since } ?: now()
-                val events = mutableListOf<NostrEvent>()
-                withTimeoutOrNull(20_000) {
-                    carrier.subscribe(listOf(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(ctx.persona)), since = since, until = until, limit = 64)))
-                        .take(64).collect { event ->
-                            if (event.createdAt in since..until && event.kind == 1059 && event.tags == listOf(listOf("p", ctx.persona)) &&
-                                event.content.length <= 40_000 && Events.verify(event) && events.none { it.id == event.id }) events += event
-                        }
-                }
+                val events = page.filter { event -> event.createdAt in since..until && event.kind == 1059 &&
+                    event.tags == listOf(listOf("p", ctx.persona)) && event.content.length <= 40_000 && Events.verify(event) }.distinctBy { it.id }
                 val ordered = events.sortedWith(compareByDescending<NostrEvent> { it.createdAt }.thenBy { it.id })
                 val unseen = ordered.filter { it.id !in book.seen }
-                for (wrap in unseen.take(remaining)) {
+                for (wrap in unseen.take(8)) {
                     check(ctx)
                     // Bounded FIFO: keep making progress rather than stopping all requests for nine days.
                     while (book.seen.size >= 1024) book.seen.remove(book.seen.keys.first())
                     book.seen[wrap.id] = now()
                     write(ctx, book) // A verified attempt is durable before external-signer work.
-                    remaining--
                     val request = try { VmlsRequestEnvelope.unwrap(wrap, signer, now(), { allowed() && vault.isCurrent(ctx) }) }
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { continue }
@@ -197,11 +202,14 @@ class VmlsRevocationChannel(
                     if (request.sender in book.promptAfter || book.promptAfter.size < 128)
                         book.promptAfter[request.sender] = now() + 3600
                 }
-                if (unseen.any { it.id !in book.seen }) { book.scanUntil = until; break }
-                book.scanUntil = ordered.lastOrNull()?.createdAt?.minus(1)
-                if (ordered.isEmpty() || book.scanUntil!! < since) { book.scanUntil = null; break }
-                if (remaining == 0) break
-            }
+                if (unseen.any { it.id !in book.seen }) book.scanUntil[relay] = until
+                else if (page.size < 64 || ordered.isEmpty()) book.scanUntil.remove(relay)
+                else {
+                    val oldest = ordered.last().createdAt
+                    // Re-read the boundary second so a page split within it does not lose the remainder.
+                    // If the relay returns a full page all at that second and all seen, NIP-01 has no further cursor.
+                    book.scanUntil[relay] = if (ordered.first().createdAt == oldest && unseen.isEmpty()) oldest - 1 else oldest
+                }
         }
         write(ctx, book)
         book

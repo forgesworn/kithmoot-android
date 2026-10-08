@@ -178,6 +178,9 @@ class VmlsTwoDeviceLabTest {
         live()
         val own = (vault.device(vault.context("dev.forgesworn.kithmoot", persona)) as VaultResult.Ok).value.device
         val tablet = room().members.values.single { it.identity == persona && it.device != own }
+        assertTrue("the room exposes another own device before a request populates any cache",
+            tablet.device in runtime.rooms.value.single { it.session == session() }.requestDevices)
+        assertFalse("the current phone is never reportable", own in runtime.rooms.value.single { it.session == session() }.requestDevices)
         runtime.requestDevice(signer, session(), tablet.device)
         roundsUntil("the member's own Remove", 90) { room().members.values.none { it.device == tablet.device } }
         val entry = runtime.removals(persona, session()).single()

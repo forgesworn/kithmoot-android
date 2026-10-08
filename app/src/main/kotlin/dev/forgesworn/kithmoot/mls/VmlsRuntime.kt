@@ -344,6 +344,7 @@ class VmlsRuntime(
             val keeper = signer?.takeIf { persona != null && it.pubkey == persona }
             // Before the rounds, so they run on the engine the new credential makes (see renewCredential).
             if (keeper != null) renewCredential(keeper)
+            if (persona != null) ownDevice(persona)
             roundsNow(persona)
             if (keeper != null) {
                 revokeCompromised(keeper)
@@ -673,7 +674,7 @@ class VmlsRuntime(
             val existing = journal(persona)?.get(VmlsMembership.key(session, leaf))
             if (existing == null) try { removing(persona, session, leaf, memberRequest = true) }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { if (!heldNow(persona, session)) throw error }
+            catch (error: Exception) { if (journal(persona)?.containsKey(VmlsMembership.key(session, leaf)) != true) throw error }
         }
         val at = now()
         val request = VmlsRevocationRequest(persona, observed.first, device, listOf(session), listOf(observed.second), at, at + VMLS_REQUEST_SECONDS)
@@ -704,7 +705,7 @@ class VmlsRuntime(
     private suspend fun requestMembers(persona: String): List<VmlsRoomMember> = rounding.withLock {
         val engine = engine(persona)
         store.rooms().filter { it.persona == persona && it.role == VmlsRole.KEEPER }.flatMap { room ->
-            checkNotNull(synchronized(this) { live[key(persona, room.session)] } ?: engine?.let { seed(it, room) }) { "A keeper room is waiting for its vault; retry the request after it is confirmed." }.members.values
+            (synchronized(this) { live[key(persona, room.session)] } ?: engine?.let { seed(it, room) } ?: room).members.values
         }
     }
 
@@ -715,15 +716,15 @@ class VmlsRuntime(
         // Guests need their outbox, not unsolicited identity decryption. Only an issuer with a live guest grant polls.
         val book = if (ledger.all().any { it.issuer == persona && it.persona != persona && it.state != VmlsGrantState.REVOKED }) {
             requests.poll(ctx, signer) { request ->
-                authorisedRevocation(request, persona, ledger.all(), requestMembers(persona)) &&
-                    ledger.all().any { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED }
+                ledger.all().any { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED } &&
+                    authorisedRevocation(request, persona, ledger.all(), requestMembers(persona))
             }
         } else requests.entries(ctx)
         for (entry in book.outbox.values.filter { it.sent }) markRequested(persona, entry.request)
         // Only a previously persisted, explicit acceptance is resumed automatically.
         for ((key, entry) in book.inbox.filterValues { it.decision == RevocationDecision.APPROVED }) {
             val outcome = performRequest(signer, entry.request)
-            if (outcome != RevocationDecision.APPROVED) requests.decide(ctx, key, outcome)
+            if (outcome != RevocationDecision.APPROVED) { requests.decide(ctx, key, outcome); requestOutcome(outcome) }
         }
         showRequests(persona, requests.entries(ctx))
     }
@@ -741,9 +742,12 @@ class VmlsRuntime(
                 entry.decision == RevocationDecision.APPROVED,
                 book.inbox.values.filter { it.request.sender == request.sender && it.request.expiration > now() }.map { it.request.device }.distinct())
         }
-        if (book.inbox.values.any { it.decision == RevocationDecision.UNAVAILABLE })
-            _state.update { it.copy(notice = "A device revocation could not finish because its box route was forgotten. Its grant may remain live until it expires; contact that box's keeper.") }
         publishRooms()
+    }
+
+    private fun requestOutcome(outcome: RevocationDecision) {
+        if (outcome == RevocationDecision.UNAVAILABLE) _state.update { it.copy(notice =
+            "This revocation could not finish: a box route is unavailable or the device identity no longer agrees with the roster. Unconfirmed grants may remain live until expiry; contact the box's keeper.") }
     }
 
     override fun deferRevocation(persona: String, key: String) = act(persona) { p ->
@@ -764,7 +768,7 @@ class VmlsRuntime(
         requests.decide(ctx, key, if (approve) RevocationDecision.APPROVED else RevocationDecision.DENIED)
         if (approve) {
             val outcome = performRequest(signer, entry.request)
-            if (outcome != RevocationDecision.APPROVED) requests.decide(ctx, key, outcome)
+            if (outcome != RevocationDecision.APPROVED) { requests.decide(ctx, key, outcome); requestOutcome(outcome) }
             if (outcome == RevocationDecision.DONE) _state.update { it.copy(notice = "No live grants remain in this keeper's ledger for the device. MLS removal is separate; a stopped or already-ended room was not changed by this phone.") }
         }
         showRequests(persona, requests.entries(ctx))
@@ -835,6 +839,7 @@ class VmlsRuntime(
             stored.map { kept ->
                 val room = live[key(persona, kept.session)]?.copy(closing = kept.closing) ?: kept
                 val under = roomUnder(coordination[persona], stateOf(room))
+                val thisDevice = engines[persona]?.device?.device ?: ownDevices[persona]
                 VmlsRoomView(
                     session = room.session, name = room.name, box = room.box, boxName = routes[room.box]?.boxName ?: "Bothy box",
                     keeper = room.role == VmlsRole.KEEPER, state = under?.state ?: stateOf(room), reason = under?.reason ?: reasonOf(room),
@@ -843,9 +848,9 @@ class VmlsRuntime(
                     messages = chat[key(persona, room.session)]?.toList().orEmpty(),
                     removals = removalViews(persona, room),
                     held = heldNow(persona, room.session),
-                    ownIdentity = persona, ownDevice = engines[persona]?.device?.device,
-                    requestDevices = if (room.role == VmlsRole.GUEST && room.keeperIdentity != null && ownDevices[persona] != null)
-                        (room.knownOwnDevices.keys + room.members.values.filter { it.identity == persona }.map { it.device }).distinct().filter { it != ownDevices[persona] } else emptyList(),
+                    ownIdentity = persona, ownDevice = thisDevice,
+                    requestDevices = if (room.role == VmlsRole.GUEST && room.keeperIdentity != null && thisDevice != null)
+                        (room.knownOwnDevices.keys + room.members.values.filter { it.identity == persona }.map { it.device }).distinct().filter { it != thisDevice } else emptyList(),
                     requestUnavailable = if (room.role == VmlsRole.GUEST && room.keeperIdentity == null) "This older room has no verified keeper identity. Ask its keeper directly." else null,
                     requests = requestBooks[persona]?.outbox?.values.orEmpty().filter { room.session in it.request.sessions }.map {
                         "Device ${shortHex(it.request.device)}: " + if (it.sent) "revocation request sent to a relay; not confirmed by the keeper." else "latest revocation request not sent; try again."
