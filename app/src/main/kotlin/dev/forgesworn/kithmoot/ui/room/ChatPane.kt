@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.Icons
@@ -105,6 +106,7 @@ fun ChatPane(
     var editPendingId by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
+    var mediaOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
     var moreReactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
@@ -336,7 +338,7 @@ fun ChatPane(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        MediaComposer(canSend && !torOnly, mediaBusy, attachments, onAddImage, onRemoveAttachment) { text ->
+        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly, mediaBusy, attachments, onAddImage, onRemoveAttachment) { text ->
             val combined = draft.text + (if (draft.text.isBlank()) "" else "\n") + text
             require(combined.length <= MAX_CHAT_TEXT_LENGTH) { "Shorten your message before adding this file’s credit." }
             draft = TextFieldValue(combined, TextRange(combined.length))
@@ -345,6 +347,7 @@ fun ChatPane(
             OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
                 shape = RoundedCornerShape(24.dp),
                 leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
+                trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
             IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }

@@ -41,6 +41,10 @@ class RichChatUiTest {
                     privateConversationPeers = listOf(peer), onMessagePrivately = { privatePeer = it },
                     memberPackAvailable = { unlocked }, unlockMemberPacks = { unlocked = true; true })
             } } }
+            ui.onNodeWithText("GIFs and stickers").assertDoesNotExist()
+            ui.onNodeWithContentDescription("Images, GIFs and stickers").performClick()
+            ui.onNodeWithText("GIFs and stickers").assertIsDisplayed()
+            ui.onNodeWithContentDescription("Images, GIFs and stickers").performClick()
             ui.onNodeWithText("Rowan", useUnmergedTree = true).performClick()
             ui.onNodeWithText("Participant details").assertIsDisplayed()
             ui.onNodeWithText("Copy npub").performClick()
@@ -56,7 +60,7 @@ class RichChatUiTest {
             ui.onNodeWithText("Message privately").performClick()
             ui.runOnIdle { assertEquals(peer, privatePeer) }
             ui.waitUntil(5_000) { !ui.onNodeWithText("Participant details").isDisplayed() }
-            ui.onNodeWithText("Hello from Rowan").performTouchInput { longClick(center) }
+            ui.onNodeWithText("Hello from Rowan", useUnmergedTree = true).performClick()
             ui.waitUntil(5_000) { ui.onNodeWithText("More emoji…").isDisplayed() }
             ui.onNodeWithText("More emoji…").performClick()
             ui.onNodeWithText("Search emoji").performTextInput("unicorn")
