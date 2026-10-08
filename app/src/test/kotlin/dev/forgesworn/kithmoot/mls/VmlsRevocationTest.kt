@@ -129,7 +129,7 @@ class VmlsRevocationTest {
         val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://keeper.example")), "")
         val target = VmlsRequestEnvelope.wrap(request(), member, { true })
         // Valid signed noise forces the same pagination as ordinary gift-wrapped DMs.
-        val noise = (1..72).map { third.sign(1059, at - it, listOf(listOf("p", keeper.pubkey)), "not-encrypted") }
+        val noise = (1..72).map { third.sign(1059, at - it, listOf(listOf("p", keeper.pubkey), listOf("extra", "unsupported")), "not-encrypted") }
         val backdated = Events.sign(Digests.sha256("outer".toByteArray()), 1059, at - 172801, target.tags,
             Nip44.encrypt(member.sign(13, at, emptyList(), member.nip44Encrypt(keeper.pubkey, request().rumor().toString())).toCompactJson(),
                 Nip44.conversationKey(Digests.sha256("outer".toByteArray()), keeper.pubkey.hexToBytes())))
@@ -253,6 +253,35 @@ class VmlsRevocationTest {
         val book = channel.poll(ctx, keeper) { true }
         assertEquals(listOf("wss://busy.example/", "wss://quiet.example/"), queried)
         assertEquals(request(), book.inbox.values.single().request)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test fun `real inbox retries auth-required CLOSED only after the matching AUTH OK`() = kotlinx.coroutines.test.runTest {
+        for (challengeFirst in listOf(true, false)) {
+            val sockets = dev.forgesworn.kithmoot.support.FakeSocketFactory()
+            val carrier = RelayCarrier(listOf("wss://keeper.example"), backgroundScope, keeper, sockets)
+            try {
+                val result = async { carrier.readPage(Filter(kinds = listOf(1059), limit = 64)) }
+                testScheduler.runCurrent(); sockets.openAll(); testScheduler.runCurrent()
+                val socket = sockets.opened.single()
+                val id = socket.requestedSubscriptions().single()
+                if (challengeFirst) socket.deliverRaw("[\"AUTH\",\"challenge\"]")
+                socket.deliverRaw("[\"CLOSED\",\"$id\",\"auth-required: authenticate\"]")
+                testScheduler.runCurrent()
+                if (!challengeFirst) { socket.deliverRaw("[\"AUTH\",\"challenge\"]"); testScheduler.runCurrent() }
+                assertFalse(result.isCompleted)
+                assertEquals(1, socket.requestedSubscriptions().size)
+                val auth = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single()).jsonArray[1])
+                socket.deliverRaw("[\"OK\",\"${auth.id}\",true,\"\"]")
+                testScheduler.runCurrent()
+                val retried = socket.requestedSubscriptions().last()
+                assertNotEquals(id, retried)
+                val good = VmlsRequestEnvelope.wrap(request(), member, { true })
+                socket.deliverEvent(retried, good); socket.deliverRaw("[\"EOSE\",\"$retried\"]")
+                testScheduler.runCurrent()
+                assertEquals(listOf(good), result.await())
+            } finally { carrier.close() }
+        }
     }
 
 }

@@ -53,8 +53,16 @@ class RelayCarrier(relays: List<String>, parent: CoroutineScope, signer: Partici
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = pool.subscribe(filters)
 
     override suspend fun readPage(filter: Filter): List<NostrEvent>? = try {
-        // StoredQuery verifies signatures before ID dedup and completes on EOSE.
-        pool.queryStored(listOf(filter), 5_000).sortedByDescending { it.createdAt }.take(filter.limit ?: 64)
+        withTimeoutOrNull(5_000) {
+            // StoredQuery verifies signatures before ID dedup and completes on EOSE.
+            val events = try { pool.queryStored(listOf(filter), 5_000) }
+                catch (refused: dev.forgesworn.kithmoot.relay.RelayHistoryException) {
+                    if (!refused.authenticationRequired || !pool.awaitAuthentication(refused.relay, 5_000)) return@withTimeoutOrNull null
+                    // Retry once after verified AUTH OK, under the same overall deadline.
+                    pool.queryStored(listOf(filter), 5_000)
+                }
+            events.sortedByDescending { it.createdAt }.take(filter.limit ?: 64)
+        }
     } catch (_: TimeoutCancellationException) { null }
       catch (cancelled: CancellationException) { throw cancelled }
       catch (_: Exception) { null }

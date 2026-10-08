@@ -234,6 +234,12 @@ class RelayPool(
 
     override fun circleRelays(): Set<String> = circle()
 
+    /** Wait for this connection's verified NIP-42 OK, not merely its public socket open. */
+    suspend fun awaitAuthentication(url: String, timeoutMs: Long): Boolean = withTimeoutOrNull(timeoutMs) {
+        connected.first { open -> url in open && synchronized(lock) { links[url]?.authState == AuthState.READY } }
+        true
+    } ?: false
+
     /**
      * Compare a small local index with one verified circle box. This accepts
      * only a canonical Link route which has completed this pool's NIP-42
