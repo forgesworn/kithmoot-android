@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -117,6 +118,7 @@ fun encodeChatEvent(
     roomEnds: Long? = null,
     /** [sentAt] in milliseconds, within its second; see [ChatMessage.sentAtMs]. */
     sentAtMs: Long? = null,
+    attachments: List<ChatAttachment> = emptyList(),
 ): NostrEvent {
     require(sentAtMs == null || Math.floorDiv(sentAtMs, 1000L) == sentAt) { "sentAtMs must fall within sentAt's second" }
     if (assignment != null) {
@@ -131,12 +133,15 @@ fun encodeChatEvent(
     require(replaces == null || validMessageId(replaces)) { "an edit must name the message it replaces" }
     require(retracts == null || validMessageId(retracts)) { "a retraction must name the message it retracts" }
     require(mentions == null || mentions.size <= MAX_MENTIONS) { "a message names at most $MAX_MENTIONS participants" }
+    require(attachments.size <= 4 && attachments.all { parseAttachment(it.toJson()) != null })
+    require(attachments.isEmpty() || listOfNotNull(reaction, retracts, invite, assignment).isEmpty())
     val plaintext: JsonObject = buildJsonObject {
         put("id", id)
         put("participant", participant)
         put("device", Schnorr.publicKeyHex(deviceSecretKey))
         put("credential", credential.toJson())
         proof?.let { put("proof", it.toJson()) }
+        if (attachments.isNotEmpty()) put("attachments", JsonArray(attachments.map { it.toJson() }))
         put("text", body)
         put("sentAt", sentAt)
         sentAtMs?.let { put("sentAtMs", it) }

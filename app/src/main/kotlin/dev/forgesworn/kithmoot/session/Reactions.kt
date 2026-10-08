@@ -2,7 +2,7 @@ package dev.forgesworn.kithmoot.session
 
 import kotlinx.serialization.json.*
 
-val REACTION_EMOJIS = listOf("👍", "❤️", "🤦", "😂", "🎉", "👀", "🙏", "😢")
+val REACTION_EMOJIS = listOf("👍", "❤️", "🤦", "😂", "🎉", "👀", "🙏", "😢", "💯")
 
 /** An authenticated update inside encrypted kind 1460, never a public kind-7 event. */
 data class ChatReaction(val messageId: String, val participant: String, val emoji: String, val active: Boolean, val revision: Int) {
@@ -19,7 +19,7 @@ fun parseReaction(value: JsonElement): ChatReaction? = runCatching {
     val active = r.getValue("active").jsonPrimitive.also { require(!it.isString) }.boolean
     val revision = r.getValue("revision").jsonPrimitive.also { require(!it.isString) }.int
     require(id.isNotEmpty() && id.length <= 128 && participant.matches(Regex("[0-9a-fA-F]{64}")))
-    require(emoji in REACTION_EMOJIS && revision >= 1)
+    require(EmojiCatalog.accepts(emoji) && revision >= 1)
     ChatReaction(id, participant.lowercase(), emoji, active, revision)
 }.getOrNull()
 
@@ -30,7 +30,7 @@ fun reactionUpdates(messages: List<ChatMessage>, target: ChatMessage): List<Chat
     .values.map { updates -> updates.maxWith(compareBy<ChatMessage> { it.reaction!!.revision }.then(compareMessages)) }
 
 fun toggleReaction(messages: List<ChatMessage>, target: ChatMessage, self: String, emoji: String): ChatReaction {
-    require(emoji in REACTION_EMOJIS)
+    require(EmojiCatalog.accepts(emoji))
     val old = reactionUpdates(messages, target).find { it.participant == self && it.reaction!!.emoji == emoji }?.reaction
     require(old?.revision != Int.MAX_VALUE) { "This reaction cannot be updated" }
     return ChatReaction(target.id, target.participant, emoji, old?.active != true, (old?.revision ?: 0) + 1)

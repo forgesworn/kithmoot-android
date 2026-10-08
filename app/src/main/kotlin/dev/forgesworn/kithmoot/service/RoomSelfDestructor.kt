@@ -184,6 +184,7 @@ class RoomSelfDestructor internal constructor(
     private fun wipe(): RoomWipe {
         val app = requireApp
         return RoomWipe(mapOf<RoomWipeStep, suspend (RoomWipeTarget) -> Unit>(
+            RoomWipeStep.UPLOADED_FILES to { t -> dev.forgesworn.kithmoot.storage.MediaUploadLedger(app).due(room = t.roomId) },
             RoomWipeStep.PENDING_OUTBOX to { t -> PendingChatVault(app, t.roomId, t.participant, t.devicePubkey).outbox.clear() },
             RoomWipeStep.ASSIGNMENTS to { t -> AssignmentVault(app, t.roomId, t.participant).reset() },
             RoomWipeStep.BACKGROUND_INBOX to { t -> BackgroundInboxVault(app, t.roomId, t.participant, t.devicePubkey).inbox.clear() },

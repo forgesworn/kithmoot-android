@@ -113,13 +113,13 @@ class ChatAndShareUiTest {
                 ui.onNodeWithText("Say something").performTextInput("Hello ")
                 ui.onNodeWithContentDescription("Emoji").performClick()
                 ui.onNodeWithText("Search emoji").performTextInput("facepalm")
-                ui.onNodeWithContentDescription("🤦 facepalm head against wall").performClick()
+                ui.onNode(hasContentDescription("🤦 facepalm head against wall", substring = true)).performClick()
                 ui.onNodeWithContentDescription("Send").performClick()
                 ui.waitUntil(5_000) { ui.onNodeWithText("Hello 🤦").isDisplayed() }
                 ui.onNodeWithText("Hello 🤦").assertIsDisplayed()
                 // React to the message just sent. The older message may leave
                 // the viewport while chat finishes following the new message.
-                ui.onNodeWithText("Hello 🤦").performTouchInput { longClick() }
+                ui.onNodeWithText("Hello 🤦", useUnmergedTree = true).performTouchInput { longClick() }
                 ui.onNodeWithContentDescription("Add ❤️ reaction, 0").performClick()
                 ui.onNodeWithContentDescription("Remove ❤️ reaction, 1").assertExists().performClick()
                 assertEquals(false, messages.last().reaction?.active)

@@ -841,7 +841,7 @@ class RoomSession(
     }
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
-    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null): Boolean {
+    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList()): Boolean {
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
         if (text.isEmpty()) return false
@@ -860,6 +860,7 @@ class RoomSession(
             sentAtMs = millisWithin(sentAt),
             proof = proof,
             reaction = reaction,
+            attachments = attachments,
             credentialRoomId = room.roomId,
             roomEnds = ends,
         )
@@ -876,7 +877,7 @@ class RoomSession(
      * and never overtakes it. True when this message was confirmed.
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
-        onRetained: suspend () -> Unit = {}): Boolean {
+        attachments: List<ChatAttachment> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
         val text = body.trim()
@@ -886,9 +887,9 @@ class RoomSession(
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
-            sentAtMs = millisWithin(at))
+            sentAtMs = millisWithin(at), attachments = attachments)
         val own = decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event, editable = reaction == null, text = text, messageId = own.id)
+        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty(), text = text, messageId = own.id)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)

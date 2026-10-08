@@ -201,6 +201,7 @@ class BackgroundCallListenerService : Service() {
                 val application = application as KithMootApplication
                 runCatching { application.selfDestructor.sendHeadsUps(skip = ActiveRoomRegistry::isOpen) }
                 runCatching { application.selfDestructor.runDue(skip = ActiveRoomRegistry::isOpen) }
+                launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(applicationContext).retry() } }
                 delay(RECONCILE_INTERVAL_MS)
             }
             stopAll()
