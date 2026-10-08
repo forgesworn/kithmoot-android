@@ -1,5 +1,11 @@
 # Android release signing and device acceptance
 
+## Timed expiry and restart acceptance (8 October 2026)
+
+`RoomDestructJourneyUiTest` exercises the installed app's real activity, view model, encrypted saved identity, WebSocket relay and expiry clock. A synthetic room sends signed chat, learns a short deadline while open, shows the final countdown, then expires without calling the destructor from the test. The journey checks that the visible success burst follows saved-room deletion, that the device requests deletion of its own chat, and that the background inbox and pending outbox are cleared.
+
+The recovery-emulator script force-stops the app between the expiry and restart checks. A different process must find the room and message stores empty and retain the same anonymous tombstone. Screenshots record the final countdown, the actual cleanup burst and the reopened home screen. Both whole-app checks passed on a disposable API 35 emulator; the phone-sized browser and desktop layout also passed timed expiry and reopening checks against the offline relay. This adds acceptance coverage without changing the 0.6.67 application. Confirmation on a physical phone remains outstanding.
+
 ## 0.6.67: keep the countdown inside an open room
 
 Version code 90 makes every open room follow committed changes to its saved deadline, including the separate chat instance beside a call. Previously the home list could learn an expiry while the open room kept its older state and showed no countdown. The live session adopts the earlier deadline too; a later update cannot extend it or undo self-destruction.
