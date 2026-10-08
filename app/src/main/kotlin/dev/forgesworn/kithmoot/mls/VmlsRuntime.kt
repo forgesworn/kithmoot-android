@@ -1802,7 +1802,7 @@ class VmlsRuntime(
         val target = person?.let { "Person ${shortHex(it)} (${leaves.size} device${if (leaves.size == 1) "" else "s"})" }
             ?: "Device ${shortHex(room.members[leaves.single()]?.device ?: leaves.single())}"
         val mls = when (removal.mls()) {
-            VmlsMlsState.PENDING -> if (room.limited) "MLS Remove: waiting on the box's hourly limit; it goes out by itself." else "MLS Remove: not yet applied and witnessed."
+            VmlsMlsState.PENDING -> if (room.limited) "MLS Remove: waiting on the box's hourly limit for changes; it goes out by itself." else "MLS Remove: not yet applied and witnessed."
             VmlsMlsState.COMMITTED -> "MLS Remove: applied at this phone and witnessed."
             VmlsMlsState.FAILED -> "MLS Remove: refused by the engine and stopped. Try it again, or close the room."
         }
@@ -2134,8 +2134,8 @@ class VmlsRuntime(
         const val REMOVED_GRACE_SECONDS = 24L * 60 * 60
         private const val MAX_MESSAGES = 200
         /** A commit the box refused as rate-limited: its limit is per grant over the last hour, so no time is promised. */
-        private const val LIMITED_WORDS = "Your box takes only a few new member changes an hour from this phone, and has had them. " +
-            "This change waits and goes out by itself within the hour; nothing needs doing."
+        private const val LIMITED_WORDS = "The box takes only a few changes to members or keys an hour from this phone, across all its rooms there, " +
+            "and has had them. This one waits and goes out by itself within the hour; nothing needs doing."
         private const val LIMITED_HELD = " Messages stay held until the compromised device's removal goes out."
         /** The engine holds one commit at a time, and asks for an Update before this phone may commit. */
         /** Refusals that clear by themselves: tried again later, not abandoned (an outbox over its limits empties as it is delivered). */

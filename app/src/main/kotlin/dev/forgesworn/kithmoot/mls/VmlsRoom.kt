@@ -285,6 +285,8 @@ data class VmlsRoom(
      * The driver's round ended with nothing left to check: "checking with the
      * box" ends. [limited] is whether the box refused this phone's commit as
      * rate-limited in that round; a round it took or did not ask clears it.
+     * A round that never reached the commit (an earlier deposit had no
+     * answer) shows "sending" for that round, then the limit again.
      */
     fun settled(limited: Boolean = false): VmlsRoom = copy(checking = false, limited = limited)
 

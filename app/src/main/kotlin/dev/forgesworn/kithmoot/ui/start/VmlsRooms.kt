@@ -149,7 +149,8 @@ fun VmlsRoomScreen(
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             room.reason?.let { reason ->
-                Text(reason, color = MaterialTheme.colorScheme.error)
+                // The box's hourly limit is a wait, not a fault.
+                Text(reason, color = if (room.state == VmlsRoomState.LIMITED) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                 // Decision 23: no self-repair yet; the exits that exist.
                 if (room.state == VmlsRoomState.STOPPED) Text(
                     // A stopped room takes no Remove; its close revokes the grants (D1 R1).
