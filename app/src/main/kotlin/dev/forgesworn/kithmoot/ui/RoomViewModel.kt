@@ -3,6 +3,15 @@ package dev.forgesworn.kithmoot.ui
 import android.util.Log
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
 import dev.forgesworn.kithmoot.discovery.BoxRelayReader
+import dev.forgesworn.kithmoot.session.ChatAttachment
+import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
+import dev.forgesworn.kithmoot.session.MAX_MEDIA_SOURCE_BYTES
+import dev.forgesworn.kithmoot.session.SealedMedia
+import dev.forgesworn.kithmoot.session.sealMedia
+import dev.forgesworn.kithmoot.session.mediaStorageOrigin
+import dev.forgesworn.kithmoot.session.mediaAuthorisation
+import dev.forgesworn.kithmoot.session.uploadMedia
+import kotlinx.coroutines.ensureActive
 import dev.forgesworn.kithmoot.session.RoomWork
 import dev.forgesworn.kithmoot.session.AssignmentSnapshot
 import dev.forgesworn.kithmoot.session.AvailableAssignmentAction
@@ -483,6 +492,8 @@ data class RoomState(
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
+    val chatAttachments: List<ChatAttachment> = emptyList(),
+    val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
      *  per rename read this visit. */
     val roomNotes: List<RoomNote> = emptyList(),
@@ -1045,6 +1056,28 @@ class RoomViewModel @JvmOverloads constructor(
     private val accountSigner: ParticipantSigner? get() = accountSession?.signer
 
     /** The signed-in account's signer, for the VMLS boxes page's grants (P3-03b-3). */
+    private var packGrant: Pair<ParticipantSigner, Long>? = null
+    fun memberPackAvailable(): Boolean = packGrant?.let { it.first === accountSigner && it.second > System.currentTimeMillis() } == true
+    suspend fun unlockMemberPacks(): Boolean {
+        val actor = accountSigner ?: throw IllegalStateException("Connect your Nostr signer to unlock member packs.")
+        val granted = dev.forgesworn.kithmoot.account.unlockCultPack(actor, registry = {
+            withContext(Dispatchers.IO) {
+                val client = okhttp3.OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+                client.newCall(okhttp3.Request.Builder().url(dev.forgesworn.kithmoot.account.CULT_REGISTRY).build()).execute().use { response ->
+                    check(response.isSuccessful) { "The pack membership registry could not be reached. Try again." }
+                    val body = checkNotNull(response.body)
+                    require(body.contentLength() <= 128_000)
+                    val bytes = body.byteStream().use { it.readNBytes(128_001) }
+                    require(bytes.size <= 128_000)
+                    bytes.toString(Charsets.UTF_8)
+                }
+            }
+        })
+        check(accountSigner === actor) { "The account changed. Try again." }
+        packGrant = if (granted) actor to (System.currentTimeMillis() + 600_000) else null
+        return granted
+    }
+
     fun vmlsSigner(): ParticipantSigner? = accountSigner
 
     /** Where a VMLS room's link points, as today's invitation links do. */
@@ -1136,6 +1169,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 runCatching { runDueDestructs() }
+                launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).retry() } }
                 runCatching { sendDestructHeadsUps(epochSeconds()) }
                 runCatching { destructTombstones.list(epochSeconds()) }.getOrNull()?.let { rows ->
                     if (rows != _start.value.destructTombstones) _start.update { it.copy(destructTombstones = rows) }
@@ -5862,6 +5896,56 @@ class RoomViewModel @JvmOverloads constructor(
         stopCadenceLeases(context, who, record.id)
     }
 
+    fun removeChatAttachment(hash: String) {
+        _room.update { it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file.sha256 == hash }) }
+        viewModelScope.launch(Dispatchers.IO) { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = hash) }
+    }
+
+    /** No external file traffic for an anonymous room. Uploads require the chosen server's explicit consent. */
+    fun addChatImage(uri: android.net.Uri, storage: String, consent: Boolean) {
+        val live = session ?: return
+        val roomId = _room.value.roomId
+        val scope = sessionScope ?: return
+        if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
+        if (!consent) return note("Allow shared encrypted storage before uploading.")
+        if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
+        val origin = try { mediaStorageOrigin(storage) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
+        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
+        scope.launch(Dispatchers.IO) {
+            val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
+            var sealed: SealedMedia? = null
+            try {
+                val resolver = getApplication<Application>().contentResolver
+                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
+                val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
+                val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
+                try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
+                ensureActive()
+                check(session === live) { "The room changed. Choose the image again." }
+                val file = checkNotNull(sealed)
+                val at = epochSeconds(); val ends = _room.value.endsAt
+                check(ends == null || ends > at) { "This room has ended." }
+                val key = live.identity.deviceSecretKey
+                val auth = mediaAuthorisation("upload", file.hash, origin, key, at, minOf(at + 300, ends ?: Long.MAX_VALUE))
+                val deletion = mediaAuthorisation("delete", file.hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
+                ledger.begin(file.hash)
+                ledger.record(roomId, origin, file.hash, deletion)
+                val attachment = uploadMedia(file, origin, auth)
+                ensureActive()
+                check(session === live && !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())) { "The room changed or ended while uploading. The file will be deleted." }
+                _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
+            } catch (cancelled: CancellationException) {
+                sealed?.let { ledger.due(hash = it.hash) }; throw cancelled
+            } catch (error: Exception) {
+                sealed?.let { ledger.due(hash = it.hash) }
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The image could not be uploaded.") }
+            } finally {
+                sealed?.let { it.envelope.fill(0); ledger.finish(it.hash) }
+                if (session === live) _room.update { it.copy(mediaBusy = false) }
+            }
+        }
+    }
+
     fun sendChat(body: String) = sendChat(body, null)
 
     fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained)
@@ -5869,6 +5953,8 @@ class RoomViewModel @JvmOverloads constructor(
     private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {}) {
         val live = session ?: return
         val scope = sessionScope ?: return
+        val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
+        val text = if (body.isBlank() && attachments.isNotEmpty()) attachments.joinToString(", ") { it.name ?: "Image" }.take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
             note("Finish the quiet schedule change before sending.")
             return
@@ -5882,10 +5968,10 @@ class RoomViewModel @JvmOverloads constructor(
         scope.launch(Dispatchers.IO) {
             try {
                 val retainedOnMain: suspend () -> Unit = {
-                    withContext(Dispatchers.Main.immediate) { if (session === live) onRetained() }
+                    withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update { it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments }) }; onRetained() } }
                 }
-                val confirmed = if (durable) live.sendChatDurable(body, reaction, retainedOnMain)
-                    else live.sendChatConfirmed(body, reaction).also { if (it) retainedOnMain() }
+                val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, retainedOnMain)
+                    else live.sendChatConfirmed(text, reaction, attachments).also { if (it) retainedOnMain() }
                 // A durable message that did not go is on the chat as pending, saying why.
                 if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }
             } catch (_: TimeoutCancellationException) {

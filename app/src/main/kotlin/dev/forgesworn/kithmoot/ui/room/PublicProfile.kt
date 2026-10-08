@@ -26,7 +26,7 @@ import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.TimeUnit
 
-data class PublicProfile(val name: String?, val picture: String?, val createdAt: Long, val eventId: String)
+data class PublicProfile(val name: String?, val picture: String?, val createdAt: Long, val eventId: String, val nip05: String? = null)
 
 fun decodePublicProfile(event: NostrEvent, authors: Set<String>, now: Long): PublicProfile? = runCatching {
     require(event.kind == 0 && event.pubkey in authors && event.content.length <= 16_384 && event.createdAt <= now + 300 && Events.verify(event))
@@ -34,7 +34,8 @@ fun decodePublicProfile(event: NostrEvent, authors: Set<String>, now: Long): Pub
     fun string(key: String) = (data[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
     val name = DisplayName.sanitise(string("display_name")) ?: DisplayName.sanitise(string("name"))
     val picture = string("picture")?.takeIf { it.length <= 2048 }?.toHttpUrlOrNull()?.takeIf { it.isHttps && it.username.isEmpty() && it.password.isEmpty() }?.toString()
-    PublicProfile(name, picture, event.createdAt, event.id)
+    val nip05 = string("nip05")?.takeIf { it.length <= 254 && Regex("[A-Za-z0-9_.+-]{1,64}@[A-Za-z0-9.-]{1,189}").matches(it) }
+    PublicProfile(name, picture, event.createdAt, event.id, nip05)
 }.getOrNull()
 
 private val pictureCache = object : android.util.LruCache<String, ImageBitmap>(4 * 1024 * 1024) {

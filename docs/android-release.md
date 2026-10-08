@@ -1,5 +1,15 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.70 (93): richer chat media and participant details
+
+Sender names open a profile card with copy actions for npub and self-reported NIP-05 addresses. Available peers can start a private conversation from that card. Full Unicode 16 emoji and reactions are searchable; the quick palette stays available and reaction chips sit across the bubble edge.
+
+The composer offers own images/GIFs and an explicit Wikimedia Commons catalogue search with thumbnails and licence attribution. Files are encrypted locally into the shared FSWNENC2 format, uploaded only after storage consent, and carried in encrypted room messages. Failed/staged uploads and uploads from wiped rooms keep narrowly scoped, encrypted delete permissions until the host confirms absence. Cleanup runs while the app or enabled background listener is running. Incoming images download only after a tap; the viewer now plays animated GIF frames.
+
+The 600 member pack uses original gpt-image-2.5-sunburst artwork. A fresh unpublished Nostr signer proof unlocks the picker after checking the public member registry. Received stickers and reactions remain visible to everyone; the gate does not hide received content or grant room access.
+
+Validation: 46 focused native unit tests passed, and native ciphertext opened in the independent TypeScript reader. An owned Android emulator displayed both frames of a web-encrypted GIF. Final release CI, signed publication and production handset acceptance are recorded separately.
+
 ## 0.6.69 (92): private chat pictures and room lifetime controls
 
 Private chat rows use the other member's verified kind-0 picture, including before the room is opened. The existing public-profile switch controls lookups and image loading; anonymous rooms and rooms belonging to another signed-in account are excluded. MySignet contact photos await its contact API.

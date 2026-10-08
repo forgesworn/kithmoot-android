@@ -14,6 +14,11 @@ import javax.crypto.spec.SecretKeySpec
 data class ChatAttachment(val url: String, val sha256: String, val key: String,
     val name: String? = null, val type: String? = null, val size: Long? = null)
 
+fun ChatAttachment.toJson(): JsonObject = buildJsonObject {
+    put("url", url); put("sha256", sha256); put("key", key)
+    name?.let { put("name", it) }; type?.let { put("type", it) }; size?.let { put("size", it) }
+}
+
 private val hex64 = Regex("[0-9a-fA-F]{64}")
 fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
     val obj = value.jsonObject
@@ -84,7 +89,7 @@ fun openAttachment(envelope: ByteArray, attachment: ChatAttachment): OpenedAttac
     } finally { plaintext.fill(0); recovery.fill(0); key.fill(0) }
 }
 
-private fun canonicalAttachmentName(value: String): String {
+internal fun canonicalAttachmentName(value: String): String {
     val leaf = value.split('/', '\\').last()
     val cleaned = Normalizer.normalize(leaf, Normalizer.Form.NFC)
         .filterNot { it.code < 32 || it.code == 127 }.replace(Regex("[<>:\"|?*]"), "_")
