@@ -3,6 +3,19 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.64] - 2026-10-08
+
+For people trying the VMLS rooms preview on their own Bothy box (off until
+turned on in Settings, Connections); nothing else changes.
+
+- When the box has had its hourly share of changes to members or keys from
+  this phone, the room says "waiting on the box" and that the change goes out
+  by itself within the hour, rather than showing "Sending" with no reason.
+- A removal the room's engine refuses for good is shown as stopped, with
+  "Try the Remove again"; refusals that clear by themselves wait instead.
+- Removing a device as compromised, or closing a room, without your signer
+  now says to sign in again, rather than doing nothing.
+
 ## [0.6.63] - 2026-10-08
 
 - Rooms can self-destruct. A new room with an end date offers
