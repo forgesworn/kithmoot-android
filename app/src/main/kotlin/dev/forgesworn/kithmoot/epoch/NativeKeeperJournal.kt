@@ -24,6 +24,7 @@ internal class NativeKeeperCreation private constructor(private val secret: Byte
     @Synchronized fun invitation(): RoomInvitation {
         check(!consumed); return RoomInvitation(host.invitation.bearer.clone(), authority, true)
     }
+    @Synchronized fun welcome(): NostrEvent { check(!consumed); return keeperEvent(welcome) }
     @Synchronized internal fun consume(): KeeperMaterial {
         check(!consumed) { "Keeper creation was already consumed" }
         val material = KeeperMaterial(secret.clone(), host.inviterSecretKey.clone(), host.invitation.bearer.clone(), keeperEvent(welcome))
