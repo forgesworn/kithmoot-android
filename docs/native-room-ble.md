@@ -7,11 +7,12 @@ action, then call `start(RoomBleConfig(scope, selfId, serviceUuid))`. All three
 values are supplied explicitly. Scope and peer IDs are routing labels, not room
 secrets or membership proofs.
 
-This binding is not yet selected by the production room UI. Existing rooms still
-use their existing relay routes. Missing permissions or a failed radio never
-opens a relay or switches route. The initial binding has hop zero and no
-foreground service. Its eventual UI owner must close it when leaving the room or
-foreground, until background operation is separately qualified.
+Saved room rows now offer explicit connection choices and request Nearby devices
+permission before opening Bluetooth. Existing rooms default to Internet. See
+[Room connections](nearby-room-routes.md) for scope, lifecycle, restrictions and
+remaining admission/physical gates. Missing permissions or failed startup never
+switch route. The binding has hop zero and no foreground service; the UI owner
+closes it when leaving the room or foreground.
 
 ## Dependency and ownership
 
@@ -66,7 +67,8 @@ failed teardown and unconfirmed offers. Two actual RoomSessions exchange encrypt
 chat through two native owners and repeated byte callbacks produce one chat row.
 Compiling/packaging the pinned engine is separate from these simulated callbacks.
 
-Still needed: route selection before invitation/account/profile lookup, UI
-permissions and lifecycle ownership, nearby-only and mixed-path admission,
-reconciliation, receipt/provenance states and physical Android BLE qualification.
+Saved-room route selection, permission handling, exclusive ownership and mixed
+participant fanout are implemented. Full UI/entry network-isolation evidence,
+fresh nearby admission, explicit transit forwarding, authenticated mesh receipts
+and physical Android BLE qualification remain open.
 No Heltec, BLE device, existing room or public relay was used for these tests.

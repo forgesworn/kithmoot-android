@@ -64,3 +64,7 @@ permissions or radio failure must not select public relays. Qualify Bothy and
 quiet-room combinations separately. Add shared reconciliation, authenticated
 mesh receipts, mixed-lane provenance and forwarding, durable restart recovery,
 and truthful UI states. Physical BLE and BLE/radio/internet tests remain open.
+
+Saved-room UI routes and mixed-path receipt behaviour are documented in
+[Room connections](nearby-room-routes.md). Physical BLE and new offline admission
+remain separate acceptance gates.

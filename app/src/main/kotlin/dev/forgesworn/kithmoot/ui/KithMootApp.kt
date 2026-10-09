@@ -160,6 +160,25 @@ fun KithMootApp(
         onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false); model.setCallRingForeground(false) }
     }
     val context = LocalContext.current
+    var nearbyRoomRequest by rememberSaveable { mutableStateOf<String?>(null) }
+    val nearbyPermissions = remember { arrayOf(Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT) }
+    val nearbyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val id = nearbyRoomRequest
+        nearbyRoomRequest = null
+        if (id != null) {
+            if (nearbyPermissions.all { grants[it] == true }) model.reopenRoom(id)
+            else model.nearbyPermissionDenied()
+        }
+    }
+    fun reopen(id: String) {
+        if (id == callRoomId) { onBackToCall(); return }
+        val nearby = startState.savedRooms.firstOrNull { it.id == id }?.route?.nearby == true
+        if (nearby && nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+            nearbyRoomRequest = id
+            nearbyPermissionLauncher.launch(nearbyPermissions)
+        } else model.reopenRoom(id)
+    }
     // The restore witness (P3-03b-2). No witness traffic
     // while a Tor-only room is open (C7); the retiring duty runs at open and
     // on a timer while the app is in the foreground.
@@ -562,10 +581,11 @@ fun KithMootApp(
                         onRoomDestructChanged = model::onRoomDestructChanged,
                         onRoomDurationChanged = model::onRoomDurationChanged,
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
-                        onReopen = { id -> if (id == callRoomId) onBackToCall() else model.reopenRoom(id) },
+                        onReopen = ::reopen,
                         onForget = model::forgetRoom,
                         onProject = model::setRoomProject,
                         onPin = model::setRoomPinned,
+                        onRoomRoute = model::setRoomRoute,
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
                         onRevokeBothyGuests = model::revokeBothyGuests,
@@ -792,6 +812,7 @@ fun KithMootApp(
                             onProfilesEnabled = model::setProfilesEnabled,
                             lane = roomState.lane,
                             torOnly = roomState.anonymous,
+                            internetAllowed = roomState.route.internet,
                             relaysUp = roomState.relaysUp,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,

@@ -41,6 +41,7 @@ enum class DeliveryState(val label: String) {
 /** Why a saved room is not watched for messages in the background. */
 enum class DeliveryExclusion(val reason: String) {
     ANONYMOUS("Anonymous rooms use Tor only and receive when opened."),
+    NEARBY("This room uses nearby Bluetooth. Open KithMoot to receive messages."),
     QUIET("Quiet rooms send on their own schedule and receive when opened."),
     ENDED("This room has ended."),
     OPEN("Open in KithMoot."),
@@ -55,10 +56,12 @@ data class DeliveryCandidate(
     val ended: Boolean,
     val epochId: String?,
     val needsBunker: Boolean = false,
+    val allowsInternet: Boolean = true,
 )
 
 /** Checked in this order, so the most fundamental reason is the one shown. */
 fun deliveryExclusion(candidate: DeliveryCandidate, isOpenInApp: (String) -> Boolean): DeliveryExclusion? = when {
+    !candidate.allowsInternet -> DeliveryExclusion.NEARBY
     candidate.anonymous -> DeliveryExclusion.ANONYMOUS
     candidate.ended -> DeliveryExclusion.ENDED
     candidate.epochId == null -> DeliveryExclusion.NO_EPOCH

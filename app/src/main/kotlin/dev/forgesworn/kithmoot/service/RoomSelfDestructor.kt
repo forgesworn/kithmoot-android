@@ -214,6 +214,7 @@ class RoomSelfDestructor internal constructor(
 
         @OptIn(ExperimentalCoroutinesApi::class)
         suspend fun withRoomRelays(saved: SavedRoom, action: suspend (RoomTransport) -> Nip09Deletion.Report): Nip09Deletion.Report {
+            check(saved.route.internet) { "This room has no authorised Internet cleanup route" }
             val relays = destructRelays(saved)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             val pool = RelayPool(relays, if (saved.anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,

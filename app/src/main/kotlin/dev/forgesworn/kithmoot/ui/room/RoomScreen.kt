@@ -195,7 +195,7 @@ fun RoomScreen(
         PipCall(state, videos, eglBase, modifier)
         return
     }
-    val callShowing = showCall && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null && !state.conferenceEnded
+    val callShowing = showCall && !state.route.nearby && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null && !state.conferenceEnded
     val chrome = rememberCallChrome(
         mayHide = callShowing && controlsMayAutoHide(
             videoShowing = videoShowing(state, videos),
@@ -321,7 +321,7 @@ fun RoomScreen(
                 if (!state.anonymous) TextButton(onClick = { detailsOpen = false; onOpenCards() }) { Text("People") }
                 TextButton(onClick = { detailsOpen = false; onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
                 if (state.privateConversationPeers.isNotEmpty()) TextButton(onClick = { detailsOpen = false; privateOpen = true }, enabled = !state.privateConversationBusy) { Text("Start a private conversation") }
-                if (!state.anonymous) {
+                if (state.route.internet && !state.anonymous) {
                     HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(state.profilesEnabled, onProfilesEnabled)
@@ -372,11 +372,11 @@ fun RoomScreen(
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
         if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
-            if (!state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
+            if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
                 Text(if(decisions>0)"Work · $decisions" else "Work")
             })
-            if (!state.anonymous && !state.chatOnly) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
+            if (!state.route.nearby && !state.anonymous && !state.chatOnly) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
                 // "A call is on" is what the roster says, not what this phone
                 // happens to have negotiated: somebody on the call with
                 // everything switched off is still a call worth a badge.
@@ -400,7 +400,7 @@ fun RoomScreen(
         // On the call view the control bar carries Leave, so the row is only
         // for joining, and for saying what is happening while it changes.
         val barLeaves = callShowing && state.onCall && !state.callChanging
-        if (!barLeaves && !state.anonymous && !state.chatOnly && !state.conferenceEnded && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        if (!barLeaves && !state.route.nearby && !state.anonymous && !state.chatOnly && !state.conferenceEnded && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -453,11 +453,11 @@ fun RoomScreen(
             }
         }
 
-        if (!state.anonymous && showWork) {
+        if (state.route.internet && !state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
             }
-        } else if (state.anonymous || state.chatOnly || !showCall) {
+        } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
@@ -621,9 +621,9 @@ private fun Header(
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Icon(Icons.Filled.ExpandMore, "Room details", Modifier.size(18.dp))
                 }
-                Text(if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
+                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                    color = if (state.relaysUp == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (onInviteByQr != null) IconButton(onClick = onInviteByQr) { Icon(Icons.Filled.QrCode2, "Invite by QR") }
             IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search messages") }
@@ -632,7 +632,19 @@ private fun Header(
     }
 }
 
+private fun nearbyLine(state: RoomState): String {
+    val nearby = state.nearby
+    val bluetooth = when {
+        nearby?.error != null -> "Bluetooth unavailable: ${nearby.error}"
+        nearby?.phase == dev.forgesworn.kithmoot.relay.RoomBlePhase.CLOSED -> "Bluetooth paused"
+        (nearby?.writablePeers ?: 0) > 0 -> "${nearby!!.writablePeers} nearby links · delivery unconfirmed"
+        else -> "Looking for nearby room members"
+    }
+    return if (state.route.internet) "$bluetooth · ${state.relaysUp} relays up" else bluetooth
+}
+
 private fun relayLine(state: RoomState): String = when {
+    state.route.nearby -> nearbyLine(state)
     state.relaysTotal == 0 -> "No relays configured"
     state.relaysUp == 0 -> "No relay reachable. Nobody can see you yet"
     else -> "${state.relaysUp} of ${state.relaysTotal} relays up"

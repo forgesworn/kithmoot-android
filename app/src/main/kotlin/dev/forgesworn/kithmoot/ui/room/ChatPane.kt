@@ -72,6 +72,7 @@ fun ChatPane(
     lane: Lane? = null,
     /** A Tor-only (anonymous) room: said beside the lane, which stays public. */
     torOnly: Boolean = false,
+    internetAllowed: Boolean = true,
     /** Relays the room has reached; a Tor-only room with none can show no history. */
     relaysUp: Int = 1,
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
@@ -238,7 +239,7 @@ fun ChatPane(
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
-            Text(privacyLine(lane, torOnly, quiet),
+            Text(if (!internetAllowed) "Nearby Bluetooth · delivery unconfirmed" else privacyLine(lane, torOnly, quiet),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly) ?: "Transport unknown.") })
         }
@@ -290,7 +291,7 @@ fun ChatPane(
                                 PackMessageText(if (r.retracted) "Message retracted" else message.body, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
-                                    TextButton(onClick = { expandedImage = attachment }) {
+                                    TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
                                         Text("Open attachment: ${attachment.name ?: "Image"}")
                                     }
                                 }
@@ -321,7 +322,7 @@ fun ChatPane(
                 items(shownPending, key = { "pending-" + it.id }) { kept ->
                     val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
-                    PendingRow(kept, canSend, onRetryPending, doomed = doomed,
+                    PendingRow(kept, internetAllowed = internetAllowed, canSend = canSend, onRetry = onRetryPending, doomed = doomed,
                         onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
@@ -338,12 +339,12 @@ fun ChatPane(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly, mediaBusy, attachments, onAddImage, onRemoveAttachment)
+        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment)
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
                 shape = RoundedCornerShape(24.dp),
                 leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
-                trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
+                trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly && internetAllowed) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
             IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
@@ -371,7 +372,7 @@ fun ChatPane(
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
     expandedImage?.let { attachment ->
-        if (messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
+        if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
             AttachmentViewer(attachment, onClose = { expandedImage = null })
         } else LaunchedEffect(attachment) { expandedImage = null }
     }
@@ -388,10 +389,11 @@ fun ChatPane(
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Messages are encrypted to the room.")
-            Text(privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
+            Text(if (!internetAllowed) "This room uses nearby Bluetooth. Messages remain encrypted to the room; handing bytes to Bluetooth does not confirm that another member received them."
+                else privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
             if (quiet) Text(QuietTransport.MEANING)
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled); Text("Show public profiles") }
+            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show public profiles") }
         } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
     moreReactionTarget?.let { target ->
         if (!canSend || resolved.byKey[MessageRef(target.id, target.participant).key]?.retracted == true) {
@@ -488,7 +490,10 @@ internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String =
 
 
 /** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone. */
-internal fun pendingStatus(state: PendingChatState): String = when (state) {
+internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = true): String = if (!internetAllowed && state == PendingChatState.UNKNOWN)
+    "Offered over nearby Bluetooth. Delivery is not confirmed; retry keeps the same message."
+    else if (!internetAllowed && state == PendingChatState.REFUSED) "Not offered to Bluetooth. Retry when a nearby link is available."
+    else when (state) {
     PendingChatState.WAITING -> "Pending: will send when you are connected."
     PendingChatState.SENDING -> "Sending…"
     PendingChatState.REFUSED -> "Not sent: the relays turned it down. Trying again shortly."
@@ -498,7 +503,7 @@ internal fun pendingStatus(state: PendingChatState): String = when (state) {
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
 @Composable
-private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         Surface(shape = RoundedCornerShape(16.dp),
@@ -511,7 +516,7 @@ private fun PendingRow(kept: PendingChat, canSend: Boolean, onRetry: () -> Unit,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend) { Text("Retry") }
