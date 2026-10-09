@@ -189,6 +189,8 @@ class RoomMeshTransport(
      * A received copy still cannot prove participant identity or delivery. */
     fun subscribeInbound(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = true)
 
+    internal fun hasScope(scope: String): Boolean = meshScope == scope
+
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = false)
 
     private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean): Flow<NostrEvent> = callbackFlow {

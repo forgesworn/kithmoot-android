@@ -443,6 +443,26 @@ class RoomSession(
 
     fun epochKeys(): EpochKeys = synchronized(lock) { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
+    /** Current authority for the separately consented foreground chat owner.
+     * Reuses the room decoder and removal floor; a disk queue is not authority. */
+    internal fun forwardingProfileMatches(binding: RoomForwardingBinding): Boolean = synchronized(lock) {
+        room.roomId == binding.room && identity.participant == binding.participant && identity.devicePubkey == binding.device &&
+            policy?.quiet != true && (policy == null || policy.tier == KindredTier.OPEN) && call == null && joined
+    }
+
+    internal fun forwardingVerdict(event: NostrEvent, binding: RoomForwardingBinding, at: Long): ForwardingVerdict = synchronized(lock) {
+        if (!forwardingProfileMatches(binding) || identity.participant in removedParticipants ||
+            _epochState.value is RoomEpochState.Removed || _epochState.value is RoomEpochState.Closed) return@synchronized ForwardingVerdict.MOVED
+        if (!publicationAllowed || _epochState.value !is RoomEpochState.Active) return@synchronized ForwardingVerdict.WAITING
+        if (at >= (ends ?: Long.MAX_VALUE) ||
+            verifyDeviceCredential(identity.credential, room.roomId, at) !is CredentialCheck.Valid ||
+            (policy != null && !evaluateAccess(policy, identity.participant, proof, at, room.roomId).admitted)) return@synchronized ForwardingVerdict.MOVED
+        val message = decodeChatEvent(event, activeEpoch.id, activeEpoch.key, at, policy, credentialRoomId = room.roomId)
+            ?: return@synchronized ForwardingVerdict.MOVED
+        if (message.participant !in binding.senders || message.participant in removedParticipants) ForwardingVerdict.MOVED
+        else ForwardingVerdict.CURRENT
+    }
+
     suspend fun retryEpoch() = epochMutex.withLock {
         check(epochGate != null) { "This room has no pinned epoch authority" }
         val state = _epochState.value
