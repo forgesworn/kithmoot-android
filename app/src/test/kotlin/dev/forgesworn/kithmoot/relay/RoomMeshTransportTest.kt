@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.session.PendingChatOutbox
 import dev.forgesworn.kithmoot.session.PendingChatState
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.session.Fixtures
+import dev.forgesworn.kithmoot.session.RoomSession
 import dev.forgesworn.kithmoot.session.session
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -262,7 +263,10 @@ class RoomMeshTransportTest {
     }
 
     @Test fun `durable send remains unknown after mesh admission local echo retry and journal reopen`() = runTest {
-        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { currentTime / 1000 }
+        // Journal IO uses a real dispatcher while background timers use virtual time.
+        // Keep this durability test's wire clock fixed so IO cannot expire its retry.
+        val clock = { 100L }
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link, clock)
         val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
         val storage = object : RoomStorage {
             var bytes: ByteArray? = null
@@ -271,7 +275,9 @@ class RoomMeshTransportTest {
             override fun reset() { bytes = null }
         }
         val outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
-        val sender = session(room, identity, FakeRelay(), transport = mesh, chatOutbox = outbox)
+        val sender = RoomSession(room, identity, transport = mesh, scope = backgroundScope,
+            timing = Fixtures.QUIET, now = clock, nowMs = { clock() * 1000 },
+            random = kotlin.random.Random(7), epochSettleMs = 0, chatOutbox = outbox)
         sender.join(); runCurrent(); advanceTimeBy(2_000); runCurrent()
         assertFalse(sender.sendChatDurable("Keep the same encrypted event")); runCurrent()
         assertEquals(PendingChatState.UNKNOWN, outbox.items().single().state)
