@@ -103,7 +103,6 @@ def main():
         print(recovered.stdout, flush=True)
         if recovered.returncode != 0 or not re.search(r"^OK \(1 tests?\)$", recovered.stdout.replace("\r", ""), re.M):
             raise RuntimeError("New-process sharing recovery did not pass exactly one case")
-        print("Active sharing SIGKILL and new-process recovery passed", flush=True)
     except Exception:
         try:
             (reports / "failure-logcat.txt").write_text(command("logcat", "-d", "-t", "20000").stdout)
@@ -115,7 +114,7 @@ def main():
         try:
             stopped = command("shell", "am", "force-stop", APP)
             if stopped.returncode != 0:
-                print("Could not force-stop app during cleanup", file=sys.stderr)
+                raise RuntimeError("Could not force-stop app during cleanup")
         finally:
             if process is not None and process.poll() is None:
                 process.terminate()
@@ -124,6 +123,7 @@ def main():
                 except subprocess.TimeoutExpired:
                     process.kill(); process.wait(timeout=5)
 
+    print("Active sharing SIGKILL and new-process recovery passed", flush=True)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,9 @@ if any('pidof' in a for a in args):
 if 'kill' in args:
  if mode=='kill-failure':sys.exit(7)
  killed.touch();sys.exit(0)
-if 'force-stop' in args:killed.touch();sys.exit(0)
+if 'force-stop' in args:
+ if mode=='cleanup-failure':sys.exit(7)
+ killed.touch();sys.exit(0)
 if 'logcat' in args:print('fake diagnostics');sys.exit(0)
 if 'instrument' in args:
  if any('#a_prepare' in a for a in args):
@@ -69,6 +71,8 @@ class DriverTest(unittest.TestCase):
   r,c,d=self.run_case('checkpoint-timeout');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c);self.assertNotIn('#b_recover',c);self.assertIn('force-stop',c);self.assertTrue(d)
  def test_failed_qemu_probe_cannot_pass_with_one_in_output(self):
   r,c,_=self.run_case('qemu-failure');self.assertEqual(1,r.returncode);self.assertNotIn('instrument',c)
+ def test_failed_cleanup_cannot_claim_acceptance(self):
+  r,_,_=self.run_case('cleanup-failure');self.assertEqual(1,r.returncode);self.assertNotIn('new-process recovery passed',r.stdout)
  def test_wrong_recovery_count_refuses(self):
   r,_,_=self.run_case('wrong-count');self.assertEqual(1,r.returncode)
  def test_physical_serial_refused_before_adb(self):
