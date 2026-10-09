@@ -11,9 +11,10 @@ from pathlib import Path
 args=sys.argv[1:];mode=os.environ.get('FAKE_MODE','ok')
 root=Path(os.environ['FAKE_ROOT']);killed=root/'killed'
 with (root/'calls').open('a') as out:out.write(json.dumps(args)+'\n')
-if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(0)
+if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(7 if mode=='qemu-failure' else 0)
 if any('pidof' in a for a in args):
  if mode=='death-probe-failure' and killed.exists():sys.exit(7)
+ if mode=='empty-death-probe' and killed.exists():sys.exit(0)
  if killed.exists() and mode!='survives' and any('KITHMOOT_SHARING_NO_PID' in a for a in args):print('KITHMOOT_SHARING_NO_PID');sys.exit(0)
  if mode=='changed-pid':print('9999')
  elif not killed.exists() or mode=='survives':print('4242')
@@ -26,6 +27,9 @@ if 'logcat' in args:print('fake diagnostics');sys.exit(0)
 if 'instrument' in args:
  if any('#a_prepare' in a for a in args):
   if mode=='no-checkpoint':print('OK (1 test)');sys.exit(0)
+  if mode=='checkpoint-timeout':
+   while not killed.exists():time.sleep(.01)
+   sys.exit(0)
   print('INSTRUMENTATION_STATUS: sharing_restart_checkpoint=ready',flush=True)
   print('INSTRUMENTATION_STATUS: sharing_restart_pid=4242',flush=True)
   while not killed.exists():time.sleep(.01)
@@ -59,6 +63,12 @@ class DriverTest(unittest.TestCase):
   r,_,d=self.run_case('recovery-failure');self.assertEqual(1,r.returncode);self.assertTrue(d)
  def test_failed_death_probe_refuses_recovery(self):
   r,c,d=self.run_case('death-probe-failure');self.assertEqual(1,r.returncode);self.assertNotIn('#b_recover',c);self.assertTrue(d)
+ def test_empty_death_probe_is_not_confirmation(self):
+  r,c,d=self.run_case('empty-death-probe');self.assertEqual(1,r.returncode);self.assertNotIn('#b_recover',c);self.assertTrue(d)
+ def test_checkpoint_timeout_cleans_up_without_kill_or_recovery(self):
+  r,c,d=self.run_case('checkpoint-timeout');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c);self.assertNotIn('#b_recover',c);self.assertIn('force-stop',c);self.assertTrue(d)
+ def test_failed_qemu_probe_cannot_pass_with_one_in_output(self):
+  r,c,_=self.run_case('qemu-failure');self.assertEqual(1,r.returncode);self.assertNotIn('instrument',c)
  def test_wrong_recovery_count_refuses(self):
   r,_,_=self.run_case('wrong-count');self.assertEqual(1,r.returncode)
  def test_physical_serial_refused_before_adb(self):

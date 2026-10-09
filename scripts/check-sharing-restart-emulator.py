@@ -32,7 +32,8 @@ def main():
         return subprocess.run(adb + list(args), text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, timeout=timeout)
 
-    if command("shell", "getprop", "ro.kernel.qemu").stdout.strip() != "1":
+    qemu = command("shell", "getprop", "ro.kernel.qemu")
+    if qemu.returncode != 0 or qemu.stdout.strip() != "1":
         raise RuntimeError("Refusing process-kill acceptance on a physical device")
     prepare_seconds = int(os.environ.get("KITHMOOT_SHARING_PREPARE_SECONDS", "180"))
     death_seconds = int(os.environ.get("KITHMOOT_SHARING_DEATH_SECONDS", "15"))
