@@ -179,11 +179,13 @@ class FreshNearbyEntryTest {
     }
 
     internal class Fixture(val loss: Boolean = false, val answerEpoch: Boolean = true, val answerInvitation: Boolean = true,
-        val mixed: Boolean = false, val mismatchedRelays: Boolean = false, val rootInternetOnly: Boolean = false) {
+        val mixed: Boolean = false, val mismatchedRelays: Boolean = false, val rootInternetOnly: Boolean = false,
+        secretOverride: ByteArray? = null, hostOverride: RoomInvitationHost? = null,
+        private val rootIdentityOverride: PrimaryIdentity? = null, relayPort: Int = 0) {
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
-        val server = MockWebServer().also { it.start() }
-        val secret = Entropy.bytes(32)
-        val host = createRoomInvitation(persistent = true)
+        val server = MockWebServer().also { it.start(relayPort) }
+        val secret = secretOverride?.copyOf() ?: Entropy.bytes(32)
+        val host = hostOverride ?: createRoomInvitation(persistent = true)
         val room = deriveRoom(secret)
         val relays = listOf(server.url("/").toString().replace("http:", "ws:"))
         val url = encodeInvitationUrl("https://fixture.invalid/j/", host.invitation, relays)
@@ -279,7 +281,7 @@ class FreshNearbyEntryTest {
                     })
                 }
             }
-            root = RoomSession(room, PrimaryIdentity.create(room.roomId, now + 3600, now), rootTransport, scope,
+            root = RoomSession(room, rootIdentityOverride ?: PrimaryIdentity.create(room.roomId, now + 3600, now), rootTransport, scope,
                 authority = host.invitation.inviter, expectedEpoch = 0, timing = SessionTiming(announceJitterMs = 0),
                 epochResponder = { request ->
                     epochRequests += request
