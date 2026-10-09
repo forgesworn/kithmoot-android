@@ -73,6 +73,43 @@ data class RecordingNotice(val on: Boolean, val id: String, val version: Long)
 
 data class SignedRecordingNotice(val notice: RecordingNotice, val sig: String)
 
+/** Signed details accompany (and never replace) the legacy running notice. */
+data class RecordingCaptureNotice(val id: String, val version: Long, val capture: String, val recorder: String, val device: String)
+data class SignedRecordingCaptureNotice(val notice: RecordingCaptureNotice, val sig: String)
+
+private val RECORDING_CAPTURES = setOf("audio", "gallery", "speaker", "screen-camera")
+
+private fun recordingCaptureMessage(roomId: String, notice: RecordingCaptureNotice): ByteArray {
+    require(RECORDING_ID.matches(notice.id) && notice.capture in RECORDING_CAPTURES &&
+        HEX64.matches(notice.recorder) && HEX64.matches(notice.device)) { "invalid recording capture details" }
+    return Digests.sha256("kithmoot/v1/recording-capture:${requireRoomId(roomId)}:${requireVersion(notice.version)}:${notice.id}:${notice.capture}:${notice.recorder}:${notice.device}".toByteArray(Charsets.UTF_8))
+}
+
+fun signRecordingCaptureNotice(roomId: String, notice: RecordingCaptureNotice, authoritySecretKey: ByteArray, auxRand: ByteArray = Entropy.bytes(32)): String {
+    require(authoritySecretKey.size == 32) { "authority secret key must be 32 bytes" }
+    return Schnorr.sign(recordingCaptureMessage(roomId, notice), authoritySecretKey, auxRand).toHex()
+}
+
+fun verifyRecordingCaptureNotice(roomId: String, notice: RecordingCaptureNotice, sig: String, authority: String): Boolean =
+    verifyDigest({ recordingCaptureMessage(roomId, notice) }, sig, authority)
+
+fun encodeRecordingCaptureOp(signed: SignedRecordingCaptureNotice): String = signed.notice.let {
+    // All string fields are restricted protocol literals or canonical hex.
+    "{\"op\":\"recording-capture\",\"id\":\"${it.id}\",\"version\":${it.version},\"capture\":\"${it.capture}\",\"recorder\":\"${it.recorder}\",\"device\":\"${it.device}\",\"sig\":\"${signed.sig}\"}"
+}
+
+fun decodeRecordingCaptureOp(body: String): SignedRecordingCaptureNotice? = runCatching {
+    val obj = controlObject(body, "recording-capture") ?: return null
+    fun text(key: String): String? = (obj[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+    val id = text("id")?.takeIf { RECORDING_ID.matches(it) } ?: return null
+    val version = obj.version() ?: return null
+    val capture = text("capture")?.takeIf { it in RECORDING_CAPTURES } ?: return null
+    val recorder = text("recorder")?.takeIf { HEX64.matches(it) } ?: return null
+    val device = text("device")?.takeIf { HEX64.matches(it) } ?: return null
+    val sig = obj.sig() ?: return null
+    SignedRecordingCaptureNotice(RecordingCaptureNotice(id, version, capture, recorder, device), sig)
+}.getOrNull()
+
 /** Canonical speaker list: lower-case, deduplicated, sorted. Throws on
  *  anything that is not a participant pubkey, or on more than the cap. */
 fun canonicalSpeakers(speakers: List<String>): List<String> {

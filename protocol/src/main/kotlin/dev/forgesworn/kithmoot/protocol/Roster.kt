@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -172,6 +173,8 @@ data class RosterEntry(
      * Only the exact number `2` counts - anything else is treated as absent.
      */
     val callProfile: Int? = null,
+    /** This UI explains signed audio/video capture details; only exact 2 counts. */
+    val recordingProfile: Int? = null,
     /**
      * Page-session id: 8 lower-case hex, random per page session. Lets a
      * reader tell a second tab of the same device key apart from an
@@ -216,6 +219,7 @@ data class RosterEntry(
         if (agent) put("agent", true)
         if (left) put("left", true)
         if (callProfile != null) put("callProfile", callProfile)
+        if (recordingProfile == 2) put("recordingProfile", 2)
         if (sid != null) put("sid", sid)
         if (call != null) put("call", call.toJson())
     }
@@ -259,6 +263,8 @@ data class RosterEntry(
                 ?.toIntOrNull()
                 ?.takeIf { it == 2 },
             sid = (json["sid"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+            recordingProfile = (json["recordingProfile"] as? JsonPrimitive)
+                ?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it == 2.0 }?.let { 2 },
             // Sanitised on the way in, as the web client does: only a
             // well-formed membership counts, and a malformed one is dropped
             // rather than carried around as a value nothing can read.

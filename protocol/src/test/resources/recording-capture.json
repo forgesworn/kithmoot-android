@@ -1,0 +1,57 @@
+{
+  "description": "Signed recording capture companion fixtures; public test key only; legacy recording vectors are unchanged",
+  "cases": [
+    {
+      "roomId": "abababababababababababababababababababababababababababababababab",
+      "authority": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "notice": {
+        "id": "12121212121212121212121212121212",
+        "version": 17,
+        "capture": "audio",
+        "recorder": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "device": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "sig": "b29a0e274af0c770aab6098c816f3e02e0d504848ed662886d03d36d1fb4834201cfe0cf36fd50e7c098879c376f6f40ab2ce6a0853b076bd730e2d323e56b0e",
+      "encoded": "{\"op\":\"recording-capture\",\"id\":\"12121212121212121212121212121212\",\"version\":17,\"capture\":\"audio\",\"recorder\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"device\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sig\":\"b29a0e274af0c770aab6098c816f3e02e0d504848ed662886d03d36d1fb4834201cfe0cf36fd50e7c098879c376f6f40ab2ce6a0853b076bd730e2d323e56b0e\"}"
+    },
+    {
+      "roomId": "abababababababababababababababababababababababababababababababab",
+      "authority": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "notice": {
+        "id": "12121212121212121212121212121212",
+        "version": 18,
+        "capture": "gallery",
+        "recorder": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "device": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "sig": "4b8c351eb7bdb4ee8aed9b0e2ec0a538b77b10bc24ac94378484f9c0fddd4d1ad70a3953f80b6f6c855783dd7f4dec72899668d5a92893e300ab5582c49b112a",
+      "encoded": "{\"op\":\"recording-capture\",\"id\":\"12121212121212121212121212121212\",\"version\":18,\"capture\":\"gallery\",\"recorder\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"device\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sig\":\"4b8c351eb7bdb4ee8aed9b0e2ec0a538b77b10bc24ac94378484f9c0fddd4d1ad70a3953f80b6f6c855783dd7f4dec72899668d5a92893e300ab5582c49b112a\"}"
+    },
+    {
+      "roomId": "abababababababababababababababababababababababababababababababab",
+      "authority": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "notice": {
+        "id": "12121212121212121212121212121212",
+        "version": 19,
+        "capture": "speaker",
+        "recorder": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "device": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "sig": "51ff28495db28e42c666cff2c424fad61c9681acbf231c7c86efba8ab5d0a4150bcf2f65350fb821442530442709df5c68ba21152f6f9253493c51b4e9dbe122",
+      "encoded": "{\"op\":\"recording-capture\",\"id\":\"12121212121212121212121212121212\",\"version\":19,\"capture\":\"speaker\",\"recorder\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"device\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sig\":\"51ff28495db28e42c666cff2c424fad61c9681acbf231c7c86efba8ab5d0a4150bcf2f65350fb821442530442709df5c68ba21152f6f9253493c51b4e9dbe122\"}"
+    },
+    {
+      "roomId": "abababababababababababababababababababababababababababababababab",
+      "authority": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "notice": {
+        "id": "12121212121212121212121212121212",
+        "version": 20,
+        "capture": "screen-camera",
+        "recorder": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "device": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "sig": "21f3e39a9da80ca2e75f0354acf8991a09731600c4cb4aa34260ed242c7672a104b9d8f9785d15e68c7e4e50a449cbdb72bec62c4bab22e043d53a2c3a2115b8",
+      "encoded": "{\"op\":\"recording-capture\",\"id\":\"12121212121212121212121212121212\",\"version\":20,\"capture\":\"screen-camera\",\"recorder\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"device\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"sig\":\"21f3e39a9da80ca2e75f0354acf8991a09731600c4cb4aa34260ed242c7672a104b9d8f9785d15e68c7e4e50a449cbdb72bec62c4bab22e043d53a2c3a2115b8\"}"
+    }
+  ]
+}

@@ -39,11 +39,26 @@ private fun clockTime(seconds: Long): String = clock.format(Instant.ofEpochSecon
 
 /** What the recording notice says, or null when there is nothing to say.
  *  Worded as the web client's banner is. */
-internal fun recordingLine(view: RecordingView): String? = when (view) {
+internal fun recordingLine(view: RecordingView, description: String? = null): String? = when (view) {
     RecordingView.Off -> null
-    is RecordingView.On -> "This call is being recorded, since ${clockTime(view.since)}. What is said on the call is in the recording. " +
+    is RecordingView.On -> "This call is being recorded, since ${clockTime(view.since)}. ${description ?: "Audio and video you share may be included."} " +
         "KithMoot cannot stop anybody recording with another app, recording or not."
     is RecordingView.Unconfirmed -> "This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}."
+}
+
+internal fun recordingCaptureDescription(state: RoomState): String? {
+    val capture = state.recordingCapture ?: return null
+    val name = state.profiles[capture.recorder]?.name ?: state.tiles.firstOrNull { it.participant == capture.recorder }?.name
+    val key = shortNpub(capture.recorder)
+    val who = if (name.isNullOrBlank()) key else "$name ($key)"
+    val what = when (capture.capture) {
+        "audio" -> "call audio"
+        "gallery" -> "gallery video and call audio"
+        "speaker" -> "speaker video and call audio"
+        "screen-camera" -> "a screen share with camera and call audio"
+        else -> return null
+    }
+    return "$who is capturing $what."
 }
 
 /** What meeting mode means for this person, or null when it is off. */
@@ -63,8 +78,8 @@ internal fun meetingLine(state: RoomState): String? = when {
  * hidden controls.
  */
 @Composable
-internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier) {
-    val line = recordingLine(view) ?: return
+internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier, description: String? = null) {
+    val line = recordingLine(view, description) ?: return
     Surface(
         modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(12.dp),
@@ -181,13 +196,13 @@ internal fun MeetingNotice(state: RoomState, onRaiseHand: (Boolean) -> Unit, mod
 /** Asked before anything puts this device on a recorded call. Joining is
  *  the consent; Not now keeps the person in the room, off the call. */
 @Composable
-internal fun RecordingConsentDialog(onAnswer: (Boolean) -> Unit) {
+internal fun RecordingConsentDialog(onAnswer: (Boolean) -> Unit, description: String? = null) {
     AlertDialog(
         onDismissRequest = { onAnswer(false) },
         title = { Text("This call is being recorded") },
         text = {
             Text(
-                "The person who made this room is recording the call's sound. If you join, what you say is in the recording. " +
+                "${description ?: "Audio and video you share may be included."} If you join, the media you share may be recorded. " +
                     "You can stay in the room and read the chat without joining the call.",
             )
         },
