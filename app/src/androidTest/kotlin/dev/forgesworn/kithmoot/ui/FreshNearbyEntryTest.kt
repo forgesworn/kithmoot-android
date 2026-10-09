@@ -6,6 +6,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.crypto.Entropy
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.*
 import dev.forgesworn.kithmoot.session.*
@@ -178,8 +180,8 @@ class FreshNearbyEntryTest {
         } finally { f.close() }
     }
 
-    private class Fixture(val loss: Boolean = false, val answerEpoch: Boolean = true, val answerInvitation: Boolean = true,
-        val mixed: Boolean = false, val mismatchedRelays: Boolean = false) {
+    internal class Fixture(val loss: Boolean = false, val answerEpoch: Boolean = true, val answerInvitation: Boolean = true,
+        val mixed: Boolean = false, val mismatchedRelays: Boolean = false, val rootInternetOnly: Boolean = false) {
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
         val server = MockWebServer().also { it.start() }
         val secret = Entropy.bytes(32)
@@ -270,7 +272,7 @@ class FreshNearbyEntryTest {
             val now = System.currentTimeMillis() / 1000
             val welcome = encodePersistentInvitation(host, secret, now, relays = if (mismatchedRelays) listOf("wss://different.fixture.invalid/") else relays)
             rootPool = if (mixed) RelayPool(relays, OkHttpRelaySockets(), scope).also { it.start() } else null
-            val rootTransport: RoomTransport = rootPool?.let { HybridRoomTransport(transport, it) } ?: transport
+            val rootTransport: RoomTransport = rootPool?.let { if (rootInternetOnly) it else HybridRoomTransport(transport, it) } ?: transport
             val cache = mutableMapOf<String, NostrEvent>()
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 rootTransport.subscribe(listOf(Filter(kinds = listOf(KIND_INVITATION_REQUEST)))).collect { request ->
@@ -303,6 +305,9 @@ class FreshNearbyEntryTest {
             rootPool?.stop(); transport.close(); scope.cancel()
             app.savedRooms.get(room.roomId)?.let { saved ->
                 dev.forgesworn.kithmoot.storage.PendingChatVault(app, saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+                val identity = Digests.sha256("${saved.id}:${saved.participant}:${saved.devicePubkey}".toByteArray()).toHex()
+                dev.forgesworn.kithmoot.storage.EncryptedRoomStorage(app, "kithmoot.room-forwarding.$identity").reset()
+                dev.forgesworn.kithmoot.storage.EncryptedRoomStorage(app, "kithmoot.sharing-selection.$identity").reset()
             }
             app.savedRooms.forget(room.roomId)
             app.roomEpochs.forget(room.roomId)

@@ -23,7 +23,7 @@ class RoomForwardingBinding(val room: String, val participant: String, val devic
     init {
         require(listOf(room, participant, device, meshScope).all(::forwardingHex))
         require(this.relays.size in 1..8 && this.relays.distinct().size == this.relays.size)
-        require(this.senders.size in 1..32 && this.senders.all(::forwardingHex))
+        require(this.senders.size <= 32 && this.senders.all(::forwardingHex))
     }
     internal val owner = "$room:$participant:$device"
     internal val pin = Digests.sha256(buildJsonObject {
@@ -32,16 +32,34 @@ class RoomForwardingBinding(val room: String, val participant: String, val devic
         put("relays", JsonArray(this@RoomForwardingBinding.relays.map(::JsonPrimitive)))
         put("senders", JsonArray(this@RoomForwardingBinding.senders.map(::JsonPrimitive)))
     }.toString().toByteArray(Charsets.UTF_8)).toHex()
+
+    internal fun toJson() = buildJsonObject {
+        put("room", room); put("participant", participant); put("device", device); put("mesh", meshScope)
+        put("relays", JsonArray(relays.map(::JsonPrimitive))); put("senders", JsonArray(senders.map(::JsonPrimitive)))
+    }
+
+    companion object {
+        internal fun fromJson(value: JsonElement): RoomForwardingBinding {
+            val o = value.jsonObject
+            val senders = o.getValue("senders").jsonArray.map { it.jsonPrimitive.content }
+            require(senders.size <= 32 && senders.distinct().size == senders.size)
+            return RoomForwardingBinding(o.getValue("room").jsonPrimitive.content, o.getValue("participant").jsonPrimitive.content,
+                o.getValue("device").jsonPrimitive.content, o.getValue("mesh").jsonPrimitive.content,
+                o.getValue("relays").jsonArray.map { it.jsonPrimitive.content }, senders.toSet())
+        }
+    }
 }
 
 /** Separate from PendingChatOutbox: third-party ciphertext, no plaintext and no
  * participant receipt. Call on an IO dispatcher; storage must be encrypted and
  * atomic. Only one live ledger owns a room/device. Reopen is suspended until a
  * matching live session binds current authority, regardless of saved queues. */
-class RoomForwardingLedger(private val storage: RoomStorage, val binding: RoomForwardingBinding,
+class RoomForwardingLedger(private val storage: RoomStorage, binding: RoomForwardingBinding,
     private val nowMs: () -> Long = System::currentTimeMillis,
     createIfMissing: Boolean = false,
 ) : AutoCloseable {
+    var binding = binding
+        private set
     data class Lane(val state: ForwardingLaneState = ForwardingLaneState.WAITING,
         val attempts: Int = 0, val nextAt: Long = 0)
     data class Entry(val event: NostrEvent, val added: Long, val expires: Long,
@@ -65,7 +83,9 @@ class RoomForwardingLedger(private val storage: RoomStorage, val binding: RoomFo
     @Volatile private var closed = false
 
     init {
-        check(owners.putIfAbsent(binding.owner, lease) == null) { "This room already has a sharing owner" }
+        synchronized(ownerGate(binding.owner)) {
+            check(owners.putIfAbsent(binding.owner, lease) == null) { "This room already has a sharing owner" }
+        }
         try {
             val bytes = storage.read()
             if (bytes == null) check(createIfMissing) { "The sharing ledger is missing" }
@@ -82,6 +102,15 @@ class RoomForwardingLedger(private val storage: RoomStorage, val binding: RoomFo
     }
 
     fun suspendExports() = synchronized(lock) { authority = null }
+
+    /** Explicit disabled-owner policy change. Nothing acquires new retry credit;
+     * old exports are stranded, even if a later selection approves them again. */
+    internal fun changeSelection(next: RoomForwardingBinding) = synchronized(lock) {
+        usable(); check(authority == null) { "Stop sharing before changing its selection" }
+        require(next.owner == binding.owner) { "Sharing identity cannot change" }
+        if (next.pin == binding.pin) return@synchronized
+        roll(); entries = entries.map { it.copy(moved = true) }; binding = next; save()
+    }
 
     /** Called only for an observed incoming lane. Source and exact signed event
      * become durable in one commit, including after a late opposite-lane copy. */
@@ -174,7 +203,10 @@ class RoomForwardingLedger(private val storage: RoomStorage, val binding: RoomFo
     fun persistenceFailed(): Boolean = failed
 
     override fun close() = synchronized(lock) {
-        if (!closed) { closed = true; authority = null; owners.remove(binding.owner, lease) }
+        if (!closed) {
+            closed = true; authority = null
+            synchronized(ownerGate(binding.owner)) { owners.remove(binding.owner, lease) }
+        }
     }
     private fun usable() { check(!closed && !failed) { "Sharing is closed or persistence failed" } }
     private fun clock(): Long = nowMs().also { require(it in 0..MAX_CLOCK) }
@@ -259,6 +291,14 @@ class RoomForwardingLedger(private val storage: RoomStorage, val binding: RoomFo
     }
     companion object {
         private val owners = ConcurrentHashMap<String, Any>()
+        private val ownerGates = ConcurrentHashMap<String, Any>()
+        private fun ownerGate(owner: String) = ownerGates.computeIfAbsent(owner) { Any() }
+        /** Selection intent and ledger acquisition are one in-process ownership
+         * operation; a running owner cannot have its preferences changed. */
+        internal fun <T> prepareSelection(binding: RoomForwardingBinding, prepare: () -> T): T = synchronized(ownerGate(binding.owner)) {
+            check(!owners.containsKey(binding.owner)) { "Stop sharing before changing its selection" }
+            prepare()
+        }
         const val MAX_ENTRIES = 100
         const val MAX_BYTES = 1024 * 1024
         const val MAX_EVENT_BYTES = 16 * 1024

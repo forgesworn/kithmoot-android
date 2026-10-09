@@ -144,6 +144,9 @@ fun RoomScreen(
     onSetMeetingMode: (Boolean) -> Unit = {},
     /** The host puts somebody on the meeting's stage, or takes them off it. */
     onSetSpeaker: (String, Boolean) -> Unit = { _, _ -> },
+    onSelectSharingParticipant: (String, Boolean) -> Unit = { _, _ -> },
+    onStartRoomSharing: () -> Unit = {},
+    onStopRoomSharing: () -> Unit = {},
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent)
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -165,6 +168,10 @@ fun RoomScreen(
     var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    var sharingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    if (sharingOpen && !lockedCallOnly) state.sharing?.let {
+        RoomSharingSheet(it, onSelectSharingParticipant, onStartRoomSharing, onStopRoomSharing, { sharingOpen = false })
+    }
     var backgroundOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var meetingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     if (meetingOpen && state.meetingModerator) MeetingSheet(state, { meetingOpen = false }, onSetMeetingMode, onSetSpeaker)
@@ -299,6 +306,10 @@ fun RoomScreen(
                     TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
+                state.sharing?.let { sharing ->
+                    Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
+                    TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
+                }
                 if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
                 if (state.destruct) {
                     // Said once, here, and never more: what self-destruct does, and what it cannot.
@@ -640,7 +651,8 @@ private fun nearbyLine(state: RoomState): String {
         (nearby?.writablePeers ?: 0) > 0 -> "${nearby!!.writablePeers} nearby links · delivery unconfirmed"
         else -> "Looking for nearby room members"
     }
-    return if (state.route.internet) "$bluetooth · ${state.relaysUp} relays up" else bluetooth
+    val connection = if (state.route.internet) "$bluetooth · ${state.relaysUp} relays up" else bluetooth
+    return if (state.sharing?.enabled == true) "$connection · sharing on" else connection
 }
 
 private fun relayLine(state: RoomState): String = when {

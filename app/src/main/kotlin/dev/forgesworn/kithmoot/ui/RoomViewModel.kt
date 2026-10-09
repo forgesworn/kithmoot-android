@@ -219,6 +219,9 @@ import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.RoomChatForwarder
+import dev.forgesworn.kithmoot.session.RoomForwardingBinding
+import dev.forgesworn.kithmoot.storage.RoomSharingVault
 import dev.forgesworn.kithmoot.session.EpochGateResult
 import dev.forgesworn.kithmoot.session.currentCircleGuestDevices
 import dev.forgesworn.kithmoot.session.QuietTransport
@@ -489,6 +492,7 @@ data class RoomState(
     val anonymous: Boolean = false,
     val route: RoomRoute = RoomRoute.INTERNET,
     val nearby: RoomBleState? = null,
+    val sharing: RoomSharingState? = null,
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
@@ -930,6 +934,11 @@ class RoomViewModel @JvmOverloads constructor(
     /** The quiet wrapper over the pool when the room is a quiet one; chat rides through it in drops. */
     private var quietTransport: QuietTransport? = null
     private var session: RoomSession? = null
+    private val sharingLock = Any()
+    private val sharingPreparation = Mutex()
+    @Volatile private var sharingGeneration = 0L
+    private var sharingOwner: RoomChatForwarder? = null
+    private var sharingWatch: Job? = null
     private var roomWork: RoomWork? = null
     /** The open room's meeting policy, recording notice and raised hands, as
      *  its [roomWork] reads them. Empty while no room is open, and in a room
@@ -4237,6 +4246,7 @@ class RoomViewModel @JvmOverloads constructor(
             savedRooms.saveNew(record)
             _start.update { it.copy(savedRooms = savedRooms.list()) }
         }
+        loadRoomSharing(live, record, scope)
         if (pendingChat != null) {
             // The list follows the journal; a message leaves it when it shows in the chat.
             scope.launch {
@@ -4736,10 +4746,12 @@ class RoomViewModel @JvmOverloads constructor(
                         else it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Removed -> {
+                        stopRoomSharing()
                         roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
                         _room.update { it.copy(movedOn = state.epoch, roomUpdate = "removed", canRotateInvitation = false, notice = "You were removed from this room") }
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Closed -> {
+                        stopRoomSharing()
                         roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
                         _room.update { it.copy(movedOn = state.epoch, roomUpdate = "closed", canRotateInvitation = false, notice = "This room was closed") }
                         closedRoom?.let { id -> viewModelScope.launch(Dispatchers.IO) { roomClosed(id) } }
@@ -4798,6 +4810,127 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Reads saved consent only. No owner or export authority is restored. */
+    private suspend fun loadRoomSharing(live: RoomSession, record: SavedRoom, scope: CoroutineScope) {
+        if (record.route != RoomRoute.MIXED || record.anonymous || record.policy?.quiet == true || record.destruct || chatOnly) return
+        withContext(Dispatchers.IO) {
+            val endpoints = pool?.describe()?.map(::canonicalRelayUrl)?.sorted().orEmpty()
+            if (endpoints.size !in 1..8 || linkConsents.all().any { it.roomId == record.id }) return@withContext
+            val probe = RoomForwardingBinding(record.id, record.participant, record.devicePubkey,
+                RoomNearbyDiscovery.scope(record.id), endpoints, setOf(record.participant))
+            if (!live.forwardingProfileMatches(probe)) return@withContext
+            val stored = runCatching { RoomSharingVault(getApplication(), record.id, record.participant, record.devicePubkey).selection() }
+            synchronized(sharingLock) {
+                if (session !== live || !appVisible) return@synchronized
+                val selected = stored.getOrNull()?.let { it.pending ?: it.current }?.senders.orEmpty()
+                _room.update { it.copy(sharing = RoomSharingState(selected = selected, candidates = selected.sorted(),
+                    relays = endpoints, previouslySaved = stored.getOrNull() != null,
+                    error = if (stored.isFailure) "Saved sharing settings could not be read. Sharing remains off." else null)) }
+            }
+            scope.launch(Dispatchers.IO) {
+                combine(live.participants, live.chat) { people, chat ->
+                    (people.map { it.participant } + chat.map { it.participant }).filter { it != record.participant }
+                }.collect { people -> synchronized(sharingLock) {
+                    if (session === live) _room.update { state -> state.copy(sharing = state.sharing?.let {
+                        it.copy(candidates = (it.selected.sorted() + people.distinct().sorted()).distinct().take(500))
+                    }) }
+                } }
+            }
+        }
+    }
+
+    /** Invalidate dispatch before cancelling jobs or closing any supplied path. */
+    fun stopRoomSharing() = synchronized(sharingLock) {
+        sharingGeneration++
+        sharingWatch?.cancel(); sharingWatch = null
+        sharingOwner?.close(); sharingOwner = null
+        _room.update { state -> state.copy(sharing = state.sharing?.copy(enabled = false, busy = false)) }
+    }
+
+    fun selectSharingParticipant(participant: String, approved: Boolean) = synchronized(sharingLock) {
+        val state = _room.value.sharing ?: return@synchronized
+        if (participant !in state.candidates || (approved && state.selected.size >= 32 && participant !in state.selected)) return@synchronized
+        stopRoomSharing()
+        _room.update { room -> room.copy(sharing = room.sharing?.copy(
+            selected = if (approved) state.selected + participant else state.selected - participant, error = null)) }
+        prepareRoomSharing(enable = false)
+    }
+
+    fun startRoomSharing() = prepareRoomSharing(enable = true)
+
+    private fun prepareRoomSharing(enable: Boolean) {
+        val record: SavedRoom
+        val live: RoomSession
+        val mesh: RoomMeshTransport
+        val internet: RelayPool
+        val scope: CoroutineScope
+        val binding: RoomForwardingBinding
+        val ticket: Long
+        synchronized(sharingLock) {
+            val selection = _room.value.sharing ?: return
+            if (selection.busy || selection.enabled || (enable && selection.selected.isEmpty())) return
+            if (selection.relays.size !in 1..8) {
+                _room.update { it.copy(sharing = it.sharing?.copy(error = "Sharing supports up to eight selected Internet connections.")) }
+                return
+            }
+            record = savedRoom ?: return; live = session ?: return
+            mesh = nearbyTransport ?: return; internet = pool ?: return; scope = sessionScope ?: return
+            binding = RoomForwardingBinding(record.id, record.participant, record.devicePubkey,
+                RoomNearbyDiscovery.scope(record.id), selection.relays, selection.selected)
+            stopRoomSharing(); ticket = sharingGeneration
+            _room.update { it.copy(sharing = it.sharing?.copy(busy = true, error = null)) }
+        }
+        // No disk, network or radio work in this guard: transport dispatch calls it.
+        val selected = {
+            val state = _room.value
+            sharingGeneration == ticket && appVisible && _stage.value == Stage.ROOM && session === live &&
+                nearbyTransport === mesh && pool === internet && sessionScope === scope &&
+                savedRoom?.id == binding.room && state.route == RoomRoute.MIXED && !state.anonymous && !state.quiet &&
+                !state.destruct && !state.chatOnly && !state.onCall && !state.callChanging &&
+                !state.conferenceEnded && state.movedOn == null && state.sharing?.selected == binding.senders &&
+                internet.describe().map(::canonicalRelayUrl).sorted() == binding.relays
+        }
+        scope.launch(Dispatchers.IO) { sharingPreparation.withLock {
+            var ledger: dev.forgesworn.kithmoot.session.RoomForwardingLedger? = null
+            try {
+                check(selected())
+                ledger = RoomSharingVault(getApplication(), record.id, record.participant, record.devicePubkey).prepare(binding)
+                synchronized(sharingLock) {
+                    check(selected())
+                    if (!enable) {
+                        _room.update { it.copy(sharing = it.sharing?.copy(busy = false, previouslySaved = true)) }
+                        return@withLock
+                    }
+                    val owner = RoomChatForwarder.start(record, linkConsents, live, mesh, internet,
+                        checkNotNull(ledger), scope, selected)
+                    sharingOwner = owner; ledger = null // The owner now closes this ledger.
+                    _room.update { it.copy(sharing = it.sharing?.copy(enabled = true, busy = false, previouslySaved = true)) }
+                    sharingWatch = scope.launch(Dispatchers.IO) watch@ {
+                        while (isActive) {
+                            delay(1_000)
+                            synchronized(sharingLock) {
+                                if (sharingGeneration != ticket) return@watch
+                                if (owner.isFailed() || !selected() || !live.forwardingProfileMatches(binding)) {
+                                    stopRoomSharing()
+                                    _room.update { it.copy(sharing = it.sharing?.copy(error =
+                                        "Connection sharing stopped. Reopen its settings to resume when the room is ready.")) }
+                                    return@watch
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { synchronized(sharingLock) {
+                if (sharingGeneration == ticket) {
+                    stopRoomSharing()
+                    _room.update { it.copy(sharing = it.sharing?.copy(error =
+                        "Connection sharing could not start. The room must be active and its saved sharing state intact.")) }
+                }
+            } } finally { ledger?.close() }
+        } }
+    }
+
     fun leave() {
         if (!entering.tryAcquire()) {
             // The gate is held by an entry that has not finished. Saying so on
@@ -4808,6 +4941,7 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val live = session
+        stopRoomSharing()
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
         _videos.value = emptyMap()
@@ -4870,6 +5004,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        stopRoomSharing()
         roomWork?.close()
         roomWork = null
         meetingState.value = MeetingSnapshot()
@@ -4934,6 +5069,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        stopRoomSharing()
         if (!chatOnly) dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
         boxDiscovery.close()
         super.onCleared()
@@ -5410,6 +5546,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
+        if (!visible) stopRoomSharing()
         if (!visible && freshNearbyOpening) { entryJob?.cancel(); return }
         engine?.localMedia?.setAppVisible(visible)
         parkJob?.cancel()
@@ -6887,8 +7024,11 @@ class RoomViewModel @JvmOverloads constructor(
         val accepted = RoomRelays.guarded(room.sharedRelays, roomRelayGuard(room)).accepted
         val added = RoomRelays.missing(relayUrls, RoomRelays.atOpen(relayUrls, emptyList(), room = accepted))
         if (added.isEmpty()) return emptyList()
+        stopRoomSharing()
         transport.addRelays(added)
         relayUrls = relayUrls + added
+        _room.update { it.copy(sharing = it.sharing?.copy(relays = transport.describe().map(::canonicalRelayUrl).sorted(),
+            error = "Internet connections changed. Review them before resuming sharing.")) }
         return added
     }
 
@@ -6986,6 +7126,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val how = when (id) { existing -> "joined"; remembered -> "rejoined"; else -> "started" }
         Log.i(JOIN_LOG, "call $how id=${id.take(8)} by=${if (pressed) "press" else "self-heal"}")
+        stopRoomSharing()
         runCatching { live.setCall(CallMembership(id, epochSeconds())) }
             .onSuccess {
                 lastCallId = id
