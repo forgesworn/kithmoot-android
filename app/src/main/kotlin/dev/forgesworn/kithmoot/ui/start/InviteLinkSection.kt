@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
+import dev.forgesworn.kithmoot.relay.RoomRoute
 import kotlinx.coroutines.delay
 
 /** "Open an invite link", collapsed by default: a link is rare enough on
@@ -37,10 +39,11 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Unit, enabled: Boolean, onJoin: () -> Unit,
     /** False inside the home list's bottom sheet, where the field is the whole point and there is nothing to collapse. */
-    collapsible: Boolean = true, onJoinNearby: ((String) -> Unit)? = null) {
+    collapsible: Boolean = true, onJoinNearby: ((String, RoomRoute) -> Unit)? = null) {
     var expanded by rememberSaveable { mutableStateOf(!collapsible) }
     var nearbyDialog by remember { mutableStateOf(false) }
     var nearbyCode by remember { mutableStateOf("") }
+    var nearbyRoute by remember { mutableStateOf(RoomRoute.NEARBY) }
     var scanning by remember { mutableStateOf(false) }
     var fieldFocused by remember { mutableStateOf(false) }
     // Set by a person's own tap or scan, never by restoring the screen, so
@@ -70,7 +73,7 @@ internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Un
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { if (enabled) onJoin() }),
                 )
-                if (onJoinNearby != null) TextButton({ nearbyDialog = true }, enabled = enabled && joinUrl.isNotBlank()) {
+                if (onJoinNearby != null) TextButton({ nearbyRoute = RoomRoute.NEARBY; nearbyDialog = true }, enabled = enabled && joinUrl.isNotBlank()) {
                     Text("Join nearby with Bluetooth")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -83,12 +86,21 @@ internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Un
     if (nearbyDialog && onJoinNearby != null) {
         AlertDialog(onDismissRequest = { nearbyDialog = false }, title = { Text("Join nearby") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Use the nearby code supplied with this invitation. The room keeper must be reachable over Bluetooth. This join uses no Internet fallback.")
+                Text("Use the nearby code supplied with this invitation and choose how to reach the room keeper.")
+                for (route in listOf(RoomRoute.NEARBY, RoomRoute.MIXED)) Row(
+                    Modifier.fillMaxWidth().selectable(selected = nearbyRoute == route, role = Role.RadioButton, onClick = { nearbyRoute = route }),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = nearbyRoute == route, onClick = null)
+                    Text(route.label)
+                }
+                Text(if (nearbyRoute == RoomRoute.NEARBY) "This room uses Bluetooth only, with no Internet fallback."
+                    else "Use Bluetooth and the Internet relays in this invitation for the same conversation.")
                 Text("You will join with a new identity kept on this phone. Your account's other activity keeps its own connection settings.")
                 OutlinedTextField(nearbyCode, { nearbyCode = it.take(512) }, label = { Text("Nearby code") }, maxLines = 4)
-                Text("Keep KithMoot on screen while joining. Self-destructing rooms need an Internet cleanup route.")
+                Text("Keep KithMoot on screen while joining. For a self-destructing room, use Open on the invitation.")
             } },
-            confirmButton = { TextButton({ nearbyDialog = false; onJoinNearby(nearbyCode.trim()); nearbyCode = "" },
+            confirmButton = { TextButton({ nearbyDialog = false; onJoinNearby(nearbyCode.trim(), nearbyRoute); nearbyCode = "" },
                 enabled = enabled && nearbyCode.isNotBlank()) { Text("Join with local identity") } },
             dismissButton = { TextButton({ nearbyDialog = false; nearbyCode = "" }) { Text("Cancel") } })
     }
