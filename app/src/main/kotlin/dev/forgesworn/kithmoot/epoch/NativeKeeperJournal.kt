@@ -65,6 +65,7 @@ internal class NativeKeeperBinding(val room: String, val authority: String, val 
 }
 
 internal enum class KeeperPhase { ACTIVE, RETIRED, CLOSED }
+internal class NativeKeeperMigrationRequiredException : IllegalStateException("Native authority journal needs explicit migration")
 internal class KeeperMaterial(val base: ByteArray, val signer: ByteArray, val bearer: ByteArray, val welcome: NostrEvent) {
     fun wipe() { base.fill(0); signer.fill(0); bearer.fill(0) }
 }
@@ -77,7 +78,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     creation: NativeKeeperCreation?, ownerCredential: NostrEvent?) : AutoCloseable {
     data class Snapshot(val phase: KeeperPhase, val epoch: Int, val epochId: String, val high: Long,
         val revision: Long, val removed: List<String>, val members: List<String>, val cause: String?,
-        val pending: List<NostrEvent>, val nearbyBytes: Int, val internetBytes: Int, val suspended: Boolean)
+        val pending: List<NostrEvent>, val nearbyBytes: Int, val internetBytes: Int, val suspended: Boolean,
+        val epochCause: String?)
     data class Handoff(val event: NostrEvent, val lane: RekeyLane, val attempt: Int, val pending: Boolean)
     private data class Cached(val request: NostrEvent, val answer: NostrEvent, val epoch: Int, val offers: Int,
         val lane: RekeyLane, val handed: Boolean = false)
@@ -88,7 +90,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val offered: Map<String, Int> = emptyMap())
     private data class Record(val epoch: Int, val secret: ByteArray, val phase: KeeperPhase, val removed: List<String>,
         val members: List<String>, val at: Long, val high: Long, val revision: Long, val destruct: Boolean,
-        val cause: String?, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null)
+        val cause: String?, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null,
+        val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null)
     private val lock = ReentrantLock()
     private val lease = Any()
     private lateinit var material: KeeperMaterial
@@ -139,9 +142,43 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         usable()
         Snapshot(data.phase, data.epoch, deriveEpoch(RoomEpoch(data.epoch, data.secret)).id, data.high, data.revision,
             data.removed.toList(), data.members.toList(), data.cause, data.pending?.events?.map(::keeperEvent).orEmpty(),
-            debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed())
+            debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause)
     }
     fun persistenceFailed() = failed
+
+    /** Cold readiness reads actual receiver owners outside the source lock.
+     * A terminal agreement proves closure, never permission to host answers. */
+    fun verifyReceiver(vault: EpochVault, session: RoomSession? = null): KeeperPhase {
+        val expected = lock.withLock {
+            usable(); time(); check(data.pending == null) { "Original source transition still needs recovery" }
+            data.copy(secret = data.secret.clone(), terminalPredecessor = data.terminalPredecessor?.let { RoomEpoch(it.epoch, it.secret) })
+        }
+        try {
+            val receiver = requireNotNull(vault.get(binding.room))
+            require(receiver.stableRoom == binding.room && receiver.authority == binding.authority &&
+                receiver.pending == null && receiver.removed == expected.removed)
+            if (expected.phase == KeeperPhase.CLOSED) {
+                val previous = requireNotNull(expected.terminalPredecessor)
+                require(receiver.phase == EpochPhase.CLOSED && receiver.terminalCause == expected.epochCause &&
+                    receiver.currentEpoch == previous.epoch && receiver.currentSecret.contentEquals(previous.secret))
+                if (session != null) require(session.keeperProfileMatches(binding.room, binding.authority, binding.participant, binding.device) &&
+                    session.epochState.value == RoomEpochState.Closed(expected.epoch))
+            } else {
+                require(!ended(clock())) { "Room has ended" }
+                require(receiver.phase == EpochPhase.ACTIVE && receiver.activationCause == expected.epochCause &&
+                    receiver.currentEpoch == expected.epoch && receiver.currentSecret.contentEquals(expected.secret))
+                val live = requireNotNull(session)
+                require(live.keeperProfileMatches(binding.room, binding.authority, binding.participant, binding.device))
+                val keys = deriveEpoch(RoomEpoch(expected.epoch, expected.secret))
+                try { require(live.keeperEpochMatches(keys, expected.removed)) }
+                finally { keys.key.fill(0) }
+            }
+            return lock.withLock {
+                usable(); time(); require(data.revision == expected.revision && data.pending == null) { "Source changed during receiver verification" }
+                expected.phase
+            }
+        } finally { expected.secret.fill(0); expected.terminalPredecessor?.secret?.fill(0) }
+    }
 
     fun approve(participant: String) = lock.withLock {
         writable(); require(keeperHex(participant) && participant !in data.removed)
@@ -260,6 +297,11 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (!reserve(at, lane, keeperBytes(event), false, next)) return@withLock null
         Handoff(keeperEvent(event), lane, attempt, true)
     }
+    fun pendingNeedsOffer(id: String): Boolean = lock.withLock {
+        usable(); val pending = data.pending ?: return@withLock false
+        require(pending.events.any { it.id == id })
+        id !in pending.queued && pending.offered.keys.none { it.substringAfter(':') == id }
+    }
     fun canHandoff(handoff: Handoff): Boolean {
         if (!lock.tryLock()) return false
         try {
@@ -319,10 +361,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 val keys = deriveEpoch(RoomEpoch(pending.epoch, pending.secret))
                 require(receiver.phase == EpochPhase.ACTIVE && receiver.currentEpoch == pending.epoch && receiver.currentSecret.contentEquals(pending.secret))
                 require(livePhase is RoomEpochState.Active && live.epoch == keys.epoch && live.id == keys.id && live.key.contentEquals(keys.key))
+                if (rekey == null) require(receiver.activationCause == data.epochCause)
             }
             val cause = pending.events.last().id
             save(data.copy(epoch = pending.epoch, secret = pending.secret.clone(), phase = pending.phase, removed = pending.removed,
-                members = pending.members, at = pending.at, high = time(), destruct = pending.destruct, cause = cause, pending = null))
+                members = pending.members, at = pending.at, high = time(), destruct = pending.destruct, cause = cause, pending = null,
+                epochCause = rekey?.id ?: data.epochCause,
+                terminalPredecessor = if (pending.phase == KeeperPhase.CLOSED) RoomEpoch(data.epoch, data.secret) else null))
             expected.secret.fill(0); true
         }
     }
@@ -359,10 +404,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             val old = data; data = committed
             if (old.secret !== committed.secret) old.secret.fill(0)
             if (old.pending?.secret !== committed.pending?.secret) old.pending?.secret?.fill(0)
+            if (old.terminalPredecessor !== committed.terminalPredecessor) old.terminalPredecessor?.secret?.fill(0)
         } catch (error: Exception) {
             failed = true; selected = null
             if (committed.secret !== data.secret) committed.secret.fill(0)
             if (committed.pending?.secret !== data.pending?.secret) committed.pending?.secret?.fill(0)
+            if (committed.terminalPredecessor !== data.terminalPredecessor) committed.terminalPredecessor?.secret?.fill(0)
             throw error
         }
         finally { bytes?.fill(0) }
@@ -372,16 +419,20 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     private fun wipe() {
         if (::material.isInitialized) material.wipe()
-        if (::data.isInitialized) { data.secret.fill(0); data.pending?.secret?.fill(0) }
+        if (::data.isInitialized) { data.secret.fill(0); data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0) }
     }
 
     private fun encode(record: Record): JsonObject = buildJsonObject {
-        put("v", 1); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
+        put("v", 2); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
         put("bearer", material.bearer.toHex()); put("welcome", material.welcome.toJson())
         put("epoch", record.epoch); put("secret", record.secret.toHex()); put("phase", record.phase.name)
         put("removed", strings(record.removed)); put("members", strings(record.members)); put("at", record.at)
         put("high", record.high); put("revision", record.revision); put("destruct", record.destruct)
         put("cause", record.cause?.let(::JsonPrimitive) ?: JsonNull)
+        put("epochCause", record.epochCause?.let(::JsonPrimitive) ?: JsonNull)
+        put("terminalPredecessor", record.terminalPredecessor?.let { previous -> buildJsonObject {
+            put("epoch", previous.epoch); put("secret", previous.secret.toHex())
+        } } ?: JsonNull)
         put("answers", buildJsonArray { record.answers.forEach { add(buildJsonObject {
             put("request", it.request.toJson()); put("answer", it.answer.toJson()); put("epoch", it.epoch); put("offers", it.offers)
             put("lane", it.lane.name); put("handed", it.handed)
@@ -400,9 +451,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun restore(bytes: ByteArray) {
         require(bytes.size <= MAX_FILE_BYTES)
         val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+        if (integer(root, "v") != 2) throw NativeKeeperMigrationRequiredException()
         require(root.keys == setOf("v", "pin", "base", "signer", "bearer", "welcome", "epoch", "secret", "phase", "removed",
-            "members", "at", "high", "revision", "destruct", "cause", "answers", "spends", "pending"))
-        require(integer(root, "v") == 1 && text(root, "pin") == binding.pin)
+            "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending"))
+        require(text(root, "pin") == binding.pin)
         material = KeeperMaterial(secret(root, "base"), secret(root, "signer"), secret(root, "bearer"), event(root.getValue("welcome")))
         require(deriveRoom(material.base).roomId == binding.room && Schnorr.publicKeyHex(material.signer) == binding.authority)
         val welcome = requireNotNull(decodePersistentInvitation(material.welcome, invitationUnlocked()))
@@ -416,6 +468,11 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (epoch == 0) require(current.contentEquals(material.base))
         val cause = if (root.getValue("cause") == JsonNull) null else text(root, "cause").also { require(keeperHex(it)) }
         require(epoch == 0 || cause != null)
+        val epochCause = if (root.getValue("epochCause") == JsonNull) null else text(root, "epochCause").also { require(keeperHex(it)) }
+        require((epoch == 0) == (epochCause == null))
+        val predecessor = root.getValue("terminalPredecessor").takeUnless { it == JsonNull }?.jsonObject?.let {
+            require(it.keys == setOf("epoch", "secret")); RoomEpoch(integer(it, "epoch"), secret(it, "secret"))
+        }
         val destruct = boolean(root, "destruct"); require(!welcome.destruct || destruct)
         val answers = root.getValue("answers").jsonArray.also { require(it.size <= MAX_ANSWERS) }.map { raw ->
             val obj = raw.jsonObject; require(obj.keys == setOf("request", "answer", "epoch", "offers", "lane", "handed"))
@@ -438,7 +495,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             Pending(events, integer(p, "epoch"), secret(p, "secret"), members(p, "removed"), members(p, "members"),
                 KeeperPhase.valueOf(text(p, "phase")), long(p, "at"), boolean(p, "destruct"), queued, attempts, offered)
         }
-        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending)
+        require(if (phase == KeeperPhase.CLOSED && pending == null) predecessor != null && predecessor.epoch == epoch - 1 && cause == epochCause else predecessor == null)
+        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending, epochCause, predecessor)
         require(answers.map { it.request.id }.distinct().size == answers.size)
         answers.forEach(::validateAnswer)
         pending?.let(::validatePending)

@@ -29,14 +29,20 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
         runCatching { stillSelected() }.getOrDefault(false)
 
     init {
-        try { ledger.bind(::selected) }
-        catch (error: Exception) { ownerJob.cancel(); wakeups.close(); throw error }
-        scope.launch {
-            try { while (isActive) { pump(); withTimeoutOrNull(5_000) { wakeups.receive() } } }
-            catch (cancel: CancellationException) { throw cancel }
-            catch (_: Exception) { fail() }
+        var boundHere = false
+        try {
+            ledger.bind(::selected); boundHere = true
+            scope.launch {
+                try { while (isActive) { pump(); withTimeoutOrNull(5_000) { wakeups.receive() } } }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { fail() }
+            }
+            ownerJob.invokeOnCompletion { close() }
+        } catch (error: Exception) {
+            closed = true; ownerJob.cancel(); wakeups.close()
+            if (boundHere) ledger.close()
+            throw error
         }
-        ownerJob.invokeOnCompletion { close() }
     }
 
     /** Returns only local durable admission, never delivery or relay acceptance. */

@@ -306,6 +306,14 @@ class RoomMeshTransport(
     internal suspend fun publishKeeperControlGuarded(event: NostrEvent, generation: Long,
         stillAllowed: () -> Boolean): Boolean {
         require(event.kind in setOf(1461, 1462)) { "Not a keeper authority notice" }
+        return keeperGuarded(event, generation, stillAllowed)
+    }
+    internal suspend fun publishKeeperAnswerGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean): Boolean {
+        require(event.kind in setOf(20467, 20469)) { "Not a keeper request answer" }
+        return keeperGuarded(event, generation, stillAllowed)
+    }
+    private fun keeperGuarded(event: NostrEvent, generation: Long, stillAllowed: () -> Boolean): Boolean {
         return synchronized(lock) {
             if (closed || !resetReady || this.generation != generation || !stillAllowed() || !link.reachable()) false
             else { offer(event); throw PublicationUnconfirmedException() }

@@ -83,6 +83,8 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
         bound = true; selected = stillSelected
     }
     fun suspendExports() = lock.withLock { selected = null }
+    /** Failed controller startup cannot close somebody else's dispatch owner. */
+    fun closeIfUnbound() = lock.withLock { if (!bound) close() }
 
     /** Local durable admission only. Duplicate calls cannot re-sign or extend
      * the original event, expiry or debt. Authority state is owned separately. */

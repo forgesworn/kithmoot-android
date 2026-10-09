@@ -427,6 +427,11 @@ class RelayPool(
         require(event.kind in setOf(1461, 1462) && dev.forgesworn.kithmoot.protocol.Events.verify(event))
         return publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs, keeperControl = true)
     }
+    internal suspend fun publishKeeperAnswerGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        require(event.kind in setOf(20467, 20469) && Events.verify(event))
+        return publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs, keeperControl = true)
+    }
 
     private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
         stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false): Boolean = withTimeout(timeoutMs) {
@@ -603,6 +608,13 @@ class RelayPool(
     override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
         subscribe({ filters }, onReplayComplete = onReplayComplete)
 
+    /** Identical original authority requests may retry after an answer is lost.
+     * This bounded exception does not change ordinary room/chat deduplication. */
+    internal fun subscribeKeeperRequests(filters: List<Filter>): Flow<NostrEvent> {
+        require(filters.isNotEmpty() && filters.all { it.kinds?.let { kinds -> kinds.isNotEmpty() && kinds.all { k -> k in setOf(20466, 20468) } } == true })
+        return subscribeWithControl({ filters }, null, {}, {}, keeperRequests = true)
+    }
+
     /**
      * A cold flow of matching events, de-duplicated across relays, with two
      * additions the fixed-filter overload cannot offer:
@@ -621,8 +633,12 @@ class RelayPool(
      *   relay has answered" apart from "every relay has".
      */
     fun subscribe(filters: () -> List<Filter>, only: Set<String>? = null, onEose: (url: String) -> Unit = {}, onReplayComplete: () -> Unit = {}): Flow<NostrEvent> {
+        return subscribeWithControl(filters, only, onEose, onReplayComplete, keeperRequests = false)
+    }
+    private fun subscribeWithControl(filters: () -> List<Filter>, only: Set<String>?, onEose: (url: String) -> Unit,
+        onReplayComplete: () -> Unit, keeperRequests: Boolean): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
-        val subscription = PoolSubscription(id, filters, only, onEose)
+        val subscription = PoolSubscription(id, filters, only, onEose, if (keeperRequests) now else null)
         // The REQ goes out only once the collector is attached. Sending it in
         // `subscribe` instead would open a window where events arrive with
         // nobody listening, and a shared flow drops those on the floor - which
@@ -1127,15 +1143,31 @@ class RelayPool(
         val filters: () -> List<Filter>,
         val only: Set<String>?,
         val onEose: (url: String) -> Unit,
+        val keeperRequestClock: (() -> Long)? = null,
     ) {
         private val seen = SeenEvents()
+        private val controlSeen = linkedMapOf<String, Pair<Int, Long>>()
+        private var controlHigh = 0L
         private val _events = MutableSharedFlow<SubscriptionItem>(replay = 0, extraBufferCapacity = 256)
         val events: SharedFlow<SubscriptionItem> = _events.asSharedFlow()
         @Volatile var lostEvents = false
             private set
 
         fun offer(event: NostrEvent) {
-            if (!seen.admit(event.id)) return
+            if (keeperRequestClock != null && event.kind !in setOf(20466, 20468)) return
+            if (keeperRequestClock != null && event.kind in setOf(20466, 20468)) {
+                val accepted = synchronized(controlSeen) {
+                    controlHigh = maxOf(controlHigh, keeperRequestClock.invoke())
+                    val old = controlSeen[event.id]
+                    if (old != null && (old.first >= 3 || controlHigh - old.second < 1_000)) false
+                    else {
+                        controlSeen[event.id] = (old?.first?.plus(1) ?: 1) to controlHigh
+                        while (controlSeen.size > 4096) controlSeen.remove(controlSeen.keys.first())
+                        true
+                    }
+                }
+                if (!accepted) return
+            } else if (!seen.admit(event.id)) return
             if (!_events.tryEmit(SubscriptionItem(event = event))) lostEvents = true
         }
 

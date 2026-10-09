@@ -453,6 +453,16 @@ class RoomSession(
             policy == null && call == null && (joined || _epochState.value is RoomEpochState.Closed)
     }
 
+    /** Current source/receiver agreement without IO. Never called beneath a
+     * transport handoff lock; an ongoing receiver transition refuses readiness. */
+    internal fun keeperEpochMatches(keys: EpochKeys, removed: List<String>): Boolean {
+        if (!epochMutex.tryLock()) return false
+        try { return lock.withStateLock {
+            publicationAllowed && _epochState.value is RoomEpochState.Active && activeEpoch.epoch == keys.epoch &&
+                activeEpoch.id == keys.id && activeEpoch.key.contentEquals(keys.key) && removedParticipants == removed.toSet()
+        } } finally { epochMutex.unlock() }
+    }
+
     /** Called outside authority and transport locks after receiver activation.
      * Defer while the original authority event is still being applied. */
     internal fun keeperAppliedRekey(event: NostrEvent, persistedCause: String?): Boolean {
