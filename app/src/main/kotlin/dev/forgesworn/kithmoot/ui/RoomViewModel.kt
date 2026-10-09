@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
 import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
+import dev.forgesworn.kithmoot.protocol.isSafeRoomRelayUrl
+import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
 
 import android.util.Log
 import dev.forgesworn.kithmoot.protocol.decodeLivePersistentDescriptor
@@ -3222,7 +3224,8 @@ class RoomViewModel @JvmOverloads constructor(
             check(savedRooms.get(context.roomId) == null) { "This room is already saved. Choose its connection in the Connection menu." }
             check(linkConsents.all().none { it.roomId == context.roomId }) { "Disconnect this room's Bothy before joining nearby." }
             val selectedRelays = if (route.internet) {
-                require(payload.relays.size in 1..16) { "Nearby + Internet needs relays in this invitation." }
+                require(payload.relays.size in 1..MAX_INVITATION_RELAYS) { "Nearby + Internet needs one to $MAX_INVITATION_RELAYS relays in this invitation." }
+                require(payload.relays.all(::isSafeRoomRelayUrl)) { "Use encrypted wss:// room relays; ws:// is allowed only on localhost." }
                 payload.relays.map(::canonicalRelayUrl).distinct()
             } else emptyList()
             val oldJob = gate.withLock { sessionScope?.coroutineContext?.get(Job).also { closeSession() } }
