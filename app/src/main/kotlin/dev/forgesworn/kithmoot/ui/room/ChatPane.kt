@@ -107,7 +107,13 @@ fun ChatPane(
     var editPendingId by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var emojiOpen by remember { mutableStateOf(false) }
+    var artworkSearchOpen by remember { mutableStateOf(false) }
+    var artworkStartTab by remember { mutableStateOf(ArtworkTab.EMOJI) }
+    var emojiSkinTone by rememberSaveable { mutableIntStateOf(0) }
     var mediaOpen by remember { mutableStateOf(false) }
+    var selectedArtwork by remember { mutableStateOf<CatalogueImage?>(null) }
+    val inputKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val inputFocus = androidx.compose.ui.platform.LocalFocusManager.current
     var privacyOpen by remember { mutableStateOf(false) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
     var moreReactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
@@ -205,8 +211,11 @@ fun ChatPane(
             onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
         }
     }
-    Column(modifier.fillMaxWidth().imePadding()) {
-        if (privateInvitations.isNotEmpty()) {
+    BoxWithConstraints(modifier.fillMaxWidth().imePadding()) {
+    val compactArtworkSearch = emojiOpen && artworkSearchOpen && maxHeight < 300.dp
+    val trayHeight = if (compactArtworkSearch) maxHeight else (maxHeight * 0.48f).coerceIn(160.dp, 320.dp)
+    Column(Modifier.fillMaxSize()) {
+        if (privateInvitations.isNotEmpty() && !compactArtworkSearch) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -231,11 +240,11 @@ fun ChatPane(
                 }
             }
         }
-        if (showTitle) Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (showTitle && !compactArtworkSearch) Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Chat", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             IconButton(onClick = { localSearchOpen = !localSearchOpen }) { Icon(Icons.Filled.Search, "Search messages") }
         }
-        Row(Modifier.fillMaxWidth().clickable(onClick = { privacyOpen = true }).padding(horizontal = 16.dp, vertical = 6.dp),
+        if (!compactArtworkSearch) Row(Modifier.fillMaxWidth().clickable(onClick = { privacyOpen = true }).padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
@@ -244,7 +253,7 @@ fun ChatPane(
                 modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly) ?: "Transport unknown.") })
         }
         if (quiet && !quietCanSend) Text(QuietTransport.CANNOT_SEND, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-        if (searching) {
+        if (searching && !compactArtworkSearch) {
             OutlinedTextField(query, { query = it.take(200) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 label = { Text("Search messages or people") }, singleLine = true,
                 trailingIcon = {
@@ -339,16 +348,30 @@ fun ChatPane(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment)
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (emojiOpen) ArtworkTray(
+            onClose = { emojiOpen = false }, memberPackAvailable = memberPackAvailable, unlockMemberPacks = unlockMemberPacks,
+            skinTone = emojiSkinTone, onSkinTone = { emojiSkinTone = it },
+            chooseEmoji = { emoji ->
+                val start = draft.selection.min; val end = draft.selection.max
+                val text = draft.text.replaceRange(start, end, emoji)
+                if (text.length <= MAX_CHAT_TEXT_LENGTH) draft = TextFieldValue(text, TextRange(start + emoji.length))
+            }, chooseMedia = { image -> selectedArtwork = image; emojiOpen = false },
+            modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
+            mediaEnabled = canSend && !torOnly && internetAllowed && !mediaBusy && attachments.size < 4,
+            compactSearch = compactArtworkSearch, onSearchChanged = { artworkSearchOpen = it },
+        )
+        MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
+            showFiles = mediaOpen, showControls = !compactArtworkSearch, selectedArtwork = selectedArtwork, onArtworkConsumed = { selectedArtwork = null }, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
+        if (!compactArtworkSearch) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
                 shape = RoundedCornerShape(24.dp),
-                leadingIcon = { IconButton(onClick = { emojiOpen = true }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
+                leadingIcon = { IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
                 trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly && internetAllowed) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
             IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    }
     }
     deletePendingId?.let { id ->
         AlertDialog(onDismissRequest = { deletePendingId = null },
@@ -381,11 +404,6 @@ fun ChatPane(
             onClose = { profileTarget = null },
             onMessage = if (target.participant in privateConversationPeers) ({ profileTarget = null; onMessagePrivately(target.participant) }) else null)
     }
-    if (emojiOpen) EmojiDialog(onDismiss = { emojiOpen = false }, memberPackAvailable, unlockMemberPacks) { emoji ->
-        val start = draft.selection.min; val end = draft.selection.max
-        val text = draft.text.replaceRange(start, end, emoji)
-        if (text.length <= MAX_CHAT_TEXT_LENGTH) { draft = TextFieldValue(text, TextRange(start + emoji.length)); emojiOpen = false }
-    }
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Messages are encrypted to the room.")
@@ -398,7 +416,7 @@ fun ChatPane(
     moreReactionTarget?.let { target ->
         if (!canSend || resolved.byKey[MessageRef(target.id, target.participant).key]?.retracted == true) {
             LaunchedEffect(target) { moreReactionTarget = null }
-        } else EmojiDialog(onDismiss = { moreReactionTarget = null }, memberPackAvailable, unlockMemberPacks) { emoji ->
+        } else EmojiDialog(onDismiss = { moreReactionTarget = null }, memberPackAvailable, unlockMemberPacks, emojiSkinTone, { emojiSkinTone = it }) { emoji ->
             onReact(target, emoji); moreReactionTarget = null
         }
     }
@@ -417,11 +435,12 @@ fun ChatPane(
                     Text(bodyText, style = MaterialTheme.typography.bodyMedium)
                 }
                 if (canSend && resolvedTarget?.retracted != true) FlowRow {
-                    REACTION_EMOJIS.forEach { emoji ->
+                    REACTION_EMOJIS.forEach { baseEmoji ->
+                        val emoji = emojiForSkinTone(baseEmoji, emojiSkinTone)
                         val active = reactionUpdates(messages, target).filter { it.reaction!!.emoji == emoji && it.reaction.active }
                         val selected = active.any { it.participant == selfParticipant }
                         TextButton(onClick = { onReact(target, emoji); reactionTarget = null },
-                            modifier = Modifier.semantics { contentDescription = "${if (selected) "Remove" else "Add"} $emoji reaction, ${active.size}" }) { Text(emoji) }
+                            modifier = Modifier.semantics { contentDescription = "${if (selected) "Remove" else "Add"} $emoji reaction, ${active.size}" }) { PackEmoji(emoji, Modifier.size(28.dp)) }
                     }
                     TextButton(onClick = { moreReactionTarget = target; reactionTarget = null }) { Text("More emoji…") }
                 }
@@ -440,36 +459,15 @@ fun ChatPane(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EmojiDialog(onDismiss: () -> Unit, memberPackAvailable: () -> Boolean, unlockMemberPacks: suspend () -> Boolean, choose: (String) -> Unit) {
-    var query by remember { mutableStateOf("") }
-    var standard by remember { mutableStateOf(false) }
-    var available by remember { mutableStateOf(memberPackAvailable()) }
-    var status by remember { mutableStateOf("") }
-    var unlocking by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Choose an emoji") }, text = {
-        Column {
-            OutlinedTextField(query, { query = it }, label = { Text("Search emoji") }, singleLine = true)
-            TextButton(enabled = !unlocking, onClick = {
-                unlocking = true; status = "Confirm this account in your signer…"
-                scope.launch {
-                    try { available = unlockMemberPacks(); status = if (available) "Nostr pack unlocked." else "No member packs found for this account." }
-                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (failure: Exception) { status = failure.message ?: "The pack could not be unlocked." }
-                    finally { unlocking = false }
-                }
-            }) { Text("Unlock Nostr packs") }
-            if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { standard = !standard }) { Text(if (standard) "KithMoot originals" else "Standard emoji") }
-            LazyColumn(Modifier.heightIn(max = 260.dp)) {
-                item { FlowRow { (ORIGINAL_EMOJIS + (if (available && memberPackAvailable()) CULT_EMOJIS else emptyList()) + (if (standard || query.isNotBlank()) EmojiCatalog.entries.filterNot { it.second.contains("flag") } else emptyList())).map { (emoji, words) -> emoji to if (emoji == "🤦") "facepalm head against wall frustrated $words" else words }.filter { (emoji, words) -> "$emoji $words".contains(query, true) }.take(120).forEach { (emoji, words) ->
-                    TextButton(onClick = { choose(emoji) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "$emoji $words" }) { PackEmoji(emoji, Modifier.size(32.dp)) }
-                } } }
-            }
+private fun EmojiDialog(onDismiss: () -> Unit, memberPackAvailable: () -> Boolean, unlockMemberPacks: suspend () -> Boolean, skinTone: Int, onSkinTone: (Int) -> Unit, choose: (String) -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().heightIn(max = 340.dp)) {
+            ArtworkTray(onDismiss, memberPackAvailable, unlockMemberPacks, skinTone, onSkinTone, choose, {},
+                Modifier.fillMaxWidth().height(maxHeight), reactionsOnly = true, compactSearch = maxHeight < 250.dp)
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
+    }
 }
 
 internal fun messageTime(seconds: Long): String = SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(seconds * 1000))

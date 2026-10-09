@@ -25,7 +25,7 @@ val ORIGINAL_ART = listOf(
     OriginalArt("melting", "Melting", "melting embarrassed cringe awkward this is fine", 192504L, 192286L),
     OriginalArt("plotting", "Plotting", "plotting evil cheeky grin mischievous heh heh", 196182L, 210422L),
     OriginalArt("moon", "To the moon", "moon rocket fly launch to the moon to the moon", 221611L, 196509L),
-    OriginalArt("coffee", "Coffee", "coffee tired morning wake caffeine coffee first", 202751L, 228108L),
+    OriginalArt("coffee", "Coffee", "coffee tired morning wake caffeine coffee first", 202751L, 5924981L),
     OriginalArt("handshake", "Handshake", "handshake agree deal friends respect deal", 195638L, 180119L),
 )
 val ORIGINAL_EMOJIS = ORIGINAL_ART.map { ":km_${it.slug}:" to it.keywords }

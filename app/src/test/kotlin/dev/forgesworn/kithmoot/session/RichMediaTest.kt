@@ -57,7 +57,11 @@ class RichMediaTest {
     }
     @Test fun `original catalogue searches local packaged reactions and never supplies external URLs`() {
         val gifs = searchMediaCatalogue("", false)
-        assertEquals(24, gifs.size); assertEquals(24, searchMediaCatalogue("", true).size)
+        assertEquals(listOf("coffee"), gifs.map { it.slug }); assertEquals(24, searchMediaCatalogue("", true).size)
+        assertEquals("chat-art/coffee-animation.png", cataloguePreviewAsset(gifs.single(), true))
+        assertEquals("chat-art/coffee.gif", cataloguePreviewAsset(gifs.single(), false))
+        assertTrue(searchMediaCatalogue("facepalm", false).isEmpty())
+        assertTrue(java.io.File("src/main/assets/chat-art/coffee-animation.png").isFile)
         assertTrue(searchMediaCatalogue("flag", false).isEmpty())
         assertEquals("facepalm", searchMediaCatalogue("facepalm", true).single().slug)
         for (image in gifs) {
@@ -66,7 +70,8 @@ class RichMediaTest {
             assertEquals(image.size, file.length())
             val bytes = file.readBytes()
             assertEquals("GIF89a", bytes.copyOfRange(0, 6).toString(Charsets.US_ASCII))
-            assertEquals(256, (bytes[6].toInt() and 255) or ((bytes[7].toInt() and 255) shl 8))
+            assertEquals(512, (bytes[6].toInt() and 255) or ((bytes[7].toInt() and 255) shl 8))
+            assertEquals(512, (bytes[8].toInt() and 255) or ((bytes[9].toInt() and 255) shl 8))
             assertTrue(bytes.toString(Charsets.ISO_8859_1).contains("NETSCAPE2.0"))
             assertTrue(EmojiCatalog.accepts(":km_${image.slug}:"))
         }

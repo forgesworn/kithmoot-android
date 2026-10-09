@@ -112,8 +112,11 @@ class ChatAndShareUiTest {
                 ui.onNodeWithText("Clear").performClick()
                 ui.onNodeWithText("Say something").performTextInput("Hello ")
                 ui.onNodeWithContentDescription("Emoji").performClick()
-                ui.onNodeWithText("Search emoji").performTextInput("facepalm")
-                ui.onNode(hasContentDescription("🤦 facepalm head against wall", substring = true)).performClick()
+                ui.onNodeWithContentDescription("Search artwork").performClick()
+                ui.onNodeWithTag("artwork-search").performTextInput("facepalm")
+                ui.onNodeWithContentDescription("🤦 person facepalming").performClick()
+                // Emoji insertion keeps the tray open for repeated choices.
+                ui.onNodeWithContentDescription("Close artwork picker").performClick()
                 ui.onNodeWithContentDescription("Send").performClick()
                 ui.waitUntil(5_000) { ui.onNodeWithText("Hello 🤦").isDisplayed() }
                 ui.onNodeWithText("Hello 🤦").assertIsDisplayed()

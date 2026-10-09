@@ -1,5 +1,15 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.74 (97): familiar ForgeMoji and an animated character pilot
+
+The chat composer opens a local artwork tray with Emoji, Stickers and GIFs tabs. Familiar, ForgeSworn, character, full Unicode and unlocked 600 collections browse horizontally; recent choices stay on this phone and respect the member unlock. The compact hand-colour menu preserves all six choices. Search opens the keyboard only when requested, emoji insertion keeps the tray and draft open, and close/back returns to the composer. Constrained landscape keyboard search uses a compact search row with visible results while retaining the draft. Larger media previews require Add to draft before the existing encrypted-storage consent, upload and actual Send.
+
+The default emoji picker uses ForgeMoji 0.1.2 by TheCryptoDonkey: 133 meanings with 163 original images, including yellow hands, all five human skin tones, the orange donkey and the public sacred stone. Familiar, ForgeSworn, Characters and More emoji are separate choices; the full Unicode catalogue stays searchable, with flags omitted from the picker. Selected hand colour survives reopening the picker and applies to quick reactions. Familiar choices include the black spider and Bitcoin symbol; nine known ForgeSworn brand codes live in their own section. Messages and reactions send ordinary Unicode or explicitly known brand codes, display packaged artwork where available and retain their exact original text for copying. Unsupported Unicode sequences and emoji inside web links stay intact. Existing character shortcodes and the picker-only Nostr member unlock remain supported.
+
+The GIF picker now offers the six-second, 512-pixel Blender coffee animation, with a rendered still when system animation is disabled. The 23 earlier simple moving GIFs are removed from the picker. All 24 original stickers remain available. Search, images and previews use APK resources without graphics-provider requests; selected media still uses the existing encrypted attachment flow and storage consent.
+
+ForgeMoji assets and their licence are pinned to source `c9f53357de24fff682e8a234af183406a57757a6` in the bundled manifest. Unit, build, signed publication and physical-phone evidence are recorded separately at delivery.
+
 ## 0.6.73 (96): original artwork without a third-party catalogue
 
 The emoji picker starts with 24 original KithMoot reactions. Standard emoji remain available through search or the Standard emoji button; flags are omitted from the picker. The separate Nostr member pack still unlocks only its picker, while all recipients can see sent artwork.
