@@ -39,6 +39,88 @@ class RoomMeshTransportTest {
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
     }
 
+    @Test fun inbound_subscription_excludes_local_publications_and_their_cached_replay() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val first = event("first local"); val second = event("second local")
+        mesh.publish(first)
+        val normal = mutableListOf<NostrEvent>(); val inbound = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { normal += it } }
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { inbound += it } }
+        runCurrent(); mesh.publish(second); runCurrent()
+        assertEquals(listOf(first.id, second.id), normal.map { it.id })
+        assertTrue(inbound.isEmpty(), "Local publication and local cache are not inbound observations")
+        assertFalse(mesh.receivedEventConfirmsPublication(first.id))
+        mesh.close()
+    }
+
+    @Test fun a_received_copy_of_a_locally_published_event_is_observed_once_without_a_second_room_row() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val original = event(); val normal = mutableListOf<NostrEvent>(); val inbound = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { normal += it } }
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { inbound += it } }
+        runCurrent(); mesh.publish(original); runCurrent()
+        inbound.clear() // Isolate the later receive from the local-publication check above.
+        link.inbound(frame(original)); link.inbound(frame(original), "another-unverified-label"); runCurrent()
+        assertEquals(listOf(original.id), inbound.map { it.id })
+        assertEquals(listOf(original.id), normal.map { it.id })
+        assertFalse(mesh.receivedEventConfirmsPublication(original.id))
+        val replay = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { replay += it } }; runCurrent()
+        assertEquals(listOf(original.id), replay.map { it.id })
+        mesh.close()
+    }
+
+    @Test fun inbound_replay_keeps_remote_provenance_through_local_republication_and_expires() = runTest {
+        var at = 100L; val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { at }
+        val remote = event("remote"); val local = event("local")
+        link.inbound(frame(remote)); mesh.publish(local); mesh.publish(remote)
+        val replay = mutableListOf<NostrEvent>()
+        val read = backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { replay += it } }
+        runCurrent(); assertEquals(listOf(remote.id), replay.map { it.id })
+        read.cancel(); runCurrent(); at = 3699
+        link.inbound(frame(local)) // A late genuine receive must not extend the original cache expiry.
+        at = 3701
+        val expired = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { expired += it } }; runCurrent()
+        assertTrue(expired.isEmpty()); mesh.close()
+    }
+
+    @Test fun inbound_observations_obey_validation_and_are_cleared_by_the_epoch_barrier() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val good = event(); val inbound = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { inbound += it } }; runCurrent()
+        link.inbound(frame(good.copy(content = "tampered")))
+        link.inbound(frame(good, "22".repeat(32)))
+        link.inbound(frame(event(tags = listOf(listOf("expiration", "99")))))
+        runCurrent(); assertTrue(inbound.isEmpty())
+        link.inbound(frame(good)); runCurrent(); assertEquals(listOf(good.id), inbound.map { it.id })
+        mesh.beginRekey(); link.inbound(frame(event("old in flight")))
+        mesh.rekey(ByteArray(32)); mesh.completeRekey()
+        val replay = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { replay += it } }; runCurrent()
+        assertTrue(replay.isEmpty())
+        link.inbound(frame(good)); runCurrent()
+        assertEquals(listOf(good.id, good.id), inbound.filter { it.id == good.id }.map { it.id })
+        mesh.close()
+    }
+
+    @Test fun inbound_control_retries_have_their_own_bounded_observation_without_retained_history() = runTest {
+        var at = 100L; val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { at }
+        val request = event("live request", 20466)
+        val normal = mutableListOf<NostrEvent>(); val inbound = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { normal += it } }
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { inbound += it } }; runCurrent()
+        repeat(3) { mesh.publish(request); runCurrent(); at++ }
+        assertEquals(3, normal.size); assertTrue(inbound.isEmpty())
+        repeat(5) {
+            link.inbound(frame(request)); link.inbound(frame(request)); runCurrent(); at++
+        }
+        assertEquals(3, inbound.size); assertEquals(3, normal.size)
+        val replay = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribeInbound(listOf(Filter())).collect { replay += it } }; runCurrent()
+        assertTrue(replay.isEmpty()); mesh.close()
+    }
+
     @Test fun `control retries reach their owner three times without becoming retained history`() = runTest {
         var at = 100L
         val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { at }
