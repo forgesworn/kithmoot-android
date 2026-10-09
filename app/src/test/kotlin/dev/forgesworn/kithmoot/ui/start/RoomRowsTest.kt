@@ -55,6 +55,9 @@ class RoomRowsTest {
         val state = dev.forgesworn.kithmoot.ui.StartState(savedRooms = saved)
         assertEquals(listOf(peer), dev.forgesworn.kithmoot.ui.privateChatProfileScope(state).second)
         assertTrue(dev.forgesworn.kithmoot.ui.privateChatProfileScope(state.copy(publicProfiles = false)).second.isEmpty())
+        assertTrue(dev.forgesworn.kithmoot.ui.privateChatProfileScope(state.copy(savedRooms = saved.map {
+            it.copy(route = dev.forgesworn.kithmoot.relay.RoomRoute.NEARBY)
+        })).second.isEmpty())
     }
 
     @Test fun `account bookmark picture identifies the other member and rejects unrelated policies`() {

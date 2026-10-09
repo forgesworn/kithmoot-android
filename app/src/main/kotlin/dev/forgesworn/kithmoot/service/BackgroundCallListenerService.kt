@@ -241,7 +241,7 @@ class BackgroundCallListenerService : Service() {
         if (!shouldRunBackgroundService(ringToggle, deliveryToggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
 
         val candidates = savedIds.mapNotNull { id -> watchFor(application, id) }
-        val ringing = if (ringToggle) roomsToWatch(candidates.map { it.watch }, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
+        val ringing = if (ringToggle) roomsToWatch(candidates.filter { !it.saved.route.nearby }.map { it.watch }, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
             .map { it.stableRoomId }.toSet() else emptySet()
         val delivering = if (deliveryToggle) candidates.filter { it.exclusion == null }.map { it.watch.stableRoomId }.toSet() else emptySet()
         val wanted = candidates.filter { it.watch.stableRoomId in ringing || it.watch.stableRoomId in delivering }
@@ -305,12 +305,13 @@ class BackgroundCallListenerService : Service() {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
             // An ended conference room is never watched: it can neither ring nor deliver.
-            if (saved.movedOn || saved.retired || saved.anonymous || saved.ended(now())) return null
+            if (!saved.route.internet || saved.movedOn || saved.retired || saved.anonymous || saved.ended(now())) return null
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
             val epoch = activeEpochFor(saved, stored) ?: return null
             val linkRoute = { url: String -> application.linkConsents.activeRoute(saved.participant, saved.id, url) }
             val usesLink = saved.relays.any { url -> linkRoute(url) != null }
             val exclusion = deliveryExclusion(DeliveryCandidate(
+                allowsInternet = saved.route.internet,
                 roomId = saved.id,
                 anonymous = saved.anonymous,
                 quiet = saved.policy?.quiet == true || saved.quietState != null,
@@ -372,7 +373,11 @@ class BackgroundCallListenerService : Service() {
                     report()
                     if (up.isNotEmpty() && flushing.add(watch.stableRoomId)) scope.launch {
                         try {
-                            val outcome = flushPending(outbox, candidate.epochId, pool)
+                            val outcome = RoomRouteTransitions.stable {
+                                if (application.savedRooms.get(watch.stableRoomId)?.route?.internet != true)
+                                    FlushOutcome.NOT_CONFIRMED
+                                else flushPending(outbox, candidate.epochId, pool)
+                            }
                             if (outcome != FlushOutcome.NOTHING) Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} pending=$outcome")
                         } catch (_: Exception) { } finally { flushing.remove(watch.stableRoomId) }
                     }
@@ -677,6 +682,22 @@ class BackgroundCallListenerService : Service() {
             } catch (_: Exception) {
                 FlushOutcome.NOT_CONFIRMED
             } finally { service.flushing.remove(roomId) }
+        }
+
+        /** Caller holds RoomRouteTransitions while saving the new route. Shared
+         * pools can contain this room's queued events, so drain them all before
+         * committing. Other eligible rooms reconnect with their existing policy. */
+        internal suspend fun <T> changeRoomRoute(save: suspend () -> T): T {
+            val service = running ?: return save()
+            return try {
+                service.reconcileMutex.withLock {
+                    service.stopAll()
+                    save()
+                }
+            } finally {
+                // A failed save must also restore the other authorised watches.
+                service.scope.launch { service.reconcileNow() }
+            }
         }
 
         fun start(context: Context) {

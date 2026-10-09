@@ -141,6 +141,19 @@ class NativeRoomMeshLinkTest {
         transport.close(); link.awaitClosed()
     }
 
+    @Test fun `leaving after foreground radio closure cancels presence without a farewell crash`() = runTest {
+        val radios = mutableListOf<Radio>(); val link = link(radios); link.start(config)
+        val transport = RoomMeshTransport(config.scope, link) { currentTime / 1000 }
+        val room = Fixtures.room()
+        val live = session(room, Fixtures.primary(room, 1, 2), FakeRelay(), transport = transport)
+        live.join(); runCurrent()
+        transport.close(); link.awaitClosed()
+        // A scheduled heartbeat while the failed lane is being left is best-effort.
+        advanceTimeBy(45_000); runCurrent()
+        live.leave(); runCurrent()
+        assertTrue(radios.single().closed)
+    }
+
     @Test fun `two actual room sessions chat through native owners with duplicate radio callbacks`() = runTest {
         val left = mutableListOf<Radio>(); val right = mutableListOf<Radio>()
         val aLink = link(left); val bLink = link(right)
@@ -150,6 +163,33 @@ class NativeRoomMeshLinkTest {
         val room = Fixtures.room()
         val alice = session(room, Fixtures.primary(room, 1, 2), FakeRelay(), transport = a)
         val bob = session(room, Fixtures.primary(room, 3, 4), FakeRelay(), transport = b)
+        fun pump() {
+            repeat(8) {
+                runCurrent()
+                val l = left.single().sent.toList(); left.single().sent.clear()
+                val r = right.single().sent.toList(); right.single().sent.clear()
+                l.forEach { (bytes, _) -> repeat(2) { right.single().event(RoomBleEvent.Frame(bytes, "alice")) } }
+                r.forEach { (bytes, _) -> repeat(2) { left.single().event(RoomBleEvent.Frame(bytes, "bob")) } }
+            }
+            runCurrent()
+        }
+        alice.join(); bob.join(); pump(); advanceTimeBy(2_000); pump()
+        alice.sendChat("Through the native owner"); pump()
+        bob.sendChat("Reply on the same room"); pump()
+        assertEquals(listOf("Through the native owner", "Reply on the same room"), alice.chat.value.map { it.body })
+        assertEquals(alice.chat.value.map { it.id }, bob.chat.value.map { it.id })
+        alice.leave(); bob.leave(); a.close(); b.close(); aLink.awaitClosed(); bLink.awaitClosed()
+    }
+    @Test fun `two actual room sessions merge native byte traffic and relay traffic without duplicate rows`() = runTest {
+        val left = mutableListOf<Radio>(); val right = mutableListOf<Radio>()
+        val aLink = link(left); val bLink = link(right)
+        aLink.start(config); bLink.start(config.copy(selfId = "33".repeat(32)))
+        val a = RoomMeshTransport(config.scope, aLink) { currentTime / 1000 }
+        val b = RoomMeshTransport(config.scope, bLink) { currentTime / 1000 }
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val alice = session(room, Fixtures.primary(room, 1, 2), FakeRelay(), transport = HybridRoomTransport(a, relay.transport()))
+        val bob = session(room, Fixtures.primary(room, 3, 4), FakeRelay(), transport = HybridRoomTransport(b, relay.transport()))
         fun pump() {
             repeat(8) {
                 runCurrent()

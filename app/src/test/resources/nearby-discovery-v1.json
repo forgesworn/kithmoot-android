@@ -1,0 +1,22 @@
+[
+  {
+    "rootRoomId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "scope": "2146e17bde92bea929e9931fb2d5c29cb72bdec454e257cdf69590faa40cbea1",
+    "serviceUuid": "e918d37a-758d-84a5-a121-cfc3b3bf9580"
+  },
+  {
+    "rootRoomId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "scope": "d8b854329a0b2da837905fd6d6ea2708dced2f0a49ab05515fb1919397032991",
+    "serviceUuid": "e19d60c0-b4df-81c0-9833-b207d4288a47"
+  },
+  {
+    "rootRoomId": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "scope": "9f7f587b7488d31754379fef3791f6abfe0d18bea9524a99b53847ee229438c9",
+    "serviceUuid": "6910d264-a569-8ed2-a109-a6d03ddaa660"
+  },
+  {
+    "rootRoomId": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "scope": "94d90a5ed09f1fccda04d4422d07f4721dc992eae2d2c0e8b33f76d75697becc",
+    "serviceUuid": "6e05123b-9628-8232-be91-fe7255a0381d"
+  }
+]

@@ -26,6 +26,7 @@ class CadenceRoomTransport(
 ) : RoomTransport {
     override fun receivedEventConfirmsPublication(eventId: String): Boolean =
         inner.receivedEventConfirmsPublication(eventId)
+    override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
 
     override fun publish(event: NostrEvent) {
         val lease = delegated(event) ?: return inner.publish(event)

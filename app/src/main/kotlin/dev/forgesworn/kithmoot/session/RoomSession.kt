@@ -618,11 +618,17 @@ class RoomSession(
             trafficJobs.clear()
             pastEpochs.clear()
         }
-        offCall?.let { ringBell(CallBellState.END, it) }
-        if (farewell) publishAnnouncement(reply = true, left = true)
-        responseJob?.cancel()
-        for (job in cancelling) job.cancel()
-        for (job in traffic) job.cancel()
+        try {
+            offCall?.let { ringBell(CallBellState.END, it) }
+            if (farewell) publishAnnouncement(reply = true, left = true)
+        } catch (_: Exception) {
+            // A failed or already closed link cannot keep a departed session
+            // alive. Farewell is best-effort, never a delivery receipt.
+        } finally {
+            responseJob?.cancel()
+            for (job in cancelling) job.cancel()
+            for (job in traffic) job.cancel()
+        }
     }
 
     // --- publishing ----------------------------------------------------------
@@ -649,7 +655,8 @@ class RoomSession(
     private fun announceIfPublishing(reply: Boolean = false) {
         synchronized(lock) {
             if (!joined || !publicationAllowed) return
-            publishAnnouncement(reply, left = false)
+            try { publishAnnouncement(reply, left = false) }
+            catch (_: Exception) { /* Presence retries on its next tick; deliberate sends retain their errors. */ }
         }
     }
 
@@ -1233,7 +1240,7 @@ class RoomSession(
     private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
-        val message = incoming.copy(lane = laneOfRelays(transport.describe(), transport.circleRelays()))
+        val message = incoming.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
         synchronized(lock) {
             val at = now()
             if (message.sentAt < at - CHAT_RETENTION_SECONDS) return false

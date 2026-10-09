@@ -57,6 +57,9 @@ interface RoomTransport {
      * local echoes and unauthenticated replay cannot provide that evidence. */
     fun receivedEventConfirmsPublication(eventId: String): Boolean = false
 
+    /** Locally observed ingress, never sender-provided routing claims. */
+    fun receivedViaRelays(eventId: String): List<String> = describe()
+
     /** Whether a write relay is connected now, so a durable send knows if offering
      *  it is worth a try. Cheap and in memory; a transport that cannot say answers yes. */
     fun reachable(): Boolean = true

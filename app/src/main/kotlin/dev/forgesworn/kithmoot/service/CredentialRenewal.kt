@@ -172,7 +172,7 @@ object CredentialRenewal {
         }
         val app = context.applicationContext as KithMootApplication
         // The same turn as renewWith: a tick and a tapped button never mint for one room at once.
-        turn.withLock { renewQuietlyVia(AppHost(app), System.currentTimeMillis() / 1000) }
+        RoomRouteTransitions.stable { turn.withLock { renewQuietlyVia(AppHost(app), System.currentTimeMillis() / 1000) } }
     }
 
     /**
@@ -180,10 +180,10 @@ object CredentialRenewal {
      * screen's own signer, after the person tapped the notice. Returns how
      * many rooms were renewed.
      */
-    suspend fun renewWith(context: Context, signer: ParticipantSigner): Int = turn.withLock {
+    suspend fun renewWith(context: Context, signer: ParticipantSigner): Int = RoomRouteTransitions.stable { turn.withLock {
         val app = context.applicationContext as KithMootApplication
         renewRooms(AppHost(app), signer, System.currentTimeMillis() / 1000)
-    }
+    } }
 
     private class AppHost(private val app: KithMootApplication) : RenewalHost {
         override fun account(): Result<NostrAccount?> = runCatching { app.accounts.load() }
@@ -209,7 +209,7 @@ object CredentialRenewal {
                     roomId = room.id,
                     viaAccount = room.viaAccount,
                     participant = room.participant,
-                    excluded = room.anonymous || room.retired || room.movedOn || room.ended(now),
+                    excluded = !room.route.internet || room.anonymous || room.retired || room.movedOn || room.ended(now),
                     ringMode = if (ringOn) chosen else CallRingMode.NOTHING,
                     expiresAt = room.keptCredentialExpiry(now),
                     chosenMode = chosen,

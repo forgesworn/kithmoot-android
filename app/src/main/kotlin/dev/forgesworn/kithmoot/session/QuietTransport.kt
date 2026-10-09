@@ -277,6 +277,7 @@ class QuietTransport(
      */
     override fun receivedEventConfirmsPublication(eventId: String): Boolean =
         inner.receivedEventConfirmsPublication(eventId)
+    override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
 
     override fun publish(event: NostrEvent) = retain(event, forBox = false)
 

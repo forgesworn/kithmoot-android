@@ -9,6 +9,7 @@ import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
 import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.conferenceEndedMessage
+import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
 import kotlinx.serialization.json.*
 
@@ -60,7 +61,8 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     /** When this device first knew the room, for scaling its countdown: see [SavedRoom.startsAt]. */
     val startsAt: Long? = null,
     /** The other member of a two-person policy this saved identity belongs to. */
-    val privatePeer: String? = null)
+    val privatePeer: String? = null,
+    val route: RoomRoute = RoomRoute.INTERNET)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -82,6 +84,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val epochHint: Int? get() = json["epochHint"]?.jsonPrimitive?.intOrNull
     /** Old records predate this mode and therefore remain ordinary direct rooms. */
     val anonymous: Boolean get() = json["anonymous"]?.jsonPrimitive?.boolean ?: false
+    /** Local transport selection; never copied into account bookmarks or invitations. */
+    val route: RoomRoute get() = RoomRoute.fromStored(json["route"]?.jsonPrimitive?.also {
+        require(it.isString) { "Invalid room connection mode" }
+    }?.content)
     val secondary: Boolean get() = identityJson.text("type") == "secondary"
     /** Joined as a signed-in account, whose key is with a signer and not in this store. */
     val viaAccount: Boolean get() = identityJson.text("type") == "account"
@@ -136,8 +142,23 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
             ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
-            pinned = pinned, destruct = destruct, startsAt = startsAt,
+            pinned = pinned, destruct = destruct, startsAt = startsAt, route = route,
             privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant))
+    }
+
+    fun withRoute(route: RoomRoute): SavedRoom = changed {
+        if (route == RoomRoute.INTERNET) remove("route") else put("route", route.stored)
+    }.also { it.validate() }
+
+    /** Never resolves or calls an account signer. Reuses only valid authority already held here. */
+    fun offlineIdentity(now: Long, accountPubkey: String? = null): RoomIdentity {
+        if (!viaAccount) return identity(now)
+        if (accountPubkey != participant) throw RoomRecoveryException(accountNeeded())
+        if (movedOn || ended(now)) throw RoomRecoveryException("This room has ended or changed its keys.")
+        val credential = keptCredential(now, 0)
+            ?: throw RoomRecoveryException("This room's device credential has expired. Reopen using Internet to renew it before going nearby-only.")
+        return PrimaryIdentity(dev.forgesworn.kithmoot.account.OfflineParticipantSigner(participant),
+            identityJson.text("deviceKey").keyBytes(), credential)
     }
 
     /** The identity for a room this device holds the keys for. A room joined as an account needs [identity] with its signer. */
@@ -370,6 +391,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             return previous.opened(openedAt)
         }
         return changed {
+            // A bookmark/link refresh cannot silently re-enable room internet traffic.
+            previous.json["route"]?.let { this["route"] = it }
             // The end is the room's, not the link's: a later opening that did
             // not learn it (a synced bookmark) must not forget it.
             if (ends == null) previous.ends?.let { put("ends", it) }
@@ -418,6 +441,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     override fun toString(): String = "SavedRoom(id=$id, secrets=<redacted>)"
 
     private fun validate() {
+        val selectedRoute = route
+        require(selectedRoute.internet || !destruct) { "Self-destructing rooms still need their Internet cleanup route." }
+        require(!selectedRoute.nearby || (!anonymous && policy?.quiet != true)) {
+            "Nearby routes are not yet available for anonymous or quiet rooms."
+        }
         require(id.matches(Regex("[0-9a-f]{64}")))
         require(deriveRoom(secret).roomId == id)
         require(name.isNotBlank() && name.length <= 80)

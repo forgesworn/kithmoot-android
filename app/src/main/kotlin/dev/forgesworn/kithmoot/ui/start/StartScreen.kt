@@ -66,6 +66,7 @@ fun StartScreen(
     onForget: (String) -> Unit,
     onProject: (String, String) -> Unit,
     onPin: (String, Boolean) -> Unit = { _, _ -> },
+    onRoomRoute: (String, dev.forgesworn.kithmoot.relay.RoomRoute) -> Unit = { _, _ -> },
     onPairBothy: (String, String) -> Unit = { _, _ -> },
     onDisconnectBothy: (String) -> Unit = {},
     onRevokeBothyGuests: (String) -> Unit = {},
@@ -109,6 +110,7 @@ fun StartScreen(
     var forgetting by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
+    var connectionRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     var scanningPairingCode by remember { mutableStateOf(false) }
@@ -148,13 +150,14 @@ fun StartScreen(
 
     fun openRoom(room: HomeRoom) {
         val bookmark = bookmarksById[room.id]
-        if (room.source == RoomSource.ACCOUNT && bookmark != null) accountRooms.open(bookmark) else onReopen(room.id)
+        if (savedById[room.id] == null && room.source == RoomSource.ACCOUNT && bookmark != null) accountRooms.open(bookmark) else onReopen(room.id)
     }
 
     fun actionsFor(room: HomeRoom): List<ConversationAction> = buildList {
         if (room.canShareInvite) add(ConversationAction("Share invite link") { onShareInvite(room.id) })
         val saved = savedById[room.id]
         if (saved != null) {
+            if (saved.id != callRoomId) add(ConversationAction("Connection: ${saved.route.label}") { connectionRoom = saved })
             add(0, ConversationAction(if (saved.pinned) "Unpin" else "Pin") { onPin(saved.id, !saved.pinned) })
             add(ConversationAction("Add to a project") { onAddRoomToProject(saved.id) })
             add(ConversationAction(if (saved.project != null) "Change local group" else "Group on this phone") { filing = saved; filedAs = saved.project.orEmpty() })
@@ -209,6 +212,19 @@ fun StartScreen(
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
             )
         }
+    }
+
+    connectionRoom?.let { room ->
+        AlertDialog(onDismissRequest = { connectionRoom = null }, title = { Text("Room connection") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Choose how this phone opens ${room.name.ifBlank { "this room" }}. Nearby uses Bluetooth while KithMoot is on screen. Other account activity keeps its own settings.")
+                dev.forgesworn.kithmoot.relay.RoomRoute.entries.forEach { route ->
+                    TextButton(onClick = { connectionRoom = null; onRoomRoute(room.id, route) }, enabled = enabled) {
+                        Text((if (room.route == route) "✓ " else "") + route.label)
+                    }
+                }
+                Text("Nearby currently reopens rooms you have already joined. New invitations and calls still need Internet only. A Bluetooth handoff does not confirm delivery.")
+            } }, confirmButton = { TextButton(onClick = { connectionRoom = null }) { Text("Cancel") } })
     }
 
     pairingRoom?.let { room ->

@@ -55,6 +55,7 @@ private fun replyRoomOf(application: KithMootApplication, saved: SavedRoom, epoc
         }
     }
     return ReplyRoom(
+        allowsInternet = saved.route.internet,
         anonymous = saved.anonymous,
         quiet = saved.policy?.quiet == true || saved.quietState != null,
         ended = saved.retired || saved.movedOn || saved.ended(now),
@@ -80,7 +81,10 @@ fun noticeReplyAvailable(context: Context, roomId: String): Boolean {
     return noticeReplyRoom(context, roomId, now)?.let { canReplyFromNotice(it, now) } == true
 }
 
-suspend fun sendReplyInBackground(context: Context, roomId: String, text: String): ReplyOutcome {
+suspend fun sendReplyInBackground(context: Context, roomId: String, text: String): ReplyOutcome =
+    RoomRouteTransitions.stable { sendReplyOnStableRoute(context, roomId, text) }
+
+private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, text: String): ReplyOutcome {
     val application = context.applicationContext as KithMootApplication
     val now = System.currentTimeMillis() / 1000
     val saved = application.savedRooms.get(roomId) ?: return ReplyOutcome.FAILED

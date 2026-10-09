@@ -45,6 +45,7 @@ data class ReplyRoom(
     val account: ReplyAccount,
     /** When the credential a reply would carry stops working; null when there is none to carry. */
     val credentialExpiresAt: Long?,
+    val allowsInternet: Boolean = true,
 )
 
 /** A credential this close to its end is not offered: the reply could be refused on its way out. */
@@ -57,7 +58,7 @@ const val REPLY_CREDENTIAL_MARGIN_SECONDS: Long = 5 * 60
  * account would need someone to approve a signature.
  */
 fun canReplyFromNotice(room: ReplyRoom, now: Long): Boolean = when {
-    room.anonymous || room.quiet || room.ended || !room.hasEpoch || room.needsProof -> false
+    !room.allowsInternet || room.anonymous || room.quiet || room.ended || !room.hasEpoch || room.needsProof -> false
     room.account == ReplyAccount.BUNKER || room.account == ReplyAccount.SIGNED_OUT -> false
     else -> room.credentialExpiresAt?.let { it - now >= REPLY_CREDENTIAL_MARGIN_SECONDS } == true
 }
