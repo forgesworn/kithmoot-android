@@ -12,6 +12,7 @@ import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.RoomViewModel
+import dev.forgesworn.kithmoot.ui.Stage
 import kotlinx.serialization.json.*
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -39,8 +40,15 @@ class PersistentGroupUiTest {
 
     private fun reset() {
         ui.home()
+        lateinit var model: RoomViewModel
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        // The header is visible in both stages. Leave changes the screen before
+        // its IO teardown finishes; clearing storage must wait for that work.
+        ui.await("idle start screen before clearing the room fixture") {
+            model.stage.value == Stage.START && !model.start.value.busy && !model.start.value.loadingRooms
+        }
         app.savedRooms.reset()
-        activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].refreshSavedRooms() }
+        activity.scenario.onActivity { model.refreshSavedRooms() }
         ui.home()
     }
 
@@ -74,6 +82,11 @@ class PersistentGroupUiTest {
         assertEquals(created.authority, rotated.invitation!!.invitation.canonicalInviter)
         assertEquals(created.participant, rotated.participant)
         assertTrue(rotated.retirements.any { decodeInvitationRetirement(it, created.invitation!!.invitation) })
+        // The replacement is saved before publication. This journey clears the
+        // local record and must first establish the relay's retired-link proof.
+        ui.await("published retirement of the previous group link") {
+            server.snapshot().any { decodeInvitationRetirement(it, created.invitation!!.invitation) }
+        }
         ui.click("Leave room")
         reset()
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].joinFromUrl(created.joinUrl) }

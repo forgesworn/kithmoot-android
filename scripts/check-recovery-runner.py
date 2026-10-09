@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Fault-check the actual emulator driver with a fake adb, never a device."""
 import os
+import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 DRIVER = Path(__file__).with_name("check-recovery-emulator.sh")
 
 FAKE_ADB = r'''#!/usr/bin/env python3
-import os, sys
+import json, os, sys, time
 from pathlib import Path
 args = sys.argv[1:]
 Path(os.environ["FAKE_MARKER"]).touch()
+if os.environ.get("FAKE_CALLS"):
+    with open(os.environ["FAKE_CALLS"], "a") as log: log.write(json.dumps(args) + "\n")
 if "ro.kernel.qemu" in args:
     print(os.environ.get("FAKE_QEMU", "1")); sys.exit(0)
 if "resolve-activity" in args:
@@ -25,6 +29,10 @@ if "instrument" in args:
     state.write_text(str(index + 1))
     counts = [int(n) for n in os.environ["FAKE_COUNTS"].split(",")]
     mode = os.environ.get("FAKE_MODE", "ok") if index == 0 else "ok"
+    if mode in ("stall", "slow-status"):
+        sys.stdout.write("INSTRUMENTATION_STATUS: test=fixture_started\r\n"); sys.stdout.flush()
+        time.sleep(30 if mode == "stall" else 1)
+        if mode == "slow-status": Path(os.environ["FAKE_STREAM_DONE"]).touch()
     if mode == "failure": print("FAILURES!!!\nTests run: 9, Failures: 1")
     elif mode == "wrong-count": print("OK (8 tests)")
     else: print(f"OK ({counts[index]} tests)")
@@ -32,6 +40,8 @@ if "instrument" in args:
 if "logcat" in args or "screencap" in args:
     if os.environ.get("FAKE_MODE") == "diagnostics-failure": sys.exit(3)
     print("fake diagnostics"); sys.exit(0)
+if "pidof" in args: print("4242"); sys.exit(0)
+if "bugreport" in args: Path(args[-1]).write_bytes(b"fixture bugreport"); sys.exit(0)
 sys.exit(0)
 '''
 
@@ -44,6 +54,8 @@ class RecoveryRunnerTest(unittest.TestCase):
         (self.root / "scripts").mkdir()
         self.driver = self.root / "scripts/check-recovery-emulator.sh"
         shutil.copyfile(DRIVER, self.driver)
+        shutil.copyfile(DRIVER.with_name("run-recovery-instrumentation.py"),
+                        self.driver.with_name("run-recovery-instrumentation.py"))
         sdk = self.root / "sdk"
         (sdk / "platform-tools").mkdir(parents=True)
         adb = sdk / "platform-tools/adb"
@@ -66,7 +78,7 @@ class RecoveryRunnerTest(unittest.TestCase):
     def test_ok_summary_with_failed_adb_refuses_and_keeps_diagnostics(self):
         result = self.run_driver("command-failure")
         self.assertEqual(1, result.returncode)
-        self.assertIn("adb=7, tr=0, tee=0", result.stderr)
+        self.assertIn("runner=7, tee=0", result.stderr)
         self.assertIn("OK (9 tests)", (self.reports / "storage-and-ui.txt").read_text())
         self.assertTrue((self.reports / "storage-and-ui-logcat.txt").exists())
         self.assertTrue((self.reports / "storage-and-ui-screen.png").exists())
@@ -75,7 +87,7 @@ class RecoveryRunnerTest(unittest.TestCase):
     def test_assertion_failure_with_successful_adb_refuses(self):
         result = self.run_driver("failure")
         self.assertEqual(1, result.returncode)
-        self.assertIn("adb=0, tr=0, tee=0", result.stderr)
+        self.assertIn("runner=0, tee=0", result.stderr)
 
     def test_wrong_success_count_refuses(self):
         result = self.run_driver("wrong-count")
@@ -85,7 +97,7 @@ class RecoveryRunnerTest(unittest.TestCase):
     def test_missing_diagnostics_does_not_hide_the_original_command_failure(self):
         result = self.run_driver("diagnostics-failure")
         self.assertEqual(1, result.returncode)
-        self.assertIn("adb=7, tr=0, tee=0", result.stderr)
+        self.assertIn("runner=7, tee=0", result.stderr)
         self.assertIn("Could not capture emulator logcat", result.stderr)
         self.assertIn("Could not capture emulator screen", result.stderr)
 
@@ -99,6 +111,43 @@ class RecoveryRunnerTest(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("non-emulator device", result.stderr)
         self.assertFalse((self.root / "counter").exists())
+
+    def wrapper_command(self, deadline):
+        return [sys.executable, str(self.driver.with_name("run-recovery-instrumentation.py")),
+                "--adb", str(self.root / "sdk/platform-tools/adb"), "--serial", "emulator-9998",
+                "--reports", str(self.reports), "--report", "fixture", "--deadline-seconds", str(deadline)]
+
+    def test_method_status_is_flushed_before_completion_without_carriage_returns(self):
+        finished = self.root / "stream-finished"
+        process = subprocess.Popen(self.wrapper_command(10),
+            env=dict(self.env, FAKE_MODE="slow-status", FAKE_STREAM_DONE=str(finished)),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            first = process.stdout.readline()
+            self.assertEqual(b"INSTRUMENTATION_STATUS: test=fixture_started\n", first)
+            self.assertFalse(finished.exists())
+            output, error = process.communicate(timeout=15)
+            self.assertEqual(0, process.returncode, error)
+            self.assertIn(b"OK (9 tests)", output)
+        finally:
+            if process.poll() is None: process.kill(); process.wait(timeout=5)
+            process.stdout.close(); process.stderr.close()
+
+    def test_stalled_batch_fails_and_preserves_logs_and_own_app_thread_request(self):
+        calls = self.root / "calls.jsonl"
+        result = subprocess.run(self.wrapper_command(1),
+            env=dict(self.env, FAKE_MODE="stall", FAKE_CALLS=str(calls)),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+        self.assertEqual(124, result.returncode, result.stderr)
+        self.assertIn("test=fixture_started", result.stdout)
+        self.assertNotIn("OK (", result.stdout)
+        for suffix in ("logcat.txt", "processes.txt", "screen.png", "thread-request.txt", "bugreport.zip"):
+            self.assertTrue((self.reports / f"fixture-timeout-{suffix}").exists(), suffix)
+        trace = [json.loads(line) for line in calls.read_text().splitlines()]
+        signal = next(i for i, command in enumerate(trace) if "run-as" in command)
+        bugreport = next(i for i, command in enumerate(trace) if "bugreport" in command)
+        self.assertEqual(["shell", "run-as", "dev.forgesworn.kithmoot", "kill", "-3", "4242"], trace[signal][2:])
+        self.assertLess(signal, bugreport)
 
 
 if __name__ == "__main__":

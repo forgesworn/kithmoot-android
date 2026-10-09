@@ -64,7 +64,11 @@ jobs:
         run: node scripts/check-nearby-discovery.mjs
 
       - name: Test, lint and build
-        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --stacktrace
+        # APK compression must not share the test/lint heap or overlap variants.
+        run: |
+          ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease --max-workers=2 --no-daemon --stacktrace
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --max-workers=2 --no-daemon --stacktrace
+          ./gradlew :app:assembleRelease --max-workers=2 --no-daemon --stacktrace
 
       - name: Verify Link and the VMLS engine are in both APKs
         run: |

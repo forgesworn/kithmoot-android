@@ -41,17 +41,21 @@ run_tests() {
   local report="$1" count="$2"
   local commands=()
   shift 2
+  local runner=(python3 scripts/run-recovery-instrumentation.py --adb "$adb_bin"
+    --serial "$ANDROID_SERIAL" --reports "$reports" --report "$report")
+  if [[ -n "${ANDROID_ADB_SERVER_PORT:-}" ]]; then
+    runner+=(--server-port "$ANDROID_ADB_SERVER_PORT")
+  fi
   # Capture every pipeline status before errexit can discard failure evidence.
   # An instrumentation summary can say OK even if adb itself exits nonzero.
-  if adb_device shell am instrument -w "$@" \
-    dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$reports/$report.txt"; then
+  if "${runner[@]}" -- "$@" | tee "$reports/$report.txt"; then
     commands=("${PIPESTATUS[@]}")
   else
     commands=("${PIPESTATUS[@]}")
   fi
   # am instrument may exit zero after an assertion failure or process crash.
-  if [[ "${commands[*]}" != '0 0 0' ]] || ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
-    echo "Instrumentation did not pass: $report (adb=${commands[0]}, tr=${commands[1]}, tee=${commands[2]})" >&2
+  if [[ "${commands[*]}" != '0 0' ]] || ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
+    echo "Instrumentation did not pass: $report (runner=${commands[0]}, tee=${commands[1]})" >&2
     # A disconnected emulator must not hide the original command failure.
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
