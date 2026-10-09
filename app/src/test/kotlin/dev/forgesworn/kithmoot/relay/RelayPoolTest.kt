@@ -64,7 +64,7 @@ class RelayPoolTest {
             pool.completeRekey()
             sockets.opened.single().open()
             runCurrent()
-            assertFailsWith<IllegalStateException> { result.await() }
+            assertFailsWith<PublicationNotOfferedException> { result.await() }
             assertTrue(sockets.opened.single().publishedFrames().isEmpty())
         }
     }
@@ -85,7 +85,7 @@ class RelayPoolTest {
             admitted = false
             sockets.opened.single().open()
             runCurrent()
-            assertFailsWith<IllegalStateException> { result.await() }
+            assertFailsWith<PublicationNotOfferedException> { result.await() }
             assertTrue(sockets.opened.single().publishedFrames().isEmpty())
         }
     }

@@ -76,7 +76,8 @@ class FakeRelay {
 
         override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
             stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
-            check(!publicationBlocked && generation == publicationGeneration && stillAllowed())
+            if (publicationBlocked || generation != publicationGeneration || !stillAllowed())
+                throw dev.forgesworn.kithmoot.relay.PublicationNotOfferedException()
             return publishConfirmed(event, timeoutMs)
         }
 

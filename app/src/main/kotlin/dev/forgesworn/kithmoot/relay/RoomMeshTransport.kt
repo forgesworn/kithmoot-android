@@ -148,7 +148,7 @@ class RoomMeshTransport(
     private fun payload(event: NostrEvent) = buildJsonObject { put("scope", meshScope); put("event", event.toJson()) }
 
     override fun publish(event: NostrEvent) = synchronized(lock) {
-        check(!closed && !blocked) { "Mesh publication is closed or awaiting rekey" }
+        if (closed || blocked) throw PublicationNotOfferedException("Mesh publication is closed or awaiting rekey")
         offer(event)
     }
 
@@ -298,6 +298,18 @@ class RoomMeshTransport(
         check(!closed && resetReady)
         require(event.kind in setOf(20468, 20469, 20471, 20472)) { "Not an epoch recovery event" }
         offer(event)
+    }
+
+    /** Original keeper notices remain available through the chat barrier,
+     * after reset discarded old queued frames. Never a peer receipt. */
+    internal fun keeperControlReady(): Boolean = synchronized(lock) { !closed && resetReady && link.reachable() }
+    internal suspend fun publishKeeperControlGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean): Boolean {
+        require(event.kind in setOf(1461, 1462)) { "Not a keeper authority notice" }
+        return synchronized(lock) {
+            if (closed || !resetReady || this.generation != generation || !stillAllowed() || !link.reachable()) false
+            else { offer(event); throw PublicationUnconfirmedException() }
+        }
     }
 
     override fun close() = synchronized(lock) {

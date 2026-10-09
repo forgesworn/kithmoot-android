@@ -54,6 +54,7 @@ import dev.forgesworn.kithmoot.epoch.MemberEpochDesk
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
+import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -463,6 +464,32 @@ class RoomSession(
                 current.epoch == epoch && _epochState.value is RoomEpochState.Active &&
                 (followed[epoch] == null || followed[epoch] == event.id)
         } finally { epochMutex.unlock() }
+    }
+
+    /** Called by the exclusive foreground source owner before it signs.
+     * Uses the ordinary epoch barrier, never a transport handoff lock. */
+    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String) {
+        require(keeperProfileMatches(stableRoom, root, participant, device))
+        epochMutex.withLock {
+            require(keeperProfileMatches(stableRoom, root, participant, device))
+            if (_epochState.value is RoomEpochState.Closed) return@withLock
+            blockForRekey()
+            _epochState.value = RoomEpochState.Updating(epochKeys().epoch + 1)
+        }
+    }
+
+    /** Feed this device's exact original signed source notice through the
+     * normal authenticated receiver gate without depending on relay echo. */
+    internal suspend fun applyKeeperRekey(event: NostrEvent, participant: String, device: String) {
+        require(keeperProfileMatches(room.roomId, requireNotNull(authority), participant, device))
+        val epoch = requireNotNull(peekRekeyEpoch(event, room.roomId, authority!!))
+        onRekeyEvent(event)
+        epochMutex.withLock {
+            require(keeperProfileMatches(room.roomId, authority!!, participant, device))
+            val phase = _epochState.value
+            require(if (phase is RoomEpochState.Closed) phase.epoch == epoch
+                else phase is RoomEpochState.Active && epochKeys().epoch == epoch && followed[epoch] == event.id)
+        }
     }
 
     /** Current authority for the separately consented foreground chat owner.
@@ -1115,6 +1142,13 @@ class RoomSession(
                 outbox.setState(event.id, PendingChatState.REFUSED, force = before.state != PendingChatState.UNKNOWN)
             }
             return false
+        } catch (_: PublicationNotOfferedException) {
+            // This call never offered. Restore only what was known before it;
+            // an earlier UNKNOWN must stay uncertain even after admission ends.
+            withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
+            if (epochKeys().id != item.epochId || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
+                event.createdAt < now() - CHAT_RETENTION_SECONDS) moved()
+            return false
         } catch (_: PublicationUnconfirmedException) {
             // A mesh offer has no durable receipt. begin() already persisted UNKNOWN;
             // never turn it into REFUSED or restore the earlier unsent state.
@@ -1127,8 +1161,8 @@ class RoomSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            // Refused before anything was offered (no relay after all, a secure update).
-            withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
+            // An arbitrary failure can happen after dispatch. begin() already
+            // persisted UNKNOWN; only explicit pre-offer proof may refund it.
             throw error
         } finally {
             inFlight -= event.id

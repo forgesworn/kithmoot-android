@@ -45,7 +45,10 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
         val offered = synchronized(lock) {
             if (blocked || this.generation.get() != generation || !stillAllowed()) return false
-            try { nearby.publish(event); true } catch (_: Exception) { false }
+            try { nearby.publish(event); true }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (_: PublicationNotOfferedException) { false }
+            catch (_: Exception) { true } // A failed handoff may still have offered on Nearby.
         }
         val accepted = try {
             internet.publishConfirmedGuarded(event, internet.publicationGeneration(),

@@ -12,6 +12,28 @@ import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HybridRoomTransportTest {
+    @Test fun `ambiguous nearby offer prevents internet guard rejection from claiming nothing left`() = runTest {
+        val offered = mutableListOf<NostrEvent>()
+        val local = FakeRelay()
+        val nearby = object : RoomTransport by local.transport() {
+            override fun publish(event: NostrEvent) {
+                offered += event
+                error("Failure after Nearby handoff")
+            }
+        }
+        val remote = FakeRelay()
+        val internet = object : RoomTransport by remote.transport() {
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean = throw PublicationNotOfferedException()
+        }
+        val original = event()
+        assertFailsWith<PublicationUnconfirmedException> {
+            HybridRoomTransport(nearby, internet).publishConfirmed(original)
+        }
+        assertEquals(listOf(original), offered)
+        assertTrue(remote.published.isEmpty())
+    }
+
     private fun event(text: String = "ciphertext") = Events.sign(Fixtures.key(2), 1460, 100, emptyList(), text)
     private fun described(relay: FakeRelay) = object : RoomTransport by relay.transport() {
         override fun describe() = listOf("wss://fixture.invalid/")

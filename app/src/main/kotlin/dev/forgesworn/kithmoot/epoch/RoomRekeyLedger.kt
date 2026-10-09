@@ -4,25 +4,32 @@ import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.relay.RoomRoute
 import kotlinx.serialization.json.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 internal class RoomRekeyBinding(val room: String, val authority: String, val device: String,
-    val meshScope: String, relays: List<String>) {
+    val meshScope: String?, relays: List<String>, val route: RoomRoute) {
+    constructor(room: String, authority: String, device: String, meshScope: String, relays: List<String>) :
+        this(room, authority, device, meshScope, relays, RoomRoute.MIXED)
     val relays = relays.map(::canonicalRelayUrl).sorted()
     // Route/device changes cannot acquire a fresh journal and retry budget.
     val owner = "$room:$authority"
     init {
-        require(listOf(room, authority, device, meshScope).all(::rekeyHex))
-        require(this.relays.size in 1..8 && this.relays.distinct().size == this.relays.size)
+        require(listOf(room, authority, device).all(::rekeyHex))
+        require(if (route.nearby) meshScope != null && rekeyHex(meshScope) else meshScope == null)
+        require(this.relays.size <= 8 && this.relays.distinct().size == this.relays.size)
+        require(if (route.internet) this.relays.isNotEmpty() else this.relays.isEmpty())
     }
     val pin = Digests.sha256(buildJsonObject {
         put("profile", "native-keeper-rekey-v1"); put("room", room); put("authority", authority)
-        put("device", device); put("mesh", meshScope)
+        put("device", device); put("mesh", meshScope?.let(::JsonPrimitive) ?: JsonNull)
+        if (route != RoomRoute.MIXED) put("route", route.stored)
         put("relays", JsonArray(this@RoomRekeyBinding.relays.map(::JsonPrimitive)))
     }.toString().toByteArray(Charsets.UTF_8)).toHex()
+    fun permits(lane: RekeyLane) = if (lane == RekeyLane.NEARBY) route.nearby else route.internet
 }
 
 internal enum class RekeyLane { NEARBY, INTERNET }
@@ -103,7 +110,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
     fun reserve(id: String, destination: RekeyLane): Reservation? = lock.withLock {
         usable(); roll()
         val row = entries.firstOrNull { it.event.id == id }
-        if (row == null || !allowed()) { save(); return@withLock null }
+        if (row == null || !allowed() || !binding.permits(destination)) { save(); return@withLock null }
         val lane = row.lane(destination)
         val bytes = eventBytes(row.event)
         if (lane.state == RekeyLaneState.ACCEPTED || lane.attempts >= MAX_ATTEMPTS || lane.nextAt > high ||
@@ -122,7 +129,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
     fun canHandoff(reservation: Reservation): Boolean {
         if (!lock.tryLock()) return false
         try {
-            if (closed || failed || !allowed()) return false
+            if (closed || failed || !allowed() || !binding.permits(reservation.lane)) return false
             high = maxOf(high, clock())
             val row = entries.firstOrNull { it.event.id == reservation.event.id } ?: return false
             val lane = row.lane(reservation.lane)
@@ -137,7 +144,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
         complete(reservation, RekeyLaneState.ACCEPTED)
     }
     private fun complete(reservation: Reservation, state: RekeyLaneState) = lock.withLock {
-        usable(); roll()
+        usable(); require(binding.permits(reservation.lane)); roll()
         entries = entries.map { row ->
             val lane = row.lane(reservation.lane)
             if (row.event == reservation.event && lane.attempts == reservation.attempt && lane.state == RekeyLaneState.UNKNOWN)
@@ -235,6 +242,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
                 val attempts = integer(obj, "attempts"); val nextAt = long(obj, "nextAt")
                 require(attempts in 0..MAX_ATTEMPTS && nextAt in 0..high + 300_000L)
                 require(name != RekeyLane.NEARBY || state != RekeyLaneState.ACCEPTED)
+                require(binding.permits(name) || state == RekeyLaneState.WAITING && attempts == 0 && nextAt == 0L)
                 require(if (state == RekeyLaneState.WAITING) attempts == 0 && nextAt == 0L else attempts > 0 && nextAt > 0)
                 return Lane(state, attempts, nextAt)
             }
@@ -247,7 +255,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
             val row = it.jsonObject
             require(row.keys == setOf("at", "lane", "bytes"))
             Spend(long(row, "at"), RekeyLane.valueOf(text(row, "lane")), integer(row, "bytes"))
-                .also { s -> require(s.at in 0..high && s.bytes in 1..MAX_EVENT_BYTES) }
+                .also { s -> require(s.at in 0..high && s.bytes in 1..MAX_EVENT_BYTES && binding.permits(s.lane)) }
         }
         require(RekeyLane.entries.all { lane -> spends.filter { it.lane == lane && high - it.at <= WINDOW_MS }.sumOf { it.bytes } <= LANE_BYTES })
     }

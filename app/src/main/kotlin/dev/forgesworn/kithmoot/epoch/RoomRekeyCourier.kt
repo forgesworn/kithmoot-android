@@ -16,9 +16,9 @@ import kotlinx.coroutines.sync.withLock
  * qualification. Does not host admission, sign, follow incoming control or own
  * the routes. The authority journal must commit before calling admit(). */
 internal class RoomRekeyCourier private constructor(private val ledger: RoomRekeyLedger,
-    private val nearby: RoomMeshTransport, private val internet: RoomTransport,
+    private val nearby: RoomMeshTransport?, private val internet: RoomTransport?,
     parentScope: CoroutineScope, private val stillSelected: () -> Boolean,
-    dispatcher: CoroutineDispatcher) : AutoCloseable {
+    dispatcher: CoroutineDispatcher, private val authority: NativeKeeperEndpoints? = null) : AutoCloseable {
     private val ownerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + ownerJob + dispatcher)
     private val pumpGate = Mutex()
@@ -76,13 +76,15 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
         for (row in ledger.status().entries) for (lane in RekeyLane.entries) {
             currentCoroutineContext().ensureActive()
             if (!selected()) return@withLock
-            val transport: RoomTransport = if (lane == RekeyLane.NEARBY) nearby else internet
-            if (!transport.reachable()) continue
-            val generation = transport.publicationGeneration()
+            if (!ledger.binding.permits(lane)) continue
+            val transport: RoomTransport? = if (lane == RekeyLane.NEARBY) nearby else internet
+            if (authority?.ready(lane) != true && (authority != null || transport?.reachable() != true)) continue
+            val generation = authority?.generation(lane) ?: requireNotNull(transport).publicationGeneration()
             val reservation = ledger.reserve(row.event.id, lane) ?: continue
             try {
-                val accepted = transport.publishConfirmedGuarded(reservation.event, generation,
-                    { selected() && ledger.canHandoff(reservation) }, 5_000)
+                val guard = { selected() && ledger.canHandoff(reservation) }
+                val accepted = if (authority != null) authority.offer(reservation.event, lane, generation, guard, 5_000)
+                    else requireNotNull(transport).publishConfirmedGuarded(reservation.event, generation, guard, 5_000)
                 if (accepted && !closed) {
                     if (lane == RekeyLane.INTERNET) ledger.relayAccepted(reservation)
                     else ledger.offered(reservation)
@@ -103,13 +105,24 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
     }
 
     companion object {
+        /** Controller-owned original notices may finish while chat is held,
+         * including closure. The selected owner's lifetime still gates every offer. */
+        fun startAuthority(ledger: RoomRekeyLedger, endpoints: NativeKeeperEndpoints,
+            scope: CoroutineScope, stillSelected: () -> Boolean,
+            dispatcher: CoroutineDispatcher = Dispatchers.IO): RoomRekeyCourier {
+            require(ledger.binding.pin == endpoints.binding.pin)
+            require(scope.isActive && stillSelected())
+            return RoomRekeyCourier(ledger, endpoints.nearby, endpoints.internet, scope, stillSelected, dispatcher, endpoints)
+        }
+
         /** Caller must own the qualified live keeper transaction and these
          * exact foreground routes. The cheap guard must invalidate before their
          * teardown; no session/authority lock may be acquired at dispatch. */
         fun start(ledger: RoomRekeyLedger, nearby: RoomMeshTransport, internet: RoomTransport,
             scope: CoroutineScope, stillSelected: () -> Boolean,
             dispatcher: CoroutineDispatcher = Dispatchers.IO): RoomRekeyCourier {
-            require(nearby.hasScope(ledger.binding.meshScope))
+            require(ledger.binding.route == dev.forgesworn.kithmoot.relay.RoomRoute.MIXED)
+            require(nearby.hasScope(requireNotNull(ledger.binding.meshScope)))
             require(internet.describe().map(::canonicalRelayUrl).sorted() == ledger.binding.relays)
             require(scope.isActive && stillSelected()) { "Keeper courier requires the selected foreground owner" }
             return RoomRekeyCourier(ledger, nearby, internet, scope, stillSelected, dispatcher)

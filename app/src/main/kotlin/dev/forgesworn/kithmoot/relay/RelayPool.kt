@@ -36,6 +36,10 @@ class RelayHistoryException(val relay: String, val authenticationRequired: Boole
  * Distinct from a refusal and from failing before anything left the device. */
 class PublicationUnconfirmedException : IllegalStateException("Publication was offered without a durable receipt")
 
+/** Proof that this call rejected publication before offering to any lane.
+ * A generic transport error cannot establish that nothing left the device. */
+class PublicationNotOfferedException(message: String = "Publication was rejected before dispatch") : IllegalStateException(message)
+
 /**
  * What a room needs from the outside world: somewhere to put events, and a way
  * to be told about them.
@@ -67,7 +71,8 @@ interface RoomTransport {
     /** Token must be captured before reading the room epoch for a durable retry. */
     fun publicationGeneration(): Long = 0
 
-    /** The guard is read at dispatch; it must be cheap and must not call the transport. */
+    /** The guard is read at dispatch; it must be cheap and must not call the transport.
+     * Only [PublicationNotOfferedException] proves rejection before any offer. */
     suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
         stillAllowed: () -> Boolean, timeoutMs: Long = 15_000): Boolean =
         throw UnsupportedOperationException("This transport cannot guard a pending chat publication")
@@ -173,6 +178,7 @@ class RelayPool(
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
     @Volatile private var publicationBlocked = false
+    @Volatile private var keeperResetReady = true
     private val rekeyGeneration = MutableStateFlow(0L)
 
     override fun receivedEventConfirmsPublication(eventId: String): Boolean = true
@@ -197,7 +203,7 @@ class RelayPool(
     fun start() {
         synchronized(lock) {
             if (started) return
-            started = true
+            started = true; keeperResetReady = true
             for (url in urls.filter { it in readRelays || it in writeRelays }) links[url] = RelayLink(url).also { it.job = launchLink(it) }
         }
     }
@@ -227,7 +233,7 @@ class RelayPool(
         val closing: List<RelayLink>
         synchronized(lock) {
             if (!started) return
-            started = false
+            started = false; keeperResetReady = false; rekeyGeneration.value += 1
             closing = links.values.toList()
             links.clear()
             subscriptions.clear()
@@ -413,22 +419,29 @@ class RelayPool(
         stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
         publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs)
 
+    /** Guarded original retirement/rekey only, available after queue reset
+     * while ordinary publication is held. Relay OK is not a member receipt. */
+    internal fun keeperControlReady(): Boolean = started && keeperResetReady && reachable()
+    internal suspend fun publishKeeperControlGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        require(event.kind in setOf(1461, 1462) && dev.forgesworn.kithmoot.protocol.Events.verify(event))
+        return publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs, keeperControl = true)
+    }
+
     private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean = withTimeout(timeoutMs) {
-        check(!publicationBlocked && generation == publicationGeneration() && stillAllowed()) {
-            "Room publication is blocked during a secure update"
-        }
-        check(writeRelays.isNotEmpty()) { "No write relay is selected" }
+        stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false): Boolean = withTimeout(timeoutMs) {
+        if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || generation != publicationGeneration() || !stillAllowed())
+            throw PublicationNotOfferedException("Room publication is blocked during a secure update")
+        if (writeRelays.isEmpty()) throw PublicationNotOfferedException("No write relay is selected")
         combine(connected, rekeyGeneration) { up, current -> up.any { it in writeRelays } to current }
             .first { (up, current) -> up || current != generation }
         val publication: Publication
         val targets: List<RelayLink>
         synchronized(lock) {
-            check(!publicationBlocked && rekeyGeneration.value == generation && stillAllowed()) {
-                "Room publication is blocked during a secure update"
-            }
+            if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || rekeyGeneration.value != generation || !stillAllowed())
+                throw PublicationNotOfferedException("Room publication is blocked during a secure update")
             targets = links.values.filter { it.isOpen && it.url in writeRelays }
-            check(targets.isNotEmpty()) { "No relay is connected" }
+            if (targets.isEmpty()) throw PublicationNotOfferedException("No relay is connected")
             check(event.id !in publications) { "Event publication is already pending" }
             trackWrite(event)
             publication = Publication(targets.map { it.url }.toSet())
@@ -446,19 +459,23 @@ class RelayPool(
     }
 
     override suspend fun beginRekey() {
+        val resetGeneration: Long
         val current = synchronized(lock) {
-            publicationBlocked = true
-            rekeyGeneration.value += 1
+            publicationBlocked = true; keeperResetReady = false
+            rekeyGeneration.value += 1; resetGeneration = rekeyGeneration.value
             publications.values.forEach { it.result.complete(false) }
             links.values.toList()
         }
         current.forEach { it.clearOutbox() }
+        synchronized(lock) { if (started && rekeyGeneration.value == resetGeneration) keeperResetReady = true }
     }
 
     override suspend fun rekey(roomKey: ByteArray) {
         require(roomKey.size == 32) { "room key must be 32 bytes" }
         check(publicationBlocked) { "room publication must be blocked before rekey" }
+        val generation = synchronized(lock) { keeperResetReady = false; rekeyGeneration.value }
         synchronized(lock) { links.values.toList() }.forEach { it.clearOutbox() }
+        synchronized(lock) { if (started && rekeyGeneration.value == generation) keeperResetReady = true }
     }
 
     override fun completeRekey() {
