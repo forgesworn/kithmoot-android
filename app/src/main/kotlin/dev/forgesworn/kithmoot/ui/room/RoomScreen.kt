@@ -148,7 +148,7 @@ fun RoomScreen(
     onStartRoomSharing: () -> Unit = {},
     onStopRoomSharing: () -> Unit = {},
 ) {
-    if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent)
+    if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var preferGrid by rememberSaveable(state.roomId) { mutableStateOf(false) }
@@ -459,7 +459,7 @@ fun RoomScreen(
             // clear of the status bar and the camera cutout.
             val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
             Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RecordingBanner(state.recording)
+                RecordingBanner(state.recording, description = recordingCaptureDescription(state))
                 MeetingNotice(state, onRaiseHand, onOpenMeeting = { meetingOpen = true })
             }
         }
