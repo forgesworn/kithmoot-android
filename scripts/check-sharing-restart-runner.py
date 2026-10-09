@@ -32,7 +32,8 @@ if 'instrument' in args:
   if mode=='checkpoint-timeout':
    while not killed.exists():time.sleep(.01)
    sys.exit(0)
-  print('INSTRUMENTATION_STATUS: sharing_restart_checkpoint=ready',flush=True)
+  prefix='dev.forgesworn.kithmoot.ui.RoomSharingRestartTest:' if mode=='class-prefix' else 'unexpected:' if mode=='invalid-prefix' else ''
+  print(prefix+'INSTRUMENTATION_STATUS: sharing_restart_checkpoint=ready',flush=True)
   print('INSTRUMENTATION_STATUS: sharing_restart_pid=4242',flush=True)
   while not killed.exists():time.sleep(.01)
   print('INSTRUMENTATION_RESULT: shortMsg=Process crashed.',flush=True);sys.exit(0)
@@ -53,6 +54,10 @@ class DriverTest(unittest.TestCase):
    return result,calls,(reports/'failure-logcat.txt').exists()
  def test_valid_active_kill_and_exact_recovery_pass(self):
   r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr);self.assertIn('"kill", "-9", "4242"',c);self.assertIn('requireRestart',c)
+ def test_android_class_prefix_on_ready_status_passes(self):
+  r,c,_=self.run_case('class-prefix');self.assertEqual(0,r.returncode,r.stderr);self.assertIn('"kill", "-9", "4242"',c)
+ def test_unrelated_marker_prefix_cannot_authorise_kill(self):
+  r,c,d=self.run_case('invalid-prefix');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c);self.assertNotIn('#b_recover',c);self.assertTrue(d)
  def test_no_checkpoint_cannot_pass_with_a_success_summary(self):
   r,c,d=self.run_case('no-checkpoint');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c);self.assertTrue(d)
  def test_changed_pid_is_never_killed(self):

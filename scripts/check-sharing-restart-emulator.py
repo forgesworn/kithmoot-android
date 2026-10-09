@@ -67,6 +67,10 @@ def main():
                 continue
             if line is None:
                 raise RuntimeError("Preparation ended without its active checkpoint")
+            # AndroidJUnitRunner can prefix its first status line with the
+            # current class name. Accept only that exact known prefix.
+            if line.startswith(CASE + ":"):
+                line = line[len(CASE) + 1:]
             match = re.fullmatch(r"INSTRUMENTATION_STATUS: sharing_restart_pid=([1-9][0-9]*)", line)
             if match:
                 pid = match.group(1)
