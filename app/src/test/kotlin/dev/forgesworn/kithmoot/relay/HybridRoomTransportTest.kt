@@ -18,6 +18,30 @@ class HybridRoomTransportTest {
         override fun receivedViaRelays(eventId: String) = describe()
     }
 
+    @Test fun `live controls permit three spaced retries and collapse simultaneous lane copies`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay()
+        val hybrid = HybridRoomTransport(mesh.transport(), described(relay)) { currentTime / 1000 }
+        val received = mutableListOf<NostrEvent>()
+        backgroundScope.launch { hybrid.subscribe(listOf(Filter())).collect { received += it } }; runCurrent()
+        for (kind in listOf(20466, 20467, 20468, 20469)) {
+            val control = Events.sign(Fixtures.key(2), kind, currentTime / 1000, emptyList(), "control")
+            val before = received.size
+            mesh.publish(control); relay.publish(control); runCurrent()
+            assertEquals(before + 1, received.size)
+            assertTrue(hybrid.receivedEventConfirmsPublication(control.id))
+            repeat(2) { offer ->
+                advanceTimeBy(10_000); mesh.publish(control); relay.publish(control); runCurrent()
+                assertEquals(before + offer + 2, received.size, "same signed control must remain retryable")
+            }
+            advanceTimeBy(10_000); relay.publish(control); runCurrent()
+            assertEquals(before + 3, received.size)
+        }
+        val chat = event(); mesh.publish(chat); runCurrent()
+        advanceTimeBy(10_000); relay.publish(chat); runCurrent()
+        assertEquals(1, received.count { it.id == chat.id })
+        assertEquals(listOf("wss://fixture.invalid/"), hybrid.receivedViaRelays(chat.id))
+    }
+
     @Test fun `same event goes to both selected lanes and incoming duplicates give one row without forwarding`() = runTest {
         val mesh = FakeRelay(); val relay = FakeRelay(); val hybrid = HybridRoomTransport(mesh.transport(), described(relay))
         val received = mutableListOf<NostrEvent>()
