@@ -298,7 +298,8 @@ class RoomSessionTest {
         val mine = session(room, owner, relay, chatOutbox = outbox)
         mine.join(); advanceTimeBy(1_000); runCurrent()
         relay.confirmsPublications = false
-        assertFalse(mine.sendChatDurable("Keep this"))
+        val artwork = listOf(catalogueArtwork(searchMediaCatalogue("", false).single()))
+        assertFalse(mine.sendChatDurable("Keep this", artwork = artwork))
         val id = outbox.pending()!!.event.id
         assertTrue(mine.chat.value.isEmpty())
         relay.confirmsPublications = true
@@ -306,6 +307,7 @@ class RoomSessionTest {
         runCurrent()
         assertEquals(id, relay.published.single { it.kind == KIND_CHAT }.id)
         assertEquals(1, mine.chat.value.size)
+        assertEquals(artwork, mine.chat.value.single().artwork)
         relay.publish(relay.published.single { it.kind == KIND_CHAT })
         runCurrent()
         assertEquals(1, mine.chat.value.size)

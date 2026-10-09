@@ -849,9 +849,9 @@ class RoomSession(
     }
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
-    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList()): Boolean {
+    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): Boolean {
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
-        val text = body.trim()
+        val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
@@ -869,6 +869,7 @@ class RoomSession(
             proof = proof,
             reaction = reaction,
             attachments = attachments,
+            artwork = artwork,
             credentialRoomId = room.roomId,
             roomEnds = ends,
         )
@@ -885,19 +886,19 @@ class RoomSession(
      * and never overtakes it. True when this message was confirmed.
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
-        attachments: List<ChatAttachment> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
         check(publicationAllowed) { "Room publication is blocked during a secure update" }
-        val text = body.trim()
+        val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
-            sentAtMs = millisWithin(at), attachments = attachments)
+            sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty(), text = text, messageId = own.id)
+        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)

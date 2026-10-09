@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.runtime.*
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
@@ -34,10 +35,13 @@ class ArtworkPickerUiTest {
         bitmap.recycle()
     }
 
-    private fun mount(scenario: ActivityScenario<MainActivity>) {
+    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false) {
         scenario.onActivity { activity -> activity.setContent { KithMootTheme {
+            var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
             ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") }, Modifier.fillMaxSize().systemBarsPadding(),
-                onAddImage = { _, _, _ -> error("Review must not upload") })
+                onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
+                onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
+                internetAllowed = !offline, torOnly = offline)
         } } }
     }
 
@@ -81,6 +85,7 @@ class ArtworkPickerUiTest {
             mount(scenario)
             ui.onNodeWithText("Say something").performTextInput("Unsent ")
             ui.onNodeWithContentDescription("Emoji").performClick()
+            ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
             ui.onNodeWithContentDescription("Search artwork").performClick()
             ui.onNodeWithTag("artwork-search").performClick()
             waitForKeyboard(scenario)
@@ -99,6 +104,7 @@ class ArtworkPickerUiTest {
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             ui.waitUntil(10_000) { instrumentation.targetContext.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT }
             ui.onNodeWithContentDescription("Emoji").performClick()
+            ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
             ui.onNodeWithContentDescription("Search artwork").performClick()
             ui.onNodeWithTag("artwork-search").performClick()
             waitForKeyboard(scenario)
@@ -138,9 +144,9 @@ class ArtworkPickerUiTest {
         }
     }
 
-    @Test fun local_media_preview_requires_add_then_storage_consent_and_never_sends() {
+    @Test fun local_media_preview_stages_an_offline_reference_without_storage_or_send() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            mount(scenario)
+            mount(scenario, offline = true)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
             ui.onNodeWithContentDescription("Emoji").performClick()
             ui.onNodeWithText("Stickers").performClick()
@@ -148,12 +154,43 @@ class ArtworkPickerUiTest {
             ui.onNodeWithText("GIFs").performClick()
             ui.onNodeWithContentDescription("Preview Coffee.gif").performClick()
             capture("gif-preview")
-            ui.onNodeWithText("Add to draft").performClick()
-            ui.waitUntil(10_000) { ui.onNodeWithText("Share an encrypted image").isDisplayed() }
+            ui.onNodeWithText("Add to message").performClick()
+            ui.onNodeWithContentDescription("Remove Coffee from message").assertIsDisplayed()
+            ui.onNodeWithText("Share an encrypted image").assertDoesNotExist()
             ui.onNodeWithContentDescription("Close artwork picker").assertDoesNotExist()
-            capture("media-storage-consent")
-            ui.onNodeWithText("Cancel").performClick()
+            capture("media-local-reference")
+            ui.onNodeWithContentDescription("Send").assertIsEnabled()
+            ui.onNodeWithContentDescription("Remove Coffee from message").performClick()
             ui.onNodeWithText("Keep this draft ").assertIsDisplayed()
+        }
+    }
+
+    @Test fun received_known_artwork_renders_offline_and_unknown_hash_stays_readable() {
+        val coffee = dev.forgesworn.kithmoot.session.catalogueArtwork(dev.forgesworn.kithmoot.session.searchMediaCatalogue("", false).single())
+        val message = dev.forgesworn.kithmoot.session.ChatMessage("local-art", "02".repeat(32), "01".repeat(32), "Caption", 1_800_000_000,
+            artwork = listOf(coffee, coffee.copy(sha256 = "0".repeat(64), label = "Unknown revision")))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent { KithMootTheme {
+                ChatPane(listOf(message), "03".repeat(32), { _, _ -> error("Review must not send") }, Modifier.fillMaxSize().systemBarsPadding(), internetAllowed = false)
+            } } }
+            ui.onNodeWithContentDescription("gif: Coffee").assertIsDisplayed()
+            ui.onNodeWithText("GIF: Unknown revision").assertIsDisplayed()
+            ui.waitForIdle()
+            Thread.sleep(500)
+            val bounds = ui.onNodeWithContentDescription("gif: Coffee").fetchSemanticsNode().boundsInWindow
+            fun renderedFrame(): Int {
+                val bitmap = instrumentation.uiAutomation.takeScreenshot()
+                var fingerprint = 1
+                for (y in bounds.top.toInt() until bounds.bottom.toInt() step 12)
+                    for (x in bounds.left.toInt() until bounds.right.toInt() step 12)
+                        fingerprint = 31 * fingerprint + bitmap.getPixel(x, y)
+                bitmap.recycle()
+                return fingerprint
+            }
+            val firstFrame = renderedFrame()
+            if (android.animation.ValueAnimator.areAnimatorsEnabled()) ui.waitUntil(5_000) { renderedFrame() != firstFrame }
+            else { Thread.sleep(500); assertEquals(firstFrame, renderedFrame()) }
+            capture("received-local-artwork")
         }
     }
 }

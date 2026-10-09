@@ -6,6 +6,9 @@ import dev.forgesworn.kithmoot.service.RoomRouteTransitions
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
 import dev.forgesworn.kithmoot.discovery.BoxRelayReader
 import dev.forgesworn.kithmoot.session.ChatAttachment
+import dev.forgesworn.kithmoot.session.ChatArtwork
+import dev.forgesworn.kithmoot.session.resolveCatalogueArtwork
+import dev.forgesworn.kithmoot.session.artworkFallback
 import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
 import dev.forgesworn.kithmoot.session.MAX_MEDIA_SOURCE_BYTES
 import dev.forgesworn.kithmoot.session.SealedMedia
@@ -500,6 +503,7 @@ data class RoomState(
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
+    val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
      *  per rename read this visit. */
@@ -6016,6 +6020,15 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = hash) }
     }
 
+    fun addChatArtwork(reference: ChatArtwork) {
+        if (resolveCatalogueArtwork(reference) == null) return
+        _room.update { if (it.chatArtwork.size >= 4) it else it.copy(chatArtwork = it.chatArtwork + reference.copy()) }
+    }
+
+    fun removeChatArtwork(index: Int) {
+        _room.update { it.copy(chatArtwork = it.chatArtwork.filterIndexed { position, _ -> position != index }) }
+    }
+
     /** No external file traffic for an anonymous room. Uploads require the chosen server's explicit consent. */
     fun addChatImage(uri: android.net.Uri, storage: String, consent: Boolean) {
         val live = session ?: return
@@ -6070,7 +6083,9 @@ class RoomViewModel @JvmOverloads constructor(
         val live = session ?: return
         val scope = sessionScope ?: return
         val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
-        val text = if (body.isBlank() && attachments.isNotEmpty()) attachments.joinToString(", ") { it.name ?: "Image" }.take(MAX_CHAT_TEXT_LENGTH) else body
+        val artwork = if (reaction == null) _room.value.chatArtwork else emptyList()
+        val text = if (body.isBlank()) (listOf(artworkFallback(artwork)).filter(String::isNotBlank) +
+            attachments.map { it.name ?: "Image" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
             note("Finish the quiet schedule change before sending.")
             return
@@ -6084,10 +6099,13 @@ class RoomViewModel @JvmOverloads constructor(
         scope.launch(Dispatchers.IO) {
             try {
                 val retainedOnMain: suspend () -> Unit = {
-                    withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update { it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments }) }; onRetained() } }
+                    withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update {
+                        it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments },
+                            chatArtwork = it.chatArtwork.filterNot { staged -> artwork.any { submitted -> staged === submitted } })
+                    }; onRetained() } }
                 }
-                val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, retainedOnMain)
-                    else live.sendChatConfirmed(text, reaction, attachments).also { if (it) retainedOnMain() }
+                val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, artwork, retainedOnMain)
+                    else live.sendChatConfirmed(text, reaction, attachments, artwork).also { if (it) retainedOnMain() }
                 // A durable message that did not go is on the chat as pending, saying why.
                 if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }
             } catch (_: TimeoutCancellationException) {

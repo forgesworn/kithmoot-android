@@ -1,0 +1,247 @@
+{
+  "normalisation": [
+    {
+      "name": "canonical reference",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      }
+    },
+    {
+      "name": "uppercase hash and discarded extra",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB",
+        "label": "Coffee",
+        "url": "https://tracker.invalid"
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      }
+    },
+    {
+      "name": "whitespace and hidden controls",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "  Cof‮fee\n\t time\u0000  "
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee time"
+      }
+    },
+    {
+      "name": "private use and unpaired surrogate",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Cof\ud800fee"
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      }
+    },
+    {
+      "name": "blank label",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "‮\u0000 "
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "coffee"
+      }
+    },
+    {
+      "name": "codepoint cap",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "expected": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      }
+    },
+    {
+      "name": "unknown catalogue",
+      "input": {
+        "pack": "future-pack",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": {
+        "pack": "future-pack",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      }
+    },
+    {
+      "name": "url identifier",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "https://tracker.invalid",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": null
+    },
+    {
+      "name": "traversal",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "../coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": null
+    },
+    {
+      "name": "wrong case",
+      "input": {
+        "pack": "Kithmoot",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": null
+    },
+    {
+      "name": "wrong hash",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abc",
+        "label": "Coffee"
+      },
+      "expected": null
+    },
+    {
+      "name": "wrong kind",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "video",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": "Coffee"
+      },
+      "expected": null
+    },
+    {
+      "name": "missing label type",
+      "input": {
+        "pack": "kithmoot-original-v1",
+        "id": "coffee",
+        "kind": "gif",
+        "sha256": "abababababababababababababababababababababababababababababababab",
+        "label": null
+      },
+      "expected": null
+    }
+  ],
+  "encryptedMessage": {
+    "roomId": "50d5fd09fdfaa905d4ce25c2239b67e5e3fe345566215dea73d0fb16adeed3a0",
+    "roomKey": "9f246fcc024505b5a4cf10ad69365c4c7b99a5d12e1d44ecf6fadb1087e65962",
+    "now": 1800000000,
+    "message": {
+      "id": "artwork-vector-1",
+      "participant": "552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84",
+      "device": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+      "credential": {
+        "kind": 20460,
+        "created_at": 1791548685,
+        "tags": [
+          [
+            "d",
+            "50d5fd09fdfaa905d4ce25c2239b67e5e3fe345566215dea73d0fb16adeed3a0"
+          ],
+          [
+            "device",
+            "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967"
+          ],
+          [
+            "expiration",
+            "1800003600"
+          ]
+        ],
+        "content": "",
+        "pubkey": "552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84",
+        "id": "8240389083623d479266e1c4c89f534695971ba1115751126245adfc135741a2",
+        "sig": "6adf6f1cbfd3975118f7d56b84084024968c9ea8604ac89c4500478fea37794a0e3e539db9400ead8e312830eca3a4a120474a2d869e1a493586516338c100d5"
+      },
+      "text": "GIF: Coffee",
+      "sentAt": 1800000000,
+      "artwork": [
+        {
+          "pack": "kithmoot-original-v1",
+          "id": "coffee",
+          "kind": "gif",
+          "sha256": "1ec70ce57a315e6dd13e8d451543eb529786a792f218121c9bfd67db718a61f1",
+          "label": "Coffee"
+        }
+      ]
+    },
+    "event": {
+      "kind": 1460,
+      "created_at": 1800000000,
+      "tags": [
+        [
+          "d",
+          "50d5fd09fdfaa905d4ce25c2239b67e5e3fe345566215dea73d0fb16adeed3a0"
+        ]
+      ],
+      "content": "AihF7i1/rdIe6jCCBFSCUtxdL9HnCbM6Oo5uhsN766edwrwK+sRWbYsEeQD1k5GF5xXt7jJnm0RiBDASkpn6WNdOJbAw7ianeB0M1xyQJVCc96wDSciyIjg/QdktswJmpAIsVcjtCk6JdBIoeAE7YUCnFC2XfUa4AfWnccg+wLkGV50bSnBLYoMRT/pfI5rkMwaNu7m58B0baCiLEQkIikE5nGIm4PYgxa11anzQVX9ig3BhnmVgSi4IcRSb488eBZpgGJICXwQ0BQtr1IPN/dsLNwgZe3BrXNz5AueRCVZ0Ev64EniZALa66mFQyNYdRoYyXL12H8Q4uNaCTa0ih8vuUDJo5d4nVMugR9VcQ6Wcw0xHCD/mYlrK5+tWq0+Z7USWe+04bGgLLnKvLobQgMaSfCayvfVm1ogKUP0TmQs62MP1Ez5D0XMAYp0m4T4SU4MlilOk4BroPIUnPOoO7XHvQedNuEIZtk0Khd+WWP3QtzX3DAXd12hvaiu29Gy7tIvtXjbVRBIho4PrNMrsDXJiijEFlYcO3dj8YyOL+hhywticikbMcPBv4/RNN1e1c5VGIh3LNKZJKBfHWklS/bOMw8+nnxxBmdombtawWSpG+/6OkaXj7zLrpXaKUnmIQbV9Z1Cz5ka245d+A/t92bzpqA/amcb/AW8NCzuMxN8QNkm1aR5B1E+vXWy4N8TyGSC/Q4xaHnu7OqA3kK3ogL2jKnOUYql8R/9MxsgNUhJWSiQOwXhj8054C64bvBTTQOEbSrzEGkfZueAGm6UdR1Xa1ZtoWPsY4lHSZFGsx4NuRSwT3+2K/130o6q76U8NxWOlZYbaLK6wKy7c2lgMo6L2C5544qOcHJnHqdvxcjlhSW5xPnrrmlsaBHAfjAhvs0AM2pAIKuV/8ksCN0KF82fFk3uWOuhaWDMf568qeKcPmMTp9kcf9x/364u7XO6g4JOOKtfhN4j3d3SW/glb77QFXVmVpnVq2HiaQ+9TBCaBEIibQg2w7Fum7b8HAuJmLcA9b5wwziTUIVJUUTPlar5cCxtIjKVicn37b48Dyd52XyBHAIz7y/MJzwL1dz/RcjuDKHz4GwbmgCz2AuL5xJ89Bo97l4Klxy18J5//WBBS7tGE6gXhsC0is76cQT4WZEEGhzutj9uWgVg1OyTL9pdon2KQt9HqZmuI5HFpwbOntp7uL2MqP4dVkI+btYHI1+a7ELgjryk8q8Rwe3F3wB9cDSS77LiF8OUOlVHJnbVTXKvWCMxJ6dCFiLzm1om5hebr0XCaIFmY6phMF03/e2c7L6402fP0IaGAHBHYC3fU9lQwPqcxg1YPzz3NUQQiokvlFhrzevKgDZz0bxUOdMVHzUB63mzOg8OHR0i3okhzTbxFonoYDUHdHrEFhT5oKWG8eGKHBqNnYCDxK6pOZsWi8XPjdmCAqCK/NTBONK13LSg=",
+      "pubkey": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+      "id": "d86a7fea447f41c8022fb1e7437d043af7478efa12738de5025802d95308fb99",
+      "sig": "cf608dccbcddf73102ae920c3981c3731cff7841a16576dea7fe326f8216037f0451cf95fcd1213ebba793af683fcf08ff76bc7928e85bce2cbdeace2d64b60d"
+    }
+  }
+}
