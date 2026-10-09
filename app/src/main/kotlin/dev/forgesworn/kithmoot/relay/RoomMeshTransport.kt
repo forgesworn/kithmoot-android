@@ -81,7 +81,8 @@ class RoomMeshTransport(
     private var queryWindow = -1L
     private var queryCount = 0
     private var replyCount = 0
-    private val seen = linkedSetOf<String>()
+    private data class Seen(val offers: Int, val at: Long)
+    private val seen = linkedMapOf<String, Seen>()
     private data class Stored(val event: NostrEvent, val expires: Long)
     private val retained = linkedMapOf<String, Stored>()
     private data class Reader(val filters: List<Filter>, val event: (NostrEvent) -> Unit, val end: () -> Unit)
@@ -108,8 +109,11 @@ class RoomMeshTransport(
 
     private fun accept(event: NostrEvent, at: Long) {
         prune(at)
-        if (!seen.add(event.id)) return
-        while (seen.size > 512) seen.remove(seen.first())
+        val previous = seen[event.id]
+        if (previous != null && (event.kind !in setOf(20466, 20467, 20468, 20469) ||
+                previous.offers >= 3 || at <= previous.at)) return
+        seen[event.id] = Seen((previous?.offers ?: 0) + 1, at)
+        while (seen.size > 512) seen.remove(seen.keys.first())
         if (event.kind in setOf(1460, 1463) && !blocked) {
             val expires = minOf(at + 3600, event.tags.filter { it.firstOrNull() == "expiration" }
                 .mapNotNull { it.getOrNull(1)?.toLongOrNull() }.minOrNull() ?: Long.MAX_VALUE)

@@ -74,6 +74,24 @@ class LiveRoomEntryTest {
         assertFalse(relay.published.any { it.kind == KIND_ROSTER })
     }
 
+    @Test fun `app entry cannot complete without confirming its session`() = runTest {
+        val relay = FakeRelay(); val identity = Fixtures.primary(Fixtures.room(), 1, 2)
+        val base = relay.transport()
+        val transport = object : RoomTransport by base {
+            override fun publish(event: NostrEvent) {
+                base.publish(event)
+                if (event.kind == KIND_INVITATION_REQUEST) relay.publish(encodeLivePersistentAnswer(context, event, welcome, root, 0, 0))
+            }
+        }
+        val result = async { runCatching {
+            withLivePersistentRoomAdmission(invitation, descriptor, identity.devicePubkey, transport,
+                { currentTime / 1000 }, { currentTime }) { _, _ -> "must not return" }
+        } }
+        runCurrent()
+        assertTrue(result.await().isFailure)
+        assertTrue(relay.published.none { it.kind == KIND_ROSTER })
+    }
+
     @Test fun `invalid descriptor never publishes and a factory cannot substitute an ungated session`() = runTest {
         val relay = FakeRelay(); val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
         assertFailsWith<IllegalArgumentException> {

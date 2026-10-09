@@ -20,7 +20,21 @@ suspend fun joinLivePersistentRoom(
     monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 },
     retired: () -> Boolean = { false },
     createSession: suspend (LivePersistentAnswer) -> RoomSession,
-): RoomSession {
+): RoomSession = withLivePersistentRoomAdmission(invitation, descriptor, ownerDevice, transport, now, monotonicMs, retired) { proof, join ->
+    createSession(proof).also { join(it) }
+}
+
+/** Keeps admission ownership while an app prepares, joins and transfers its room. */
+internal suspend fun <T> withLivePersistentRoomAdmission(
+    invitation: RoomInvitation,
+    descriptor: String,
+    ownerDevice: String,
+    transport: RoomTransport,
+    now: () -> Long = { System.currentTimeMillis() / 1000 },
+    monotonicMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    retired: () -> Boolean = { false },
+    enter: suspend (LivePersistentAnswer, suspend (RoomSession) -> Unit) -> T,
+): T {
     val context = requireNotNull(decodeLivePersistentDescriptor(descriptor, invitation)) { "The discovery descriptor does not match this invitation" }
     var room: RoomSession? = null
     try {
@@ -47,12 +61,18 @@ suspend fun joinLivePersistentRoom(
                 val proof = requestLivePersistentAdmission(context, ownerDevice, transport, now, monotonicMs, retired)
                 checkLive()
                 check(proof.epochHint in 0..Int.MAX_VALUE.toLong()) { "Unsupported room epoch" }
-                val joined = createSession(proof).also { room = it }
-                currentCoroutineContext().ensureActive()
-                joined.joinFromLiveAdmission(context, ownerDevice, proof.epochHint.toInt(), proof.expiresAt, transport)
+                var confirmed = false
+                val result = enter(proof) { candidate ->
+                    check(room == null) { "The admission already has a session" }
+                    room = candidate
+                    currentCoroutineContext().ensureActive()
+                    candidate.joinFromLiveAdmission(context, ownerDevice, proof.epochHint.toInt(), proof.expiresAt, transport)
+                    confirmed = true
+                }
+                check(confirmed) { "The entry did not confirm its room session" }
                 checkLive()
                 currentCoroutineContext().ensureActive()
-                joined
+                result
             } finally {
                 retirement.cancel(); monitor.cancel()
             }

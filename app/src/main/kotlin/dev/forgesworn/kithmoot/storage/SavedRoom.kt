@@ -450,7 +450,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(deriveRoom(secret).roomId == id)
         require(name.isNotBlank() && name.length <= 80)
         require(openedAt >= 0)
-        require(relays.isNotEmpty() && relays.size <= 16)
+        require(relays.size <= 16 && (!selectedRoute.internet || relays.isNotEmpty())) { "Configure this room’s relays before choosing an Internet connection." }
         require(relays.all { it.startsWith("wss://") || it.startsWith("ws://") })
         if (anonymous) TorOnlyRelayUrls.assertRoomTransport(relays, emptyList())
         authority?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
@@ -502,7 +502,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
                    ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false,
-                   destruct: Boolean = false): SavedRoom {
+                   destruct: Boolean = false, route: RoomRoute = RoomRoute.INTERNET): SavedRoom {
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
@@ -511,6 +511,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("relays", JsonArray(relays.map(::JsonPrimitive)))
                 put("name", cleanName(name, id))
                 put("openedAt", now)
+                if (route != RoomRoute.INTERNET) put("route", route.stored)
                 if (anonymous) put("anonymous", true)
                 ends?.let { put("ends", it); put("startsAt", now) }
                 if (destruct) put("destruct", true)

@@ -160,13 +160,19 @@ fun KithMootApp(
         onDispose { lifecycle.removeObserver(observer); model.notificationForeground(false); model.setCallRingForeground(false) }
     }
     val context = LocalContext.current
+    var nearbyInviteRequest by remember { mutableStateOf<Pair<String, String>?>(null) }
     var nearbyRoomRequest by rememberSaveable { mutableStateOf<String?>(null) }
     val nearbyPermissions = remember { arrayOf(Manifest.permission.BLUETOOTH_SCAN,
         Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT) }
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val invite = nearbyInviteRequest
+        nearbyInviteRequest = null
         val id = nearbyRoomRequest
         nearbyRoomRequest = null
-        if (id != null) {
+        if (invite != null) {
+            if (nearbyPermissions.all { grants[it] == true }) model.joinNearbyFromUrl(invite.first, invite.second)
+            else model.nearbyPermissionDenied()
+        } else if (id != null) {
             if (nearbyPermissions.all { grants[it] == true }) model.reopenRoom(id)
             else model.nearbyPermissionDenied()
         }
@@ -581,6 +587,14 @@ fun KithMootApp(
                         onRoomDestructChanged = model::onRoomDestructChanged,
                         onRoomDurationChanged = model::onRoomDurationChanged,
                         onJoin = { model.joinFromUrl(startState.joinUrl) },
+                        onJoinNearby = { code ->
+                            val request = startState.joinUrl to code
+                            if (nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+                                nearbyRoomRequest = null
+                                nearbyInviteRequest = request
+                                nearbyPermissionLauncher.launch(nearbyPermissions)
+                            } else model.joinNearbyFromUrl(request.first, request.second)
+                        },
                         onReopen = ::reopen,
                         onForget = model::forgetRoom,
                         onProject = model::setRoomProject,

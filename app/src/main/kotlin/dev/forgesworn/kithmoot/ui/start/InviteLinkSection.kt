@@ -37,8 +37,10 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Unit, enabled: Boolean, onJoin: () -> Unit,
     /** False inside the home list's bottom sheet, where the field is the whole point and there is nothing to collapse. */
-    collapsible: Boolean = true) {
+    collapsible: Boolean = true, onJoinNearby: ((String) -> Unit)? = null) {
     var expanded by rememberSaveable { mutableStateOf(!collapsible) }
+    var nearbyDialog by remember { mutableStateOf(false) }
+    var nearbyCode by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var fieldFocused by remember { mutableStateOf(false) }
     // Set by a person's own tap or scan, never by restoring the screen, so
@@ -68,12 +70,27 @@ internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Un
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { if (enabled) onJoin() }),
                 )
+                if (onJoinNearby != null) TextButton({ nearbyDialog = true }, enabled = enabled && joinUrl.isNotBlank()) {
+                    Text("Join nearby with Bluetooth")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilledTonalButton(onJoin, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Open") }
                     TextButton({ focusManager.clearFocus(); scanning = true }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Scan QR code") }
                 }
             }
         }
+    }
+    if (nearbyDialog && onJoinNearby != null) {
+        AlertDialog(onDismissRequest = { nearbyDialog = false }, title = { Text("Join nearby") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Use the nearby code supplied with this invitation. The room keeper must be reachable over Bluetooth. This join uses no Internet fallback.")
+                Text("You will join with a new identity kept on this phone. Your account's other activity keeps its own connection settings.")
+                OutlinedTextField(nearbyCode, { nearbyCode = it.take(512) }, label = { Text("Nearby code") }, maxLines = 4)
+                Text("Keep KithMoot on screen while joining. Self-destructing rooms need an Internet cleanup route.")
+            } },
+            confirmButton = { TextButton({ nearbyDialog = false; onJoinNearby(nearbyCode.trim()); nearbyCode = "" },
+                enabled = enabled && nearbyCode.isNotBlank()) { Text("Join with local identity") } },
+            dismissButton = { TextButton({ nearbyDialog = false; nearbyCode = "" }) { Text("Cancel") } })
     }
     if (scanning) {
         Dialog(onDismissRequest = { scanning = false }) {

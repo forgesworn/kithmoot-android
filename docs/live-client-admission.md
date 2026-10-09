@@ -41,3 +41,44 @@ epoch-zero denial, stale hints and both-way actual RoomSession chat. Subsequent
 gates are native route/UI integration, keeper/client process death, explicit
 mixed forwarding, authenticated receipts and physical BLE/LoRa. A single-root
 fixture does not implement the production aggregate durable responder quota.
+
+
+## App entry integration
+
+The explicit Nearby action keeps the original invitation and a separate nearby
+code. It requests Bluetooth permission before entry and asks the person to join
+with a new local identity. It cannot use an account signer or switch to Internet
+on failure. A signed-in account's independent background activity retains its
+own settings; this is a route guarantee for this room, not whole-phone isolation.
+
+The discovery owner and device key exist before the challenge. Only a verified
+proof may choose the room identity or prepare the session. The same transport
+survives both gates. Save the new room only after root confirmation; refuse an
+existing saved room rather than overwrite it. On later entry failure, roll back
+only this attempt's matching participant/device. Epoch/member journals are
+internal provisional state, excluded from the saved-room UI and swept on a
+subsequent startup if no room was committed. Never use them to bypass live
+admission. Backgrounding before handoff cancels the entry and closes Bluetooth.
+
+Native transport now allows three identical offers of kinds 20466–20469, at
+least one second apart per cached ID, matching the measured shared-mesh policy.
+The 512-ID cache remains bounded; these controls are never retained or replayed
+as history. The responder's durable quota is independent of cache eviction.
+Ordinary chat deduplication is unchanged. A regression first demonstrated that
+the old native seen-set delivered only one of three spaced requests.
+
+Saved rooms can subsequently choose the existing Internet/Nearby/mixed routes.
+Fresh mixed admission, account-backed offline identity, quiet/anonymous/Bothy
+combinations and self-destruct cleanup need their existing separate authority
+and route qualification; the Nearby action does not bypass those restrictions.
+
+The real ViewModel/emulator journey exposed the prior saved-room requirement
+for at least one relay. A new room may now store an empty relay list only with
+an explicit Nearby route; Internet/mixed switching still requires configured
+relays. A signed room relay list may be kept without opening it. The UI remains
+at the entry screen until both gates and setup finish. Current emulator checks
+cover three identical offers after dropped request/reply, both-way chat,
+retained local identity/route on reopen, cancellation at the epoch gate,
+background cancellation during the challenge and invalid-code refusal before
+radio construction. A rendered UI check verifies the local-identity choice.
+These are simulated radio bytes, not GATT, physical permission or LoRa evidence.

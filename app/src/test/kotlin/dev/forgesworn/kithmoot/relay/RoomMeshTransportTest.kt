@@ -39,6 +39,22 @@ class RoomMeshTransportTest {
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
     }
 
+    @Test fun `control retries reach their owner three times without becoming retained history`() = runTest {
+        var at = 100L
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { at }
+        val received = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { received += it } }; runCurrent()
+        val request = event("live request", 20466)
+        link.inbound(frame(request)); link.inbound(frame(request)); runCurrent()
+        assertEquals(1, received.size)
+        repeat(4) { at++; link.inbound(frame(request)); runCurrent() }
+        assertEquals(3, received.size)
+        val replayed = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { replayed += it } }; runCurrent()
+        assertTrue(replayed.isEmpty())
+        mesh.close()
+    }
+
     @Test fun `invalid scope signature expiry and numeric types never reach subscribers`() = runTest {
         val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
         val received = mutableListOf<NostrEvent>()
