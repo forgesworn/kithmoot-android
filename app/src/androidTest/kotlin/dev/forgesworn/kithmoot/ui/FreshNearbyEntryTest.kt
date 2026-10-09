@@ -262,7 +262,7 @@ class FreshNearbyEntryTest {
                 })
             }
             val now = System.currentTimeMillis() / 1000
-            val welcome = encodePersistentInvitation(host, secret, now, relays = if (mismatchedRelays) listOf("wss://different.fixture.invalid") else relays)
+            val welcome = encodePersistentInvitation(host, secret, now, relays = if (mismatchedRelays) listOf("wss://different.fixture.invalid/") else relays)
             rootPool = if (mixed) RelayPool(relays, OkHttpRelaySockets(), scope).also { it.start() } else null
             val rootTransport: RoomTransport = rootPool?.let { HybridRoomTransport(transport, it) } ?: transport
             val cache = mutableMapOf<String, NostrEvent>()
