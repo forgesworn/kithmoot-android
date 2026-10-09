@@ -58,6 +58,7 @@ class FakeRelay {
     var answersQueries: Boolean = false
 
     fun transport(): RoomTransport = object : RoomTransport {
+        override fun receivedEventConfirmsPublication(eventId: String): Boolean = true
         override fun publish(event: NostrEvent) {
             check(!publicationBlocked) { "Room publication is blocked during a secure update" }
             this@FakeRelay.publish(event)
