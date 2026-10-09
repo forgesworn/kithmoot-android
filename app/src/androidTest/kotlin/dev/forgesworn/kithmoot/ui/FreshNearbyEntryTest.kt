@@ -145,16 +145,19 @@ class FreshNearbyEntryTest {
         val f = Fixture(mixed = true, mismatchedRelays = true)
         try {
             f.start()
-            for (invalidRelays in listOf(emptyList(), listOf("ws://remote.fixture.invalid/"),
-                (1..9).map { "wss://relay$it.fixture.invalid/" })) {
+            for ((invalidRelays, explanation) in listOf(
+                emptyList<String>() to "needs one to 8 relays",
+                listOf("ws://remote.fixture.invalid/") to "Use encrypted wss:// room relays",
+                (1..9).map { "wss://relay$it.fixture.invalid/" } to "needs one to 8 relays")) {
                 val invalid = encodeInvitationUrl("https://fixture.invalid/j/", f.host.invitation, invalidRelays)
                 f.main { f.model.joinNearbyFromUrl(invalid, f.descriptor, RoomRoute.MIXED) }
                 await("invalid mixed relays refused") { f.model.start.value.error != null && !f.model.start.value.busy }
+                assertTrue(f.model.start.value.error, f.model.start.value.error!!.contains(explanation))
                 assertTrue(f.radios.isEmpty()); assertEquals(1, f.relayConnections.get())
             }
             f.main { f.model.joinNearbyFromUrl(f.url, f.descriptor, RoomRoute.MIXED) }
             await("signed mismatch refused and closed") { f.model.start.value.error != null && !f.model.start.value.busy && f.radios.isNotEmpty() && f.radios.all { it.closed } && f.relaySockets.size == 1 }
-            assertTrue(f.model.start.value.error!!.contains("relay list differs"))
+            assertTrue(f.model.start.value.error, f.model.start.value.error!!.contains("relay list differs"))
             assertNull(f.app.savedRooms.get(f.room.roomId)); assertTrue(f.epochRequests.isEmpty())
         } finally { f.close() }
     }

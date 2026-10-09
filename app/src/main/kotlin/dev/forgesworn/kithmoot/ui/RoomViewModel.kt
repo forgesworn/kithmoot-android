@@ -3224,8 +3224,10 @@ class RoomViewModel @JvmOverloads constructor(
             check(savedRooms.get(context.roomId) == null) { "This room is already saved. Choose its connection in the Connection menu." }
             check(linkConsents.all().none { it.roomId == context.roomId }) { "Disconnect this room's Bothy before joining nearby." }
             val selectedRelays = if (route.internet) {
-                require(payload.relays.size in 1..MAX_INVITATION_RELAYS) { "Nearby + Internet needs one to $MAX_INVITATION_RELAYS relays in this invitation." }
-                require(payload.relays.all(::isSafeRoomRelayUrl)) { "Use encrypted wss:// room relays; ws:// is allowed only on localhost." }
+                if (payload.relays.size !in 1..MAX_INVITATION_RELAYS) throw RoomRecoveryException(
+                    "Nearby + Internet needs one to $MAX_INVITATION_RELAYS relays in this invitation.")
+                if (!payload.relays.all(::isSafeRoomRelayUrl)) throw RoomRecoveryException(
+                    "Use encrypted wss:// room relays; ws:// is allowed only on localhost.")
                 payload.relays.map(::canonicalRelayUrl).distinct()
             } else emptyList()
             val oldJob = gate.withLock { sessionScope?.coroutineContext?.get(Job).also { closeSession() } }
@@ -3256,8 +3258,8 @@ class RoomViewModel @JvmOverloads constructor(
                     now = ::epochSeconds) { proof, confirm ->
                     val admission = proof.admission
                     admittedSecret = admission.secret
-                    if (route.internet) check(admission.relays?.map(::canonicalRelayUrl)?.toSet() == selectedRelays.toSet()) {
-                        "The keeper's relay list differs from this invitation. Ask for its current link before joining with Internet."
+                    if (route.internet && admission.relays?.map(::canonicalRelayUrl)?.toSet() != selectedRelays.toSet()) {
+                        throw RoomRecoveryException("The keeper's relay list differs from this invitation. Ask for its current link before joining with Internet.")
                     }
                     check(!admission.destruct) { "For a self-destructing room, use Open on the invitation." }
                     admission.endsAt?.let { check(!conferenceEnded(it, epochSeconds())) { conferenceEndedMessage(it) } }
