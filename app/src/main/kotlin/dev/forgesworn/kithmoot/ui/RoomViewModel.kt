@@ -2654,7 +2654,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun checkNearbyRoute(saved: SavedRoom, route: RoomRoute = saved.route) {
         if (!route.nearby) return
-        check(!saved.retired && !saved.movedOn && !saved.ended(epochSeconds())) { "This room has ended." }
+        check(!saved.movedOn && !saved.ended(epochSeconds())) { "This room has ended." }
         check(!chatOnly && callRoomId == null) { "Finish the call before opening a nearby room." }
         check(!saved.anonymous && saved.policy?.quiet != true && saved.quietState == null) {
             "Nearby connections are not yet available for anonymous or quiet rooms."

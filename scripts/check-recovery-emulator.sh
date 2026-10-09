@@ -53,6 +53,7 @@ run_tests() {
 
 run_tests storage-and-ui 9 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
+run_tests nearby-room-ui 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomUiTest
 run_tests nearby-room-entry 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomEntryTest
 run_tests home-screen 25 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare

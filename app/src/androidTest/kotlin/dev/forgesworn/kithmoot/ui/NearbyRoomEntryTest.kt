@@ -62,7 +62,8 @@ class NearbyRoomEntryTest {
             assertFalse(radios.last().closed)
             assertEquals(0, server.requestCount)
             main.runOnMainSync { model.leave() }
-            await("room fully closed") { !model.start.value.busy && radios.last().closed }
+            await("room fully closed") { !model.start.value.busy && radios.last().closed &&
+                !dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.isOpen(saved.id) }
             assertEquals(RoomRoute.NEARBY, app.savedRooms.get(saved.id)!!.route)
             main.runOnMainSync { model.setRoomRoute(saved.id, RoomRoute.INTERNET) }
             await("explicit route persisted") { app.savedRooms.get(saved.id)?.route == RoomRoute.INTERNET && !model.start.value.busy }
