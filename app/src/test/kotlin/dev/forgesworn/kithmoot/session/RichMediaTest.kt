@@ -23,7 +23,8 @@ class RichMediaTest {
         val url = "https://upload.wikimedia.org/wikipedia/commons/a/aa/Cat.gif"
         val image = CatalogueImage("Cat.gif", url, "image/gif", 14, "https://commons.wikimedia.org/wiki/File:Cat.gif", "Artist · CC0")
         assertContentEquals("GIF89a fixture".toByteArray(), downloadCatalogueImage(image, client))
-        assertContentEquals("GIF89a fixture".toByteArray(), downloadCataloguePreview(url, client))
+        val preview = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/aa/Cat.gif/160px-Cat.gif"
+        assertContentEquals("GIF89a fixture".toByteArray(), downloadCataloguePreview(preview, client))
         assertEquals(3, requests.size)
         assertEquals("filemime:image/gif celebration", requests.first().url.queryParameter("gsrsearch"))
     }
@@ -80,5 +81,11 @@ class RichMediaTest {
         assertTrue(catalogueResults(fixture(buildJsonObject { put("url", "https://evil.example/cat.gif") })).isEmpty())
         assertTrue(catalogueResults(fixture(buildJsonObject { put("width", 100_000) })).isEmpty())
         assertTrue(catalogueResults(fixture(buildJsonObject { put("extmetadata", JsonObject(emptyMap())) })).isEmpty())
+        val preview = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/aa/Cat.gif/160px-Cat.gif"
+        assertEquals(preview, catalogueResults(fixture(buildJsonObject { put("thumburl", "$preview?utm_source=test") })).single().preview)
+        assertNull(commonsImageUrl(preview))
+        for (unsafe in listOf("https://thumb.wikimedia.org.evil.example/wikipedia/commons/thumb/x.gif", "https://user:password@thumb.wikimedia.org/wikipedia/commons/thumb/x.gif", "https://thumb.wikimedia.org/other/x.gif", "https://thumb.wikimedia.org:8443/wikipedia/commons/thumb/x.gif")) {
+            assertNull(commonsPreviewUrl(unsafe)); assertFails { downloadCataloguePreview(unsafe) }
+        }
     }
 }

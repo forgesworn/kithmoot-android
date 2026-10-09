@@ -16,6 +16,11 @@ fun commonsImageUrl(value: String): String? = runCatching {
     require(uri.scheme == "https" && uri.host == "upload.wikimedia.org" && uri.path.startsWith("/wikipedia/commons/") && uri.rawUserInfo == null)
     URI(uri.scheme, null, uri.host, uri.port, uri.path, null, null).toASCIIString()
 }.getOrNull()
+fun commonsPreviewUrl(value: String): String? = commonsImageUrl(value) ?: runCatching {
+    val uri = URI(value)
+    require(uri.scheme == "https" && uri.host == "thumb.wikimedia.org" && uri.path.startsWith("/wikipedia/commons/thumb/") && uri.rawUserInfo == null && uri.port in listOf(-1, 443))
+    URI(uri.scheme, null, uri.host, uri.port, uri.path, null, null).toASCIIString()
+}.getOrNull()
 fun catalogueResults(text: String): List<CatalogueImage> {
     require(text.length <= 1_000_000)
     val pages = Json.parseToJsonElement(text).jsonObject["query"]?.jsonObject?.get("pages")?.jsonObject ?: return emptyList()
@@ -32,7 +37,7 @@ fun catalogueResults(text: String): List<CatalogueImage> {
         val license = catalogueText(meta.getValue("LicenseShortName").jsonObject.getValue("value").jsonPrimitive.content)
         require(Regex("^(CC0|Public domain|CC BY(?:-SA)?(?: \\d\\.\\d)?)$", RegexOption.IGNORE_CASE).matches(license))
         val artist = meta["Artist"]?.jsonObject?.get("value")?.jsonPrimitive?.content?.let(::catalogueText).orEmpty().ifEmpty { "Wikimedia Commons" }
-        CatalogueImage(catalogueText(page.getValue("title").jsonPrimitive.content.removePrefix("File:")), url, type, size, source, "$artist · $license", info["thumburl"]?.jsonPrimitive?.content?.let(::commonsImageUrl))
+        CatalogueImage(catalogueText(page.getValue("title").jsonPrimitive.content.removePrefix("File:")), url, type, size, source, "$artist · $license", info["thumburl"]?.jsonPrimitive?.content?.let(::commonsPreviewUrl))
     }.getOrNull() }
 }
 fun searchMediaCatalogue(query: String, stickers: Boolean, client: OkHttpClient = catalogueHttp): List<CatalogueImage> {
@@ -60,7 +65,7 @@ fun downloadCatalogueImage(item: CatalogueImage, client: OkHttpClient = catalogu
 
 /** Only bounded Commons thumbnails, loaded after an explicit catalogue search. */
 fun downloadCataloguePreview(url: String, client: OkHttpClient = catalogueHttp): ByteArray {
-    require(commonsImageUrl(url) == url)
+    require(commonsPreviewUrl(url) == url)
     client.newCall(catalogueRequest(url)).execute().use { response ->
         check(response.isSuccessful)
         val body = checkNotNull(response.body)
