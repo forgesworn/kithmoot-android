@@ -191,7 +191,11 @@ class FreshNearbyEntryTest {
             // SIGKILL can leave loopback connections in TIME_WAIT. Both the
             // original and recovered server must reuse the same pinned port.
             it.serverSocketFactory = object : ServerSocketFactory() {
-                override fun createServerSocket() = ServerSocket().apply { reuseAddress = true }
+                override fun createServerSocket() = object : ServerSocket() {
+                    // MockWebServer 4.12 resets reuse to false for port zero.
+                    // Keep it enabled on this disposable loopback test socket.
+                    override fun setReuseAddress(on: Boolean) { super.setReuseAddress(true) }
+                }.apply { reuseAddress = true }
                 private fun bound(port: Int, backlog: Int, address: InetAddress?) =
                     createServerSocket().apply { bind(InetSocketAddress(address, port), backlog) }
                 override fun createServerSocket(port: Int) = bound(port, 50, null)
