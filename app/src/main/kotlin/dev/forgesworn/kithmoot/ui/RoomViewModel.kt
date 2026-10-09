@@ -4025,6 +4025,7 @@ class RoomViewModel @JvmOverloads constructor(
             roomId = derived.roomId,
             route = route,
             nearby = nearbyOwner?.link?.state?.value,
+            mediaRunning = !route.nearby,
             name = record.name,
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
             anonymous = anonymousProfile,
