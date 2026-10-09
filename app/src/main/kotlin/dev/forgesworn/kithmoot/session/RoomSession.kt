@@ -77,6 +77,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 import java.util.TreeMap
 import kotlin.random.Random
 
@@ -396,6 +397,7 @@ class RoomSession(
     private var settled = false
     @Volatile private var publicationAllowed = false
     @Volatile private var freshJoinJob: Job? = null
+    private var freshProofExpiresAt: Long? = null
     @Volatile private var transportBlocked = false
 
     private var tracks: List<TrackRef> = emptyList()
@@ -504,6 +506,24 @@ class RoomSession(
 
     // --- lifecycle -----------------------------------------------------------
 
+    /** Only the verified live-entry owner may bind its proof to this session. */
+    internal suspend fun joinFromLiveAdmission(
+        context: dev.forgesworn.kithmoot.protocol.LivePersistentContext,
+        ownerDevice: String,
+        epochHint: Int,
+        proofExpiresAt: Long,
+        selectedTransport: RoomTransport,
+    ) {
+        check(requireFreshEpoch && authority == context.invitation.inviter && room.roomId == context.roomId &&
+            identity.devicePubkey == ownerDevice && expectedEpoch == epochHint && transport === selectedTransport && !joined) {
+            "The session does not match this fresh admission"
+        }
+        val remaining = proofExpiresAt - now()
+        check(remaining in 1..30) { "The live admission proof expired" }
+        freshProofExpiresAt = proofExpiresAt
+        withTimeout(remaining * 1000) { join() }
+    }
+
     suspend fun join() {
         if (!requireFreshEpoch) return joinInternal()
         require(authority != null && epochGate != null && epochResponder == null) {
@@ -581,6 +601,7 @@ class RoomSession(
                 }
             }
         }
+        if (requireFreshEpoch) freshProofExpiresAt?.let { check(now() < it) { "The live admission proof expired" } }
         settled = true
         var resumedTransition = false
         if (_epochState.value is RoomEpochState.Active) {
@@ -1465,7 +1486,10 @@ class RoomSession(
             answerFromAuthority(EpochAnswer.Authority(response.event, grant), grant.epoch, "The root epoch could not be committed")
             check(epochKeys().epoch == grant.epoch && _epochState.value is RoomEpochState.Active) { "The root epoch is not committed" }
         } else {
-            grant.members?.let(onMembers)
+            if (grant.epoch > 0) check(deriveEpoch(RoomEpoch(grant.epoch, requireNotNull(grant.secret))).id == epochKeys().id) {
+                "The room authority returned a conflicting epoch key"
+            }
+            grant.members?.let { onMembers(it) }
             synchronized(lock) { removedParticipants += grant.removed }
         }
     }

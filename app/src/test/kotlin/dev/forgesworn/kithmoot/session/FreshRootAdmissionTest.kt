@@ -32,8 +32,8 @@ class FreshRootAdmissionTest {
         assertEquals(KIND_EPOCH_REQUEST, kinds.first())
         assertTrue(KIND_ROSTER in kinds)
         client.sendChat("fresh client"); peer.sendChat("root route reply"); runCurrent()
-        assertTrue(peer.chat.value.any { it.text == "fresh client" })
-        assertTrue(client.chat.value.any { it.text == "root route reply" })
+        assertTrue(peer.chat.value.any { it.body == "fresh client" })
+        assertTrue(client.chat.value.any { it.body == "root route reply" })
     }
 
     @Test fun `epoch zero silence never opens presence or chat`() = runTest {
@@ -104,5 +104,21 @@ class FreshRootAdmissionTest {
         advanceTimeBy(30_000); runCurrent()
         assertFalse(relay.published.any { it.kind == KIND_ROSTER })
         assertFailsWith<IllegalStateException> { client.sendChat("blocked") }
+    }
+
+    @Test fun `an equal epoch number with a different root key is not admission confirmation`() = runTest {
+        val room = Fixtures.room(); val relay = FakeRelay()
+        val client = session(room, Fixtures.primary(room, 1, 2), relay, authority = authority,
+            initialEpoch = deriveEpoch(RoomEpoch(1, ByteArray(32) { 8 })),
+            epochGate = { _, _ -> EpochGateResult.COMMITTED }, requireFreshEpoch = true)
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            relay.transport().subscribe(listOf(Filter(kinds = listOf(KIND_EPOCH_REQUEST)))).collect { request ->
+                relay.publish(encodeEpochGrant(room.roomId, root, request.pubkey, request.id, currentTime / 1000,
+                    RoomEpoch(1, ByteArray(32) { 9 })))
+            }
+        }
+        val joining = async { runCatching { client.join() } }; runCurrent()
+        assertTrue(joining.await().isFailure)
+        assertFalse(relay.published.any { it.kind == KIND_ROSTER })
     }
 }

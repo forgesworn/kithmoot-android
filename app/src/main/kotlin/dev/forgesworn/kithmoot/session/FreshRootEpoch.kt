@@ -42,15 +42,17 @@ internal suspend fun requestFreshRootEpoch(
                     val request = currentRequest.get() ?: return@collect
                     if (!boundedAdmissionEvent(event, 262_144) || event.toJson().toString().length > 263_168) return@collect
                     checked++
-                    when (val grant = decodeEpochGrant(event, room.roomId, authority, identity.deviceSecretKey, request, now())) {
-                        null -> Unit
-                        is EpochGrant.Refused -> if (grant.reason != "unknown") error("Epoch admission refused: ${grant.reason}")
-                        is EpochGrant.Current -> {
-                            val minimum = floor()
-                            if (minimum >= 0 && grant.epoch >= minimum) {
-                                check(identity.participant !in grant.removed) { "Epoch admission refused: removed" }
-                                synchronized(answer) {
-                                    if (currentRequest.get() == request) answer.complete(FreshRootAnswer(event, grant))
+                    val grant = decodeEpochGrant(event, room.roomId, authority, identity.deviceSecretKey, request, now()) ?: return@collect
+                    synchronized(answer) {
+                        // Offer rotation may run on another dispatcher while decoding.
+                        if (currentRequest.get() != request || answer.isCompleted) return@synchronized
+                        when (grant) {
+                            is EpochGrant.Refused -> if (grant.reason != "unknown") error("Epoch admission refused: ${grant.reason}")
+                            is EpochGrant.Current -> {
+                                val minimum = floor()
+                                if (minimum >= 0 && grant.epoch >= minimum) {
+                                    check(identity.participant !in grant.removed) { "Epoch admission refused: removed" }
+                                    answer.complete(FreshRootAnswer(event, grant))
                                 }
                             }
                         }
