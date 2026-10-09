@@ -22,6 +22,9 @@ take an already downloaded archive. Gradle verifies all prepared sources and
 rejects extra files on every build. CI and the production build script run the
 same preparation. No sibling checkout, npm install or Capacitor is needed.
 The upstream MIT licence is carried in the module resources.
+The host supplies its API-33+ manifest, retaining scan/advertise/connect and the
+optional connected-device service. It does not import the provider's pre-31
+location/legacy Bluetooth permissions. The Java engine remains unmodified.
 
 The host's single coroutine owns all engine calls on Android's main dispatcher.
 Its channel holds at most 64 commands/events. At most 32 outbound frames and

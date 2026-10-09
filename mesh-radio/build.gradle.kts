@@ -36,7 +36,6 @@ android {
     }
     sourceSets.getByName("main") {
         java.setSrcDirs(listOf(sourceRoot.map { it.dir("android-radio/src/main/java") }))
-        manifest.srcFile(sourceRoot.map { it.file("android-radio/src/main/AndroidManifest.xml") })
     }
 }
 tasks.named("preBuild") { dependsOn(verifyMeshRadioSource) }
