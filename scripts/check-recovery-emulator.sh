@@ -39,14 +39,22 @@ esac
 
 run_tests() {
   local report="$1" count="$2"
+  local commands=()
   shift 2
-  adb_device shell am instrument -w "$@" \
-    dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$reports/$report.txt"
+  # Capture every pipeline status before errexit can discard failure evidence.
+  # An instrumentation summary can say OK even if adb itself exits nonzero.
+  if adb_device shell am instrument -w "$@" \
+    dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$reports/$report.txt"; then
+    commands=("${PIPESTATUS[@]}")
+  else
+    commands=("${PIPESTATUS[@]}")
+  fi
   # am instrument may exit zero after an assertion failure or process crash.
-  if ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
-    adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt"
-    adb_device exec-out screencap -p > "$reports/$report-screen.png"
-    echo "Instrumentation did not pass: $report" >&2
+  if [[ "${commands[*]}" != '0 0 0' ]] || ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
+    echo "Instrumentation did not pass: $report (adb=${commands[0]}, tr=${commands[1]}, tee=${commands[2]})" >&2
+    # A disconnected emulator must not hide the original command failure.
+    adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
+    adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
     exit 1
   fi
 }
