@@ -58,6 +58,7 @@ jobs:
         run: |
           bash -n scripts/*.sh
           python3 -m py_compile scripts/*.py
+          python3 scripts/check-recovery-runner.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
