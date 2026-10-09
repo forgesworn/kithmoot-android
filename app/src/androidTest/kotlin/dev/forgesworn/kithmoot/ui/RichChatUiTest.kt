@@ -63,12 +63,15 @@ class RichChatUiTest {
             ui.onNodeWithText("Hello from Rowan", useUnmergedTree = true).performClick()
             ui.waitUntil(5_000) { ui.onNodeWithText("More emoji…").isDisplayed() }
             ui.onNodeWithText("More emoji…").performClick()
-            ui.onNodeWithText("Search emoji").performTextInput("unicorn")
+            ui.onNodeWithContentDescription("Search artwork").performClick()
+            ui.onNodeWithTag("artwork-search").performTextInput("unicorn")
             ui.onNodeWithContentDescription("🦄 unicorn").performClick()
             ui.runOnIdle { assertEquals("🦄", chosen) }
             ui.onNodeWithContentDescription("Emoji").performClick()
-            ui.onNodeWithText("Search emoji").performTextInput("600")
+            ui.onNodeWithContentDescription("Search artwork").performClick()
+            ui.onNodeWithTag("artwork-search").performTextInput("600")
             ui.onNodeWithContentDescription(":600: 600 billion").assertDoesNotExist()
+            ui.onNodeWithContentDescription("Artwork options").performClick()
             ui.onNodeWithText("Unlock Nostr packs").performClick()
             ui.waitUntil(5_000) { ui.onNodeWithContentDescription(":600: 600 billion").isDisplayed() }
             ui.onNodeWithContentDescription(":600: 600 billion").performClick()

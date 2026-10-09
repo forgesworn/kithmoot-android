@@ -25,6 +25,10 @@ import dev.forgesworn.kithmoot.session.*
 
 @Composable
 fun PackEmoji(emoji: String, modifier: Modifier = Modifier) {
+    familiarArtworkDrawable(emoji)?.let { drawable ->
+        Image(painterResource(drawable), familiarEmojiTitle(emoji) ?: emoji, modifier)
+        return
+    }
     if (isOriginalEmoji(emoji)) {
         Image(painterResource(originalArtworkDrawable(emoji.removePrefix(":km_").removeSuffix(":"))), ORIGINAL_EMOJIS.first { it.first == emoji }.second, modifier)
         return
@@ -47,16 +51,23 @@ fun PackEmoji(emoji: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun PackMessageText(body: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface) {
-    if (isCultEmoji(body.trim()) || isOriginalEmoji(body.trim())) { PackEmoji(body.trim(), modifier.size(144.dp)); return }
-    val codes = (CULT_EMOJIS + ORIGINAL_EMOJIS).map { it.first }
-    val regex = remember { Regex(codes.joinToString("|", transform = Regex::escape)) }
+    if (isCultEmoji(body.trim()) || isOriginalEmoji(body.trim()) || (body.trim().startsWith(":fs_") && familiarArtworkDrawable(body.trim()) != null)) { PackEmoji(body.trim(), modifier.size(144.dp)); return }
+    // Links are split before artwork so emoji inside a URL stays copyable and tappable.
     val text = AnnotatedString.Builder()
-    var offset = 0
-    for (match in regex.findAll(body)) {
-        text.append(linkedMessage(body.substring(offset, match.range.first), MaterialTheme.colorScheme.primary))
-        text.appendInlineContent(match.value, match.value); offset = match.range.last + 1
+    val codes = mutableSetOf<String>()
+    for (token in splitLinks(body)) when (token) {
+        is MessageToken.Link -> text.append(linkedMessage(token.url, MaterialTheme.colorScheme.primary))
+        is MessageToken.Text -> {
+            var offset = 0
+            for (match in artworkMatches(token.value)) {
+                text.append(token.value.substring(offset, match.start))
+                text.appendInlineContent(match.value, match.value)
+                codes += match.value
+                offset = match.end
+            }
+            text.append(token.value.substring(offset))
+        }
     }
-    text.append(linkedMessage(body.substring(offset), MaterialTheme.colorScheme.primary))
     val inline = codes.associateWith { code -> InlineTextContent(Placeholder(28.sp, 28.sp, PlaceholderVerticalAlign.Center)) { PackEmoji(code, Modifier.fillMaxSize()) } }
     Text(text.toAnnotatedString(), modifier, style = style, color = color, inlineContent = inline)
 }

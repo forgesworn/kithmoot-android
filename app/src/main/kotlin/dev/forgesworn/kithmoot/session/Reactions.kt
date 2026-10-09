@@ -2,7 +2,7 @@ package dev.forgesworn.kithmoot.session
 
 import kotlinx.serialization.json.*
 
-val REACTION_EMOJIS = listOf("👍", "❤️", "🤦", "😂", "🎉", "👀", "🙏", "😢", "💯")
+val REACTION_EMOJIS = listOf("👍", "👎", "❤️", "🤦", "😂", "🎉", "👀", "🙏", "😢", "💯")
 
 /** An authenticated update inside encrypted kind 1460, never a public kind-7 event. */
 data class ChatReaction(val messageId: String, val participant: String, val emoji: String, val active: Boolean, val revision: Int) {

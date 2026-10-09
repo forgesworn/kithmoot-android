@@ -1,0 +1,2555 @@
+{
+  "source": {
+    "repository": "https://github.com/forgesworn/forgemoji",
+    "revision": "c9f53357de24fff682e8a234af183406a57757a6",
+    "version": "0.1.2",
+    "creator": "TheCryptoDonkey",
+    "model": "gpt-image-2.5-sunburst",
+    "license": "MIT"
+  },
+  "definitions": [
+    {
+      "emoji": "👍",
+      "slug": "thumbs-up",
+      "title": "Thumbs up",
+      "keywords": "thumbs up yes good like",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "👎",
+      "slug": "thumbs-down",
+      "title": "Thumbs down",
+      "keywords": "thumbs down no dislike",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "👋",
+      "slug": "wave",
+      "title": "Wave",
+      "keywords": "wave hello goodbye",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "👏",
+      "slug": "clap",
+      "title": "Clap",
+      "keywords": "clap applause",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "🙏",
+      "slug": "thanks",
+      "title": "Thanks",
+      "keywords": "thanks pray please",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "✌️",
+      "slug": "peace",
+      "title": "Peace",
+      "keywords": "peace victory",
+      "category": "Hands",
+      "toneable": true
+    },
+    {
+      "emoji": "😄",
+      "slug": "happy",
+      "title": "Happy",
+      "keywords": "happy smile joy",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😂",
+      "slug": "tears-of-joy",
+      "title": "Tears of joy",
+      "keywords": "tears of joy laugh funny lol",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😍",
+      "slug": "heart-eyes",
+      "title": "Heart eyes",
+      "keywords": "heart eyes love adore",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😎",
+      "slug": "cool",
+      "title": "Cool",
+      "keywords": "cool sunglasses",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😉",
+      "slug": "wink",
+      "title": "Wink",
+      "keywords": "wink joke",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😘",
+      "slug": "kiss",
+      "title": "Kiss",
+      "keywords": "kiss love",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😢",
+      "slug": "sad",
+      "title": "Sad",
+      "keywords": "sad tear",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😭",
+      "slug": "crying",
+      "title": "Crying",
+      "keywords": "crying sob tears",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😠",
+      "slug": "angry",
+      "title": "Angry",
+      "keywords": "angry mad",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😮",
+      "slug": "surprised",
+      "title": "Surprised",
+      "keywords": "surprised wow",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤔",
+      "slug": "thinking",
+      "title": "Thinking",
+      "keywords": "thinking hmm question",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😑",
+      "slug": "unimpressed",
+      "title": "Unimpressed",
+      "keywords": "unimpressed meh",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😁",
+      "slug": "grin",
+      "title": "Grin",
+      "keywords": "grin happy teeth",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤣",
+      "slug": "rolling-laughter",
+      "title": "Rolling with laughter",
+      "keywords": "rolling with laughter rofl funny",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🥰",
+      "slug": "love",
+      "title": "Love",
+      "keywords": "love hearts affection",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😱",
+      "slug": "shocked",
+      "title": "Shocked",
+      "keywords": "shocked scream fear",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😴",
+      "slug": "sleepy",
+      "title": "Sleepy",
+      "keywords": "sleepy sleep tired",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😅",
+      "slug": "phew",
+      "title": "Phew",
+      "keywords": "phew relief sweat",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "❤️",
+      "slug": "heart",
+      "title": "Heart",
+      "keywords": "heart love red",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "💔",
+      "slug": "broken-heart",
+      "title": "Broken heart",
+      "keywords": "broken heart sad",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "🔥",
+      "slug": "fire",
+      "title": "Fire",
+      "keywords": "fire hot flame",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "🎉",
+      "slug": "celebrate",
+      "title": "Celebrate",
+      "keywords": "celebrate party confetti",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "✅",
+      "slug": "yes",
+      "title": "Yes",
+      "keywords": "yes check tick correct",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "❌",
+      "slug": "no",
+      "title": "No",
+      "keywords": "no cross wrong",
+      "category": "Symbols",
+      "toneable": false
+    },
+    {
+      "emoji": "😀",
+      "slug": "grinning",
+      "title": "Grinning",
+      "keywords": "grinning happy smile",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🙂",
+      "slug": "slight-smile",
+      "title": "Slight smile",
+      "keywords": "slight smile friendly",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🙃",
+      "slug": "upside-down",
+      "title": "Upside down",
+      "keywords": "upside down silly irony",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😊",
+      "slug": "blush",
+      "title": "Blush",
+      "keywords": "blush happy shy",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😇",
+      "slug": "innocent",
+      "title": "Innocent",
+      "keywords": "innocent angel halo",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🥳",
+      "slug": "party-face",
+      "title": "Party face",
+      "keywords": "party face celebrate birthday",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤩",
+      "slug": "star-eyes",
+      "title": "Star eyes",
+      "keywords": "star eyes excited amazed",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😋",
+      "slug": "delicious",
+      "title": "Delicious",
+      "keywords": "delicious yum food",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😛",
+      "slug": "tongue",
+      "title": "Tongue out",
+      "keywords": "tongue out playful",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😜",
+      "slug": "wink-tongue",
+      "title": "Winking tongue",
+      "keywords": "winking tongue silly cheeky",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤪",
+      "slug": "zany",
+      "title": "Zany",
+      "keywords": "zany crazy silly",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤑",
+      "slug": "money-face",
+      "title": "Money face",
+      "keywords": "money face rich cash",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤐",
+      "slug": "zip-mouth",
+      "title": "Zipped mouth",
+      "keywords": "zipped mouth secret quiet",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤨",
+      "slug": "raised-eyebrow",
+      "title": "Raised eyebrow",
+      "keywords": "raised eyebrow sceptical doubt",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😐",
+      "slug": "neutral",
+      "title": "Neutral",
+      "keywords": "neutral blank",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🙄",
+      "slug": "eye-roll",
+      "title": "Eye roll",
+      "keywords": "eye roll annoyed",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😏",
+      "slug": "smirk",
+      "title": "Smirk",
+      "keywords": "smirk knowing",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😬",
+      "slug": "grimace",
+      "title": "Grimace",
+      "keywords": "grimace awkward teeth",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😔",
+      "slug": "pensive",
+      "title": "Pensive",
+      "keywords": "pensive sad thoughtful",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🥺",
+      "slug": "pleading",
+      "title": "Pleading",
+      "keywords": "pleading please puppy eyes",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😤",
+      "slug": "huff",
+      "title": "Huff",
+      "keywords": "huff steam frustrated",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😡",
+      "slug": "furious",
+      "title": "Furious",
+      "keywords": "furious angry red",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤯",
+      "slug": "mind-blown",
+      "title": "Mind blown",
+      "keywords": "mind blown exploding amazed",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🥵",
+      "slug": "hot-face",
+      "title": "Hot face",
+      "keywords": "hot face heat sweat",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🥶",
+      "slug": "cold-face",
+      "title": "Cold face",
+      "keywords": "cold face frozen ice",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤢",
+      "slug": "nauseated",
+      "title": "Nauseated",
+      "keywords": "nauseated sick green",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤮",
+      "slug": "vomit",
+      "title": "Vomiting",
+      "keywords": "vomiting sick",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤒",
+      "slug": "fever",
+      "title": "Fever",
+      "keywords": "fever thermometer sick",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🤕",
+      "slug": "bandage",
+      "title": "Bandaged head",
+      "keywords": "bandaged head hurt injury",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "😷",
+      "slug": "mask",
+      "title": "Medical mask",
+      "keywords": "medical mask ill health",
+      "category": "Faces",
+      "toneable": false
+    },
+    {
+      "emoji": "🐶",
+      "slug": "dog",
+      "title": "Dog",
+      "keywords": "dog puppy pet",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐱",
+      "slug": "cat",
+      "title": "Cat",
+      "keywords": "cat kitten pet",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐭",
+      "slug": "mouse",
+      "title": "Mouse",
+      "keywords": "mouse rodent",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐹",
+      "slug": "hamster",
+      "title": "Hamster",
+      "keywords": "hamster pet",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐰",
+      "slug": "rabbit",
+      "title": "Rabbit",
+      "keywords": "rabbit bunny",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🦊",
+      "slug": "fox",
+      "title": "Fox",
+      "keywords": "fox animal",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐻",
+      "slug": "bear",
+      "title": "Bear",
+      "keywords": "bear animal",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐼",
+      "slug": "panda",
+      "title": "Panda",
+      "keywords": "panda bear",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐨",
+      "slug": "koala",
+      "title": "Koala",
+      "keywords": "koala animal",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐯",
+      "slug": "tiger",
+      "title": "Tiger",
+      "keywords": "tiger cat",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🦁",
+      "slug": "lion",
+      "title": "Lion",
+      "keywords": "lion cat",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐮",
+      "slug": "cow",
+      "title": "Cow",
+      "keywords": "cow farm",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐷",
+      "slug": "pig",
+      "title": "Pig",
+      "keywords": "pig farm",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐸",
+      "slug": "frog",
+      "title": "Frog",
+      "keywords": "frog green",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐵",
+      "slug": "monkey",
+      "title": "Monkey",
+      "keywords": "monkey animal",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐔",
+      "slug": "chicken",
+      "title": "Chicken",
+      "keywords": "chicken bird",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐧",
+      "slug": "penguin",
+      "title": "Penguin",
+      "keywords": "penguin bird",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🦆",
+      "slug": "duck",
+      "title": "Duck",
+      "keywords": "duck bird",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🦉",
+      "slug": "owl",
+      "title": "Owl",
+      "keywords": "owl bird",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🦋",
+      "slug": "butterfly",
+      "title": "Butterfly",
+      "keywords": "butterfly insect",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐝",
+      "slug": "bee",
+      "title": "Bee",
+      "keywords": "bee insect honey",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐢",
+      "slug": "turtle",
+      "title": "Turtle",
+      "keywords": "turtle slow",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐙",
+      "slug": "octopus",
+      "title": "Octopus",
+      "keywords": "octopus sea",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🐳",
+      "slug": "whale",
+      "title": "Whale",
+      "keywords": "whale sea",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🌻",
+      "slug": "sunflower",
+      "title": "Sunflower",
+      "keywords": "sunflower flower",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🌹",
+      "slug": "rose",
+      "title": "Rose",
+      "keywords": "rose flower love",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🌈",
+      "slug": "rainbow",
+      "title": "Rainbow",
+      "keywords": "rainbow weather",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "☀️",
+      "slug": "sun",
+      "title": "Sun",
+      "keywords": "sun sunny weather",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🌙",
+      "slug": "moon",
+      "title": "Moon",
+      "keywords": "moon night",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "⭐",
+      "slug": "star",
+      "title": "Star",
+      "keywords": "star night favourite",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🍎",
+      "slug": "apple",
+      "title": "Apple",
+      "keywords": "apple fruit",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍌",
+      "slug": "banana",
+      "title": "Banana",
+      "keywords": "banana fruit",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍓",
+      "slug": "strawberry",
+      "title": "Strawberry",
+      "keywords": "strawberry fruit",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍉",
+      "slug": "watermelon",
+      "title": "Watermelon",
+      "keywords": "watermelon fruit",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍋",
+      "slug": "lemon",
+      "title": "Lemon",
+      "keywords": "lemon fruit",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🥑",
+      "slug": "avocado",
+      "title": "Avocado",
+      "keywords": "avocado food",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍕",
+      "slug": "pizza",
+      "title": "Pizza",
+      "keywords": "pizza food slice",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍔",
+      "slug": "burger",
+      "title": "Burger",
+      "keywords": "burger food",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍟",
+      "slug": "fries",
+      "title": "Fries",
+      "keywords": "fries chips food",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🌮",
+      "slug": "taco",
+      "title": "Taco",
+      "keywords": "taco food",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍿",
+      "slug": "popcorn",
+      "title": "Popcorn",
+      "keywords": "popcorn movie snack",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍰",
+      "slug": "cake",
+      "title": "Cake",
+      "keywords": "cake dessert birthday",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍩",
+      "slug": "doughnut",
+      "title": "Doughnut",
+      "keywords": "doughnut donut dessert",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍪",
+      "slug": "cookie",
+      "title": "Cookie",
+      "keywords": "cookie biscuit snack",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍦",
+      "slug": "ice-cream",
+      "title": "Ice cream",
+      "keywords": "ice cream dessert",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "☕",
+      "slug": "coffee",
+      "title": "Coffee",
+      "keywords": "coffee tea drink",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🍺",
+      "slug": "beer",
+      "title": "Beer",
+      "keywords": "beer pint drink",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🥂",
+      "slug": "cheers",
+      "title": "Cheers",
+      "keywords": "cheers glasses toast",
+      "category": "Food",
+      "toneable": false
+    },
+    {
+      "emoji": "🎁",
+      "slug": "gift",
+      "title": "Gift",
+      "keywords": "gift present birthday",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "💡",
+      "slug": "idea",
+      "title": "Light bulb",
+      "keywords": "light bulb idea",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🔑",
+      "slug": "key",
+      "title": "Key",
+      "keywords": "key unlock",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🔒",
+      "slug": "lock",
+      "title": "Lock",
+      "keywords": "lock private secure",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🚀",
+      "slug": "rocket",
+      "title": "Rocket",
+      "keywords": "rocket launch space",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "💻",
+      "slug": "laptop",
+      "title": "Laptop",
+      "keywords": "laptop computer work",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "📱",
+      "slug": "phone",
+      "title": "Phone",
+      "keywords": "phone mobile",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "📷",
+      "slug": "camera",
+      "title": "Camera",
+      "keywords": "camera photo",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🎮",
+      "slug": "gamepad",
+      "title": "Gamepad",
+      "keywords": "gamepad game play",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "⚽",
+      "slug": "football",
+      "title": "Football",
+      "keywords": "football soccer sport",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🏆",
+      "slug": "trophy",
+      "title": "Trophy",
+      "keywords": "trophy winner award",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "💩",
+      "slug": "poop",
+      "title": "Poop",
+      "keywords": "poop shit poo",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🫏",
+      "slug": "crypto-donkey",
+      "title": "Donkey",
+      "keywords": "donkey orange crypto cryptodonkey thecryptodonkey cute mascot",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "🪨",
+      "slug": "sacred-stone",
+      "title": "Sacred stone",
+      "keywords": "rock stone sacred 600 600.wtf 600000000000",
+      "category": "Objects",
+      "toneable": false
+    },
+    {
+      "emoji": "🕷️",
+      "slug": "jumping-spider",
+      "title": "Jumping spider",
+      "keywords": "jumping spider black spider cute littleleap little leap pip jumping fuzzy",
+      "category": "Nature",
+      "toneable": false
+    },
+    {
+      "emoji": "₿",
+      "slug": "bitcoin",
+      "title": "Bitcoin",
+      "keywords": "bitcoin btc orange coin currency",
+      "category": "Symbols",
+      "toneable": false,
+      "kind": "symbol"
+    },
+    {
+      "emoji": ":fs_forgesworn:",
+      "slug": "fs-forgesworn",
+      "title": "ForgeSworn",
+      "keywords": "forgesworn forgesworn brand logo forgesworn",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_kindred:",
+      "slug": "fs-kindred",
+      "title": "Kindred",
+      "keywords": "kindred forgesworn brand logo kindred",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_kithmoot:",
+      "slug": "fs-kithmoot",
+      "title": "KithMoot",
+      "keywords": "kithmoot forgesworn brand logo kithmoot",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_mysignet:",
+      "slug": "fs-mysignet",
+      "title": "MySignet",
+      "keywords": "mysignet forgesworn brand logo mysignet",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark:",
+      "slug": "fs-vitark",
+      "title": "Vitark",
+      "keywords": "vitark forgesworn brand logo vitark",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_den:",
+      "slug": "fs-vitark-den",
+      "title": "Vitark Den",
+      "keywords": "vitark den forgesworn brand logo vitark den",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_train:",
+      "slug": "fs-vitark-train",
+      "title": "Vitark Train",
+      "keywords": "vitark train forgesworn brand logo vitark train",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_still:",
+      "slug": "fs-vitark-still",
+      "title": "Vitark Still",
+      "keywords": "vitark still forgesworn brand logo vitark still",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    },
+    {
+      "emoji": ":fs_vitark_record:",
+      "slug": "fs-vitark-record",
+      "title": "Vitark Record",
+      "keywords": "vitark record forgesworn brand logo vitark record",
+      "category": "forgesworn",
+      "toneable": false,
+      "kind": "custom"
+    }
+  ],
+  "artwork": [
+    {
+      "emoji": "😄",
+      "baseEmoji": "😄",
+      "slug": "happy",
+      "tone": 0,
+      "file": "png/happy.png",
+      "bytes": 45269,
+      "sha256": "1eac8b060493a9f76addfbc1c7b9d899a9b735356cb464512395fb0ae49d63bf"
+    },
+    {
+      "emoji": "😂",
+      "baseEmoji": "😂",
+      "slug": "tears-of-joy",
+      "tone": 0,
+      "file": "png/tears-of-joy.png",
+      "bytes": 47391,
+      "sha256": "900da535d4031f01806222174aecc9d6828c15c436f194d63f3e15a20d5eb127"
+    },
+    {
+      "emoji": "😍",
+      "baseEmoji": "😍",
+      "slug": "heart-eyes",
+      "tone": 0,
+      "file": "png/heart-eyes.png",
+      "bytes": 47900,
+      "sha256": "b05edc44134a5331c1322fcaf5c3f6d1fdf8dd7540869f73a870e763223dea61"
+    },
+    {
+      "emoji": "😎",
+      "baseEmoji": "😎",
+      "slug": "cool",
+      "tone": 0,
+      "file": "png/cool.png",
+      "bytes": 46913,
+      "sha256": "6192b53be0f1197ea6bfdefe4e7751470d76189ec494835572c799526fe01376"
+    },
+    {
+      "emoji": "😉",
+      "baseEmoji": "😉",
+      "slug": "wink",
+      "tone": 0,
+      "file": "png/wink.png",
+      "bytes": 43982,
+      "sha256": "373e09b7d28933925aa58afebc72bca90b8bac3d982028e93705117b4c247aaf"
+    },
+    {
+      "emoji": "😘",
+      "baseEmoji": "😘",
+      "slug": "kiss",
+      "tone": 0,
+      "file": "png/kiss.png",
+      "bytes": 45330,
+      "sha256": "e1145c8d8164016f3be6ac8aadb79dbf84bffaa00b0e9b6299c2546b6adcead1"
+    },
+    {
+      "emoji": "😢",
+      "baseEmoji": "😢",
+      "slug": "sad",
+      "tone": 0,
+      "file": "png/sad.png",
+      "bytes": 46058,
+      "sha256": "abc32251d4b132584badf650cbbcc5b163d67d676997a12411c8a051ae7495f8"
+    },
+    {
+      "emoji": "😭",
+      "baseEmoji": "😭",
+      "slug": "crying",
+      "tone": 0,
+      "file": "png/crying.png",
+      "bytes": 46656,
+      "sha256": "a5a86f036dbf585d2526ec9dfe98b8b796dd192f00376fdc717e8a6673d5ba48"
+    },
+    {
+      "emoji": "😠",
+      "baseEmoji": "😠",
+      "slug": "angry",
+      "tone": 0,
+      "file": "png/angry.png",
+      "bytes": 43367,
+      "sha256": "aff7bb7bed346325037b9e926a09ca670e6bc5dd119da9a57e480f85e41fa34e"
+    },
+    {
+      "emoji": "😮",
+      "baseEmoji": "😮",
+      "slug": "surprised",
+      "tone": 0,
+      "file": "png/surprised.png",
+      "bytes": 44257,
+      "sha256": "5f8423cb61142b39bad5758ed75e3a12240463b2f991957d15a7045ef4c25ff5"
+    },
+    {
+      "emoji": "🤔",
+      "baseEmoji": "🤔",
+      "slug": "thinking",
+      "tone": 0,
+      "file": "png/thinking.png",
+      "bytes": 44567,
+      "sha256": "8f054a1434cf609e218e4f07458a01b39f030d4275b732f631edf7ea6cb0cd69"
+    },
+    {
+      "emoji": "😑",
+      "baseEmoji": "😑",
+      "slug": "unimpressed",
+      "tone": 0,
+      "file": "png/unimpressed.png",
+      "bytes": 40137,
+      "sha256": "cb6550aba667f1982f433bb67c4c8caa7c9716f18f62a4183e99cdbcae9eaea7"
+    },
+    {
+      "emoji": "😁",
+      "baseEmoji": "😁",
+      "slug": "grin",
+      "tone": 0,
+      "file": "png/grin.png",
+      "bytes": 45441,
+      "sha256": "e549c9f0b0bf5037c4391b26c2c02563382e7cd2f4dcc6798a34b4489aa40bd7"
+    },
+    {
+      "emoji": "🤣",
+      "baseEmoji": "🤣",
+      "slug": "rolling-laughter",
+      "tone": 0,
+      "file": "png/rolling-laughter.png",
+      "bytes": 49740,
+      "sha256": "1a077b8b131e1838225575dcfd9f08f56d81898d0f99248ccc08e4b72bb32a3b"
+    },
+    {
+      "emoji": "🥰",
+      "baseEmoji": "🥰",
+      "slug": "love",
+      "tone": 0,
+      "file": "png/love.png",
+      "bytes": 47583,
+      "sha256": "58f739672b00e366a28e4456e87c974589cab7acd46aff82eab2567186da331b"
+    },
+    {
+      "emoji": "😱",
+      "baseEmoji": "😱",
+      "slug": "shocked",
+      "tone": 0,
+      "file": "png/shocked.png",
+      "bytes": 51407,
+      "sha256": "c0db83d133f6b724ede7d365243a95038f0e4b5b8332f88faedbfb4b8b3f9b91"
+    },
+    {
+      "emoji": "😴",
+      "baseEmoji": "😴",
+      "slug": "sleepy",
+      "tone": 0,
+      "file": "png/sleepy.png",
+      "bytes": 42086,
+      "sha256": "dbaae182b340337b52cf2777248bbb0a66bd32b8fef06499f9167ec276b650e8"
+    },
+    {
+      "emoji": "😅",
+      "baseEmoji": "😅",
+      "slug": "phew",
+      "tone": 0,
+      "file": "png/phew.png",
+      "bytes": 48715,
+      "sha256": "5cf4faeae316fd406ea7df4887156f5a1a182900fb87557803bc586adf796ea8"
+    },
+    {
+      "emoji": "❤️",
+      "baseEmoji": "❤️",
+      "slug": "heart",
+      "tone": 0,
+      "file": "png/heart.png",
+      "bytes": 36825,
+      "sha256": "6742254e566fe3877d5383af9fcc313fd7617b9565de1e99b85197388642fa65"
+    },
+    {
+      "emoji": "💔",
+      "baseEmoji": "💔",
+      "slug": "broken-heart",
+      "tone": 0,
+      "file": "png/broken-heart.png",
+      "bytes": 40663,
+      "sha256": "f94eee5e9ff803d9318d60f814615de5e93df17ba395a91cce960763e2f7b509"
+    },
+    {
+      "emoji": "🔥",
+      "baseEmoji": "🔥",
+      "slug": "fire",
+      "tone": 0,
+      "file": "png/fire.png",
+      "bytes": 39600,
+      "sha256": "f45d80d0a61a557f673b088052ea33a2af44af18a3c53109be9ed4037182b587"
+    },
+    {
+      "emoji": "🎉",
+      "baseEmoji": "🎉",
+      "slug": "celebrate",
+      "tone": 0,
+      "file": "png/celebrate.png",
+      "bytes": 57366,
+      "sha256": "754a08b1bf1e629e7b022fa4df7922a1dec365762a3ec461f349a30a4a93dceb"
+    },
+    {
+      "emoji": "✅",
+      "baseEmoji": "✅",
+      "slug": "yes",
+      "tone": 0,
+      "file": "png/yes.png",
+      "bytes": 36618,
+      "sha256": "44637150f455e768ff999842e3a9f13e2ee05d437b643708149fc66ddff3735f"
+    },
+    {
+      "emoji": "❌",
+      "baseEmoji": "❌",
+      "slug": "no",
+      "tone": 0,
+      "file": "png/no.png",
+      "bytes": 45524,
+      "sha256": "222b7dff8721f5bbb76bd0c6fc8611cad5e5be9734148e46e4c957cf59369bd7"
+    },
+    {
+      "emoji": "👍",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up",
+      "tone": 0,
+      "file": "png/thumbs-up.png",
+      "bytes": 39103,
+      "sha256": "63892ef0b398132c3e234ac306711f423d0755ee0bb324796c80773d84c23fe3"
+    },
+    {
+      "emoji": "👎",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down",
+      "tone": 0,
+      "file": "png/thumbs-down.png",
+      "bytes": 40197,
+      "sha256": "447aa859859cc6789764f1706dd860bf596cbd6fe1cb90226967ecd4dc888982"
+    },
+    {
+      "emoji": "👋",
+      "baseEmoji": "👋",
+      "slug": "wave",
+      "tone": 0,
+      "file": "png/wave.png",
+      "bytes": 51320,
+      "sha256": "40c45efc24677761eb6250efc2a2cabc129c3a67c1331870604b560cfc1010c1"
+    },
+    {
+      "emoji": "👏",
+      "baseEmoji": "👏",
+      "slug": "clap",
+      "tone": 0,
+      "file": "png/clap.png",
+      "bytes": 49781,
+      "sha256": "6c83b2c2b32eb9f963000ddbaaa6199eda39f9dca94c2abc5481e7500040788a"
+    },
+    {
+      "emoji": "🙏",
+      "baseEmoji": "🙏",
+      "slug": "thanks",
+      "tone": 0,
+      "file": "png/thanks.png",
+      "bytes": 41853,
+      "sha256": "ccef9be94d00a4a61e2d6d4c7b714d4d103f71eff562a1cbb9c4d843d1a94fe0"
+    },
+    {
+      "emoji": "✌️",
+      "baseEmoji": "✌️",
+      "slug": "peace",
+      "tone": 0,
+      "file": "png/peace.png",
+      "bytes": 34468,
+      "sha256": "ea89e66244fdb88b0625d71ef19ac030fbc8994ec11f849bdbf451810361a3c2"
+    },
+    {
+      "emoji": "😀",
+      "baseEmoji": "😀",
+      "slug": "grinning",
+      "tone": 0,
+      "file": "png/grinning.png",
+      "bytes": 47088,
+      "sha256": "751ec851c31415c6dfe352fedd353525a68c6407a12436d019c2a42273fb8cf2"
+    },
+    {
+      "emoji": "🙂",
+      "baseEmoji": "🙂",
+      "slug": "slight-smile",
+      "tone": 0,
+      "file": "png/slight-smile.png",
+      "bytes": 44154,
+      "sha256": "7794211d81cc8441ee58356974f0643990f301ceac36eed418fcc66880b2936e"
+    },
+    {
+      "emoji": "🙃",
+      "baseEmoji": "🙃",
+      "slug": "upside-down",
+      "tone": 0,
+      "file": "png/upside-down.png",
+      "bytes": 44687,
+      "sha256": "29ee3e9e1e966bb42bb5f72d7c28507d75ad2d27af7d846159b8f6972a459b57"
+    },
+    {
+      "emoji": "😊",
+      "baseEmoji": "😊",
+      "slug": "blush",
+      "tone": 0,
+      "file": "png/blush.png",
+      "bytes": 45667,
+      "sha256": "60b605a01777a65859373e88dea93a91d6bec7a99437214489c9e6a3dcba078c"
+    },
+    {
+      "emoji": "😇",
+      "baseEmoji": "😇",
+      "slug": "innocent",
+      "tone": 0,
+      "file": "png/innocent.png",
+      "bytes": 49897,
+      "sha256": "25133b24217aa04e1dd194239a9303956bd35cd5efe96517fbe0437f5a812f47"
+    },
+    {
+      "emoji": "🥳",
+      "baseEmoji": "🥳",
+      "slug": "party-face",
+      "tone": 0,
+      "file": "png/party-face.png",
+      "bytes": 54918,
+      "sha256": "4761673de91d05cfb3bf37a5e481de4a3039dd33fcdf3c27f2320cfaf65d95f9"
+    },
+    {
+      "emoji": "🤩",
+      "baseEmoji": "🤩",
+      "slug": "star-eyes",
+      "tone": 0,
+      "file": "png/star-eyes.png",
+      "bytes": 51681,
+      "sha256": "3d2c61e7b58fd3e9be2d0a5ba5c9e2415a2f60e571236874f07354700dc86de8"
+    },
+    {
+      "emoji": "😋",
+      "baseEmoji": "😋",
+      "slug": "delicious",
+      "tone": 0,
+      "file": "png/delicious.png",
+      "bytes": 47787,
+      "sha256": "ee5cbbe055b2129b9126efd4f22b4a2a021785b32c7bdefe17c694e5a9151b6f"
+    },
+    {
+      "emoji": "😛",
+      "baseEmoji": "😛",
+      "slug": "tongue",
+      "tone": 0,
+      "file": "png/tongue.png",
+      "bytes": 45792,
+      "sha256": "78d766e29351ebdd5bbb38ee8bf246d6b7284ac5c8ecc267fcdff391050a7c66"
+    },
+    {
+      "emoji": "😜",
+      "baseEmoji": "😜",
+      "slug": "wink-tongue",
+      "tone": 0,
+      "file": "png/wink-tongue.png",
+      "bytes": 48629,
+      "sha256": "3437386ce7b90b35cbebc195a8128961a7127487d37ac7b7c30bb05bcade6be6"
+    },
+    {
+      "emoji": "🤪",
+      "baseEmoji": "🤪",
+      "slug": "zany",
+      "tone": 0,
+      "file": "png/zany.png",
+      "bytes": 52696,
+      "sha256": "fe467a37bccd4d522bbb6ebebacf5936a4f5f66a5a39f166bf375af1c99c5283"
+    },
+    {
+      "emoji": "🤑",
+      "baseEmoji": "🤑",
+      "slug": "money-face",
+      "tone": 0,
+      "file": "png/money-face.png",
+      "bytes": 50420,
+      "sha256": "b6f8d1123434f208cd01e788a1733427230ce0c8e27a4044f86d0eaa0e3e0b1e"
+    },
+    {
+      "emoji": "🤐",
+      "baseEmoji": "🤐",
+      "slug": "zip-mouth",
+      "tone": 0,
+      "file": "png/zip-mouth.png",
+      "bytes": 48195,
+      "sha256": "8ff3ec60a73af2c785845dadc1b7953a39110637227f2bec2d2ec3d480d67789"
+    },
+    {
+      "emoji": "🤨",
+      "baseEmoji": "🤨",
+      "slug": "raised-eyebrow",
+      "tone": 0,
+      "file": "png/raised-eyebrow.png",
+      "bytes": 45516,
+      "sha256": "7677a732b4dbf703f2d96c371bf693fd0bbe205c4454941b6074ccb5feb8b4c3"
+    },
+    {
+      "emoji": "😐",
+      "baseEmoji": "😐",
+      "slug": "neutral",
+      "tone": 0,
+      "file": "png/neutral.png",
+      "bytes": 42601,
+      "sha256": "e1ee63b931878529913ba57c8dbda8374eea02fd57f53018674643e707ae247e"
+    },
+    {
+      "emoji": "🙄",
+      "baseEmoji": "🙄",
+      "slug": "eye-roll",
+      "tone": 0,
+      "file": "png/eye-roll.png",
+      "bytes": 47214,
+      "sha256": "d9ee13906f6754215a9978a2f174372641477e8dfd9ea8ec3256ee7086b7452a"
+    },
+    {
+      "emoji": "😏",
+      "baseEmoji": "😏",
+      "slug": "smirk",
+      "tone": 0,
+      "file": "png/smirk.png",
+      "bytes": 46058,
+      "sha256": "468252170c26722d75ef1cc7535b2cf1e1089ec8c679cd4724c339440a700d6c"
+    },
+    {
+      "emoji": "😬",
+      "baseEmoji": "😬",
+      "slug": "grimace",
+      "tone": 0,
+      "file": "png/grimace.png",
+      "bytes": 45958,
+      "sha256": "a0c5b3f38c59a6e9a6ed4a393fc905ab371e5dd057318883668c6372b52d87d0"
+    },
+    {
+      "emoji": "😔",
+      "baseEmoji": "😔",
+      "slug": "pensive",
+      "tone": 0,
+      "file": "png/pensive.png",
+      "bytes": 46040,
+      "sha256": "5b2830611d68d90ce1018a256b212e3a70d7e73cdaf890407d2c98109a943cad"
+    },
+    {
+      "emoji": "🥺",
+      "baseEmoji": "🥺",
+      "slug": "pleading",
+      "tone": 0,
+      "file": "png/pleading.png",
+      "bytes": 50456,
+      "sha256": "e7d3835879c1c5c6586ed3890ff57b1cbc1bedef3c97f14b80a0ee72989765f6"
+    },
+    {
+      "emoji": "😤",
+      "baseEmoji": "😤",
+      "slug": "huff",
+      "tone": 0,
+      "file": "png/huff.png",
+      "bytes": 51411,
+      "sha256": "983030b77b6e43b97aacdfe3e40383f4641c0ff1c3c5daceeb72fae93a7b711f"
+    },
+    {
+      "emoji": "😡",
+      "baseEmoji": "😡",
+      "slug": "furious",
+      "tone": 0,
+      "file": "png/furious.png",
+      "bytes": 46208,
+      "sha256": "24eca3b8dfc6e5997f9a27ba9b0b4d1ed2dc48694d085c35cf3ba56016c2bb4b"
+    },
+    {
+      "emoji": "🤯",
+      "baseEmoji": "🤯",
+      "slug": "mind-blown",
+      "tone": 0,
+      "file": "png/mind-blown.png",
+      "bytes": 53432,
+      "sha256": "269118b9340577582110bfd9fcfc7568c3afdd6e67f3fa9a7c2b2bda8cb5d6ff"
+    },
+    {
+      "emoji": "🥵",
+      "baseEmoji": "🥵",
+      "slug": "hot-face",
+      "tone": 0,
+      "file": "png/hot-face.png",
+      "bytes": 50174,
+      "sha256": "1e2e54cad83d8b9572a9e5871da17f37d31366f94528b4df84ad793e27feb64a"
+    },
+    {
+      "emoji": "🥶",
+      "baseEmoji": "🥶",
+      "slug": "cold-face",
+      "tone": 0,
+      "file": "png/cold-face.png",
+      "bytes": 51908,
+      "sha256": "cf1845c2a6d35c097a0e4d388185b83c91010dd40f64e264b8d2833d2b1d9a5b"
+    },
+    {
+      "emoji": "🤢",
+      "baseEmoji": "🤢",
+      "slug": "nauseated",
+      "tone": 0,
+      "file": "png/nauseated.png",
+      "bytes": 48147,
+      "sha256": "cfc8666f5c42b23bde044c528f1cdc1c2db679bdb4f2c3a70ac96f04fae02360"
+    },
+    {
+      "emoji": "🤮",
+      "baseEmoji": "🤮",
+      "slug": "vomit",
+      "tone": 0,
+      "file": "png/vomit.png",
+      "bytes": 51381,
+      "sha256": "d9e23399d427731da578f82cd8d69dfdbb67e3635289f5d4bf52ff26fe3c5a46"
+    },
+    {
+      "emoji": "🤒",
+      "baseEmoji": "🤒",
+      "slug": "fever",
+      "tone": 0,
+      "file": "png/fever.png",
+      "bytes": 51370,
+      "sha256": "00557f178548d97953fc2688d9aafba0325b71c2b4ba3a458c5d9f3eff9cc4be"
+    },
+    {
+      "emoji": "🤕",
+      "baseEmoji": "🤕",
+      "slug": "bandage",
+      "tone": 0,
+      "file": "png/bandage.png",
+      "bytes": 48859,
+      "sha256": "0e1bc354fc60aa07ccb0a618213bc6317f500f06d3d2a31856ee3aec673b7ed1"
+    },
+    {
+      "emoji": "😷",
+      "baseEmoji": "😷",
+      "slug": "mask",
+      "tone": 0,
+      "file": "png/mask.png",
+      "bytes": 48388,
+      "sha256": "c24798454d415536a9dae1cf08ab1f12257258c6ca392a72ac75919c795c45df"
+    },
+    {
+      "emoji": "🐶",
+      "baseEmoji": "🐶",
+      "slug": "dog",
+      "tone": 0,
+      "file": "png/dog.png",
+      "bytes": 40546,
+      "sha256": "f1590eb4e415906a3e25bb659c3ffd952d5eb07c3174eeccbe2a131d7d0af8e2"
+    },
+    {
+      "emoji": "🐱",
+      "baseEmoji": "🐱",
+      "slug": "cat",
+      "tone": 0,
+      "file": "png/cat.png",
+      "bytes": 46321,
+      "sha256": "1ae858206d43c84f2126ca07368681b6fcb1e7c16442c0d68fc868cf38105a1e"
+    },
+    {
+      "emoji": "🐭",
+      "baseEmoji": "🐭",
+      "slug": "mouse",
+      "tone": 0,
+      "file": "png/mouse.png",
+      "bytes": 45231,
+      "sha256": "b07cdf816ca06502ca5c0f2b6dbd87b741df948259fc6a2f43a67d1e4c1404cc"
+    },
+    {
+      "emoji": "🐹",
+      "baseEmoji": "🐹",
+      "slug": "hamster",
+      "tone": 0,
+      "file": "png/hamster.png",
+      "bytes": 50496,
+      "sha256": "2d05cb33b1ecef63a96ae72437238457606e295b7316264536c8691aa3c38a93"
+    },
+    {
+      "emoji": "🐰",
+      "baseEmoji": "🐰",
+      "slug": "rabbit",
+      "tone": 0,
+      "file": "png/rabbit.png",
+      "bytes": 50550,
+      "sha256": "4502e5adc4ce130e8354d4fead6b8722b5d863411815bd128f4dc95cce5d5803"
+    },
+    {
+      "emoji": "🦊",
+      "baseEmoji": "🦊",
+      "slug": "fox",
+      "tone": 0,
+      "file": "png/fox.png",
+      "bytes": 47293,
+      "sha256": "5af9a7da47e739c5755361b0a510ebd7b7fb702b33ec4b6edc920af5ce99e67f"
+    },
+    {
+      "emoji": "🐻",
+      "baseEmoji": "🐻",
+      "slug": "bear",
+      "tone": 0,
+      "file": "png/bear.png",
+      "bytes": 47604,
+      "sha256": "e21834268e4b17d42eb894f382cb1d1cea514ebcd5349f0e0f0d354c3055fac0"
+    },
+    {
+      "emoji": "🐼",
+      "baseEmoji": "🐼",
+      "slug": "panda",
+      "tone": 0,
+      "file": "png/panda.png",
+      "bytes": 49959,
+      "sha256": "d7694b6fddb4bb9425165585814f4265c0a3fefe599affdb77ac042d1c02ee36"
+    },
+    {
+      "emoji": "🐨",
+      "baseEmoji": "🐨",
+      "slug": "koala",
+      "tone": 0,
+      "file": "png/koala.png",
+      "bytes": 39887,
+      "sha256": "934dd631f16dfc8071c4771aef6ded84fb862490172f5b9ca7a4ef224085c90e"
+    },
+    {
+      "emoji": "🐯",
+      "baseEmoji": "🐯",
+      "slug": "tiger",
+      "tone": 0,
+      "file": "png/tiger.png",
+      "bytes": 53742,
+      "sha256": "19ca795fe93f178415abc3bb33c92027a769b50a1d85b2f2b6055921790cff44"
+    },
+    {
+      "emoji": "🦁",
+      "baseEmoji": "🦁",
+      "slug": "lion",
+      "tone": 0,
+      "file": "png/lion.png",
+      "bytes": 51770,
+      "sha256": "49c8d0ecd8f3641ec55d21f9c2ef1d4225995d3e62d7aac25de3b2279779ec76"
+    },
+    {
+      "emoji": "🐮",
+      "baseEmoji": "🐮",
+      "slug": "cow",
+      "tone": 0,
+      "file": "png/cow.png",
+      "bytes": 44390,
+      "sha256": "4a748098260a67f19a6f734acefed02ce37ba7036aadca13a99b10796d04a1f6"
+    },
+    {
+      "emoji": "🐷",
+      "baseEmoji": "🐷",
+      "slug": "pig",
+      "tone": 0,
+      "file": "png/pig.png",
+      "bytes": 43601,
+      "sha256": "87a289db9c005efbc57bdc688509dbb0d0b676da3f97bda50db8ad3ab695fad9"
+    },
+    {
+      "emoji": "🐸",
+      "baseEmoji": "🐸",
+      "slug": "frog",
+      "tone": 0,
+      "file": "png/frog.png",
+      "bytes": 44267,
+      "sha256": "66df2afe453abe6d1e2bac5929d2f09c51da167c8b5fc82db1fcedeb9add0e62"
+    },
+    {
+      "emoji": "🐵",
+      "baseEmoji": "🐵",
+      "slug": "monkey",
+      "tone": 0,
+      "file": "png/monkey.png",
+      "bytes": 41888,
+      "sha256": "fdda6b09bc42de4432e4d50efed7599d4e6f2c60dc69897411dbf264a974d35b"
+    },
+    {
+      "emoji": "🐔",
+      "baseEmoji": "🐔",
+      "slug": "chicken",
+      "tone": 0,
+      "file": "png/chicken.png",
+      "bytes": 46597,
+      "sha256": "915854befe284ceefcc80a8dd854a44e217f193ab910f71490434c6345896621"
+    },
+    {
+      "emoji": "🐧",
+      "baseEmoji": "🐧",
+      "slug": "penguin",
+      "tone": 0,
+      "file": "png/penguin.png",
+      "bytes": 43700,
+      "sha256": "c0febd6fddb0567a1e88c2a3ba6a4849151e9a955c321cd48c9f3d4feab6a61a"
+    },
+    {
+      "emoji": "🦆",
+      "baseEmoji": "🦆",
+      "slug": "duck",
+      "tone": 0,
+      "file": "png/duck.png",
+      "bytes": 46299,
+      "sha256": "4fb0cb60569a0eade31730d01d491d3f4d96b094f525bf08b49af22117e6f83e"
+    },
+    {
+      "emoji": "🦉",
+      "baseEmoji": "🦉",
+      "slug": "owl",
+      "tone": 0,
+      "file": "png/owl.png",
+      "bytes": 53569,
+      "sha256": "c883c43699827e9748608ebf93ff08a2414903f892fdf1f92c495e02eeebff89"
+    },
+    {
+      "emoji": "🦋",
+      "baseEmoji": "🦋",
+      "slug": "butterfly",
+      "tone": 0,
+      "file": "png/butterfly.png",
+      "bytes": 52346,
+      "sha256": "8dc18060dc248a3ac4fe9123c83c0dc97978d19914808215ea94bf2939a6d324"
+    },
+    {
+      "emoji": "🐝",
+      "baseEmoji": "🐝",
+      "slug": "bee",
+      "tone": 0,
+      "file": "png/bee.png",
+      "bytes": 49712,
+      "sha256": "75321fa9dc95517e798eff114964b1fd5dd84eefdec3a3390feba96cbf1302f5"
+    },
+    {
+      "emoji": "🐢",
+      "baseEmoji": "🐢",
+      "slug": "turtle",
+      "tone": 0,
+      "file": "png/turtle.png",
+      "bytes": 42303,
+      "sha256": "6fbf82faefb2ccba772286e4c481efb289f31123798758b623a27d4f20cd8a83"
+    },
+    {
+      "emoji": "🐙",
+      "baseEmoji": "🐙",
+      "slug": "octopus",
+      "tone": 0,
+      "file": "png/octopus.png",
+      "bytes": 49663,
+      "sha256": "f0a7f0a41c465899c6919cfd74b17f4ed632e73cf84e29bdb7eefcd0af4cf83c"
+    },
+    {
+      "emoji": "🐳",
+      "baseEmoji": "🐳",
+      "slug": "whale",
+      "tone": 0,
+      "file": "png/whale.png",
+      "bytes": 47917,
+      "sha256": "d735d90790575d52750c08ab17a5b611434f1987aa4d8023870d868f150a01c1"
+    },
+    {
+      "emoji": "🌻",
+      "baseEmoji": "🌻",
+      "slug": "sunflower",
+      "tone": 0,
+      "file": "png/sunflower.png",
+      "bytes": 50402,
+      "sha256": "ed403b3dad341dda5908931524f16ca44bf9abb1c530462d31a9ab63006ca825"
+    },
+    {
+      "emoji": "🌹",
+      "baseEmoji": "🌹",
+      "slug": "rose",
+      "tone": 0,
+      "file": "png/rose.png",
+      "bytes": 48726,
+      "sha256": "48b07a60318ab04e87ced34ab6f02b0036c9766832f4bb018f92da489d43995c"
+    },
+    {
+      "emoji": "🌈",
+      "baseEmoji": "🌈",
+      "slug": "rainbow",
+      "tone": 0,
+      "file": "png/rainbow.png",
+      "bytes": 37905,
+      "sha256": "da45cf62776c1056127d0e88be4b5ed083b1bd46819d6e1c229cf4f16be114fe"
+    },
+    {
+      "emoji": "☀️",
+      "baseEmoji": "☀️",
+      "slug": "sun",
+      "tone": 0,
+      "file": "png/sun.png",
+      "bytes": 44759,
+      "sha256": "ad42ffe497507329e93d9689173d23d23d0e6be41a3159db60f297b218c03ee7"
+    },
+    {
+      "emoji": "🌙",
+      "baseEmoji": "🌙",
+      "slug": "moon",
+      "tone": 0,
+      "file": "png/moon.png",
+      "bytes": 41631,
+      "sha256": "15082d37e80379f41c1d3fdacdf2a57b5229af13ccd8e5655dd2a27cfc873b94"
+    },
+    {
+      "emoji": "⭐",
+      "baseEmoji": "⭐",
+      "slug": "star",
+      "tone": 0,
+      "file": "png/star.png",
+      "bytes": 41870,
+      "sha256": "e6c0634211a82ba041bf6a54cba0f9a2895f1ea4076e0e4184adfaaa8b8163d6"
+    },
+    {
+      "emoji": "🍎",
+      "baseEmoji": "🍎",
+      "slug": "apple",
+      "tone": 0,
+      "file": "png/apple.png",
+      "bytes": 44500,
+      "sha256": "82c7be8d7d79d2a723b7b5b7e8e608f0b52970140244c9c8b8777a940cb650b6"
+    },
+    {
+      "emoji": "🍌",
+      "baseEmoji": "🍌",
+      "slug": "banana",
+      "tone": 0,
+      "file": "png/banana.png",
+      "bytes": 45418,
+      "sha256": "3c65eb33e25150d7f3bd0aa9b2b5c73fc74e4a8225c6f1a3c53230a8c0476fd4"
+    },
+    {
+      "emoji": "🍓",
+      "baseEmoji": "🍓",
+      "slug": "strawberry",
+      "tone": 0,
+      "file": "png/strawberry.png",
+      "bytes": 51345,
+      "sha256": "69e2983e9c739e39636d6269ecf96794926fefb2987f67022c1568708a9ec399"
+    },
+    {
+      "emoji": "🍉",
+      "baseEmoji": "🍉",
+      "slug": "watermelon",
+      "tone": 0,
+      "file": "png/watermelon.png",
+      "bytes": 43272,
+      "sha256": "a4d3874a56df86729fd1cd72d38e2e27092af4e0a538950b0ce83985df592b4b"
+    },
+    {
+      "emoji": "🍋",
+      "baseEmoji": "🍋",
+      "slug": "lemon",
+      "tone": 0,
+      "file": "png/lemon.png",
+      "bytes": 43999,
+      "sha256": "d5ae3fa41f3b21bdb8c856e976e9d2a91a9f8c81a0140fc78c6fe65325814275"
+    },
+    {
+      "emoji": "🥑",
+      "baseEmoji": "🥑",
+      "slug": "avocado",
+      "tone": 0,
+      "file": "png/avocado.png",
+      "bytes": 48851,
+      "sha256": "24b022a4795a3b6b6364e62e32181301060e27a4784f956e38f16504dc729acf"
+    },
+    {
+      "emoji": "🍕",
+      "baseEmoji": "🍕",
+      "slug": "pizza",
+      "tone": 0,
+      "file": "png/pizza.png",
+      "bytes": 54169,
+      "sha256": "8a34ac96c8094f0d901fe6181d13e44ccc3b7ac15aa053165368e026abc5c6e0"
+    },
+    {
+      "emoji": "🍔",
+      "baseEmoji": "🍔",
+      "slug": "burger",
+      "tone": 0,
+      "file": "png/burger.png",
+      "bytes": 54613,
+      "sha256": "e01e55fb20bf1261fa200b23f16a0655899f9264dd6f886bd7525ccde812b791"
+    },
+    {
+      "emoji": "🍟",
+      "baseEmoji": "🍟",
+      "slug": "fries",
+      "tone": 0,
+      "file": "png/fries.png",
+      "bytes": 46029,
+      "sha256": "967fb7dff96c5b859aed07c458186c8deca9aa622f97ce10e74a80ed58affbd9"
+    },
+    {
+      "emoji": "🌮",
+      "baseEmoji": "🌮",
+      "slug": "taco",
+      "tone": 0,
+      "file": "png/taco.png",
+      "bytes": 50276,
+      "sha256": "a83388e60388b47e420c1a314c58d1c281c4182d8d9ff37dd5c9e40d4a95385e"
+    },
+    {
+      "emoji": "🍿",
+      "baseEmoji": "🍿",
+      "slug": "popcorn",
+      "tone": 0,
+      "file": "png/popcorn.png",
+      "bytes": 46098,
+      "sha256": "168ef0959b68d8214f5523d4359122811155d85045967d88992fb714d1a38584"
+    },
+    {
+      "emoji": "🍰",
+      "baseEmoji": "🍰",
+      "slug": "cake",
+      "tone": 0,
+      "file": "png/cake.png",
+      "bytes": 52266,
+      "sha256": "f02a0037c80dbd71e03f52a1f3e4810ad4b3c6173c7ec74166d1056ad80c9d89"
+    },
+    {
+      "emoji": "🍩",
+      "baseEmoji": "🍩",
+      "slug": "doughnut",
+      "tone": 0,
+      "file": "png/doughnut.png",
+      "bytes": 57921,
+      "sha256": "cb211d2ddaf39a7dd44fc0f8173d9173003fcec562f4d340fa6464d17d808aeb"
+    },
+    {
+      "emoji": "🍪",
+      "baseEmoji": "🍪",
+      "slug": "cookie",
+      "tone": 0,
+      "file": "png/cookie.png",
+      "bytes": 58379,
+      "sha256": "51aaf8a0d204f58747028e99892910b462b2be561611212d97ed4b317b806199"
+    },
+    {
+      "emoji": "🍦",
+      "baseEmoji": "🍦",
+      "slug": "ice-cream",
+      "tone": 0,
+      "file": "png/ice-cream.png",
+      "bytes": 32466,
+      "sha256": "4fb5ba30d18f619b0873d2f1da927b185e5988eee255e43f57353f118a7a8410"
+    },
+    {
+      "emoji": "☕",
+      "baseEmoji": "☕",
+      "slug": "coffee",
+      "tone": 0,
+      "file": "png/coffee.png",
+      "bytes": 47218,
+      "sha256": "3e43d1ea64a6b5efb97f05503cacca8693e1674a15fcd8e367ed70ed0c5d4739"
+    },
+    {
+      "emoji": "🍺",
+      "baseEmoji": "🍺",
+      "slug": "beer",
+      "tone": 0,
+      "file": "png/beer.png",
+      "bytes": 46580,
+      "sha256": "9a18623def2f60355b7c86d08c0dce1711a1f19f94b401464b0670683caa2973"
+    },
+    {
+      "emoji": "🥂",
+      "baseEmoji": "🥂",
+      "slug": "cheers",
+      "tone": 0,
+      "file": "png/cheers.png",
+      "bytes": 49655,
+      "sha256": "93058a33ab3fe13822701b925b4055c4bcb1489480f0382e77bf9b627f66a1e0"
+    },
+    {
+      "emoji": "🎁",
+      "baseEmoji": "🎁",
+      "slug": "gift",
+      "tone": 0,
+      "file": "png/gift.png",
+      "bytes": 48278,
+      "sha256": "56c8a80d47279a1e4e48d60f287871fb23761680a7b96c2b1c18b59d96dd7648"
+    },
+    {
+      "emoji": "💡",
+      "baseEmoji": "💡",
+      "slug": "idea",
+      "tone": 0,
+      "file": "png/idea.png",
+      "bytes": 34021,
+      "sha256": "6e8949781e113606e3b584c810b24a645a477df97907f88a65cdb493c8a57cac"
+    },
+    {
+      "emoji": "🔑",
+      "baseEmoji": "🔑",
+      "slug": "key",
+      "tone": 0,
+      "file": "png/key.png",
+      "bytes": 45510,
+      "sha256": "54855c5e65d5b3231269ab016f12d677b21f678bc53b90e0e30099ef53a03e89"
+    },
+    {
+      "emoji": "🔒",
+      "baseEmoji": "🔒",
+      "slug": "lock",
+      "tone": 0,
+      "file": "png/lock.png",
+      "bytes": 37192,
+      "sha256": "590334435ff1f6465d9269c059cebf165924c8bd98b6127a458cb7c5cbd94f87"
+    },
+    {
+      "emoji": "🚀",
+      "baseEmoji": "🚀",
+      "slug": "rocket",
+      "tone": 0,
+      "file": "png/rocket.png",
+      "bytes": 51847,
+      "sha256": "d5a3bdd2d099f7042472e89529f7010832e5d669fced1381eb873284fd410cf0"
+    },
+    {
+      "emoji": "💻",
+      "baseEmoji": "💻",
+      "slug": "laptop",
+      "tone": 0,
+      "file": "png/laptop.png",
+      "bytes": 34038,
+      "sha256": "35ec9ac0a02b385854f8f91445da86a844f83541c4c4c161bb65f738629cbecb"
+    },
+    {
+      "emoji": "📱",
+      "baseEmoji": "📱",
+      "slug": "phone",
+      "tone": 0,
+      "file": "png/phone.png",
+      "bytes": 32374,
+      "sha256": "044c04e575dabf9a806aeacde2e4caec87aaf04259ce0e43ccd144baacc0f7b7"
+    },
+    {
+      "emoji": "📷",
+      "baseEmoji": "📷",
+      "slug": "camera",
+      "tone": 0,
+      "file": "png/camera.png",
+      "bytes": 45533,
+      "sha256": "c106e20615194dcf4ab1cb33a6712abe6e0fae5a047ba2afb4964bc4026c7e7a"
+    },
+    {
+      "emoji": "🎮",
+      "baseEmoji": "🎮",
+      "slug": "gamepad",
+      "tone": 0,
+      "file": "png/gamepad.png",
+      "bytes": 35324,
+      "sha256": "6cfc678f957bc36475e792737655936a20fe2962bc8be2d28bb26908dc7a527d"
+    },
+    {
+      "emoji": "⚽",
+      "baseEmoji": "⚽",
+      "slug": "football",
+      "tone": 0,
+      "file": "png/football.png",
+      "bytes": 52287,
+      "sha256": "f783e0fe12c34b89c9edaccc0d1ca30496498b2a95a952202d56810a7b04e24a"
+    },
+    {
+      "emoji": "🏆",
+      "baseEmoji": "🏆",
+      "slug": "trophy",
+      "tone": 0,
+      "file": "png/trophy.png",
+      "bytes": 50274,
+      "sha256": "b3d2f8e2effad8fd62f00e3dd649d306e98da08dcb727ec4f3264199bf98dff0"
+    },
+    {
+      "emoji": "💩",
+      "baseEmoji": "💩",
+      "slug": "poop",
+      "tone": 0,
+      "file": "png/poop.png",
+      "bytes": 48814,
+      "sha256": "c22b1e120a76b468f86a320f8cd6a3112c18fd5de9926463bc64bfedc93503ba"
+    },
+    {
+      "emoji": "🫏",
+      "baseEmoji": "🫏",
+      "slug": "crypto-donkey",
+      "tone": 0,
+      "file": "png/crypto-donkey.png",
+      "bytes": 42835,
+      "sha256": "01d6743d4f962057d0e9d4e545c6d11eb54c824fd1570ec47c381c10f80f4df2"
+    },
+    {
+      "emoji": "👍🏻",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up-tone1",
+      "tone": 1,
+      "file": "png/thumbs-up-tone1.png",
+      "bytes": 37495,
+      "sha256": "3ccd896840acd414994ffa21e9031bcd283a79f888da5f97d68c3fa704ea27ac"
+    },
+    {
+      "emoji": "👎🏻",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down-tone1",
+      "tone": 1,
+      "file": "png/thumbs-down-tone1.png",
+      "bytes": 41274,
+      "sha256": "7cd7b620ef4fde7e25a5eb66fe1017190ec8d6c249e54af13b896b472b988c5f"
+    },
+    {
+      "emoji": "👋🏻",
+      "baseEmoji": "👋",
+      "slug": "wave-tone1",
+      "tone": 1,
+      "file": "png/wave-tone1.png",
+      "bytes": 52367,
+      "sha256": "30b3f3ce69cd7fa4f2ed3885f82125e0519b1aad6a87c648e5efb915e3d159b0"
+    },
+    {
+      "emoji": "👏🏻",
+      "baseEmoji": "👏",
+      "slug": "clap-tone1",
+      "tone": 1,
+      "file": "png/clap-tone1.png",
+      "bytes": 49954,
+      "sha256": "f2ee6a66b64082607d08114c9101c9d8e859a789705e76427fabb7647021a063"
+    },
+    {
+      "emoji": "🙏🏻",
+      "baseEmoji": "🙏",
+      "slug": "thanks-tone1",
+      "tone": 1,
+      "file": "png/thanks-tone1.png",
+      "bytes": 42906,
+      "sha256": "2b9f0ad6f58665622af22fa084a5dd420dd9895d13220aada5822fdc028a8356"
+    },
+    {
+      "emoji": "✌🏻",
+      "baseEmoji": "✌️",
+      "slug": "peace-tone1",
+      "tone": 1,
+      "file": "png/peace-tone1.png",
+      "bytes": 35296,
+      "sha256": "e69451198c0881f28173a3c02423bcfa3186f791a1f9d9dd73b753aac356b42a"
+    },
+    {
+      "emoji": "👍🏼",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up-tone2",
+      "tone": 2,
+      "file": "png/thumbs-up-tone2.png",
+      "bytes": 37193,
+      "sha256": "377e9781e56a8346883b18ded47e119bb33100221c550748d998759c6b986dbf"
+    },
+    {
+      "emoji": "👎🏼",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down-tone2",
+      "tone": 2,
+      "file": "png/thumbs-down-tone2.png",
+      "bytes": 41952,
+      "sha256": "95381fee8f7670501e78588123908372b8a9da783cded44b1137271b78e666cd"
+    },
+    {
+      "emoji": "👋🏼",
+      "baseEmoji": "👋",
+      "slug": "wave-tone2",
+      "tone": 2,
+      "file": "png/wave-tone2.png",
+      "bytes": 52991,
+      "sha256": "212941d242577d1ca961ae8d04a49c653fed76d4e895c7aadc763bf3f85ff7ad"
+    },
+    {
+      "emoji": "👏🏼",
+      "baseEmoji": "👏",
+      "slug": "clap-tone2",
+      "tone": 2,
+      "file": "png/clap-tone2.png",
+      "bytes": 48837,
+      "sha256": "f3b0d0aa283e00107b5c30729306095de780e9530b0fdcf3f95cc9cc0e908fdc"
+    },
+    {
+      "emoji": "🙏🏼",
+      "baseEmoji": "🙏",
+      "slug": "thanks-tone2",
+      "tone": 2,
+      "file": "png/thanks-tone2.png",
+      "bytes": 43209,
+      "sha256": "7ab06b99a5355acbf0af34e9aa3e7b917b54a1820bf2be5792e386ade3e80341"
+    },
+    {
+      "emoji": "✌🏼",
+      "baseEmoji": "✌️",
+      "slug": "peace-tone2",
+      "tone": 2,
+      "file": "png/peace-tone2.png",
+      "bytes": 35172,
+      "sha256": "5b03cd838af6255e922a153a8e4a55e897199913aa98041a8a3a5ee4018befed"
+    },
+    {
+      "emoji": "👍🏽",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up-tone3",
+      "tone": 3,
+      "file": "png/thumbs-up-tone3.png",
+      "bytes": 36959,
+      "sha256": "0bb52220c183a6be9b672dba25a2b256fbcd9e04bfe36e3022f10159df1117bf"
+    },
+    {
+      "emoji": "👎🏽",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down-tone3",
+      "tone": 3,
+      "file": "png/thumbs-down-tone3.png",
+      "bytes": 41360,
+      "sha256": "1acb8472ad30d179b8f06149ac3017cd046089ced36b7372a6cacbe0aa2a8340"
+    },
+    {
+      "emoji": "👋🏽",
+      "baseEmoji": "👋",
+      "slug": "wave-tone3",
+      "tone": 3,
+      "file": "png/wave-tone3.png",
+      "bytes": 53287,
+      "sha256": "10b74d158acb00ff65e5512973cbd7c9c2dba7e452df248417ecafadcd6bac14"
+    },
+    {
+      "emoji": "👏🏽",
+      "baseEmoji": "👏",
+      "slug": "clap-tone3",
+      "tone": 3,
+      "file": "png/clap-tone3.png",
+      "bytes": 47942,
+      "sha256": "e6309c43b4aa00daf42e9a8104920ad08fc1771f1c60ee06d9110e45731de087"
+    },
+    {
+      "emoji": "🙏🏽",
+      "baseEmoji": "🙏",
+      "slug": "thanks-tone3",
+      "tone": 3,
+      "file": "png/thanks-tone3.png",
+      "bytes": 42806,
+      "sha256": "63748151dbf714e72d302cce376ddb7fa18ad847500e9b3bca404c0060634951"
+    },
+    {
+      "emoji": "✌🏽",
+      "baseEmoji": "✌️",
+      "slug": "peace-tone3",
+      "tone": 3,
+      "file": "png/peace-tone3.png",
+      "bytes": 34779,
+      "sha256": "6b62ac6d94dd9704c9439a0e039b5ed6f1e56c7453daef69fb2facd7db726440"
+    },
+    {
+      "emoji": "👍🏾",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up-tone4",
+      "tone": 4,
+      "file": "png/thumbs-up-tone4.png",
+      "bytes": 36016,
+      "sha256": "b9b240603f52cf2c124b4275844df3b112480d54e37761b897d0936b52be94a7"
+    },
+    {
+      "emoji": "👎🏾",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down-tone4",
+      "tone": 4,
+      "file": "png/thumbs-down-tone4.png",
+      "bytes": 40036,
+      "sha256": "e0ed15f9aa6816d26127e385e4110cb58e387e0634e237fd84bac0152bfde9dc"
+    },
+    {
+      "emoji": "👋🏾",
+      "baseEmoji": "👋",
+      "slug": "wave-tone4",
+      "tone": 4,
+      "file": "png/wave-tone4.png",
+      "bytes": 52091,
+      "sha256": "6815d76a9924c6844a71b86516426aa4baa39cc3d2338680248ea6c48df980a7"
+    },
+    {
+      "emoji": "👏🏾",
+      "baseEmoji": "👏",
+      "slug": "clap-tone4",
+      "tone": 4,
+      "file": "png/clap-tone4.png",
+      "bytes": 47850,
+      "sha256": "d967fbc47b556375d34bc15748252e92eff105789fe31b621f107e6438e6f775"
+    },
+    {
+      "emoji": "🙏🏾",
+      "baseEmoji": "🙏",
+      "slug": "thanks-tone4",
+      "tone": 4,
+      "file": "png/thanks-tone4.png",
+      "bytes": 41784,
+      "sha256": "b15de73b96bfe159e9c34b69632db3f794f13053bf4bb6fbc9ff7943cf8bf406"
+    },
+    {
+      "emoji": "✌🏾",
+      "baseEmoji": "✌️",
+      "slug": "peace-tone4",
+      "tone": 4,
+      "file": "png/peace-tone4.png",
+      "bytes": 33766,
+      "sha256": "3a3e8a2fba18f869228775b5377aa11843aca50bf883014786a9b9e8dc418f3f"
+    },
+    {
+      "emoji": "👍🏿",
+      "baseEmoji": "👍",
+      "slug": "thumbs-up-tone5",
+      "tone": 5,
+      "file": "png/thumbs-up-tone5.png",
+      "bytes": 35404,
+      "sha256": "543f5c1af8250248b2e1f5beae86f11957718813810fa37fc8c95afe2f124c99"
+    },
+    {
+      "emoji": "👎🏿",
+      "baseEmoji": "👎",
+      "slug": "thumbs-down-tone5",
+      "tone": 5,
+      "file": "png/thumbs-down-tone5.png",
+      "bytes": 39604,
+      "sha256": "f631f10c6081ddd211619768f08309a6f13493749967000a40cf2f1b505874a2"
+    },
+    {
+      "emoji": "👋🏿",
+      "baseEmoji": "👋",
+      "slug": "wave-tone5",
+      "tone": 5,
+      "file": "png/wave-tone5.png",
+      "bytes": 51758,
+      "sha256": "7cf3cf63394abdf92a14f571f08f9240465a3bbf275ce91c5183b9f976c762a9"
+    },
+    {
+      "emoji": "👏🏿",
+      "baseEmoji": "👏",
+      "slug": "clap-tone5",
+      "tone": 5,
+      "file": "png/clap-tone5.png",
+      "bytes": 50306,
+      "sha256": "c9ab31d9e39116c461048ea3dea2f1a40321a103416e93355fcaf1aca91feafa"
+    },
+    {
+      "emoji": "🙏🏿",
+      "baseEmoji": "🙏",
+      "slug": "thanks-tone5",
+      "tone": 5,
+      "file": "png/thanks-tone5.png",
+      "bytes": 40861,
+      "sha256": "db639215ca64f90798a2bbf6233394567c2faa1502dde2bce66b63c0239e51e2"
+    },
+    {
+      "emoji": "✌🏿",
+      "baseEmoji": "✌️",
+      "slug": "peace-tone5",
+      "tone": 5,
+      "file": "png/peace-tone5.png",
+      "bytes": 33411,
+      "sha256": "33c1b4d165116fe9d86eec92de7bca7f6dc961d2f6eedda1ed8df3431117d8d0"
+    },
+    {
+      "emoji": "🪨",
+      "baseEmoji": "🪨",
+      "slug": "sacred-stone",
+      "tone": 0,
+      "file": "png/sacred-stone.png",
+      "bytes": 58506,
+      "sha256": "69ee04c0f038199fe51751a742422778deee710f7fd7f0cff49770adf7eaf683"
+    },
+    {
+      "emoji": "🕷️",
+      "baseEmoji": "🕷️",
+      "slug": "jumping-spider",
+      "tone": 0,
+      "file": "png/jumping-spider.png",
+      "bytes": 56876,
+      "sha256": "80af0c42d692f3b32ec289bf41100d88fa1fb0dc63e3c1acf21f4f2f83aa7271"
+    },
+    {
+      "emoji": "₿",
+      "baseEmoji": "₿",
+      "slug": "bitcoin",
+      "tone": 0,
+      "file": "png/bitcoin.png",
+      "bytes": 47254,
+      "sha256": "a7fdc723d02b40d799c3674462bdfbfcc13ab76851fd5e7a203b60fe99be66df"
+    },
+    {
+      "emoji": ":fs_forgesworn:",
+      "baseEmoji": ":fs_forgesworn:",
+      "slug": "fs-forgesworn",
+      "tone": 0,
+      "file": "png/fs-forgesworn.png",
+      "bytes": 22419,
+      "sha256": "158894a18d41387d8f879930bcf72b51c1297848b5b6359be3fa973e2f232bb7"
+    },
+    {
+      "emoji": ":fs_kindred:",
+      "baseEmoji": ":fs_kindred:",
+      "slug": "fs-kindred",
+      "tone": 0,
+      "file": "png/fs-kindred.png",
+      "bytes": 6307,
+      "sha256": "b27e9c9673b1a13bded828304309505785317f9ace8904456b2e19a6ca4feece"
+    },
+    {
+      "emoji": ":fs_kithmoot:",
+      "baseEmoji": ":fs_kithmoot:",
+      "slug": "fs-kithmoot",
+      "tone": 0,
+      "file": "png/fs-kithmoot.png",
+      "bytes": 19438,
+      "sha256": "e9a5ab9ad870577b0b02ea3f204094d688cc00e712452f0659ee7e9ad6d71d58"
+    },
+    {
+      "emoji": ":fs_mysignet:",
+      "baseEmoji": ":fs_mysignet:",
+      "slug": "fs-mysignet",
+      "tone": 0,
+      "file": "png/fs-mysignet.png",
+      "bytes": 16954,
+      "sha256": "4ffb9b90c4276d4e1b6a1f9b320eb6f23be161757b0480c9bee2c805dc668036"
+    },
+    {
+      "emoji": ":fs_vitark:",
+      "baseEmoji": ":fs_vitark:",
+      "slug": "fs-vitark",
+      "tone": 0,
+      "file": "png/fs-vitark.png",
+      "bytes": 12279,
+      "sha256": "be6eaccf2538a28b43ad7c2342ae795540d8a96701e985355cd9affc653cd4ae"
+    },
+    {
+      "emoji": ":fs_vitark_den:",
+      "baseEmoji": ":fs_vitark_den:",
+      "slug": "fs-vitark-den",
+      "tone": 0,
+      "file": "png/fs-vitark-den.png",
+      "bytes": 12924,
+      "sha256": "8da0f7e306d4311bdd814fd85564df09957665a41c3ccd19387991d9d01b404b"
+    },
+    {
+      "emoji": ":fs_vitark_train:",
+      "baseEmoji": ":fs_vitark_train:",
+      "slug": "fs-vitark-train",
+      "tone": 0,
+      "file": "png/fs-vitark-train.png",
+      "bytes": 14655,
+      "sha256": "ead5f5156879dfdd72e36d66f8d2c1d2e229ad64cf727213f1059e5c806ab79c"
+    },
+    {
+      "emoji": ":fs_vitark_still:",
+      "baseEmoji": ":fs_vitark_still:",
+      "slug": "fs-vitark-still",
+      "tone": 0,
+      "file": "png/fs-vitark-still.png",
+      "bytes": 14407,
+      "sha256": "e00e2a3c1b6e9be5be722faa5f0df63fafc2b451ed4c8ccc111e330a864308eb"
+    },
+    {
+      "emoji": ":fs_vitark_record:",
+      "baseEmoji": ":fs_vitark_record:",
+      "slug": "fs-vitark-record",
+      "tone": 0,
+      "file": "png/fs-vitark-record.png",
+      "bytes": 16227,
+      "sha256": "9e51b03a8270b5fc1b7f7c3bc0615e4bec046feaaa281a0a9eb6cc08dc455e45"
+    }
+  ]
+}
