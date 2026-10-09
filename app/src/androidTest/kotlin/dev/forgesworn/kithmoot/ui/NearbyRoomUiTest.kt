@@ -17,17 +17,33 @@ class NearbyRoomUiTest {
 
     @Test fun fresh_nearby_choice_explains_local_identity_before_submitting_the_code() {
         var nearby: String? = null
+        var route: RoomRoute? = null
         var internet = 0
         compose.setContent { KithMootTheme {
             InviteLinkSection("https://fixture.invalid/j/#invitation", {}, true, { internet++ },
-                collapsible = false, onJoinNearby = { nearby = it })
+                collapsible = false, onJoinNearby = { code, choice -> nearby = code; route = choice })
         } }
         compose.onNodeWithText("Join nearby with Bluetooth").performClick()
         compose.onNodeWithText("You will join with a new identity kept on this phone. Your account's other activity keeps its own connection settings.").assertIsDisplayed()
         compose.onNodeWithText("Nearby code").performTextInput("fixture-code")
         compose.runOnIdle { assertNull(nearby); assertEquals(0, internet) }
         compose.onNodeWithText("Join with local identity").performClick()
-        compose.runOnIdle { assertEquals("fixture-code", nearby); assertEquals(0, internet) }
+        compose.runOnIdle { assertEquals("fixture-code", nearby); assertEquals(RoomRoute.NEARBY, route); assertEquals(0, internet) }
+    }
+
+    @Test fun mixed_entry_is_an_explicit_choice_before_permission_or_connection() {
+        var request: Pair<String, RoomRoute>? = null
+        compose.setContent { KithMootTheme {
+            InviteLinkSection("https://fixture.invalid/j/#invitation", {}, true, {}, collapsible = false,
+                onJoinNearby = { code, route -> request = code to route })
+        } }
+        compose.onNodeWithText("Join nearby with Bluetooth").performClick()
+        compose.onNodeWithText("Nearby + Internet").performClick()
+        compose.onNodeWithText("Use Bluetooth and the Internet relays in this invitation for the same conversation.").assertIsDisplayed()
+        compose.onNodeWithText("Nearby code").performTextInput("mixed-code")
+        compose.runOnIdle { assertNull(request) }
+        compose.onNodeWithText("Join with local identity").performClick()
+        compose.runOnIdle { assertEquals("mixed-code" to RoomRoute.MIXED, request) }
     }
 
     @Test fun connection_is_chosen_before_room_entry_and_the_row_keeps_the_choice() {

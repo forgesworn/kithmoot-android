@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import dev.forgesworn.kithmoot.account.AccountRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
+import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 import dev.forgesworn.kithmoot.session.ConferenceLength
@@ -62,7 +63,7 @@ fun StartScreen(
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
     onJoin: () -> Unit,
-    onJoinNearby: ((String) -> Unit)? = null,
+    onJoinNearby: ((String, RoomRoute) -> Unit)? = null,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
     onProject: (String, String) -> Unit,
@@ -367,7 +368,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
-    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String, RoomRoute) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
 ) {
@@ -439,7 +440,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
-    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String, RoomRoute) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
     onDismissTombstone: (String) -> Unit = {},
@@ -585,7 +586,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Open invite link", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, { inviteOpen = false; onJoin() }, collapsible = false,
-                    onJoinNearby = onJoinNearby?.let { callback -> { code -> inviteOpen = false; callback(code) } })
+                    onJoinNearby = onJoinNearby?.let { callback -> { code, route -> inviteOpen = false; callback(code, route) } })
             }
         }
     }
