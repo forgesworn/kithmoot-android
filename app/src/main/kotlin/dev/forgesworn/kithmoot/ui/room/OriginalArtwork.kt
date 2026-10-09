@@ -27,5 +27,8 @@ fun originalArtworkDrawable(slug: String): Int = when (slug) {
     "moon" -> R.drawable.km_moon
     "coffee" -> R.drawable.km_coffee
     "handshake" -> R.drawable.km_handshake
+    "donkey-laugh" -> R.drawable.km_donkey_laugh
+    "donkey-facepalm" -> R.drawable.km_donkey_facepalm
+    "donkey-bitcoin" -> R.drawable.km_donkey_bitcoin
     else -> error("Unknown original artwork")
 }

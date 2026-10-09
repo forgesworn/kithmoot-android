@@ -74,6 +74,7 @@ internal fun ArtworkTray(
     val searchFocus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
     val member = available && memberPackAvailable()
+    val searchPlaceholder = if (tab == ArtworkTab.GIFS) "Try Donkey, laugh, Bitcoin, coffee…" else "Search artwork"
     fun closeSearch() { query = ""; searchOpen = false; focus.clearFocus(); keyboard?.hide() }
     BackHandler { if (searchOpen) closeSearch() else onClose() }
     DisposableEffect(Unit) { onDispose { onSearchChanged(false) } }
@@ -82,7 +83,7 @@ internal fun ArtworkTray(
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (searchOpen && compactSearch) {
-                    OutlinedTextField(query, { query = it.take(80) }, placeholder = { Text("Search artwork") }, singleLine = true,
+                    OutlinedTextField(query, { query = it.take(80) }, placeholder = { Text(searchPlaceholder) }, singleLine = true,
                         modifier = Modifier.weight(1f).padding(start = 8.dp).testTag("artwork-search").focusRequester(searchFocus))
                 } else {
                 if (reactionsOnly) Text("React with emoji", Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleSmall)
@@ -113,7 +114,7 @@ internal fun ArtworkTray(
                 }
                 IconButton(onClick = { focus.clearFocus(); keyboard?.hide(); onClose() }) { Icon(Icons.Default.Close, "Close artwork picker") }
             }
-            if (searchOpen && !compactSearch) OutlinedTextField(query, { query = it.take(80) }, placeholder = { Text("Search artwork") }, singleLine = true,
+            if (searchOpen && !compactSearch) OutlinedTextField(query, { query = it.take(80) }, placeholder = { Text(searchPlaceholder) }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("artwork-search").focusRequester(searchFocus))
             else if (!searchOpen && tab == ArtworkTab.EMOJI) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -147,6 +148,7 @@ internal fun ArtworkTray(
                 }
             } else {
                 val results = remember(query, tab) { searchMediaCatalogue(query, tab == ArtworkTab.STICKERS) }
+                if (tab == ArtworkTab.GIFS && query.isBlank()) Text("${results.size} animated GIFs", Modifier.padding(horizontal = 12.dp), style = MaterialTheme.typography.labelSmall)
                 if (results.isEmpty()) Text("No matching artwork.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
                 LazyVerticalGrid(GridCells.Adaptive(112.dp), Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(8.dp)) {
                     items(results, key = { it.asset }) { image ->

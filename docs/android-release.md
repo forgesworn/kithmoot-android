@@ -1,5 +1,11 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.75 (98): acted Donkey GIFs
+
+The local GIF catalogue adds Donkey laugh, Donkey facepalm and Donkey Bitcoin alongside Coffee. Each acted Blender loop has a matching 512-pixel PNG for reduced motion; all 27 still images are available in Stickers. GIF search suggests Donkey, laugh, Bitcoin and coffee, and the tray reports the available animation count. The original 24 reaction shortcodes and hidden legacy GIF files remain unchanged.
+
+The native catalogue and its exact reference digests are generated from the reviewed web catalogue. Built-in artwork continues to travel as tiny encrypted catalogue references, without uploads, remote image requests or storage consent. Unknown artwork retains readable text. Own files keep their existing encrypted attachment flow.
+
 ## 0.6.74 (97): familiar ForgeMoji and an animated character pilot
 
 The chat composer opens a local artwork tray with Emoji, Stickers and GIFs tabs. Familiar, ForgeSworn, character, full Unicode and unlocked 600 collections browse horizontally; recent choices stay on this phone and respect the member unlock. The compact hand-colour menu preserves all six choices. Search opens the keyboard only when requested, emoji insertion keeps the tray and draft open, and close/back returns to the composer. Constrained landscape keyboard search uses a compact search row with visible results while retaining the draft. Larger media previews require Add to message, then an explicit Send. Built-in artwork is staged as a small encrypted catalogue reference, so sending it never uploads its already bundled file or asks for shared storage consent.
