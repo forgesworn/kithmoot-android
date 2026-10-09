@@ -6,6 +6,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.RoomSharingState
 
@@ -28,6 +30,7 @@ internal fun RoomSharingSheet(state: RoomSharingState, onSelect: (String, Boolea
                 state.candidates.forEach { key ->
                     Row(Modifier.fillMaxWidth()) {
                         Checkbox(key in state.selected, { onSelect(key, it) },
+                            modifier = Modifier.semantics { contentDescription = "Approve messages from $key" },
                             enabled = !state.busy && (key in state.selected || state.selected.size < 32))
                         Column(Modifier.weight(1f).padding(top = 8.dp)) {
                             Text(shortId(key))

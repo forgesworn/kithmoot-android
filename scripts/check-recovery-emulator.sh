@@ -67,7 +67,7 @@ run_tests storage-and-ui 9 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
 run_tests nearby-room-ui 3 -e class dev.forgesworn.kithmoot.ui.NearbyRoomUiTest
 run_tests room-sharing-ui 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingUiTest
-run_tests room-sharing-entry 1 -e class dev.forgesworn.kithmoot.ui.RoomSharingEntryTest
+run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEntryTest
 run_tests nearby-room-entry 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomEntryTest
 run_tests fresh-nearby-entry 6 -e class dev.forgesworn.kithmoot.ui.FreshNearbyEntryTest
 run_tests home-screen 25 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
