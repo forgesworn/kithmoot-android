@@ -3,6 +3,8 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.HybridRoomTransport
+import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
@@ -16,6 +18,47 @@ class LiveRoomEntryTest {
     private val context = LivePersistentContext(invitation, deriveRoom(secret).roomId)
     private val descriptor = encodeLivePersistentDescriptor(context)
     private val welcome = encodePersistentInvitation(RoomInvitationHost(invitation, root), secret, 0)
+
+    @Test fun `mixed room entry recovers a lost answer and chats once over both lanes`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay(); val room = Fixtures.room()
+        val keeperPath = HybridRoomTransport(mesh.transport(), relay.transport()) { currentTime / 1000 }
+        val clientPath = HybridRoomTransport(mesh.transport(), relay.transport()) { currentTime / 1000 }
+        val identity = Fixtures.primary(room, 1, 2)
+        val requests = mutableListOf<NostrEvent>(); val answers = mutableMapOf<String, NostrEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            keeperPath.subscribe(listOf(Filter(kinds = listOf(KIND_INVITATION_REQUEST)))).collect { request ->
+                requests += request
+                val answer = answers.getOrPut(request.id) {
+                    encodeLivePersistentAnswer(context, request, welcome, root, 0, currentTime / 1000)
+                }
+                // The first complete answer is lost before either selected lane.
+                if (requests.size > 1) keeperPath.publish(answer)
+            }
+        }
+        val peer = session(room, Fixtures.primary(room, 3, 4), relay, transport = keeperPath,
+            authority = invitation.inviter, epochResponder = { request ->
+                encodeEpochGrant(room.roomId, root, request.pubkey, request.id, currentTime / 1000, RoomEpoch(0, secret))
+            })
+        peer.join(); runCurrent()
+        val joining = async {
+            joinLivePersistentRoom(invitation, descriptor, identity.devicePubkey, clientPath,
+                { currentTime / 1000 }, { currentTime }) { proof ->
+                session(room, identity, relay, transport = clientPath, authority = invitation.inviter,
+                    expectedEpoch = proof.epochHint.toInt(), epochGate = { _, _ -> EpochGateResult.COMMITTED }, requireFreshEpoch = true)
+            }
+        }
+        runCurrent(); assertFalse(joining.isCompleted); assertEquals(1, requests.size)
+        assertFalse(mesh.published.any { it.kind == KIND_ROSTER && it.pubkey == identity.devicePubkey })
+        advanceTimeBy(10_000); runCurrent()
+        val client = joining.await()
+        assertEquals(2, requests.size); assertEquals(1, requests.map { it.id }.distinct().size)
+        assertEquals(1, answers.size)
+        client.sendChat("mixed client"); peer.sendChat("mixed reply"); runCurrent()
+        assertEquals(1, peer.chat.value.count { it.body == "mixed client" })
+        assertEquals(1, client.chat.value.count { it.body == "mixed reply" })
+        assertEquals(mesh.published.filter { it.kind == KIND_CHAT }.map { it.id }, relay.published.filter { it.kind == KIND_CHAT }.map { it.id })
+        client.leave(); peer.leave()
+    }
 
     @Test fun `verified proof and fresh root grant enter an actual room before both way chat`() = runTest {
         val relay = FakeRelay(); val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)

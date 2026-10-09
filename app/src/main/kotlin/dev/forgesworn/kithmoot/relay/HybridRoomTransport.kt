@@ -8,12 +8,14 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** Participant-owned fanout over two explicitly authorised lanes. Receiving
  * somebody else's event never forwards it. The caller owns lane lifecycles. */
-class HybridRoomTransport(private val nearby: RoomTransport, private val internet: RoomTransport) : RoomTransport {
+class HybridRoomTransport(private val nearby: RoomTransport, private val internet: RoomTransport,
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }) : RoomTransport {
     private val lock = Any()
     private val generation = AtomicLong()
     @Volatile private var blocked = false
     @Volatile private var resetReady = true
     private val relayObserved = linkedSetOf<String>()
+    private data class Seen(val offers: Int, val at: Long)
 
     private fun observed(event: NostrEvent, expected: Long = generation.get()) = synchronized(lock) {
         if (blocked || generation.get() != expected) return@synchronized
@@ -91,15 +93,21 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         combined(filters, onReplayComplete)
 
     private fun combined(filters: List<Filter>, replayed: (() -> Unit)?): Flow<NostrEvent> = channelFlow {
-        val seen = linkedSetOf<String>()
+        val seen = linkedMapOf<String, Seen>()
         val seenLock = Any()
         suspend fun receive(event: NostrEvent, relay: Boolean) {
             // Record provenance even if another lane supplied this ID first.
             if (relay) observed(event)
             val first = synchronized(seenLock) {
-                val fresh = seen.add(event.id)
-                while (seen.size > 2048) seen.remove(seen.first())
-                fresh
+                val at = nowSeconds()
+                val previous = seen[event.id]
+                // A lost answer needs an identical signed request retry. Keep
+                // immediate cross-lane copies and ordinary chat deduplicated.
+                if (previous != null && (event.kind !in setOf(20466, 20467, 20468, 20469) ||
+                        previous.offers >= 3 || at <= previous.at)) return@synchronized false
+                seen[event.id] = Seen((previous?.offers ?: 0) + 1, at)
+                while (seen.size > 2048) seen.remove(seen.keys.first())
+                true
             }
             if (first) send(event)
         }
