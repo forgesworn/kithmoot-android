@@ -26,7 +26,9 @@ class RoomRepository(private val storage: RoomStorage) {
         return read().firstOrNull { it.invitation?.invitation == invitation }
     }
     @Synchronized fun save(room: SavedRoom) {
-        val rooms = read().filterNot { it.id == room.id } + room
+        val previous = read()
+        previous.firstOrNull { it.id == room.id }?.let { checkReplacement(it, room) }
+        val rooms = previous.filterNot { it.id == room.id } + room
         if (rooms.size > 100) throw RoomRecoveryException("You have 100 saved rooms. Forget one before adding another.")
         write(rooms)
     }
@@ -45,6 +47,7 @@ class RoomRepository(private val storage: RoomStorage) {
         val existing = rooms.firstOrNull { it.id == id } ?: return null
         val next = change(existing)
         require(next.id == id)
+        checkReplacement(existing, next)
         write(rooms.map { if (it.id == id) next else it })
         return next
     }
@@ -57,8 +60,12 @@ class RoomRepository(private val storage: RoomStorage) {
         try {
             require(bytes.size <= 4 * 1024 * 1024)
             val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
-            require(root.getValue("version").jsonPrimitive.int == 1)
+            val version = root.getValue("version").jsonPrimitive
+            require(!version.isString && version.intOrNull in setOf(1, 2))
             val rooms = root.getValue("rooms").jsonArray.map { SavedRoom.decode(it.jsonObject) }
+            require((version.intOrNull == 2) == rooms.any { it.nativeAuthority != null }) {
+                "Native authority references require saved-room repository version 2"
+            }
             require(rooms.size <= 100 && rooms.distinctBy { it.id }.size == rooms.size)
             rooms
         } finally { bytes.fill(0) }
@@ -66,7 +73,7 @@ class RoomRepository(private val storage: RoomStorage) {
 
     private fun write(rooms: List<SavedRoom>) = guarded {
         val bytes = buildJsonObject {
-            put("version", 1)
+            put("version", if (rooms.any { it.nativeAuthority != null }) 2 else 1)
             put("rooms", JsonArray(rooms.map { it.json }))
         }.toString().toByteArray(Charsets.UTF_8)
         try {
@@ -74,6 +81,17 @@ class RoomRepository(private val storage: RoomStorage) {
             storage.write(bytes)
             _revision.update { it + 1 }
         } finally { bytes.fill(0) }
+    }
+
+    private fun checkReplacement(previous: SavedRoom, next: SavedRoom) {
+        previous.nativeAuthority?.let {
+            require(next.nativeAuthority?.pin == it.pin && next.json["nativeAuthority"] == previous.json["nativeAuthority"]) {
+                "Saving cannot remove or replace this room's native authority"
+            }
+        }
+        if (next.nativeAuthority != null) require("host" !in previous.json) {
+            "Legacy hosting requires explicit authority transfer"
+        }
     }
 
     private inline fun <T> guarded(block: () -> T): T = try { block() } catch (e: Exception) {

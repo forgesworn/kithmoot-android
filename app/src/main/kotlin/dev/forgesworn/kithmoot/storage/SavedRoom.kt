@@ -11,6 +11,9 @@ import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.session.conferenceEndedMessage
 import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.relay.TorOnlyRelayUrls
+import dev.forgesworn.kithmoot.epoch.KeeperPhase
+import dev.forgesworn.kithmoot.epoch.NativeKeeperBinding
+import dev.forgesworn.kithmoot.epoch.NativeKeeperJournal
 import kotlinx.serialization.json.*
 
 internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
@@ -74,6 +77,49 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val policy: RoomPolicy? get() = invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
     val relays: List<String> get() = json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
     val authority: String? get() = json["authority"]?.jsonPrimitive?.content
+    /** A public reference, never proof of source availability or receiver readiness. */
+    internal val nativeAuthority: NativeKeeperBinding?
+        get() = json["nativeAuthority"]?.let(NativeKeeperReference::decode)
+
+    /** Fresh sources only. Legacy host transfer requires a separately qualified migration. */
+    internal fun withNativeAuthority(source: NativeKeeperJournal): SavedRoom {
+        require("host" !in json) { "Legacy hosting requires explicit authority transfer" }
+        val binding = source.binding
+        val state = source.snapshot()
+        require(state.suspended && state.phase == KeeperPhase.ACTIVE && state.epoch == 0 && state.pending.isEmpty() && state.cause == null)
+        require(!retired && !movedOn && !anonymous && !secondary)
+        val payload = requireNotNull(invitation).invitation
+        val sourceInvitation = source.invitation()
+        val sourceEpoch = source.epoch()
+        val savedSecret = secret
+        try {
+            require(payload == sourceInvitation && sourceEpoch.secret.contentEquals(savedSecret))
+            val welcome = requireNotNull(decodePersistentInvitation(source.welcome(), payload))
+            try { require(welcome.secret.contentEquals(savedSecret) && welcome.endsAt == ends && welcome.destruct == destruct) }
+            finally { welcome.secret.fill(0) }
+        } finally {
+            sourceInvitation.bearer.fill(0)
+            sourceEpoch.secret.fill(0)
+            savedSecret.fill(0)
+        }
+        require(source.snapshot() == state) { "Source changed during reference installation" }
+        nativeAuthority?.let { require(it.pin == binding.pin) }
+        return changed { put("nativeAuthority", NativeKeeperReference.encode(binding, deriveInvitationId(payload))) }.also { it.validate() }
+    }
+
+    /** Checks the actual independent source after open; saved fields cannot recreate it. */
+    internal fun verifyNativeAuthority(source: NativeKeeperJournal) {
+        require(source.binding.pin == requireNotNull(nativeAuthority).pin)
+        val payload = requireNotNull(invitation).invitation
+        val sourceInvitation = source.invitation()
+        try {
+            require(payload == sourceInvitation) { "Saved invitation does not match the native source" }
+            val welcome = requireNotNull(decodePersistentInvitation(source.welcome(), payload))
+            val savedSecret = secret
+            try { require(welcome.secret.contentEquals(savedSecret)) }
+            finally { welcome.secret.fill(0); savedSecret.fill(0) }
+        } finally { sourceInvitation.bearer.fill(0) }
+    }
     /**
      * The highest epoch this device has been told the room is at - by the
      * responder that admitted it (`RoomAdmission.epoch`) - kept so a room
@@ -257,6 +303,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
 
     private fun storedHost(): RoomInvitationHost? {
+        if ("nativeAuthority" in json) {
+            require("host" !in json) { "Native and legacy authorities cannot coexist" }
+            return null
+        }
         val stored = json["host"]?.jsonObject ?: return null
         val payload = requireNotNull(invitation)
         val chain = stored.getValue("delegation").jsonArray.map { InvitationDelegation.fromJson(it.jsonObject) }
@@ -386,11 +436,29 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
     fun keysChanged(): SavedRoom = changed { put("movedOn", true); remove("host") }
     fun retainingHistory(previous: SavedRoom): SavedRoom {
+        val previousNative = previous.nativeAuthority
+        if (previousNative != null) {
+            require(id == previous.id && participant == previous.participant && devicePubkey == previous.devicePubkey) {
+                "Native keeper ownership cannot change through a bookmark refresh"
+            }
+            require("host" !in json) { "A bookmark cannot add a legacy signer to a native authority" }
+            nativeAuthority?.let { require(it.pin == previousNative.pin) }
+            // Keep the exact source invitation and public binding when an old link is reopened.
+            if (invitation?.invitation != previous.invitation?.invitation) return previous.opened(openedAt)
+            require(authority == null || authority == previousNative.authority)
+        }
         // An old meeting link must not replace durable membership or creator authority.
         if (previous.invitation?.invitation?.persistent == true && invitation?.invitation?.persistent != true) {
             return previous.opened(openedAt)
         }
         return changed {
+            if (previousNative != null) {
+                put("nativeAuthority", previous.json.getValue("nativeAuthority"))
+                put("authority", previousNative.authority)
+                put("relays", previous.json.getValue("relays"))
+                if (previousNative.route == RoomRoute.INTERNET) remove("route") else put("route", previousNative.route.stored)
+                if (previous.movedOn) put("movedOn", true)
+            }
             // A bookmark/link refresh cannot silently re-enable room internet traffic.
             previous.json["route"]?.let { this["route"] = it }
             // The end is the room's, not the link's: a later opening that did
@@ -420,7 +488,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 put("retired", true)
                 remove("host")
             }
-        }
+        }.also { if (previousNative != null || it.nativeAuthority != null) it.validate() }
     }
 
     /** Save both the new capability and the old signed tombstone before publishing. */
@@ -486,6 +554,16 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             else -> error("Unknown saved identity")
         }
         if (anonymous) require(!secondary && !viaAccount) { "Anonymous rooms need a local primary identity." }
+        nativeAuthority?.let { binding ->
+            require("host" !in json && !secondary && !anonymous && policy?.quiet != true)
+            require(binding.room == id && binding.authority == authority && binding.participant == participant && binding.device == devicePubkey)
+            require(invitation?.invitation?.let { it.persistent && it.canonicalInviter == binding.authority } == true)
+            require(json.getValue("nativeAuthority").jsonObject.text("invitation") == deriveInvitationId(requireNotNull(invitation).invitation))
+            require(binding.route == selectedRoute) { "Native authority route needs an explicit journal policy transition" }
+            require(binding.relays == if (selectedRoute.internet) relays.map(::canonicalRelayUrl).sorted() else emptyList<String>()) {
+                "Native authority relays need an explicit journal policy transition"
+            }
+        }
         storedHost()
         require(retirements.size <= 128)
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
