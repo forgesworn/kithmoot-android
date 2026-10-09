@@ -83,9 +83,11 @@ class RoomMeshTransport(
     private var replyCount = 0
     private data class Seen(val offers: Int, val at: Long)
     private val seen = linkedMapOf<String, Seen>()
-    private data class Stored(val event: NostrEvent, val expires: Long)
+    private val inboundSeen = linkedMapOf<String, Seen>()
+    private data class Stored(val event: NostrEvent, val expires: Long, val inbound: Boolean)
     private val retained = linkedMapOf<String, Stored>()
-    private data class Reader(val filters: List<Filter>, val event: (NostrEvent) -> Unit, val end: () -> Unit)
+    private data class Reader(val filters: List<Filter>, val inboundOnly: Boolean,
+        val event: (NostrEvent) -> Unit, val end: () -> Unit)
     private val readers = linkedSetOf<Reader>()
     private val receiver: AutoCloseable
 
@@ -107,21 +109,33 @@ class RoomMeshTransport(
         return event.copy(tags = event.tags.map { it.toList() })
     }
 
-    private fun accept(event: NostrEvent, at: Long) {
-        prune(at)
-        val previous = seen[event.id]
+    private fun recordObservation(cache: MutableMap<String, Seen>, event: NostrEvent, at: Long): Boolean {
+        val previous = cache[event.id]
         if (previous != null && (event.kind !in setOf(20466, 20467, 20468, 20469) ||
-                previous.offers >= 3 || at <= previous.at)) return
-        seen[event.id] = Seen((previous?.offers ?: 0) + 1, at)
-        while (seen.size > 512) seen.remove(seen.keys.first())
+                previous.offers >= 3 || at <= previous.at)) return false
+        cache[event.id] = Seen((previous?.offers ?: 0) + 1, at)
+        while (cache.size > 512) cache.remove(cache.keys.first())
+        return true
+    }
+
+    private fun accept(event: NostrEvent, at: Long, inbound: Boolean = false) {
+        prune(at)
+        val deliver = recordObservation(seen, event, at)
+        // A local echo may already occupy the ordinary dedup cache. Only an
+        // actual receive can establish this separate source observation.
+        val deliverInbound = inbound && recordObservation(inboundSeen, event, at)
+        if (!deliver && !deliverInbound) return
         if (event.kind in setOf(1460, 1463) && !blocked) {
+            val old = retained[event.id]
             val expires = minOf(at + 3600, event.tags.filter { it.firstOrNull() == "expiration" }
-                .mapNotNull { it.getOrNull(1)?.toLongOrNull() }.minOrNull() ?: Long.MAX_VALUE)
-            retained[event.id] = Stored(event, expires)
+                .mapNotNull { it.getOrNull(1)?.toLongOrNull() }.minOrNull() ?: Long.MAX_VALUE,
+                old?.expires ?: Long.MAX_VALUE)
+            retained[event.id] = Stored(event, expires, inbound || old?.inbound == true)
             while (retained.size > 64) retained.remove(retained.keys.first())
         }
         readers.toList().forEach { reader ->
-            if (reader.filters.any { matches(it, event) }) reader.event(event.copy(tags = event.tags.map { it.toList() }))
+            if ((if (reader.inboundOnly) deliverInbound else deliver) && reader.filters.any { matches(it, event) })
+                reader.event(event.copy(tags = event.tags.map { it.toList() }))
         }
     }
 
@@ -170,9 +184,16 @@ class RoomMeshTransport(
         try { delay(timeoutMs); job.cancelAndJoin(); found.values.toList() } finally { job.cancel() }
     }
 
-    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = callbackFlow {
+    /** Actual inbound observations and their bounded replay for an explicitly
+     * enabled forwarding owner. Local publication is not source observation.
+     * A received copy still cannot prove participant identity or delivery. */
+    fun subscribeInbound(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = true)
+
+    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = false)
+
+    private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean): Flow<NostrEvent> = callbackFlow {
         val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
-        val reader = Reader(frozen, { event ->
+        val reader = Reader(frozen, inboundOnly, { event ->
             if (!trySend(event).isSuccess) close(IllegalStateException("Mesh subscription capacity exceeded"))
         }, { close() })
         synchronized(lock) {
@@ -181,7 +202,7 @@ class RoomMeshTransport(
             readers.add(reader)
             try {
                 prune(time())
-                retained.values.filter { row -> frozen.any { matches(it, row.event) } }.forEach {
+                retained.values.filter { row -> (!inboundOnly || row.inbound) && frozen.any { matches(it, row.event) } }.forEach {
                     reader.event(it.event.copy(tags = it.event.tags.map { tag -> tag.toList() }))
                 }
                 if (!blocked) link.offer(RoomMeshWire.encode(RoomMeshWire.QUERY, buildJsonObject {
@@ -205,7 +226,7 @@ class RoomMeshTransport(
                     // Parsing helpers are permissive elsewhere; this boundary requires
                     // the actual Nostr JSON types, including numbers and string tags.
                     if (event.toJson().all { (key, value) -> encoded[key] == value })
-                        checked(event, at)?.let { accept(it, at) }
+                        checked(event, at)?.let { accept(it, at, inbound = true) }
                 }
                 RoomMeshWire.QUERY -> {
                     if (blocked || bytes.size > 4096) return@synchronized
@@ -229,7 +250,7 @@ class RoomMeshTransport(
         val resetGeneration = synchronized(lock) {
             check(!closed)
             blocked = true; resetReady = false; generation++
-            retained.clear(); seen.clear()
+            retained.clear(); seen.clear(); inboundSeen.clear()
             generation
         }
         // Never hold the room lock while waiting for Android's main thread.
@@ -240,7 +261,7 @@ class RoomMeshTransport(
     }
     override suspend fun rekey(roomKey: ByteArray) = synchronized(lock) {
         check(!closed && blocked)
-        retained.clear(); seen.clear() // Old-epoch arrivals during the barrier cannot become replay.
+        retained.clear(); seen.clear(); inboundSeen.clear() // Old-epoch arrivals during the barrier cannot become replay.
     }
     override fun completeRekey() = synchronized(lock) { check(!closed && resetReady); blocked = false }
 
@@ -255,7 +276,7 @@ class RoomMeshTransport(
             closed = true; blocked = true; generation++
             try { receiver.close() } finally {
                 try { link.close() } finally {
-                    retained.clear(); seen.clear(); readers.toList().forEach { it.end() }; readers.clear()
+                    retained.clear(); seen.clear(); inboundSeen.clear(); readers.toList().forEach { it.end() }; readers.clear()
                 }
             }
         }
