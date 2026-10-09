@@ -15,14 +15,15 @@ import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 
 /** Byte boundary supplied by BLE (or a test link). Never an internet fallback.
- * Calls are non-blocking and must not invoke or wait for receive callbacks inline.
+ * Calls must not invoke or wait for receive callbacks inline. resetQueued may
+ * suspend while the platform stops its radio; other calls are non-blocking.
  * resetQueued discards every previously offered frame before returning; subsequent
  * offers may reconnect. A platform unable to provide that barrier must fail closed.
  * from/to are routing hints, not authenticated participants or delivery receipts. */
 interface RoomMeshLink : AutoCloseable {
     fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable
     fun offer(bytes: ByteArray, to: String? = null)
-    fun resetQueued()
+    suspend fun resetQueued()
     fun reachable(): Boolean
 }
 
@@ -220,12 +221,18 @@ class RoomMeshTransport(
         } catch (_: Exception) { /* Malformed input and failed best-effort replay have no authority. */ }
     }
 
-    override suspend fun beginRekey() = synchronized(lock) {
-        check(!closed)
-        blocked = true; resetReady = false; generation++
-        retained.clear(); seen.clear()
+    override suspend fun beginRekey() {
+        val resetGeneration = synchronized(lock) {
+            check(!closed)
+            blocked = true; resetReady = false; generation++
+            retained.clear(); seen.clear()
+            generation
+        }
+        // Never hold the room lock while waiting for Android's main thread.
         link.resetQueued() // If this fails, publication remains blocked.
-        resetReady = true
+        synchronized(lock) {
+            if (!closed && generation == resetGeneration) resetReady = true
+        }
     }
     override suspend fun rekey(roomKey: ByteArray) = synchronized(lock) {
         check(!closed && blocked)

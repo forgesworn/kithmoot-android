@@ -53,9 +53,10 @@ before offering an event and preserves UNKNOWN without a receipt.
 
 ## Remaining client work
 
-Bind the shared `capacitor-mesh-ble` Android radio engine to `RoomMeshLink`, with
-serialized non-blocking calls, a real queue-reset barrier, terminal teardown and
-permission/lifecycle handling. Keep hop zero for the initial qualification.
+The shared Android engine now has a [native binding](native-room-ble.md) with
+serialized calls, an awaited queue-reset barrier and terminal teardown. The
+production UI still needs to select it and own permissions/lifecycle. Hop zero is
+fixed in the initial binding.
 
 Select nearby-only or mixed routes before invitation lookup and session creation.
 All profile, saved-room and account paths need an explicit privacy boundary;

@@ -243,6 +243,7 @@ kotlin {
 
 dependencies {
     implementation(project(":protocol"))
+    implementation(project(":mesh-radio"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

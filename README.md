@@ -306,8 +306,13 @@ gitignored `local.properties` file.
 Check the protocol vectors, app unit tests, Android lint and both build variants:
 
 ```sh
+python3 scripts/prepare-mesh-radio.py
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease
 ```
+
+The native BLE engine is fetched from a pinned source commit and verified before
+compilation. This does not enable Bluetooth in the app; the room-route UI is
+still being integrated. See [the binding contract](docs/native-room-ble.md).
 
 The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
 and pushes to `main`, and retains reports for seven days. A separate API 35

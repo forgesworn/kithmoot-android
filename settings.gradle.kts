@@ -22,3 +22,5 @@ rootProject.name = "kithmoot-android"
 include(":protocol")
 include(":app")
 include(":g5-signer")
+
+include(":mesh-radio")
