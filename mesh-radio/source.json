@@ -1,0 +1,16 @@
+{
+  "repository": "forgesworn/capacitor-mesh-ble",
+  "commit": "dddaacbb6445cf01a101e697d017cdb35fe7fd5d",
+  "archiveSha256": "3d5d43d39407414995b303284d019e6745a0705e853656a20b54e569a2f35265",
+  "files": {
+    "LICENSE": "bb2e4384c35a051249cb323ac35d0d7f6fbc47388447f45f082e255329b85e4f",
+    "android-radio/src/main/AndroidManifest.xml": "c90d40c963555f9c5c0425a291f3852d48e381818b6b1cbab5fc93642be7fd20",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleForegroundService.java": "e400c6fc28a40b5dcae974501560d501fd5e61406f8199eceb77b6f2f015cf10",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleObject.java": "751cead2ea969d39aa26b3b2df3ffc5cf3faf99c856cde7a1420966881ee04c8",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleQueue.java": "398345dec232d6e45eab58d8b9cbbf0089de7e9b5da7eb911a96b485a49f003c",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleRadio.java": "e910de72c3ba4b25826300ce11d84fc33fc95d0bda1ac3cfda86a623865026f0",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleRequest.java": "ec4b6889b61cc00486e76f750297e2857bc96e8f62a3a3ef21ddafb4cb33b0e4",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleRssiBus.java": "d258310b4a9fe56fb7c7bf27a4db4ebd2b98a8f8a659da2e15d5465561a2d8b8",
+    "android-radio/src/main/java/dev/forgesworn/meshble/MeshBleWire.java": "2dd02f96f93686d470882abf949ccba3f1281581b3db1bcdeed9e4ffba18d812"
+  }
+}

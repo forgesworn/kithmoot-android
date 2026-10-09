@@ -33,7 +33,7 @@ class RoomMeshTransportTest {
             return AutoCloseable { this.receive = null; if (unsubscribeFailure) error("unsubscribe failed") }
         }
         override fun offer(bytes: ByteArray, to: String?) { check(!closed); offered += bytes.copyOf() to to }
-        override fun resetQueued() { reset++; if (resetFailure) error("queue barrier failed"); offered.clear() }
+        override suspend fun resetQueued() { reset++; if (resetFailure) error("queue barrier failed"); offered.clear() }
         override fun reachable() = !closed
         override fun close() { closed = true; offered.clear(); receive = null }
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
