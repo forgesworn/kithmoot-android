@@ -61,6 +61,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
@@ -243,6 +244,9 @@ class RoomSession(
      * [epochOpening].
      */
     private val expectedEpoch: Int? = null,
+    /** Fresh live admission requires the pinned root even at epoch zero. */
+    private val requireFreshEpoch: Boolean = false,
+    private val freshEpochTimeoutMs: Long = 20_000,
     /**
      * Whether, told nothing newer, the session may ask the authority once as
      * it opens whether the room has moved on. Off by default; the app turns it
@@ -391,6 +395,7 @@ class RoomSession(
     private var joined = false
     private var settled = false
     @Volatile private var publicationAllowed = false
+    @Volatile private var freshJoinJob: Job? = null
     @Volatile private var transportBlocked = false
 
     private var tracks: List<TrackRef> = emptyList()
@@ -500,12 +505,38 @@ class RoomSession(
     // --- lifecycle -----------------------------------------------------------
 
     suspend fun join() {
+        if (!requireFreshEpoch) return joinInternal()
+        require(authority != null && epochGate != null && epochResponder == null) {
+            "Fresh admission requires a pinned root and epoch persistence gate"
+        }
+        coroutineScope {
+            val attempt = requireNotNull(currentCoroutineContext()[Job])
+            synchronized(lock) {
+                check(freshJoinJob == null) { "Fresh admission is already running" }
+                freshJoinJob = attempt
+            }
+            try {
+                joinInternal()
+                currentCoroutineContext().ensureActive()
+                check(joined) { "Room admission was cancelled" }
+            } catch (error: Throwable) {
+                synchronized(lock) { if (freshJoinJob === attempt) freshJoinJob = null }
+                leave()
+                throw error
+            } finally {
+                synchronized(lock) { if (freshJoinJob === attempt) freshJoinJob = null }
+            }
+        }
+    }
+
+    private suspend fun joinInternal() {
         policy?.let {
             val decision = evaluateAccess(it, identity.participant, proof, now(), room.roomId)
             require(decision.admitted) { decision.reason }
         }
         synchronized(lock) {
             if (joined) return
+            if (requireFreshEpoch) settled = false
             joined = true
         }
         // Left epochs seeded at opening: a quiet room's transport opens drops
@@ -523,7 +554,7 @@ class RoomSession(
                 delay(REKEY_REPLAY_WAIT_MS)
                 rekeysReplayed.complete(Unit)
             }
-            if (memberEpochDesk != null && epochResponder == null) startMemberDesk(memberEpochDesk)
+            if (memberEpochDesk != null && epochResponder == null && !requireFreshEpoch) startMemberDesk(memberEpochDesk)
             if (epochResponder != null) {
                 jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
                     transport.subscribe(listOf(epochRequestFilter())).collect { request ->
@@ -531,16 +562,23 @@ class RoomSession(
                     }
                 }
             }
-            val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe)
-            // Told where the room is, there is nothing to wait for; told
-            // nothing, wait for the rekeys a relay replays.
-            if (opening !is EpochOpening.Recover && epochSettleMs > 0) {
-                withTimeoutOrNull(epochSettleMs) { replayed.await() }
-            }
-            when (opening) {
-                is EpochOpening.Recover -> beginRecoveryAtOpen(opening.epoch)
-                EpochOpening.Probe -> jobs += scope.launch { probeAuthority() }
-                EpochOpening.None -> Unit
+            if (requireFreshEpoch) {
+                confirmFreshEpoch()
+                currentCoroutineContext().ensureActive()
+                check(joined) { "Room admission was cancelled" }
+                if (memberEpochDesk != null) startMemberDesk(memberEpochDesk)
+            } else {
+                val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe)
+                // Told where the room is, there is nothing to wait for; told
+                // nothing, wait for the rekeys a relay replays.
+                if (opening !is EpochOpening.Recover && epochSettleMs > 0) {
+                    withTimeoutOrNull(epochSettleMs) { replayed.await() }
+                }
+                when (opening) {
+                    is EpochOpening.Recover -> beginRecoveryAtOpen(opening.epoch)
+                    EpochOpening.Probe -> jobs += scope.launch { probeAuthority() }
+                    EpochOpening.None -> Unit
+                }
             }
         }
         settled = true
@@ -595,6 +633,7 @@ class RoomSession(
      * there is only one path to test.
      */
     fun leave() {
+        freshJoinJob?.cancel()
         val cancelling: List<Job>
         val traffic: List<Job>
         val farewell: Boolean
@@ -1408,6 +1447,26 @@ class RoomSession(
                 // A replayed rekey may have carried this device there already.
                 if (epochKeys().epoch < target) recoverFromAuthority(target, "The room has moved on and its authority has not restored this device yet")
             }
+        }
+    }
+
+    /** A fresh root answer is required even when rekeys already brought us current. */
+    private suspend fun confirmFreshEpoch() = epochMutex.withLock {
+        blockForRekey()
+        val floor = { maxOf(epochKeys().epoch, expectedEpoch ?: 0, rekeyFloor.get()) }
+        val response = requestFreshRootEpoch(room, requireNotNull(authority), identity, transport,
+            floor, now, freshEpochTimeoutMs, proof, ends)
+        currentCoroutineContext().ensureActive()
+        val grant = response.grant
+        check(joined && grant.epoch >= floor()) { "Room admission changed while awaiting its authority" }
+        check(identity.participant !in grant.removed && synchronized(lock) { identity.participant !in removedParticipants }) { "Epoch admission refused: removed" }
+        check(_epochState.value !is RoomEpochState.Closed && _epochState.value !is RoomEpochState.Removed) { "This room is unavailable" }
+        if (grant.epoch > epochKeys().epoch) {
+            answerFromAuthority(EpochAnswer.Authority(response.event, grant), grant.epoch, "The root epoch could not be committed")
+            check(epochKeys().epoch == grant.epoch && _epochState.value is RoomEpochState.Active) { "The root epoch is not committed" }
+        } else {
+            grant.members?.let(onMembers)
+            synchronized(lock) { removedParticipants += grant.removed }
         }
     }
 

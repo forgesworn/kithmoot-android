@@ -79,6 +79,8 @@ fun TestScope.session(
     transport: dev.forgesworn.kithmoot.relay.RoomTransport = relay.transport(),
     initialPastEpochs: List<PastEpoch> = emptyList(),
     initialRemoved: Collection<String> = emptyList(),
+    requireFreshEpoch: Boolean = false,
+    freshEpochTimeoutMs: Long = 20_000,
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -96,6 +98,8 @@ fun TestScope.session(
     onEpochApplied = onEpochApplied,
     epochResponder = epochResponder,
     expectedEpoch = expectedEpoch,
+    requireFreshEpoch = requireFreshEpoch,
+    freshEpochTimeoutMs = freshEpochTimeoutMs,
     epochProbe = epochProbe,
     onEpochBlocked = onEpochBlocked,
     onEpochReady = onEpochReady,
