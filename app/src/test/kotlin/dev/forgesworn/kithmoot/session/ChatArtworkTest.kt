@@ -13,7 +13,7 @@ import kotlin.test.*
 class ChatArtworkTest {
     private val room = Fixtures.room()
     private val owner = Fixtures.primary(room, 1, 2)
-    private val coffee = catalogueArtwork(searchMediaCatalogue("", false).single())
+    private val coffee = catalogueArtwork(searchMediaCatalogue("coffee", false).single())
 
     @Test fun `reopened durable outbox retains the exact encrypted reference and cannot erase it through text-only editing`() = runBlocking<Unit> {
         val storage = object : RoomStorage {
@@ -119,9 +119,9 @@ class ChatArtworkTest {
         assertEquals("😀".repeat(80), normaliseArtwork(coffee.copy(label = "😀".repeat(81)))!!.label)
     }
 
-    @Test fun `all known hashes resolve only the reviewed local PNGs and coffee GIF`() {
+    @Test fun `all known hashes resolve only the reviewed local PNGs and acted GIFs`() {
         val images = searchMediaCatalogue("", true) + searchMediaCatalogue("", false)
-        assertEquals(25, images.size)
+        assertEquals(31, images.size)
         images.forEach { image ->
             val reference = catalogueArtwork(image)
             assertEquals(image, resolveCatalogueArtwork(reference))

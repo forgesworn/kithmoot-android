@@ -55,15 +55,38 @@ class RichMediaTest {
         assertFalse(deleteUploadedMedia("https://files.example", hash, auth, client))
         missing = true; assertTrue(deleteUploadedMedia("https://files.example", hash, auth, client))
     }
+    @Test fun `Donkey GIF search reduced motion and legacy emoji stay local`() {
+        val donkey = searchMediaCatalogue("donkey", false)
+        assertEquals(listOf("donkey-laugh", "donkey-facepalm", "donkey-bitcoin"), donkey.map { it.slug })
+        donkey.forEach { image ->
+            assertTrue(image.name.startsWith("Donkey"))
+            assertEquals("chat-art/${image.slug}.png", cataloguePreviewAsset(image, true))
+            assertEquals(image.asset, cataloguePreviewAsset(image, false))
+            val preview = java.io.File("src/main/assets/${cataloguePreviewAsset(image, true)}").readBytes()
+            assertContentEquals(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10), preview.copyOfRange(0, 8))
+            assertEquals(512, java.nio.ByteBuffer.wrap(preview, 16, 4).int)
+            assertEquals(512, java.nio.ByteBuffer.wrap(preview, 20, 4).int)
+        }
+        assertEquals(24, ORIGINAL_EMOJIS.size)
+        assertTrue(EmojiCatalog.accepts(":km_laugh:"))
+        assertFalse(EmojiCatalog.accepts(":km_donkey-laugh:"))
+        assertTrue(java.io.File("src/main/assets/chat-art/laugh.gif").isFile)
+        assertTrue(searchMediaCatalogue("", false).none { it.slug == "laugh" })
+        val legacy = ORIGINAL_ART.first { it.slug == "laugh" }
+        val hiddenGif = ChatArtwork(BUILT_IN_ARTWORK_PACK, legacy.slug, "gif", legacy.gifSha256, legacy.title)
+        assertNull(resolveCatalogueArtwork(hiddenGif))
+        assertEquals("GIF: Laugh", artworkFallback(listOf(hiddenGif)))
+    }
+
     @Test fun `original catalogue searches local packaged reactions and never supplies external URLs`() {
         val gifs = searchMediaCatalogue("", false)
-        assertEquals(listOf("coffee"), gifs.map { it.slug }); assertEquals(24, searchMediaCatalogue("", true).size)
-        assertEquals("chat-art/coffee-animation.png", cataloguePreviewAsset(gifs.single(), true))
-        assertEquals("chat-art/coffee.gif", cataloguePreviewAsset(gifs.single(), false))
-        assertTrue(searchMediaCatalogue("facepalm", false).isEmpty())
+        assertEquals(listOf("coffee", "donkey-laugh", "donkey-facepalm", "donkey-bitcoin"), gifs.map { it.slug }); assertEquals(27, searchMediaCatalogue("", true).size)
+        assertEquals("chat-art/coffee-animation.png", cataloguePreviewAsset(gifs.first { it.slug == "coffee" }, true))
+        assertEquals("chat-art/coffee.gif", cataloguePreviewAsset(gifs.first { it.slug == "coffee" }, false))
+        assertEquals("donkey-facepalm", searchMediaCatalogue("facepalm", false).single().slug)
         assertTrue(java.io.File("src/main/assets/chat-art/coffee-animation.png").isFile)
         assertTrue(searchMediaCatalogue("flag", false).isEmpty())
-        assertEquals("facepalm", searchMediaCatalogue("facepalm", true).single().slug)
+        assertEquals(setOf("facepalm", "donkey-facepalm"), searchMediaCatalogue("facepalm", true).map { it.slug }.toSet())
         for (image in gifs) {
             assertTrue(image.asset.startsWith("chat-art/") && !image.asset.contains("://"))
             val file = java.io.File("src/main/assets/${image.asset}")
@@ -73,7 +96,7 @@ class RichMediaTest {
             assertEquals(512, (bytes[6].toInt() and 255) or ((bytes[7].toInt() and 255) shl 8))
             assertEquals(512, (bytes[8].toInt() and 255) or ((bytes[9].toInt() and 255) shl 8))
             assertTrue(bytes.toString(Charsets.ISO_8859_1).contains("NETSCAPE2.0"))
-            assertTrue(EmojiCatalog.accepts(":km_${image.slug}:"))
+            if (!image.slug.startsWith("donkey-")) assertTrue(EmojiCatalog.accepts(":km_${image.slug}:"))
         }
     }
 }

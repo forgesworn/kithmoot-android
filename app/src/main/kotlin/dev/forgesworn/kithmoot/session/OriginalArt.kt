@@ -1,32 +1,35 @@
 package dev.forgesworn.kithmoot.session
 
-/** Generated from the original artwork bundled with KithMoot. */
-data class OriginalArt(val slug: String, val title: String, val keywords: String, val pngBytes: Long, val gifBytes: Long)
+/** Generated from the reviewed artwork and exact hashes in assets/chat-art/catalogue.json. */
+data class OriginalArt(val slug: String, val title: String, val keywords: String, val pngBytes: Long, val gifBytes: Long, val pngSha256: String, val gifSha256: String, val animated: Boolean, val animationPreview: String)
 val ORIGINAL_ART = listOf(
-    OriginalArt("laugh", "Laugh", "laugh laughter lol funny tears lol", 202302L, 181899L),
-    OriginalArt("facepalm", "Facepalm", "facepalm not again frustrated head wall not again", 186838L, 202473L),
-    OriginalArt("mindblown", "Mind blown", "mind blown shocked wow surprise mind. blown.", 218758L, 199425L),
-    OriginalArt("cool", "Cool", "cool sunglasses smug deal with it deal with it", 192505L, 194469L),
-    OriginalArt("shrug", "Shrug", "shrug whatever dunno unsure dunno", 188096L, 201407L),
-    OriginalArt("celebrate", "Celebrate", "celebrate party yes victory confetti yes!", 211548L, 166280L),
-    OriginalArt("angry", "Angry", "angry furious rage fuming fuming", 205830L, 210310L),
-    OriginalArt("love", "Love", "love heart hug thanks affection big love", 197197L, 189725L),
-    OriginalArt("cry", "Cry", "cry sad tears sob upset send help", 206705L, 208522L),
-    OriginalArt("sideeye", "Side eye", "side eye unimpressed sceptical doubt really?", 185589L, 187605L),
-    OriginalArt("popcorn", "Popcorn", "popcorn drama watching waiting here for the drama", 198115L, 211360L),
-    OriginalArt("micdrop", "Mic drop", "mic drop winner done nailed it mic drop", 202293L, 200200L),
-    OriginalArt("thumbsup", "Thumbs up", "thumbs up approve yes good thanks nice one", 205917L, 208364L),
-    OriginalArt("thumbsdown", "Thumbs down", "thumbs down no dislike nope nope", 189380L, 196826L),
-    OriginalArt("slowclap", "Slow clap", "slow clap sarcastic applause brilliant brilliant", 197716L, 192025L),
-    OriginalArt("eyeroll", "Eye roll", "eye roll bored annoyed unbelievable oh please", 189826L, 198432L),
-    OriginalArt("waiting", "Waiting", "waiting impatient time clock hurry still waiting", 199975L, 215675L),
-    OriginalArt("exhausted", "Exhausted", "exhausted dead tired done sleepy i am done", 200755L, 170187L),
-    OriginalArt("wtf", "What", "wtf what confused baffled huh wtf", 205065L, 205238L),
-    OriginalArt("melting", "Melting", "melting embarrassed cringe awkward this is fine", 192504L, 192286L),
-    OriginalArt("plotting", "Plotting", "plotting evil cheeky grin mischievous heh heh", 196182L, 210422L),
-    OriginalArt("moon", "To the moon", "moon rocket fly launch to the moon to the moon", 221611L, 196509L),
-    OriginalArt("coffee", "Coffee", "coffee tired morning wake caffeine coffee first", 202751L, 5924981L),
-    OriginalArt("handshake", "Handshake", "handshake agree deal friends respect deal", 195638L, 180119L),
+    OriginalArt("laugh", "Laugh", "laugh laughter lol funny tears lol", 202302L, 181899L, "a925cfc6ca719a278ac535313e41d77d11724f06a0647c3281343a640427bb18", "d8ee8376b45718e509d4d4b6a8d5b4edeb2e1f0f533945cf2fe56933937898e2", false, "laugh.png"),
+    OriginalArt("facepalm", "Facepalm", "facepalm not again frustrated head wall not again", 186838L, 202473L, "d7de0056e35eff759d81f1625e84a5138cd1ef6633ff6d78b61a973c0fd18a84", "fd5c2d97327e67725132e8c851e8f33240a5da19b113566874b96c2e14d891e0", false, "facepalm.png"),
+    OriginalArt("mindblown", "Mind blown", "mind blown shocked wow surprise mind. blown.", 218758L, 199425L, "09e445ff4fd58fb02c77d1e89c774fc07fd46eecc50cdd1aa16d268eb1e0fdc3", "18f4f5b0ed2c084a5a2cda6fbdc54c7cadee4396081ec79adc4a212158c2031e", false, "mindblown.png"),
+    OriginalArt("cool", "Cool", "cool sunglasses smug deal with it deal with it", 192505L, 194469L, "4a8d92d2b279e6d3d0a6abfee85b6748b7f9c019a4a25d17963fb8a02094cfe6", "f3512c3ff7456080036cd301a36d424616c68b96c280ad25bd56dbaa497940ce", false, "cool.png"),
+    OriginalArt("shrug", "Shrug", "shrug whatever dunno unsure dunno", 188096L, 201407L, "ecbde6b7b59fa7ef9b3da3b8d9d8670667ee2b9baaf5e06477638b774abf4124", "e008836fdfa26899eea87cb26ebdb57dfb7b58d01bf593aab4b8fe0e73dd9d72", false, "shrug.png"),
+    OriginalArt("celebrate", "Celebrate", "celebrate party yes victory confetti yes!", 211548L, 166280L, "1af5ce78732f3a0c9e0b9e1e33002432579f6349f398d2b4575bc15516792e68", "c358c8bbe184fd188280af476fa87a7febf50d584fca2f87225ba9242772c8ef", false, "celebrate.png"),
+    OriginalArt("angry", "Angry", "angry furious rage fuming fuming", 205830L, 210310L, "c1e0b2bb6f2f8dafbbfed1ff6905d53fc394a372f4e53509324214459eafa32f", "bd53ad9314598158057d073a8404685388f0939ee6490899956c272a3f49ccf2", false, "angry.png"),
+    OriginalArt("love", "Love", "love heart hug thanks affection big love", 197197L, 189725L, "82c69f1b7f5d2fc29802f5a9781622a8a260087200ad913a525fbfe1402f1541", "4e15e5741d85b072ae713b9deea081184d72728e92f7b331f9ee8d973900b447", false, "love.png"),
+    OriginalArt("cry", "Cry", "cry sad tears sob upset send help", 206705L, 208522L, "f851975bcb2fd0abdd53f8204be98561b09265b13e0507feb0f02c9881e3da31", "eb3afeb346e1f0a76b924e979af6df072bc909e85c14e26d90c60d1619ec86dc", false, "cry.png"),
+    OriginalArt("sideeye", "Side eye", "side eye unimpressed sceptical doubt really?", 185589L, 187605L, "4bc95bcd8ce4eeb8fe50338277f747bae48fda16529b803f19227074bfc9f69b", "42e7cc4171e78c791f29b41d4bd69a38a4c69931ffffd7126e0fee4e6d66a7c0", false, "sideeye.png"),
+    OriginalArt("popcorn", "Popcorn", "popcorn drama watching waiting here for the drama", 198115L, 211360L, "39a5acc4e8bafbbdce2862033b3bdc3c33f65be48c2806fa2c2587e302ead4c2", "a512ce1e7b5657ec1610824dbf1298e17044bb969093f48c9532a929f8694176", false, "popcorn.png"),
+    OriginalArt("micdrop", "Mic drop", "mic drop winner done nailed it mic drop", 202293L, 200200L, "a0255288079b2205435f462d277875842ba8f2a8e0d197616818c839142c546d", "66d55bd87d9c36811eca89095370926be03ef39ef190314b4bbf49e49c6d5d6f", false, "micdrop.png"),
+    OriginalArt("thumbsup", "Thumbs up", "thumbs up approve yes good thanks nice one", 205917L, 208364L, "0bdef53915a911f151a53217d88359301f6405f3d2d01389b203e8cd678460ff", "74aded41c27e6e1544ed653e1c497544bc1e9060ba43d81b19f01f851e6dfef9", false, "thumbsup.png"),
+    OriginalArt("thumbsdown", "Thumbs down", "thumbs down no dislike nope nope", 189380L, 196826L, "b28be8d27599f7971dcd12a193504f6ff8220830daa49ab3dc0768e506d33916", "718382669792860db182e6c23d452138c9b123e4266e3496e287bc770afb4350", false, "thumbsdown.png"),
+    OriginalArt("slowclap", "Slow clap", "slow clap sarcastic applause brilliant brilliant", 197716L, 192025L, "5e88bf8504de1deacb421a2e5b7a0d439635d84e0bcdd517842bccf3a0723c6c", "fe15950709c0db4fc79ce996ca92d5fc1bd3f3f0fc07b72ef8c2c69011d27297", false, "slowclap.png"),
+    OriginalArt("eyeroll", "Eye roll", "eye roll bored annoyed unbelievable oh please", 189826L, 198432L, "0fd217057d381e08357bb020c8063b52bf0e8dac7167cd3c52dc6ae578530931", "6ab0cd20422f7433856d1f6f9f972e8be5de14b3c4c73125e6de03596a6cfdf2", false, "eyeroll.png"),
+    OriginalArt("waiting", "Waiting", "waiting impatient time clock hurry still waiting", 199975L, 215675L, "2cecbd5ad2294092c9cc89785528b2310025f239e102662409a272130201a610", "36f8bdc7cff94a2c994fb603575bc0b3af8f041dc3c2071aaa175c4329484c70", false, "waiting.png"),
+    OriginalArt("exhausted", "Exhausted", "exhausted dead tired done sleepy i am done", 200755L, 170187L, "49193696fbd2a378371f48c649b70f2e4f4646eb836d87842323f4e9a94172f0", "49c7cb92bc0754b162a1c6770ebbd0ca4e1b6ff8768b1cfb84d276ec75606d91", false, "exhausted.png"),
+    OriginalArt("wtf", "What", "wtf what confused baffled huh wtf", 205065L, 205238L, "152e053ca93f4992525cf6fe6a73c3a3576b86ba06d7c16f6e9608eb2301ebef", "52c718b06d1c70475e62b4781bf6e2a3ff647062704888cae83525c5c16a3254", false, "wtf.png"),
+    OriginalArt("melting", "Melting", "melting embarrassed cringe awkward this is fine", 192504L, 192286L, "e83309850cf3499de2191b3b1f12fc7d062ceb4b5327637c3ec8ea2faf93791e", "5b5e472059cc1a5043f3460509ba01f29d76b53a73ccd78746a4df792f76e9bf", false, "melting.png"),
+    OriginalArt("plotting", "Plotting", "plotting evil cheeky grin mischievous heh heh", 196182L, 210422L, "e96b173bf188fe8ad6c435fbe24c98156319ab2d825631da9f4e6569f546d512", "bd968524b5060c6b06d8124b80b5676fe156e9225bb16b129238672bdb6d09a8", false, "plotting.png"),
+    OriginalArt("moon", "To the moon", "moon rocket fly launch to the moon to the moon", 221611L, 196509L, "456f171f213383a98f5768291e746fc51c52d8cc70cf75958b77c9be1effcca6", "bf70e0d1f9c49fb25c9a2b8a3481d8003a92b4922d15927a5b637aae45ac6996", false, "moon.png"),
+    OriginalArt("coffee", "Coffee", "coffee tired morning wake caffeine coffee first", 202751L, 5924981L, "fa77ef4cf74855a53992310c045ac7a983909a82b07a674c761e3b6d13390989", "1ec70ce57a315e6dd13e8d451543eb529786a792f218121c9bfd67db718a61f1", true, "coffee-animation.png"),
+    OriginalArt("handshake", "Handshake", "handshake agree deal friends respect deal", 195638L, 180119L, "5e34b849c9d790fc48e8933bec22921c2dda67007d478315bf4d57748087d87c", "142e3f6b0974ec93b00e16886440bf0d94f0e46bb3e63f591435e1f6dbfd5520", false, "handshake.png"),
+    OriginalArt("donkey-laugh", "Donkey laugh", "donkey thecryptodonkey laugh laughter lol snort funny ha ha", 181230L, 3431941L, "26d4e0fe11522c3341a7f8514c43af3935868a85d72f5f66d37b0d2f308b0cec", "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a", true, "donkey-laugh.png"),
+    OriginalArt("donkey-facepalm", "Donkey facepalm", "donkey thecryptodonkey facepalm embarrassed cringe side eye oh dear", 169227L, 3216659L, "d1682b22135db49d0c6ab70d37950230376aa833ac36046d89110b8287891add", "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774", true, "donkey-facepalm.png"),
+    OriginalArt("donkey-bitcoin", "Donkey Bitcoin", "donkey thecryptodonkey bitcoin coin toss catch victory celebrate nice catch", 179945L, 3313210L, "5e5ace7fd49d260dca46a54f5374a84f95530c462d48c205d15c603c862ce09c", "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626", true, "donkey-bitcoin.png"),
 )
-val ORIGINAL_EMOJIS = ORIGINAL_ART.map { ":km_${it.slug}:" to it.keywords }
+val ORIGINAL_EMOJIS = ORIGINAL_ART.filter { !it.slug.startsWith("donkey-") }.map { ":km_${it.slug}:" to it.keywords }
 fun isOriginalEmoji(value: String): Boolean = ORIGINAL_EMOJIS.any { it.first == value }

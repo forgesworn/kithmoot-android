@@ -166,7 +166,7 @@ class ArtworkPickerUiTest {
     }
 
     @Test fun received_known_artwork_renders_offline_and_unknown_hash_stays_readable() {
-        val coffee = dev.forgesworn.kithmoot.session.catalogueArtwork(dev.forgesworn.kithmoot.session.searchMediaCatalogue("", false).single())
+        val coffee = dev.forgesworn.kithmoot.session.catalogueArtwork(dev.forgesworn.kithmoot.session.searchMediaCatalogue("coffee", false).single())
         val message = dev.forgesworn.kithmoot.session.ChatMessage("local-art", "02".repeat(32), "01".repeat(32), "Caption", 1_800_000_000,
             artwork = listOf(coffee, coffee.copy(sha256 = "0".repeat(64), label = "Unknown revision")))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

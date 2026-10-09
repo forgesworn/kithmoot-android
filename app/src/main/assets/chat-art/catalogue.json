@@ -4,6 +4,8 @@
     "title": "Laugh",
     "keywords": "laugh laughter lol funny tears",
     "caption": "LOL",
+    "animated": false,
+    "animationPreview": "laugh.png",
     "png": {
       "bytes": 202302,
       "sha256": "a925cfc6ca719a278ac535313e41d77d11724f06a0647c3281343a640427bb18"
@@ -18,6 +20,8 @@
     "title": "Facepalm",
     "keywords": "facepalm not again frustrated head wall",
     "caption": "NOT AGAIN",
+    "animated": false,
+    "animationPreview": "facepalm.png",
     "png": {
       "bytes": 186838,
       "sha256": "d7de0056e35eff759d81f1625e84a5138cd1ef6633ff6d78b61a973c0fd18a84"
@@ -32,6 +36,8 @@
     "title": "Mind blown",
     "keywords": "mind blown shocked wow surprise",
     "caption": "MIND. BLOWN.",
+    "animated": false,
+    "animationPreview": "mindblown.png",
     "png": {
       "bytes": 218758,
       "sha256": "09e445ff4fd58fb02c77d1e89c774fc07fd46eecc50cdd1aa16d268eb1e0fdc3"
@@ -46,6 +52,8 @@
     "title": "Cool",
     "keywords": "cool sunglasses smug deal with it",
     "caption": "DEAL WITH IT",
+    "animated": false,
+    "animationPreview": "cool.png",
     "png": {
       "bytes": 192505,
       "sha256": "4a8d92d2b279e6d3d0a6abfee85b6748b7f9c019a4a25d17963fb8a02094cfe6"
@@ -60,6 +68,8 @@
     "title": "Shrug",
     "keywords": "shrug whatever dunno unsure",
     "caption": "DUNNO",
+    "animated": false,
+    "animationPreview": "shrug.png",
     "png": {
       "bytes": 188096,
       "sha256": "ecbde6b7b59fa7ef9b3da3b8d9d8670667ee2b9baaf5e06477638b774abf4124"
@@ -74,6 +84,8 @@
     "title": "Celebrate",
     "keywords": "celebrate party yes victory confetti",
     "caption": "YES!",
+    "animated": false,
+    "animationPreview": "celebrate.png",
     "png": {
       "bytes": 211548,
       "sha256": "1af5ce78732f3a0c9e0b9e1e33002432579f6349f398d2b4575bc15516792e68"
@@ -88,6 +100,8 @@
     "title": "Angry",
     "keywords": "angry furious rage fuming",
     "caption": "FUMING",
+    "animated": false,
+    "animationPreview": "angry.png",
     "png": {
       "bytes": 205830,
       "sha256": "c1e0b2bb6f2f8dafbbfed1ff6905d53fc394a372f4e53509324214459eafa32f"
@@ -102,6 +116,8 @@
     "title": "Love",
     "keywords": "love heart hug thanks affection",
     "caption": "BIG LOVE",
+    "animated": false,
+    "animationPreview": "love.png",
     "png": {
       "bytes": 197197,
       "sha256": "82c69f1b7f5d2fc29802f5a9781622a8a260087200ad913a525fbfe1402f1541"
@@ -116,6 +132,8 @@
     "title": "Cry",
     "keywords": "cry sad tears sob upset",
     "caption": "SEND HELP",
+    "animated": false,
+    "animationPreview": "cry.png",
     "png": {
       "bytes": 206705,
       "sha256": "f851975bcb2fd0abdd53f8204be98561b09265b13e0507feb0f02c9881e3da31"
@@ -130,6 +148,8 @@
     "title": "Side eye",
     "keywords": "side eye unimpressed sceptical doubt",
     "caption": "REALLY?",
+    "animated": false,
+    "animationPreview": "sideeye.png",
     "png": {
       "bytes": 185589,
       "sha256": "4bc95bcd8ce4eeb8fe50338277f747bae48fda16529b803f19227074bfc9f69b"
@@ -144,6 +164,8 @@
     "title": "Popcorn",
     "keywords": "popcorn drama watching waiting",
     "caption": "HERE FOR THE DRAMA",
+    "animated": false,
+    "animationPreview": "popcorn.png",
     "png": {
       "bytes": 198115,
       "sha256": "39a5acc4e8bafbbdce2862033b3bdc3c33f65be48c2806fa2c2587e302ead4c2"
@@ -158,6 +180,8 @@
     "title": "Mic drop",
     "keywords": "mic drop winner done nailed it",
     "caption": "MIC DROP",
+    "animated": false,
+    "animationPreview": "micdrop.png",
     "png": {
       "bytes": 202293,
       "sha256": "a0255288079b2205435f462d277875842ba8f2a8e0d197616818c839142c546d"
@@ -172,6 +196,8 @@
     "title": "Thumbs up",
     "keywords": "thumbs up approve yes good thanks",
     "caption": "NICE ONE",
+    "animated": false,
+    "animationPreview": "thumbsup.png",
     "png": {
       "bytes": 205917,
       "sha256": "0bdef53915a911f151a53217d88359301f6405f3d2d01389b203e8cd678460ff"
@@ -186,6 +212,8 @@
     "title": "Thumbs down",
     "keywords": "thumbs down no dislike nope",
     "caption": "NOPE",
+    "animated": false,
+    "animationPreview": "thumbsdown.png",
     "png": {
       "bytes": 189380,
       "sha256": "b28be8d27599f7971dcd12a193504f6ff8220830daa49ab3dc0768e506d33916"
@@ -200,6 +228,8 @@
     "title": "Slow clap",
     "keywords": "slow clap sarcastic applause brilliant",
     "caption": "BRILLIANT",
+    "animated": false,
+    "animationPreview": "slowclap.png",
     "png": {
       "bytes": 197716,
       "sha256": "5e88bf8504de1deacb421a2e5b7a0d439635d84e0bcdd517842bccf3a0723c6c"
@@ -214,6 +244,8 @@
     "title": "Eye roll",
     "keywords": "eye roll bored annoyed unbelievable",
     "caption": "OH PLEASE",
+    "animated": false,
+    "animationPreview": "eyeroll.png",
     "png": {
       "bytes": 189826,
       "sha256": "0fd217057d381e08357bb020c8063b52bf0e8dac7167cd3c52dc6ae578530931"
@@ -228,6 +260,8 @@
     "title": "Waiting",
     "keywords": "waiting impatient time clock hurry",
     "caption": "STILL WAITING",
+    "animated": false,
+    "animationPreview": "waiting.png",
     "png": {
       "bytes": 199975,
       "sha256": "2cecbd5ad2294092c9cc89785528b2310025f239e102662409a272130201a610"
@@ -242,6 +276,8 @@
     "title": "Exhausted",
     "keywords": "exhausted dead tired done sleepy",
     "caption": "I AM DONE",
+    "animated": false,
+    "animationPreview": "exhausted.png",
     "png": {
       "bytes": 200755,
       "sha256": "49193696fbd2a378371f48c649b70f2e4f4646eb836d87842323f4e9a94172f0"
@@ -256,6 +292,8 @@
     "title": "What",
     "keywords": "wtf what confused baffled huh",
     "caption": "WTF",
+    "animated": false,
+    "animationPreview": "wtf.png",
     "png": {
       "bytes": 205065,
       "sha256": "152e053ca93f4992525cf6fe6a73c3a3576b86ba06d7c16f6e9608eb2301ebef"
@@ -270,6 +308,8 @@
     "title": "Melting",
     "keywords": "melting embarrassed cringe awkward",
     "caption": "THIS IS FINE",
+    "animated": false,
+    "animationPreview": "melting.png",
     "png": {
       "bytes": 192504,
       "sha256": "e83309850cf3499de2191b3b1f12fc7d062ceb4b5327637c3ec8ea2faf93791e"
@@ -284,6 +324,8 @@
     "title": "Plotting",
     "keywords": "plotting evil cheeky grin mischievous",
     "caption": "HEH HEH",
+    "animated": false,
+    "animationPreview": "plotting.png",
     "png": {
       "bytes": 196182,
       "sha256": "e96b173bf188fe8ad6c435fbe24c98156319ab2d825631da9f4e6569f546d512"
@@ -298,6 +340,8 @@
     "title": "To the moon",
     "keywords": "moon rocket fly launch to the moon",
     "caption": "TO THE MOON",
+    "animated": false,
+    "animationPreview": "moon.png",
     "png": {
       "bytes": 221611,
       "sha256": "456f171f213383a98f5768291e746fc51c52d8cc70cf75958b77c9be1effcca6"
@@ -312,6 +356,8 @@
     "title": "Coffee",
     "keywords": "coffee tired morning wake caffeine",
     "caption": "COFFEE FIRST",
+    "animated": true,
+    "animationPreview": "coffee-animation.png",
     "png": {
       "bytes": 202751,
       "sha256": "fa77ef4cf74855a53992310c045ac7a983909a82b07a674c761e3b6d13390989"
@@ -326,6 +372,8 @@
     "title": "Handshake",
     "keywords": "handshake agree deal friends respect",
     "caption": "DEAL",
+    "animated": false,
+    "animationPreview": "handshake.png",
     "png": {
       "bytes": 195638,
       "sha256": "5e34b849c9d790fc48e8933bec22921c2dda67007d478315bf4d57748087d87c"
@@ -333,6 +381,54 @@
     "gif": {
       "bytes": 180119,
       "sha256": "142e3f6b0974ec93b00e16886440bf0d94f0e46bb3e63f591435e1f6dbfd5520"
+    }
+  },
+  {
+    "slug": "donkey-laugh",
+    "title": "Donkey laugh",
+    "keywords": "donkey thecryptodonkey laugh laughter lol snort funny",
+    "caption": "HA HA",
+    "animated": true,
+    "animationPreview": "donkey-laugh.png",
+    "png": {
+      "bytes": 181230,
+      "sha256": "26d4e0fe11522c3341a7f8514c43af3935868a85d72f5f66d37b0d2f308b0cec"
+    },
+    "gif": {
+      "bytes": 3431941,
+      "sha256": "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a"
+    }
+  },
+  {
+    "slug": "donkey-facepalm",
+    "title": "Donkey facepalm",
+    "keywords": "donkey thecryptodonkey facepalm embarrassed cringe side eye",
+    "caption": "OH DEAR",
+    "animated": true,
+    "animationPreview": "donkey-facepalm.png",
+    "png": {
+      "bytes": 169227,
+      "sha256": "d1682b22135db49d0c6ab70d37950230376aa833ac36046d89110b8287891add"
+    },
+    "gif": {
+      "bytes": 3216659,
+      "sha256": "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774"
+    }
+  },
+  {
+    "slug": "donkey-bitcoin",
+    "title": "Donkey Bitcoin",
+    "keywords": "donkey thecryptodonkey bitcoin coin toss catch victory celebrate",
+    "caption": "NICE CATCH",
+    "animated": true,
+    "animationPreview": "donkey-bitcoin.png",
+    "png": {
+      "bytes": 179945,
+      "sha256": "5e5ace7fd49d260dca46a54f5374a84f95530c462d48c205d15c603c862ce09c"
+    },
+    "gif": {
+      "bytes": 3313210,
+      "sha256": "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626"
     }
   }
 ]
