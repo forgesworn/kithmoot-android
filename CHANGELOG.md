@@ -3,6 +3,19 @@
 Release notes for the KithMoot Android app. Zapstore reads the section for the
 version it publishes (`release_notes` in `zapstore.yaml`).
 
+## [0.6.76] - 2026-10-09
+
+- Call recording warnings name the recorder and say whether they selected
+  audio, gallery video, speaker video or a screen share with camera. People
+  joining later see the same signed notice. Older or incomplete notices retain
+  the broader audio/video warning.
+- Recording details belong to the room, recorder and exact recording notice;
+  unrelated or altered details cannot change the warning. Your active call
+  device advertises support so a web recorder can include its camera safely.
+
+Recording and exporting a clip from the Android app are not available yet.
+Recordings saved or shared by another person survive a temporary room ending.
+
 ## [0.6.65] - 2026-10-08
 
 For people using the optional VMLS rooms preview on their own Bothy box:

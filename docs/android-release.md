@@ -1,5 +1,19 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.76 (99): named call recording warnings
+
+The room banner, late-join warning and call dock identify the recorder and the
+chosen capture: audio, gallery video, speaker video or a screen share with
+camera. Signed details are bound to the room, recording id and version; details
+alone never start or stop the warning. Older clients and incomplete notices keep
+the broad audio/video warning. The active call device advertises notice support
+independently of other idle devices belonging to the same person.
+
+Android capture and export remain unavailable. Saved or shared recordings are
+not erased when a temporary room ends. Source checks, the exact signed APK,
+public channels and physical-phone acceptance are recorded separately; this
+version section does not claim publication or installation.
+
 ## 0.6.75 (98): acted Donkey GIFs
 
 The local GIF catalogue adds Donkey laugh, Donkey facepalm and Donkey Bitcoin alongside Coffee. Each acted Blender loop has a matching 512-pixel PNG for reduced motion; all 27 still images are available in Stickers. GIF search suggests Donkey, laugh, Bitcoin and coffee, and the tray reports the available animation count. The original 24 reaction shortcodes and hidden legacy GIF files remain unchanged.
