@@ -230,7 +230,7 @@ private fun rootOf(resolved: ResolvedMessage, byKey: Map<String, ResolvedMessage
 }
 
 private fun shownFrom(original: ChatMessage, latest: ChatMessage): ChatMessage =
-    original.copy(body = latest.body, mentions = latest.mentions)
+    original.copy(body = latest.body, mentions = latest.mentions, artwork = latest.artwork)
 
 fun retractionText(): String = "Retracted a message"
 fun inviteText(): String = "Started a private conversation"

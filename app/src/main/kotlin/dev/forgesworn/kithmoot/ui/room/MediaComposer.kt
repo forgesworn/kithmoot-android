@@ -9,17 +9,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import dev.forgesworn.kithmoot.session.*
 import kotlinx.coroutines.*
-import java.io.File
-import java.util.UUID
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachment>, onAdd: (Uri, String, Boolean) -> Unit,
-    onRemove: (String) -> Unit, showFiles: Boolean = true, showControls: Boolean = true, selectedArtwork: CatalogueImage? = null,
-    onArtworkConsumed: () -> Unit = {}, onOpenArtwork: () -> Unit = {}) {
+    onRemove: (String) -> Unit, showFiles: Boolean = true, showControls: Boolean = true,
+    artworkEnabled: Boolean = true, onOpenArtwork: () -> Unit = {}) {
     val context = LocalContext.current
     var selected by remember { mutableStateOf<Uri?>(null) }
     val preferences = remember { context.getSharedPreferences("shared-media-storage", android.content.Context.MODE_PRIVATE) }
@@ -29,7 +26,7 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selected = uri }
     if (showControls && (showFiles || busy || attachments.isNotEmpty())) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         TextButton(enabled = enabled && !busy && attachments.size < 4, onClick = { picker.launch(arrayOf("image/gif", "image/png", "image/jpeg", "image/webp")) }) { Text("Add image / GIF") }
-        TextButton(enabled = enabled && !busy && attachments.size < 4, onClick = onOpenArtwork) { Text("GIFs and stickers") }
+        TextButton(enabled = artworkEnabled, onClick = onOpenArtwork) { Text("GIFs and stickers") }
         if (busy) Text("Encrypting and uploading…", style = MaterialTheme.typography.bodySmall)
         for (file in attachments) InputChip(selected = true, onClick = { onRemove(file.sha256) }, label = { Text("${file.name ?: "Image"} ×") })
     }
@@ -48,25 +45,6 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
                 onAdd(uri, origin, true); selected = null; error = null
             } catch (failure: Exception) { error = failure.message }
         }) { Text("Encrypt and upload") } }, dismissButton = { TextButton(onClick = { selected = null }) { Text("Cancel") } })
-    }
-    LaunchedEffect(selectedArtwork) {
-        val image = selectedArtwork ?: return@LaunchedEffect
-        try {
-            val bytes = withContext(Dispatchers.IO) { downloadCatalogueImage(image, context) }
-            try {
-                val file = withContext(Dispatchers.IO) {
-                    val directory = File(context.cacheDir, "opened-images").apply { mkdirs() }
-                    directory.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000 }?.forEach { it.delete() }
-                    val extension = if (image.type == "image/gif") ".gif" else ".png"
-                    File(directory, UUID.randomUUID().toString() + extension).also { it.writeBytes(bytes) }
-                }
-                currentCoroutineContext().ensureActive()
-                selected = FileProvider.getUriForFile(context, "${context.packageName}.images", file)
-                error = null
-            } finally { bytes.fill(0) }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { error = failure.message ?: "Could not add artwork." }
-        finally { onArtworkConsumed() }
     }
     if (selected == null) error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
 }

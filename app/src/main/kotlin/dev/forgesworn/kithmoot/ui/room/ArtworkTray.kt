@@ -165,6 +165,6 @@ internal fun ArtworkTray(
                 CatalogueThumbnail(image, Modifier.fillMaxWidth().height(240.dp))
                 Text("Our artwork. Browsing stays on this device.", style = MaterialTheme.typography.bodySmall)
             }
-        }, confirmButton = { TextButton(onClick = { chooseMedia(image); preview = null }) { Text("Add to draft") } }, dismissButton = { TextButton(onClick = { preview = null }) { Text("Back to artwork") } })
+        }, confirmButton = { TextButton(onClick = { chooseMedia(image); preview = null }) { Text("Add to message") } }, dismissButton = { TextButton(onClick = { preview = null }) { Text("Back to artwork") } })
     }
 }

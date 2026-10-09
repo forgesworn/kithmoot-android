@@ -90,6 +90,7 @@ data class ChatMessage(
     /** Verified participant signature, bound to this room and outer device. */
     val assignment: NostrEvent? = null,
     val attachments: List<ChatAttachment> = emptyList(),
+    val artwork: List<ChatArtwork> = emptyList(),
 )
 
 fun encodeChatEvent(
@@ -119,6 +120,7 @@ fun encodeChatEvent(
     /** [sentAt] in milliseconds, within its second; see [ChatMessage.sentAtMs]. */
     sentAtMs: Long? = null,
     attachments: List<ChatAttachment> = emptyList(),
+    artwork: List<ChatArtwork> = emptyList(),
 ): NostrEvent {
     require(sentAtMs == null || Math.floorDiv(sentAtMs, 1000L) == sentAt) { "sentAtMs must fall within sentAt's second" }
     if (assignment != null) {
@@ -135,6 +137,9 @@ fun encodeChatEvent(
     require(mentions == null || mentions.size <= MAX_MENTIONS) { "a message names at most $MAX_MENTIONS participants" }
     require(attachments.size <= 4 && attachments.all { parseAttachment(it.toJson()) != null })
     require(attachments.isEmpty() || listOfNotNull(reaction, retracts, invite, assignment).isEmpty())
+    require(artwork.size <= MAX_CHAT_ARTWORK)
+    val normalArtwork = artwork.map { requireNotNull(normaliseArtwork(it)) { "Invalid artwork reference" } }
+    require(artwork.isEmpty() || listOfNotNull(reaction, retracts, invite, assignment).isEmpty())
     val plaintext: JsonObject = buildJsonObject {
         put("id", id)
         put("participant", participant)
@@ -142,7 +147,8 @@ fun encodeChatEvent(
         put("credential", credential.toJson())
         proof?.let { put("proof", it.toJson()) }
         if (attachments.isNotEmpty()) put("attachments", JsonArray(attachments.map { it.toJson() }))
-        put("text", body)
+        if (normalArtwork.isNotEmpty()) put("artwork", JsonArray(normalArtwork.map { it.toJson() }))
+        put("text", if (body.isBlank() && normalArtwork.isNotEmpty()) artworkFallback(normalArtwork) else body)
         put("sentAt", sentAt)
         sentAtMs?.let { put("sentAtMs", it) }
         reaction?.let { put("reaction", it.toJson()) }
@@ -207,8 +213,11 @@ fun decodeChatEvent(
             val rawAttachments = json["attachments"] as? kotlinx.serialization.json.JsonArray
             require(rawAttachments == null || rawAttachments.size <= 4)
             val attachments = rawAttachments?.mapNotNull(::parseAttachment).orEmpty()
+            val rawArtwork = json["artwork"] as? JsonArray
+            require(rawArtwork == null || rawArtwork.size <= MAX_CHAT_ARTWORK)
+            val artwork = rawArtwork?.mapNotNull(::parseArtwork).orEmpty()
             val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment").count { json.containsKey(it) }
-            val conversationKeys = listOf("kind", "attachments", "reply", "thread", "mentions")
+            val conversationKeys = listOf("kind", "attachments", "artwork", "reply", "thread", "mentions")
             val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment")
             val assignment = (json["assignment"] as? JsonObject)?.let(NostrEvent::fromJson)
             val assignmentPayload = assignment?.let { assignmentPayload(it, credentialRoomId) }
@@ -258,6 +267,7 @@ fun decodeChatEvent(
                     invite = invite,
                     assignment = assignment,
                     attachments = attachments,
+                    artwork = artwork,
                 )
             }
         }

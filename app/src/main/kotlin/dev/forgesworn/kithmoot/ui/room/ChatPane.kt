@@ -60,6 +60,9 @@ fun ChatPane(
     memberPackAvailable: () -> Boolean = { false },
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
+    artwork: List<ChatArtwork> = emptyList(),
+    onAddArtwork: (ChatArtwork) -> Unit = {},
+    onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
     onAddImage: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
     onRemoveAttachment: (String) -> Unit = {},
@@ -111,7 +114,6 @@ fun ChatPane(
     var artworkStartTab by remember { mutableStateOf(ArtworkTab.EMOJI) }
     var emojiSkinTone by rememberSaveable { mutableIntStateOf(0) }
     var mediaOpen by remember { mutableStateOf(false) }
-    var selectedArtwork by remember { mutableStateOf<CatalogueImage?>(null) }
     val inputKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val inputFocus = androidx.compose.ui.platform.LocalFocusManager.current
     var privacyOpen by remember { mutableStateOf(false) }
@@ -206,7 +208,7 @@ fun ChatPane(
         }
     }
     fun send() {
-        if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty())) {
+        if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             val submitted = draft.text
             onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
         }
@@ -297,12 +299,20 @@ fun ChatPane(
                                 }
                                 if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 // A link takes its own tap; anywhere else the bubble's tap and hold still open reactions.
-                                PackMessageText(if (r.retracted) "Message retracted" else message.body, style = MaterialTheme.typography.bodyLarge,
+                                val messageText = if (r.retracted) "Message retracted" else artworkMessageText(message.body, message.artwork)
+                                if (messageText.isNotEmpty()) PackMessageText(messageText, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
                                     TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
                                         Text("Open attachment: ${attachment.name ?: "Image"}")
                                     }
+                                }
+                                if (!r.retracted) message.artwork.forEach { reference ->
+                                    val image = resolveCatalogueArtwork(reference)
+                                    if (image == null) {
+                                        if (message.body != artworkFallback(message.artwork)) Text(artworkFallback(listOf(reference)), style = MaterialTheme.typography.bodySmall)
+                                    } else CatalogueThumbnail(image, Modifier.fillMaxWidth().height(200.dp)
+                                        .semantics { contentDescription = "${reference.kind}: ${reference.label}" })
                                 }
                                 val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
                                     if (r.edited && !r.retracted) "edited" else null, if (nested || r.orphan) "reply" else null)
@@ -355,20 +365,27 @@ fun ChatPane(
                 val start = draft.selection.min; val end = draft.selection.max
                 val text = draft.text.replaceRange(start, end, emoji)
                 if (text.length <= MAX_CHAT_TEXT_LENGTH) draft = TextFieldValue(text, TextRange(start + emoji.length))
-            }, chooseMedia = { image -> selectedArtwork = image; emojiOpen = false },
+            }, chooseMedia = { image -> onAddArtwork(catalogueArtwork(image)); emojiOpen = false },
             modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
-            mediaEnabled = canSend && !torOnly && internetAllowed && !mediaBusy && attachments.size < 4,
+            mediaEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK,
             compactSearch = compactArtworkSearch, onSearchChanged = { artworkSearchOpen = it },
         )
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
-            showFiles = mediaOpen, showControls = !compactArtworkSearch, selectedArtwork = selectedArtwork, onArtworkConsumed = { selectedArtwork = null }, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
+            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
+        if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            artwork.forEachIndexed { index, reference ->
+                InputChip(selected = true, onClick = { onRemoveArtwork(index) }, label = { Text("${reference.label} ×") },
+                    modifier = Modifier.semantics { contentDescription = "Remove ${reference.label} from message" },
+                    avatar = { resolveCatalogueArtwork(reference)?.let { CatalogueThumbnail(it, Modifier.size(32.dp)) } })
+            }
+        }
         if (!compactArtworkSearch) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
                 shape = RoundedCornerShape(24.dp),
                 leadingIcon = { IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
                 trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly && internetAllowed) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
                 placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
-            IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+            IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
         }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
