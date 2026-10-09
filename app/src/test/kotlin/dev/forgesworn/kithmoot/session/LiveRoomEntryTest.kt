@@ -1,0 +1,98 @@
+package dev.forgesworn.kithmoot.session
+
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.*
+import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.support.FakeRelay
+import kotlinx.coroutines.*
+import kotlinx.coroutines.test.*
+import kotlin.test.*
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class LiveRoomEntryTest {
+    private val root = Fixtures.key(41)
+    private val secret = ByteArray(32) { 7 }
+    private val invitation = RoomInvitation(ByteArray(32) { 5 }, Schnorr.publicKeyHex(root), true)
+    private val context = LivePersistentContext(invitation, deriveRoom(secret).roomId)
+    private val descriptor = encodeLivePersistentDescriptor(context)
+    private val welcome = encodePersistentInvitation(RoomInvitationHost(invitation, root), secret, 0)
+
+    @Test fun `verified proof and fresh root grant enter an actual room before both way chat`() = runTest {
+        val relay = FakeRelay(); val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
+        val peer = session(room, Fixtures.primary(room, 3, 4), relay); peer.join()
+        val base = relay.transport()
+        val transport = object : RoomTransport by base {
+            override fun publish(event: NostrEvent) {
+                base.publish(event)
+                if (event.kind == KIND_INVITATION_REQUEST) relay.publish(encodeLivePersistentAnswer(context, event, welcome, root, 0, currentTime / 1000))
+            }
+            override fun publishRecovery(event: NostrEvent) {
+                base.publishRecovery(event)
+                if (event.kind == KIND_EPOCH_REQUEST) relay.publish(encodeEpochGrant(room.roomId, root, event.pubkey, event.id, currentTime / 1000, RoomEpoch(0, secret)))
+            }
+        }
+        val joining = async {
+            joinLivePersistentRoom(invitation, descriptor, identity.devicePubkey, transport, { currentTime / 1000 }, { currentTime }) { proof ->
+                assertEquals(context.roomId, deriveRoom(proof.admission.secret).roomId)
+                session(room, identity, relay, transport = transport, authority = invitation.inviter,
+                    expectedEpoch = proof.epochHint.toInt(), epochGate = { _, _ -> EpochGateResult.COMMITTED }, requireFreshEpoch = true)
+            }
+        }
+        runCurrent(); val client = joining.await()
+        client.sendChat("from admitted client"); peer.sendChat("reply to admitted client"); runCurrent()
+        assertTrue(peer.chat.value.any { it.body == "from admitted client" })
+        assertTrue(client.chat.value.any { it.body == "reply to admitted client" })
+        assertEquals(listOf(KIND_INVITATION_REQUEST, KIND_EPOCH_REQUEST), relay.published.filter {
+            it.kind == KIND_INVITATION_REQUEST || (it.kind == KIND_EPOCH_REQUEST && it.pubkey == identity.devicePubkey)
+        }.map { it.kind })
+    }
+
+    @Test fun `retirement between proof and root confirmation cancels the created session`() = runTest {
+        val relay = FakeRelay(); val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
+        var created: RoomSession? = null
+        val base = relay.transport()
+        val transport = object : RoomTransport by base {
+            override fun publish(event: NostrEvent) {
+                base.publish(event)
+                if (event.kind == KIND_INVITATION_REQUEST) relay.publish(encodeLivePersistentAnswer(context, event, welcome, root, 0, 0))
+            }
+            override fun publishRecovery(event: NostrEvent) {
+                base.publishRecovery(event)
+                relay.publish(encodeInvitationRetirement(invitation, root, 0))
+            }
+        }
+        val joining = async { runCatching {
+            joinLivePersistentRoom(invitation, descriptor, identity.devicePubkey, transport, { currentTime / 1000 }, { currentTime }) { proof ->
+                session(room, identity, relay, transport = transport, authority = invitation.inviter,
+                    expectedEpoch = proof.epochHint.toInt(), epochGate = { _, _ -> EpochGateResult.COMMITTED }, requireFreshEpoch = true).also { created = it }
+            }
+        } }
+        runCurrent(); assertTrue(joining.await().isFailure)
+        assertNotNull(created)
+        assertFailsWith<IllegalStateException> { created!!.sendChat("must stay closed") }
+        advanceTimeBy(100_000); runCurrent()
+        assertFalse(relay.published.any { it.kind == KIND_ROSTER })
+    }
+
+    @Test fun `invalid descriptor never publishes and a factory cannot substitute an ungated session`() = runTest {
+        val relay = FakeRelay(); val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
+        assertFailsWith<IllegalArgumentException> {
+            joinLivePersistentRoom(invitation, "invalid", identity.devicePubkey, relay.transport()) { error("must not create") }
+        }
+        assertTrue(relay.published.isEmpty())
+        val base = relay.transport()
+        val transport = object : RoomTransport by base {
+            override fun publish(event: NostrEvent) {
+                base.publish(event)
+                relay.publish(encodeLivePersistentAnswer(context, event, welcome, root, 0, 0))
+            }
+        }
+        val joining = async { runCatching {
+            joinLivePersistentRoom(invitation, descriptor, identity.devicePubkey, transport, { currentTime / 1000 }, { currentTime }) {
+                session(room, identity, relay, transport = transport)
+            }
+        } }
+        runCurrent(); assertTrue(joining.await().isFailure)
+        assertTrue(relay.published.all { it.kind == KIND_INVITATION_REQUEST || it.kind == KIND_INVITATION_GRANT })
+    }
+}
