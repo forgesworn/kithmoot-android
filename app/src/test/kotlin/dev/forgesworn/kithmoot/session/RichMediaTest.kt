@@ -10,6 +10,23 @@ import java.util.Base64
 import kotlin.test.*
 
 class RichMediaTest {
+    @Test fun `catalogue search thumbnails and selected files identify KithMoot without account credentials`() {
+        val requests = mutableListOf<Request>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request(); requests += request
+            val identified = request.header("User-Agent")?.let { it.startsWith("KithMoot/") && it.contains("https://kithmoot.app") } == true
+            assertNull(request.header("Authorization")); assertNull(request.header("Cookie"))
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(if (identified) 200 else 403).message("Result")
+                .body((if (request.url.host == "commons.wikimedia.org") "{}" else "GIF89a fixture").toResponseBody()).build()
+        }.build()
+        assertTrue(searchMediaCatalogue("celebration", false, client).isEmpty())
+        val url = "https://upload.wikimedia.org/wikipedia/commons/a/aa/Cat.gif"
+        val image = CatalogueImage("Cat.gif", url, "image/gif", 14, "https://commons.wikimedia.org/wiki/File:Cat.gif", "Artist · CC0")
+        assertContentEquals("GIF89a fixture".toByteArray(), downloadCatalogueImage(image, client))
+        assertContentEquals("GIF89a fixture".toByteArray(), downloadCataloguePreview(url, client))
+        assertEquals(3, requests.size)
+        assertEquals("filemime:image/gif celebration", requests.first().url.queryParameter("gsrsearch"))
+    }
     @Test fun `full emoji catalogue and member artwork decode independently of picker membership`() {
         assertTrue(EmojiCatalog.entries.size > 3700)
         for (emoji in listOf("🫶🏽", "🇬🇧", "🏴‍☠️", "💯", ":600_facepalm:")) {

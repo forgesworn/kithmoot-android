@@ -6,6 +6,9 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 
 private val catalogueHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(20, TimeUnit.SECONDS).build()
+// Commons rejects generic HTTP-library identities, including OkHttp's default.
+private fun catalogueRequest(url: String): Request = Request.Builder().url(url)
+    .header("User-Agent", "KithMoot/1.0 (https://kithmoot.app; media catalogue)").build()
 data class CatalogueImage(val name: String, val url: String, val type: String, val size: Long, val source: String, val credit: String, val preview: String? = null)
 private fun catalogueText(value: String): String = value.replace(Regex("<[^>]*>"), "").filterNot { Character.isISOControl(it) || Character.getType(it) == Character.FORMAT.toInt() }.trim().take(180)
 fun commonsImageUrl(value: String): String? = runCatching {
@@ -32,22 +35,22 @@ fun catalogueResults(text: String): List<CatalogueImage> {
         CatalogueImage(catalogueText(page.getValue("title").jsonPrimitive.content.removePrefix("File:")), url, type, size, source, "$artist · $license", info["thumburl"]?.jsonPrimitive?.content?.let(::commonsImageUrl))
     }.getOrNull() }
 }
-fun searchMediaCatalogue(query: String, stickers: Boolean): List<CatalogueImage> {
+fun searchMediaCatalogue(query: String, stickers: Boolean, client: OkHttpClient = catalogueHttp): List<CatalogueImage> {
     val url = HttpUrl.Builder().scheme("https").host("commons.wikimedia.org").addPathSegments("w/api.php")
         .addQueryParameter("action", "query").addQueryParameter("generator", "search")
         .addQueryParameter("gsrsearch", "${if (stickers) "filemime:image/png" else "filemime:image/gif"} ${query.trim().take(80)}")
         .addQueryParameter("gsrnamespace", "6").addQueryParameter("gsrlimit", "18").addQueryParameter("prop", "imageinfo")
         .addQueryParameter("iiurlwidth", "160").addQueryParameter("iiprop", "url|mime|size|extmetadata").addQueryParameter("format", "json").build()
-    catalogueHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
+    client.newCall(catalogueRequest(url.toString())).execute().use { response ->
         check(response.isSuccessful) { "The catalogue could not be reached. Try again." }
         val bytes = checkNotNull(response.body).byteStream().use { it.readNBytes(1_000_001) }
         require(bytes.size <= 1_000_000)
         return catalogueResults(bytes.toString(Charsets.UTF_8))
     }
 }
-fun downloadCatalogueImage(item: CatalogueImage): ByteArray {
+fun downloadCatalogueImage(item: CatalogueImage, client: OkHttpClient = catalogueHttp): ByteArray {
     require(commonsImageUrl(item.url) == item.url && item.size in 1..MAX_MEDIA_SOURCE_BYTES.toLong())
-    catalogueHttp.newCall(Request.Builder().url(item.url).build()).execute().use { response ->
+    client.newCall(catalogueRequest(item.url)).execute().use { response ->
         check(response.isSuccessful) { "The selected image could not be downloaded." }
         val bytes = checkNotNull(response.body).byteStream().use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
         require(bytes.size in 1..MAX_MEDIA_SOURCE_BYTES)
@@ -56,9 +59,9 @@ fun downloadCatalogueImage(item: CatalogueImage): ByteArray {
 }
 
 /** Only bounded Commons thumbnails, loaded after an explicit catalogue search. */
-fun downloadCataloguePreview(url: String): ByteArray {
+fun downloadCataloguePreview(url: String, client: OkHttpClient = catalogueHttp): ByteArray {
     require(commonsImageUrl(url) == url)
-    catalogueHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
+    client.newCall(catalogueRequest(url)).execute().use { response ->
         check(response.isSuccessful)
         val body = checkNotNull(response.body)
         require(body.contentLength() <= 524_288)
