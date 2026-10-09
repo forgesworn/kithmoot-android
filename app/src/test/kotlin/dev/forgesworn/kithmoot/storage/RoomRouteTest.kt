@@ -20,6 +20,28 @@ class RoomRouteTest {
         SavedRoom.create(secret, who, encodeJoinUrl("https://fixture.invalid/j/", secret, relays), relays,
             "Room", now, null, null)
 
+    @Test fun `fresh entry cannot overwrite a saved room and rollback matches its exact identity`() {
+        val repository = RoomRepository(MemoryStorage())
+        val original = room(); val replacement = room()
+        repository.saveNew(original)
+        assertFailsWith<IllegalStateException> { repository.saveNew(replacement) }
+        repository.forgetIfIdentity(original.id, replacement.participant, replacement.devicePubkey)
+        assertEquals(original.participant, repository.get(original.id)?.participant)
+        repository.forgetIfIdentity(original.id, original.participant, original.devicePubkey)
+        assertNull(repository.get(original.id))
+    }
+
+    @Test fun `a relay free saved room remains nearby only across reopening`() {
+        val who = PrimaryIdentity.create(deriveRoom(secret).roomId, now + 3600, now)
+        val offline = SavedRoom.create(secret, who, encodeJoinUrl("https://fixture.invalid/j/", secret, emptyList()),
+            emptyList(), "Nearby", now, null, null, route = RoomRoute.NEARBY)
+        val repository = RoomRepository(MemoryStorage()); repository.saveNew(offline)
+        assertTrue(repository.get(offline.id)!!.relays.isEmpty())
+        assertEquals(RoomRoute.NEARBY, repository.get(offline.id)!!.route)
+        assertFailsWith<IllegalArgumentException> { offline.withRoute(RoomRoute.INTERNET) }
+        assertFailsWith<IllegalArgumentException> { offline.withRoute(RoomRoute.MIXED) }
+    }
+
     @Test fun `route survives repository reopen and bookmark refresh without changing room identity`() {
         val store = MemoryStorage(); val original = room(); val saved = original.withRoute(RoomRoute.NEARBY)
         RoomRepository(store).save(saved)

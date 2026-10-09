@@ -30,6 +30,16 @@ class RoomRepository(private val storage: RoomStorage) {
         if (rooms.size > 100) throw RoomRecoveryException("You have 100 saved rooms. Forget one before adding another.")
         write(rooms)
     }
+    /** A fresh admission cannot overwrite a room saved while it was waiting. */
+    @Synchronized fun saveNew(room: SavedRoom) {
+        check(get(room.id) == null) { "This room is already saved. Open it from your rooms." }
+        save(room)
+    }
+    /** Roll back only the new local identity owned by this failed entry. */
+    @Synchronized fun forgetIfIdentity(id: String, participant: String, device: String) {
+        val room = get(id) ?: return
+        if (room.participant == participant && room.devicePubkey == device) forget(id)
+    }
     @Synchronized fun update(id: String, change: (SavedRoom) -> SavedRoom): SavedRoom? {
         val rooms = read()
         val existing = rooms.firstOrNull { it.id == id } ?: return null

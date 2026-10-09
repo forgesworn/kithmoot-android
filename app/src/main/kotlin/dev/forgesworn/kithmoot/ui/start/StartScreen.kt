@@ -62,6 +62,7 @@ fun StartScreen(
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
     onJoin: () -> Unit,
+    onJoinNearby: ((String) -> Unit)? = null,
     onReopen: (String) -> Unit,
     onForget: (String) -> Unit,
     onProject: (String, String) -> Unit,
@@ -188,7 +189,7 @@ fun StartScreen(
                 layout = layout, state = state, enabled = enabled,
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
                 onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
-                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects, onAddOfferedCard = onAddOfferedCard,
+                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
             )
 
@@ -207,7 +208,7 @@ fun StartScreen(
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
                 onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
                 onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
-                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
+                onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
             )
@@ -223,7 +224,7 @@ fun StartScreen(
                         Text((if (room.route == route) "✓ " else "") + route.label)
                     }
                 }
-                Text("Nearby currently reopens rooms you have already joined. New invitations and calls still need Internet only. A Bluetooth handoff does not confirm delivery.")
+                Text("New nearby invitations need the keeper’s nearby code and use a local identity. Calls still need Internet only. A Bluetooth handoff does not confirm delivery.")
             } }, confirmButton = { TextButton(onClick = { connectionRoom = null }) { Text("Cancel") } })
     }
 
@@ -366,7 +367,7 @@ private fun BoxWithConstraintsScope.ColdContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
-    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
 ) {
@@ -383,7 +384,7 @@ private fun BoxWithConstraintsScope.ColdContent(
 
     @Composable
     fun Foot() {
-        InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin)
+        InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, onJoin, onJoinNearby = onJoinNearby)
         TextButton(onOpenProjects, Modifier.heightIn(min = 48.dp)) { Text("Projects") }
         if (state.account == null) TextButton(onSignIn, Modifier.heightIn(min = 48.dp)) { Text("Already on Nostr? Sign in") }
     }
@@ -438,7 +439,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
-    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
+    onJoinUrlChanged: (String) -> Unit, onJoin: () -> Unit, onJoinNearby: ((String) -> Unit)?, onSignIn: () -> Unit, onOpenProjects: () -> Unit,
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
     onDismissTombstone: (String) -> Unit = {},
@@ -583,7 +584,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
             Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Open invite link", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, { inviteOpen = false; onJoin() }, collapsible = false)
+                InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, { inviteOpen = false; onJoin() }, collapsible = false,
+                    onJoinNearby = onJoinNearby?.let { callback -> { code -> inviteOpen = false; callback(code) } })
             }
         }
     }

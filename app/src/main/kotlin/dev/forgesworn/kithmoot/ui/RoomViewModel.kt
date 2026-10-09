@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
 import android.util.Log
+import dev.forgesworn.kithmoot.protocol.decodeLivePersistentDescriptor
+import dev.forgesworn.kithmoot.session.withLivePersistentRoomAdmission
 import dev.forgesworn.kithmoot.relay.*
 import dev.forgesworn.kithmoot.service.RoomRouteTransitions
 import dev.forgesworn.kithmoot.discovery.BoxDiscovery
@@ -17,6 +19,7 @@ import dev.forgesworn.kithmoot.session.mediaStorageOrigin
 import dev.forgesworn.kithmoot.session.mediaAuthorisation
 import dev.forgesworn.kithmoot.session.uploadMedia
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import dev.forgesworn.kithmoot.session.RoomWork
 import dev.forgesworn.kithmoot.session.AssignmentSnapshot
 import dev.forgesworn.kithmoot.session.AvailableAssignmentAction
@@ -909,6 +912,10 @@ class RoomViewModel @JvmOverloads constructor(
     private var sessionScope: CoroutineScope? = null
     private var pool: RelayPool? = null
     private var nearbyOwner: RoomNearbyOwner? = null
+    @Volatile private var freshNearbyOpening = false
+    @Volatile private var freshNearbyRoomId: String? = null
+    private class FreshNearbyEntry(val owner: RoomNearbyOwner, val transport: RoomMeshTransport,
+        val join: suspend (RoomSession) -> Unit)
     private var nearbyTransport: RoomMeshTransport? = null
     private var closingNearby: RoomNearbyOwner? = null
     /** The pool profiles are read from: the room's relays and the public
@@ -2121,7 +2128,7 @@ class RoomViewModel @JvmOverloads constructor(
      * could not be read, which would sweep every room.
      */
     private fun sweepForgottenRooms() {
-        val saved = { savedRooms.list().mapTo(mutableSetOf()) { it.id } }
+        val saved = { savedRooms.list().mapTo(mutableSetOf()) { it.id }.apply { freshNearbyRoomId?.let { add(it) } } }
         runCatching { roomEpochs.retainOnly(saved) }
         runCatching { roomMembers.retainOnly(saved) }
     }
@@ -3198,6 +3205,77 @@ class RoomViewModel @JvmOverloads constructor(
         enter(label = "The invitation", opening = "Opening the invitation…") { join(url) }
     }
 
+    /** Explicit nearby/local-identity choice; never enters relay invitation lookup. */
+    fun joinNearbyFromUrl(rawUrl: String, descriptor: String) {
+        val url = rawUrl.trim()
+        enter(label = "The nearby invitation", opening = "Waiting for the nearby room keeper…") {
+            check(!_start.value.anonymousMode && !chatOnly && callRoomId == null) { "Finish the call or leave anonymous mode before joining nearby." }
+            check(appVisible) { "Keep KithMoot on screen while joining nearby." }
+            val payload = requireNotNull(decodeInvitationUrl(url)) { "Nearby joining needs a persistent room invitation." }
+            check(payload.invitation.persistent && decodeInvitationPairingLink(url) == null) { "Nearby joining needs a persistent invitation, not a device pairing link." }
+            check(payload.policy?.quiet != true && ((payload.policy?.tier ?: KindredTier.OPEN) == KindredTier.OPEN)) { "This room's policy is not supported for nearby joining." }
+            val context = requireNotNull(decodeLivePersistentDescriptor(descriptor.trim(), payload.invitation)) { "The nearby code does not match this invitation." }
+            val oldJob = gate.withLock { sessionScope?.coroutineContext?.get(Job).also { closeSession() } }
+            oldJob?.join(); closingNearby?.awaitClosed(); closingNearby = null
+            val deviceKey = Entropy.bytes(32)
+            var owner: RoomNearbyOwner? = null
+            var mesh: RoomMeshTransport? = null
+            var who: PrimaryIdentity? = null
+            var participantKey: ByteArray? = null
+            var admittedSecret: ByteArray? = null
+            var committed = false
+            freshNearbyOpening = true
+            try {
+                val discovery = RoomNearbyDiscovery.scope(context.roomId)
+                owner = roomNearbyOwnership.open(RoomBleConfig(discovery, Entropy.bytes(32).toHex(), RoomNearbyDiscovery.serviceUuid(discovery))) {
+                    nearbyLinkFactory(getApplication())
+                }
+                check(appVisible) { "KithMoot left the foreground while Bluetooth was starting." }
+                mesh = RoomMeshTransport(discovery, owner.link)
+                val entryOwner = owner
+                val selected = mesh
+                withLivePersistentRoomAdmission(payload.invitation, descriptor.trim(), Schnorr.publicKeyHex(deviceKey), selected,
+                    now = ::epochSeconds) { proof, confirm ->
+                    val admission = proof.admission
+                    admittedSecret = admission.secret
+                    check(!admission.destruct) { "Self-destructing rooms still need an Internet cleanup route." }
+                    admission.endsAt?.let { check(!conferenceEnded(it, epochSeconds())) { conferenceEndedMessage(it) } }
+                    val derived = deriveRoom(admission.secret)
+                    check(savedRooms.get(derived.roomId) == null) { "This room is already saved. Choose Nearby in its Connection menu." }
+                    check(linkConsents.all().none { it.roomId == derived.roomId }) { "Disconnect this room's Bothy before joining nearby." }
+                    freshNearbyRoomId = derived.roomId
+                    val at = epochSeconds()
+                    val localKey = Entropy.bytes(32).also { participantKey = it }
+                    val identity = PrimaryIdentity.create(derived.roomId, at + CREDENTIAL_TTL_SECONDS, at, participantSecretKey = localKey, deviceSecretKey = deviceKey)
+                    who = identity
+                    open(derived, admission.secret, admission.relays.orEmpty(), identity, false, url,
+                        invitation = payload, policy = payload.policy, localName = payload.name.orEmpty(),
+                        ends = admission.endsAt, roomRelays = admission.relays.orEmpty(), roomRelaysSigned = admission.relays != null,
+                        expectedEpoch = proof.epochHint.toInt(), freshNearby = FreshNearbyEntry(entryOwner, selected, confirm))
+                }
+                currentCoroutineContext().ensureActive()
+                committed = true
+            } finally {
+                freshNearbyOpening = false
+                try {
+                    if (!committed) withContext(NonCancellable) {
+                        try {
+                            val abandoned = gate.withLock { sessionScope?.coroutineContext?.get(Job).also { closeSession() } }
+                            abandoned?.join()
+                            mesh?.close(); owner?.close(); owner?.awaitClosed()
+                        } finally {
+                            who?.let { identity -> savedRooms.forgetIfIdentity(context.roomId, identity.participant, identity.devicePubkey) }
+                            _start.update { it.copy(savedRooms = savedRooms.list()) }
+                        }
+                    }
+                } finally {
+                    freshNearbyRoomId = null
+                    if (!committed) { participantKey?.fill(0); admittedSecret?.fill(0); deviceKey.fill(0) }
+                }
+            }
+        }
+    }
+
     private suspend fun join(url: String) {
         // A contact card opened as a link is not a room. It is offered, and
         // nothing is kept until the person presses the button.
@@ -3686,6 +3764,7 @@ class RoomViewModel @JvmOverloads constructor(
         /** The room self-destructs, when this opening learnt so (`RoomAdmission.destruct`). */
         destruct: Boolean = false,
         startsAt: Long? = null,
+        freshNearby: FreshNearbyEntry? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -3703,7 +3782,7 @@ class RoomViewModel @JvmOverloads constructor(
             )
             return@withLock
         }
-        val route = restoring?.route ?: savedRooms.get(derived.roomId)?.route ?: RoomRoute.INTERNET
+        val route = if (freshNearby != null) RoomRoute.NEARBY else restoring?.route ?: savedRooms.get(derived.roomId)?.route ?: RoomRoute.INTERNET
         restoring?.let { checkNearbyRoute(it, route) }
         if (route.nearby) check(appVisible) { "Open KithMoot in the foreground to use nearby Bluetooth." }
         val anonymousProfile = restoring?.anonymous ?: anonymous
@@ -3728,11 +3807,11 @@ class RoomViewModel @JvmOverloads constructor(
         // A name already kept here stands, unless it is only the stand-in a
         // room got before anybody named it and this opening learnt a real one.
         val keptName = previous?.name?.takeUnless { it == "Room ${derived.roomId.take(8)}" && localName.isNotBlank() }
-        val record = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
+        val preparedRecord = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
             keptName ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
             ends = ends?.takeIf { invitation?.invitation?.persistent == true },
-            destruct = destruct && invitation?.invitation?.persistent == true)
+            destruct = destruct && invitation?.invitation?.persistent == true, route = route)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
             .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
             .let { it.withRoomLifetime(ends, destruct, startsAt) }
@@ -3741,7 +3820,8 @@ class RoomViewModel @JvmOverloads constructor(
             // rekey; pin the one its link names, as a fresh join would.
             .withInvitationAuthority()
             .withEpochHint(expectedEpoch)
-        savedRooms.save(record)
+        val record = if (freshNearby != null) preparedRecord.withRoute(RoomRoute.NEARBY) else preparedRecord
+        if (freshNearby == null) savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
         // the ones Tor-only mode accepts, and one sheltered behind a Bothy
@@ -3845,7 +3925,12 @@ class RoomViewModel @JvmOverloads constructor(
         // follows the same closeSession path as leaving an established room.
         pool = relay
         sessionScope = scope
-        val nearby = if (route.nearby) {
+        val nearby = if (freshNearby != null) {
+            nearbyOwner = freshNearby.owner
+            nearbyTransport = freshNearby.transport
+            check(appVisible) { "Keep KithMoot on screen while joining nearby." }
+            freshNearby.transport
+        } else if (route.nearby) {
             val discovery = RoomNearbyDiscovery.scope(record.id)
             val owner = roomNearbyOwnership.open(RoomBleConfig(discovery,
                 Entropy.bytes(32).toHex(), RoomNearbyDiscovery.serviceUuid(discovery))) {
@@ -3965,6 +4050,7 @@ class RoomViewModel @JvmOverloads constructor(
             // ask once without holding the room up - except in a quiet room,
             // whose traffic is shaped not to say when a member opens it.
             expectedEpoch = record.epochHint,
+            requireFreshEpoch = freshNearby != null,
             epochProbe = quietMembers == null,
             chatOutbox = pendingChat,
             ends = record.ends,
@@ -4114,7 +4200,11 @@ class RoomViewModel @JvmOverloads constructor(
         }
         if (relay != null) readRoomRelaysOnce(scope, relay, record)
         record.ends?.let { ends -> endConferenceAt(live, scope, ends, record.id) }
-        live.join()
+        if (freshNearby == null) live.join() else {
+            freshNearby.join(live)
+            savedRooms.saveNew(record)
+            _start.update { it.copy(savedRooms = savedRooms.list()) }
+        }
         if (pendingChat != null) {
             // The list follows the journal; a message leaves it when it shows in the chat.
             scope.launch {
@@ -5288,6 +5378,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
+        if (!visible && freshNearbyOpening) { entryJob?.cancel(); return }
         engine?.localMedia?.setAppVisible(visible)
         parkJob?.cancel()
         parkJob = null
