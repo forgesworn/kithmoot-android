@@ -14,9 +14,55 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import kotlinx.coroutines.flow.filter
 import kotlin.test.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomChatForwarderTest {
+    @Test fun `a transport dispatch guard defers instead of waiting for an announcing session`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 5, 6)
+        val peer = Fixtures.primary(room, 3, 4)
+        val relay = FakeRelay()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val pause = AtomicBoolean(false)
+        val live = RoomSession(room, owner, relay.transport(), backgroundScope, timing = Fixtures.QUIET,
+            now = {
+                if (pause.compareAndSet(true, false)) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+                0
+            })
+        val binding = RoomForwardingBinding(room.roomId, owner.participant, owner.devicePubkey,
+            RoomNearbyDiscovery.scope(room.roomId), listOf("wss://fixture.invalid/"), setOf(peer.participant))
+        val event = encodeChatEvent("guarded original", peer.participant, peer.credential,
+            room.roomId, room.roomKey, peer.deviceSecretKey, 0)
+        val workers = Executors.newFixedThreadPool(2) { task -> Thread(task, "authority-lock-regression").apply { isDaemon = true } }
+        try {
+            live.join()
+            assertEquals(ForwardingVerdict.CURRENT, live.forwardingVerdict(event, binding, 0))
+            pause.set(true)
+            val announce = workers.submit { live.announce() }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val guard = workers.submit<ForwardingVerdict> { live.forwardingVerdict(event, binding, 0) }
+            // The transport may already hold its own dispatch lock. Waiting for
+            // an announcement's state lock here would invert that lock order.
+            assertEquals(ForwardingVerdict.WAITING, guard.get(2, TimeUnit.SECONDS))
+            release.countDown()
+            announce.get(5, TimeUnit.SECONDS)
+            assertEquals(ForwardingVerdict.CURRENT, live.forwardingVerdict(event, binding, 0))
+        } finally {
+            release.countDown()
+            workers.shutdown()
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS))
+            live.leave()
+        }
+    }
+
     private class Store : RoomStorage {
         var value: ByteArray? = null
         var onWrite: (() -> Unit)? = null

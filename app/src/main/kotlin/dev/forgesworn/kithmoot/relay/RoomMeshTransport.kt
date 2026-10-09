@@ -10,6 +10,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.buffer
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 import kotlinx.serialization.json.*
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -195,14 +201,31 @@ class RoomMeshTransport(
 
     private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean): Flow<NostrEvent> = callbackFlow {
         val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
-        val reader = Reader(frozen, inboundOnly, { event ->
-            if (!trySend(event).isSuccess) close(IllegalStateException("Mesh subscription capacity exceeded"))
-        }, { close() })
-        synchronized(lock) {
-            check(!closed) { "Mesh transport closed" }
-            check(readers.size < 32) { "Too many mesh subscriptions" }
-            readers.add(reader)
+        // trySend can resume an Unconfined collector inline. Never let room
+        // callbacks run while receive/publication holds the transport lock.
+        // Preserve a test scheduler when it queues work; immediate dispatchers
+        // use Default, and even a Main dispatcher must always enqueue resumes.
+        val parentDispatcher = coroutineContext[ContinuationInterceptor] as? CoroutineDispatcher
+        val delegate = parentDispatcher?.takeIf { it.isDispatchNeeded(coroutineContext) } ?: Dispatchers.Default
+        val queued = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) = delegate.dispatch(context, block)
+        }
+        val notifications = Channel<NostrEvent>(64)
+        val delivery = launch(queued) {
             try {
+                for (event in notifications) send(event)
+                close()
+            } catch (error: Exception) { close(error) }
+        }
+        val reader = Reader(frozen, inboundOnly, { event ->
+            if (!notifications.trySend(event).isSuccess)
+                notifications.close(IllegalStateException("Mesh subscription capacity exceeded"))
+        }, { notifications.close() })
+        try {
+            synchronized(lock) {
+                check(!closed) { "Mesh transport closed" }
+                check(readers.size < 32) { "Too many mesh subscriptions" }
+                readers.add(reader)
                 prune(time())
                 retained.values.filter { row -> (!inboundOnly || row.inbound) && frozen.any { matches(it, row.event) } }.forEach {
                     reader.event(it.event.copy(tags = it.event.tags.map { tag -> tag.toList() }))
@@ -210,10 +233,14 @@ class RoomMeshTransport(
                 if (!blocked) link.offer(RoomMeshWire.encode(RoomMeshWire.QUERY, buildJsonObject {
                     put("scope", meshScope); put("filters", JsonArray(frozen.map { it.toJson() }))
                 }))
-            } catch (error: Exception) { readers.remove(reader); throw error }
+            }
+            awaitClose { }
+        } finally {
+            synchronized(lock) { readers.remove(reader) }
+            notifications.cancel()
+            delivery.cancel()
         }
-        awaitClose { synchronized(lock) { readers.remove(reader) } }
-    }
+    }.buffer(0) // One bounded mailbox, rather than a second downstream queue.
 
     private fun receive(bytes: ByteArray, from: String) = synchronized(lock) {
         if (closed || from.isBlank() || from.length > 256) return@synchronized
