@@ -6,8 +6,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.crypto.Entropy
-import dev.forgesworn.kithmoot.crypto.Digests
-import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.*
 import dev.forgesworn.kithmoot.session.*
@@ -305,9 +303,7 @@ class FreshNearbyEntryTest {
             rootPool?.stop(); transport.close(); scope.cancel()
             app.savedRooms.get(room.roomId)?.let { saved ->
                 dev.forgesworn.kithmoot.storage.PendingChatVault(app, saved.id, saved.participant, saved.devicePubkey).outbox.clear()
-                val identity = Digests.sha256("${saved.id}:${saved.participant}:${saved.devicePubkey}".toByteArray()).toHex()
-                dev.forgesworn.kithmoot.storage.EncryptedRoomStorage(app, "kithmoot.room-forwarding.$identity").reset()
-                dev.forgesworn.kithmoot.storage.EncryptedRoomStorage(app, "kithmoot.sharing-selection.$identity").reset()
+                dev.forgesworn.kithmoot.storage.RoomSharingVault(app, saved.id, saved.participant, saved.devicePubkey).forget()
             }
             app.savedRooms.forget(room.roomId)
             app.roomEpochs.forget(room.roomId)

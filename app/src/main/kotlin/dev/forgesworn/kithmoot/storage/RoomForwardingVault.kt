@@ -20,10 +20,13 @@ class RoomForwardingVault(context: Context, binding: RoomForwardingBinding, init
 /** Foreground UI preparation. Both identity-bound stores keep the same aliases
  * through route/author edits; pending policy changes retain all retry debt. */
 internal class RoomSharingVault(context: Context, room: String, participant: String, device: String) {
-    private val identity = Digests.sha256("$room:$participant:$device".toByteArray(Charsets.UTF_8)).toHex()
+    private val owner = "$room:$participant:$device"
+    private val identity = Digests.sha256(owner.toByteArray(Charsets.UTF_8)).toHex()
     private val journal = EncryptedRoomStorage(context, "kithmoot.room-forwarding.$identity", RoomForwardingLedger.MAX_FILE_BYTES)
-    private val selection = RoomSharingSelection(EncryptedRoomStorage(context,
-        "kithmoot.sharing-selection.$identity", RoomSharingSelection.MAX_BYTES), room, participant, device)
+    private val preferences = EncryptedRoomStorage(context, "kithmoot.sharing-selection.$identity", RoomSharingSelection.MAX_BYTES)
+    private val selection = RoomSharingSelection(preferences, room, participant, device)
     fun selection() = selection.read()
     fun prepare(binding: RoomForwardingBinding) = selection.prepare(binding, journal)
+    /** Explicit room deletion only. Policy edits never delete debt or keys. */
+    fun forget() = RoomForwardingLedger.withInactiveOwner(owner) { journal.reset(); preferences.reset() }
 }

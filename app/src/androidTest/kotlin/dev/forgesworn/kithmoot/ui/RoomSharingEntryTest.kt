@@ -57,7 +57,7 @@ class RoomSharingEntryTest {
             assertFalse(f.model.room.value.sharing!!.enabled)
             await("author edits are committed with sharing off") { f.model.room.value.sharing?.busy == false }
             assertNull(f.model.room.value.sharing!!.error)
-            compose.onNodeWithText("Resume sharing").performClick()
+            compose.onNodeWithText("Start sharing").performClick()
             await("explicit owner starts") { f.model.room.value.sharing?.enabled == true || f.model.room.value.sharing?.error != null }
             assertNull(f.model.room.value.sharing!!.error)
             peer.sendChat("nearby carried to Internet")

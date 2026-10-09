@@ -102,6 +102,22 @@ class RoomChatForwarderTest {
         rig.close()
     }
 
+    @Test fun `an empty saved selection cannot start an exporting owner`() = runTest {
+        val rig = Rig(this); rig.join()
+        val empty = RoomForwardingBinding(rig.binding.room, rig.binding.participant, rig.binding.device,
+            rig.binding.meshScope, rig.binding.relays, emptySet())
+        RoomForwardingLedger(rig.store, empty, { currentTime }, true).use { ledger ->
+            assertFailsWith<IllegalArgumentException> {
+                RoomChatForwarder.start(rig.saved, rig.consents, rig.owner, rig.ownerMesh, rig.internet,
+                    ledger, backgroundScope, { true }, StandardTestDispatcher(testScheduler))
+            }
+            assertTrue(ledger.status().suspended)
+            rig.alice.sendChat("No approved people"); runCurrent()
+            assertTrue(rig.bob.chat.value.isEmpty())
+        }
+        rig.close()
+    }
+
     @Test fun `explicit owner carries original signed chat both ways across disjoint RoomSessions`() = runTest {
         val rig = Rig(this); rig.join(); val (forwarder, ledger) = rig.start(); runCurrent()
         rig.alice.sendChat("From nearby"); runCurrent(); forwarder.pump(); runCurrent()

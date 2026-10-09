@@ -141,6 +141,9 @@ class RoomSharingSelectionTest {
             assertFails { selection.prepare(binding("77"), journal) { 1_000_000 } }
             assertContentEquals(before, prefs.bytes)
             assertFails { ledger.changeSelection(binding("77")) }
+            var deleted = false
+            assertFails { RoomForwardingLedger.withInactiveOwner(binding().owner) { deleted = true } }
+            assertFalse(deleted)
         }
         assertFails { RoomSharingSelection(prefs, room, participant, "88".repeat(32)).read() }
     }

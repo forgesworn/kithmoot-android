@@ -295,8 +295,9 @@ class RoomForwardingLedger(private val storage: RoomStorage, binding: RoomForwar
         private fun ownerGate(owner: String) = ownerGates.computeIfAbsent(owner) { Any() }
         /** Selection intent and ledger acquisition are one in-process ownership
          * operation; a running owner cannot have its preferences changed. */
-        internal fun <T> prepareSelection(binding: RoomForwardingBinding, prepare: () -> T): T = synchronized(ownerGate(binding.owner)) {
-            check(!owners.containsKey(binding.owner)) { "Stop sharing before changing its selection" }
+        internal fun <T> prepareSelection(binding: RoomForwardingBinding, prepare: () -> T): T = withInactiveOwner(binding.owner, prepare)
+        internal fun <T> withInactiveOwner(owner: String, prepare: () -> T): T = synchronized(ownerGate(owner)) {
+            check(!owners.containsKey(owner)) { "Stop sharing before changing its selection" }
             prepare()
         }
         const val MAX_ENTRIES = 100

@@ -2454,6 +2454,7 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
         savedRooms.get(id)?.let {
+            RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                 it.id, it.participant, it.devicePubkey).outbox.clear()
@@ -2484,6 +2485,7 @@ class RoomViewModel @JvmOverloads constructor(
         // them is exactly how the person recovers, so it must still happen.
         try {
             savedRooms.list().forEach { room -> savedRooms.get(room.id)?.let { saved ->
+                RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
                 dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
             } }
@@ -4898,7 +4900,7 @@ class RoomViewModel @JvmOverloads constructor(
                 synchronized(sharingLock) {
                     check(selected())
                     if (!enable) {
-                        _room.update { it.copy(sharing = it.sharing?.copy(busy = false, previouslySaved = true)) }
+                        _room.update { it.copy(sharing = it.sharing?.copy(busy = false)) }
                         return@withLock
                     }
                     val owner = RoomChatForwarder.start(record, linkConsents, live, mesh, internet,
