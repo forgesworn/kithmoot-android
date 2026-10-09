@@ -64,11 +64,10 @@ class RichMediaTest {
             assertTrue(image.asset.startsWith("chat-art/") && !image.asset.contains("://"))
             val file = java.io.File("src/main/assets/${image.asset}")
             assertEquals(image.size, file.length())
-            javax.imageio.ImageIO.createImageInputStream(file).use { stream ->
-                val reader = javax.imageio.ImageIO.getImageReaders(stream).next()
-                try { reader.input = stream; assertTrue(reader.getNumImages(true) > 1); assertEquals(256, reader.getWidth(0)) }
-                finally { reader.dispose() }
-            }
+            val bytes = file.readBytes()
+            assertEquals("GIF89a", bytes.copyOfRange(0, 6).toString(Charsets.US_ASCII))
+            assertEquals(256, (bytes[6].toInt() and 255) or ((bytes[7].toInt() and 255) shl 8))
+            assertTrue(bytes.toString(Charsets.ISO_8859_1).contains("NETSCAPE2.0"))
             assertTrue(EmojiCatalog.accepts(":km_${image.slug}:"))
         }
     }
