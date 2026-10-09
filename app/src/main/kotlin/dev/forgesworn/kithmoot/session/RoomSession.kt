@@ -445,6 +445,26 @@ class RoomSession(
 
     fun epochKeys(): EpochKeys = lock.withStateLock { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
+    /** Only read outside authority/transport dispatch locks. A real closed
+     * receiver may prove its terminal commit after normal traffic stopped. */
+    internal fun keeperProfileMatches(stableRoom: String, root: String, participant: String, device: String): Boolean = lock.withStateLock {
+        room.roomId == stableRoom && authority == root && identity.participant == participant && identity.devicePubkey == device &&
+            policy == null && call == null && (joined || _epochState.value is RoomEpochState.Closed)
+    }
+
+    /** Called outside authority and transport locks after receiver activation.
+     * Defer while the original authority event is still being applied. */
+    internal fun keeperAppliedRekey(event: NostrEvent, persistedCause: String?): Boolean {
+        if (!epochMutex.tryLock()) return false
+        try {
+            val epoch = event.tagValue("epoch")?.toIntOrNull() ?: return false
+            val current = epochKeys()
+            return event.pubkey == authority && event.tagValue("d") == room.roomId && persistedCause == event.id &&
+                current.epoch == epoch && _epochState.value is RoomEpochState.Active &&
+                (followed[epoch] == null || followed[epoch] == event.id)
+        } finally { epochMutex.unlock() }
+    }
+
     /** Current authority for the separately consented foreground chat owner.
      * Reuses the room decoder and removal floor; a disk queue is not authority. */
     internal fun forwardingProfileMatches(binding: RoomForwardingBinding): Boolean = lock.withStateLock {

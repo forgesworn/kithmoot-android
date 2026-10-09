@@ -60,6 +60,14 @@ class StoredRoomEpoch(
     val updatedAt: Long,
 ) {
     val currentSecret = currentSecret.copyOf()
+    private var activatedBy: String? = null
+    /** Exact pending cause retained by receiver activation, absent in legacy schema 1. */
+    val activationCause: String? get() = activatedBy
+    internal constructor(stableRoom: String, authority: String, currentEpoch: Int, currentSecret: ByteArray,
+        removed: List<String>, phase: EpochPhase, pending: PendingRoomEpoch?, terminalCause: String?, updatedAt: Long,
+        activationCause: String?) : this(stableRoom, authority, currentEpoch, currentSecret, removed, phase, pending, terminalCause, updatedAt) {
+        activatedBy = activationCause
+    }
 }
 
 /**
@@ -136,6 +144,8 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         // (see [follow]) between this device reading the journal and committing. Nothing to do,
         // and nothing to retire, since the background never follows a room with a cadence.
         if (current.phase == EpochPhase.ACTIVE && current.currentEpoch == notice.epoch && current.currentSecret.contentEquals(successorSecret)) {
+            require(current.activationCause == null || current.activationCause == cause) { "room activation conflicts with durable cause" }
+            require(current.removed == removed) { "room activation conflicts with durable removals" }
             return current.copyOut()
         }
         require(current.phase == EpochPhase.ACTIVE || current.phase == EpochPhase.PENDING_CADENCE_RETIREMENT)
@@ -146,7 +156,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         }
         val next = StoredRoomEpoch(
             current.stableRoom, current.authority, current.currentEpoch, current.currentSecret,
-            current.removed, EpochPhase.PENDING_CADENCE_RETIREMENT, pending, null, now,
+            current.removed, EpochPhase.PENDING_CADENCE_RETIREMENT, pending, null, now, current.activationCause,
         )
         records[index] = next
         write(records)
@@ -180,7 +190,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         require(current.phase == EpochPhase.PENDING_CADENCE_RETIREMENT && pending.epoch == epoch)
         val next = StoredRoomEpoch(
             current.stableRoom, current.authority, pending.epoch, pending.secret,
-            pending.removed, EpochPhase.ACTIVE, null, null, now,
+            pending.removed, EpochPhase.ACTIVE, null, null, now, pending.cause,
         )
         records[index] = next
         write(records)
@@ -207,7 +217,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         require(current.currentEpoch == expectedCurrentEpoch && current.phase == EpochPhase.ACTIVE)
         val next = StoredRoomEpoch(
             current.stableRoom, current.authority, current.currentEpoch, current.currentSecret,
-            removed, phase, null, cause, now,
+            removed, phase, null, cause, now, current.activationCause,
         )
         records[index] = next
         write(records)
@@ -403,8 +413,10 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         try {
             require(bytes.size <= MAX_BYTES)
             val root = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-            require(root.keys == setOf("version", "rooms") && root.getValue("version").jsonPrimitive.int == 1)
-            root.getValue("rooms").jsonArray.map { decode(it.jsonObject) }.also { rooms ->
+            require(root.keys == setOf("version", "rooms"))
+            val version = root.getValue("version").jsonPrimitive.also { require(!it.isString) }.int
+            require(version in 1..2)
+            root.getValue("rooms").jsonArray.map { decode(it.jsonObject, version) }.also { rooms ->
                 require(rooms.size <= MAX_ROOMS && rooms.map { it.stableRoom }.distinct().size == rooms.size)
             }
         } finally { bytes.fill(0) }
@@ -413,7 +425,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
     private fun write(records: List<StoredRoomEpoch>) = guarded {
         require(records.size <= MAX_ROOMS)
         val bytes = buildJsonObject {
-            put("version", 1)
+            put("version", 2)
             put("rooms", JsonArray(records.sortedBy { it.stableRoom }.map(::encode)))
         }.toString().toByteArray()
         try {
@@ -427,6 +439,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         put("currentSecret", encodeSecret(value.currentSecret)); put("removed", strings(value.removed)); put("phase", value.phase.wire)
         put("pending", value.pending?.let(::encodePending) ?: JsonNull)
         put("terminalCause", value.terminalCause?.let(::JsonPrimitive) ?: JsonNull); put("updatedAt", value.updatedAt)
+        put("activationCause", value.activationCause?.let(::JsonPrimitive) ?: JsonNull)
     }
 
     private fun encodePending(value: PendingRoomEpoch): JsonObject = buildJsonObject {
@@ -439,13 +452,15 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         put("trafficRoom", value.trafficRoom); put("roomGeneration", value.roomGeneration)
     }
 
-    private fun decode(value: JsonObject): StoredRoomEpoch {
-        require(value.keys == ROOM_FIELDS)
+    private fun decode(value: JsonObject, version: Int): StoredRoomEpoch {
+        require(value.keys == if (version == 1) ROOM_FIELDS else ROOM_FIELDS + "activationCause")
+        val activation = if (version == 1 || value.getValue("activationCause") == JsonNull) null
+            else value.getValue("activationCause").jsonPrimitive.also { require(it.isString) }.content
         val pending = value["pending"]?.takeUnless { it == JsonNull }?.jsonObject?.let(::decodePending)
         return StoredRoomEpoch(
             value.text("stableRoom"), value.text("authority"), value.integer("currentEpoch"), decodeSecret(value.text("currentSecret")),
             value.strings("removed"), EpochPhase.fromWire(value.text("phase")), pending,
-            value["terminalCause"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content, value.number("updatedAt"),
+            value["terminalCause"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content, value.number("updatedAt"), activation,
         ).also(::validate)
     }
 
@@ -468,6 +483,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         require((value.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) == (value.pending != null))
         require((value.phase == EpochPhase.REMOVED || value.phase == EpochPhase.CLOSED) == (value.terminalCause != null))
         value.terminalCause?.let { require(it.matches(ID)) }
+        value.activationCause?.let { require(value.currentEpoch > 0 && it.matches(ID)) }
         value.pending?.let {
             require(it.epoch > value.currentEpoch && it.epoch <= MAX_EPOCH && it.secret.size == 32 && it.cause.matches(ID) && it.at >= 0)
             require(it.removed == it.removed.map(String::lowercase).distinct().sorted() && it.removed.containsAll(value.removed))
@@ -479,7 +495,7 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         a.epoch == b.epoch && a.secret.contentEquals(b.secret) && a.removed == b.removed && a.cause == b.cause && a.at == b.at && a.cadence == b.cadence
     private fun StoredRoomEpoch.copyOut() = StoredRoomEpoch(stableRoom, authority, currentEpoch, currentSecret, removed.toList(), phase, pending?.let {
         PendingRoomEpoch(it.epoch, it.secret, it.removed.toList(), it.cause, it.at, it.cadence)
-    }, terminalCause, updatedAt)
+    }, terminalCause, updatedAt, activationCause)
 
     private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.content
     private fun JsonObject.integer(key: String) = getValue(key).jsonPrimitive.int

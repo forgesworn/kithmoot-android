@@ -14,6 +14,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import kotlin.test.assertIs
 import org.junit.Test
+import kotlinx.serialization.json.*
 
 class EpochVaultTest {
     private val initial = ByteArray(32) { 7 }
@@ -313,6 +314,53 @@ class EpochVaultTest {
         assertNull(history.value)
         assertNull(vault.get(other))
         assertNull(vault.secretAt(other, 1))
+    }
+
+    @Test fun `receiver activation cause survives reopen and later pending and terminal states`() {
+        val storage = MemoryStorage(); val vault = EpochVault(storage)
+        vault.initialise(room, authority, initial, 100)
+        val original = "aa".repeat(32)
+        val first = RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 9 }, 101)
+        vault.beginTransition(room, 0, first, original, null, 101); vault.activate(room, 1, 102)
+        assertEquals(original, EpochVault(storage).get(room)!!.activationCause)
+        val second = RekeyNotice(2, emptyList(), null, false, ByteArray(32) { 10 }, 103)
+        vault.beginTransition(room, 1, second, "bb".repeat(32), null, 103)
+        assertEquals(original, EpochVault(storage).get(room)!!.activationCause)
+        vault.activate(room, 2, 104)
+        val terminal = RekeyNotice(3, emptyList(), null, true, null, 105)
+        vault.terminal(room, 2, terminal, "cc".repeat(32), 105)
+        val closed = EpochVault(storage).get(room)!!
+        assertEquals("bb".repeat(32), closed.activationCause); assertEquals("cc".repeat(32), closed.terminalCause)
+        assertEquals(2, Json.parseToJsonElement(storage.value!!.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
+    }
+
+    @Test fun `matching successor secret cannot substitute a different activation cause or removals`() {
+        val storage = MemoryStorage(); val vault = EpochVault(storage)
+        vault.initialise(room, authority, initial, 100)
+        val notice = RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 9 }, 101)
+        vault.beginTransition(room, 0, notice, "aa".repeat(32), null, 101); vault.activate(room, 1, 102)
+        assertEquals(1, vault.beginTransition(room, 0, notice, "aa".repeat(32), null, 103).currentEpoch)
+        assertThrows(IllegalArgumentException::class.java) {
+            vault.beginTransition(room, 0, notice, "bb".repeat(32), null, 103)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            vault.beginTransition(room, 0, RekeyNotice(1, listOf("dd".repeat(32)), null, false, notice.secret, 101), "aa".repeat(32), null, 103)
+        }
+    }
+
+    @Test fun `legacy receiver state reads without inventing activation evidence`() {
+        val storage = MemoryStorage(); val vault = EpochVault(storage)
+        vault.initialise(room, authority, initial, 100)
+        val notice = RekeyNotice(1, emptyList(), null, false, ByteArray(32) { 9 }, 101)
+        vault.beginTransition(room, 0, notice, "aa".repeat(32), null, 101); vault.activate(room, 1, 102)
+        val root = Json.parseToJsonElement(storage.value!!.decodeToString()).jsonObject
+        storage.value = buildJsonObject {
+            put("version", 1); put("rooms", JsonArray(root.getValue("rooms").jsonArray.map { JsonObject(it.jsonObject - "activationCause") }))
+        }.toString().toByteArray()
+        val legacy = EpochVault(storage).get(room)!!
+        assertEquals(1, legacy.currentEpoch); assertNull(legacy.activationCause)
+        storage.value = JsonObject(root + ("version" to JsonPrimitive("2"))).toString().toByteArray()
+        assertThrows(RoomStorageException::class.java) { EpochVault(storage).get(room) }
     }
 
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {
