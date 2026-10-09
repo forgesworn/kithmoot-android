@@ -18,6 +18,10 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.junit.Assert.*
 import org.junit.Test
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import javax.net.ServerSocketFactory
 import org.junit.runner.RunWith
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
@@ -183,7 +187,19 @@ class FreshNearbyEntryTest {
         secretOverride: ByteArray? = null, hostOverride: RoomInvitationHost? = null,
         private val rootIdentityOverride: PrimaryIdentity? = null, relayPort: Int = 0) {
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
-        val server = MockWebServer().also { it.start(relayPort) }
+        val server = MockWebServer().also {
+            // SIGKILL can leave loopback connections in TIME_WAIT. Both the
+            // original and recovered server must reuse the same pinned port.
+            it.serverSocketFactory = object : ServerSocketFactory() {
+                override fun createServerSocket() = ServerSocket().apply { reuseAddress = true }
+                private fun bound(port: Int, backlog: Int, address: InetAddress?) =
+                    createServerSocket().apply { bind(InetSocketAddress(address, port), backlog) }
+                override fun createServerSocket(port: Int) = bound(port, 50, null)
+                override fun createServerSocket(port: Int, backlog: Int) = bound(port, backlog, null)
+                override fun createServerSocket(port: Int, backlog: Int, address: InetAddress?) = bound(port, backlog, address)
+            }
+            it.start(relayPort)
+        }
         val secret = secretOverride?.copyOf() ?: Entropy.bytes(32)
         val host = hostOverride ?: createRoomInvitation(persistent = true)
         val room = deriveRoom(secret)
