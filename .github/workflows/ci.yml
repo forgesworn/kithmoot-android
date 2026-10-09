@@ -59,6 +59,7 @@ jobs:
           bash -n scripts/*.sh
           python3 -m py_compile scripts/*.py
           python3 scripts/check-recovery-runner.py
+          python3 scripts/check-sharing-restart-runner.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
@@ -188,14 +189,18 @@ jobs:
           disable-animations: true
           disable-spellchecker: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: bash scripts/check-recovery-emulator.sh
+          script: |
+            bash scripts/check-recovery-emulator.sh
+            python3 scripts/check-sharing-restart-emulator.py
 
       - name: Keep emulator reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: recovery-emulator-reports
-          path: app/build/reports/recovery-emulator/
+          path: |
+            app/build/reports/recovery-emulator/
+            app/build/reports/sharing-restart-emulator/
           if-no-files-found: warn
           retention-days: 7
 
