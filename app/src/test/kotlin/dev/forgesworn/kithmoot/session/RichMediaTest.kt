@@ -55,13 +55,20 @@ class RichMediaTest {
         assertFalse(deleteUploadedMedia("https://files.example", hash, auth, client))
         missing = true; assertTrue(deleteUploadedMedia("https://files.example", hash, auth, client))
     }
-    @Test fun `catalogue refuses oversized unlicensed or substituted images and preserves attribution`() {
-        val info = buildJsonObject { put("url", "https://upload.wikimedia.org/wikipedia/commons/a/aa/Cat.gif?utm_source=test"); put("mime", "image/gif"); put("size", 4000); put("width", 120); put("height", 120); put("descriptionurl", "https://commons.wikimedia.org/wiki/File:Cat.gif")
-            put("extmetadata", buildJsonObject { put("Artist", buildJsonObject { put("value", "<b>Artist</b>") }); put("LicenseShortName", buildJsonObject { put("value", "CC BY-SA 4.0") }) }) }
-        fun fixture(over: JsonObject = JsonObject(emptyMap())) = buildJsonObject { put("query", buildJsonObject { put("pages", buildJsonObject { put("1", buildJsonObject { put("title", "File:Cat.gif"); put("imageinfo", JsonArray(listOf(JsonObject(info + over)))) }) }) }) }.toString()
-        val result = catalogueResults(fixture()).single(); assertEquals("Artist · CC BY-SA 4.0", result.credit); assertFalse(result.url.contains("?"))
-        assertTrue(catalogueResults(fixture(buildJsonObject { put("url", "https://evil.example/cat.gif") })).isEmpty())
-        assertTrue(catalogueResults(fixture(buildJsonObject { put("width", 100_000) })).isEmpty())
-        assertTrue(catalogueResults(fixture(buildJsonObject { put("extmetadata", JsonObject(emptyMap())) })).isEmpty())
+    @Test fun `original catalogue searches local packaged reactions and never supplies external URLs`() {
+        val gifs = searchMediaCatalogue("", false)
+        assertEquals(24, gifs.size); assertEquals(24, searchMediaCatalogue("", true).size)
+        assertTrue(searchMediaCatalogue("flag", false).isEmpty())
+        assertEquals("facepalm", searchMediaCatalogue("facepalm", true).single().slug)
+        for (image in gifs) {
+            assertTrue(image.asset.startsWith("chat-art/") && !image.asset.contains("://"))
+            val file = java.io.File("src/main/assets/${image.asset}")
+            assertEquals(image.size, file.length())
+            val bytes = file.readBytes()
+            assertEquals("GIF89a", bytes.copyOfRange(0, 6).toString(Charsets.US_ASCII))
+            assertEquals(256, (bytes[6].toInt() and 255) or ((bytes[7].toInt() and 255) shl 8))
+            assertTrue(bytes.toString(Charsets.ISO_8859_1).contains("NETSCAPE2.0"))
+            assertTrue(EmojiCatalog.accepts(":km_${image.slug}:"))
+        }
     }
 }

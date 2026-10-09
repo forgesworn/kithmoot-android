@@ -1,5 +1,13 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.73 (96): original artwork without a third-party catalogue
+
+The emoji picker starts with 24 original KithMoot reactions. Standard emoji remain available through search or the Standard emoji button; flags are omitted from the picker. The separate Nostr member pack still unlocks only its picker, while all recipients can see sent artwork.
+
+The GIF/sticker picker ships 24 original transparent stickers and 24 real looping reaction GIFs with meme captions. Search and animated previews run locally using APK assets. No Wikimedia, Tenor or Giphy search, thumbnail, download or tracking requests are made. Selected artwork goes through the existing encrypted attachment flow and storage consent, without adding attribution links to the draft.
+
+Original artwork was generated with gpt-image-2.5-sunburst. Native and web installers contain the same artwork. Automated, signed/public and physical acceptance evidence are recorded separately at delivery.
+
 ## 0.6.70 (93): richer chat media and participant details
 
 Sender names open a profile card with copy actions for npub and self-reported NIP-05 addresses. Available peers can start a private conversation from that card. Full Unicode 16 emoji and reactions are searchable; the quick palette stays available and reaction chips sit across the bubble edge.

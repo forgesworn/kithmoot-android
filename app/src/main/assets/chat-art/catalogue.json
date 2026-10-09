@@ -1,0 +1,338 @@
+[
+  {
+    "slug": "laugh",
+    "title": "Laugh",
+    "keywords": "laugh laughter lol funny tears",
+    "caption": "LOL",
+    "png": {
+      "bytes": 202302,
+      "sha256": "a925cfc6ca719a278ac535313e41d77d11724f06a0647c3281343a640427bb18"
+    },
+    "gif": {
+      "bytes": 181899,
+      "sha256": "d8ee8376b45718e509d4d4b6a8d5b4edeb2e1f0f533945cf2fe56933937898e2"
+    }
+  },
+  {
+    "slug": "facepalm",
+    "title": "Facepalm",
+    "keywords": "facepalm not again frustrated head wall",
+    "caption": "NOT AGAIN",
+    "png": {
+      "bytes": 186838,
+      "sha256": "d7de0056e35eff759d81f1625e84a5138cd1ef6633ff6d78b61a973c0fd18a84"
+    },
+    "gif": {
+      "bytes": 202473,
+      "sha256": "fd5c2d97327e67725132e8c851e8f33240a5da19b113566874b96c2e14d891e0"
+    }
+  },
+  {
+    "slug": "mindblown",
+    "title": "Mind blown",
+    "keywords": "mind blown shocked wow surprise",
+    "caption": "MIND. BLOWN.",
+    "png": {
+      "bytes": 218758,
+      "sha256": "09e445ff4fd58fb02c77d1e89c774fc07fd46eecc50cdd1aa16d268eb1e0fdc3"
+    },
+    "gif": {
+      "bytes": 199425,
+      "sha256": "18f4f5b0ed2c084a5a2cda6fbdc54c7cadee4396081ec79adc4a212158c2031e"
+    }
+  },
+  {
+    "slug": "cool",
+    "title": "Cool",
+    "keywords": "cool sunglasses smug deal with it",
+    "caption": "DEAL WITH IT",
+    "png": {
+      "bytes": 192505,
+      "sha256": "4a8d92d2b279e6d3d0a6abfee85b6748b7f9c019a4a25d17963fb8a02094cfe6"
+    },
+    "gif": {
+      "bytes": 194469,
+      "sha256": "f3512c3ff7456080036cd301a36d424616c68b96c280ad25bd56dbaa497940ce"
+    }
+  },
+  {
+    "slug": "shrug",
+    "title": "Shrug",
+    "keywords": "shrug whatever dunno unsure",
+    "caption": "DUNNO",
+    "png": {
+      "bytes": 188096,
+      "sha256": "ecbde6b7b59fa7ef9b3da3b8d9d8670667ee2b9baaf5e06477638b774abf4124"
+    },
+    "gif": {
+      "bytes": 201407,
+      "sha256": "e008836fdfa26899eea87cb26ebdb57dfb7b58d01bf593aab4b8fe0e73dd9d72"
+    }
+  },
+  {
+    "slug": "celebrate",
+    "title": "Celebrate",
+    "keywords": "celebrate party yes victory confetti",
+    "caption": "YES!",
+    "png": {
+      "bytes": 211548,
+      "sha256": "1af5ce78732f3a0c9e0b9e1e33002432579f6349f398d2b4575bc15516792e68"
+    },
+    "gif": {
+      "bytes": 166280,
+      "sha256": "c358c8bbe184fd188280af476fa87a7febf50d584fca2f87225ba9242772c8ef"
+    }
+  },
+  {
+    "slug": "angry",
+    "title": "Angry",
+    "keywords": "angry furious rage fuming",
+    "caption": "FUMING",
+    "png": {
+      "bytes": 205830,
+      "sha256": "c1e0b2bb6f2f8dafbbfed1ff6905d53fc394a372f4e53509324214459eafa32f"
+    },
+    "gif": {
+      "bytes": 210310,
+      "sha256": "bd53ad9314598158057d073a8404685388f0939ee6490899956c272a3f49ccf2"
+    }
+  },
+  {
+    "slug": "love",
+    "title": "Love",
+    "keywords": "love heart hug thanks affection",
+    "caption": "BIG LOVE",
+    "png": {
+      "bytes": 197197,
+      "sha256": "82c69f1b7f5d2fc29802f5a9781622a8a260087200ad913a525fbfe1402f1541"
+    },
+    "gif": {
+      "bytes": 189725,
+      "sha256": "4e15e5741d85b072ae713b9deea081184d72728e92f7b331f9ee8d973900b447"
+    }
+  },
+  {
+    "slug": "cry",
+    "title": "Cry",
+    "keywords": "cry sad tears sob upset",
+    "caption": "SEND HELP",
+    "png": {
+      "bytes": 206705,
+      "sha256": "f851975bcb2fd0abdd53f8204be98561b09265b13e0507feb0f02c9881e3da31"
+    },
+    "gif": {
+      "bytes": 208522,
+      "sha256": "eb3afeb346e1f0a76b924e979af6df072bc909e85c14e26d90c60d1619ec86dc"
+    }
+  },
+  {
+    "slug": "sideeye",
+    "title": "Side eye",
+    "keywords": "side eye unimpressed sceptical doubt",
+    "caption": "REALLY?",
+    "png": {
+      "bytes": 185589,
+      "sha256": "4bc95bcd8ce4eeb8fe50338277f747bae48fda16529b803f19227074bfc9f69b"
+    },
+    "gif": {
+      "bytes": 187605,
+      "sha256": "42e7cc4171e78c791f29b41d4bd69a38a4c69931ffffd7126e0fee4e6d66a7c0"
+    }
+  },
+  {
+    "slug": "popcorn",
+    "title": "Popcorn",
+    "keywords": "popcorn drama watching waiting",
+    "caption": "HERE FOR THE DRAMA",
+    "png": {
+      "bytes": 198115,
+      "sha256": "39a5acc4e8bafbbdce2862033b3bdc3c33f65be48c2806fa2c2587e302ead4c2"
+    },
+    "gif": {
+      "bytes": 211360,
+      "sha256": "a512ce1e7b5657ec1610824dbf1298e17044bb969093f48c9532a929f8694176"
+    }
+  },
+  {
+    "slug": "micdrop",
+    "title": "Mic drop",
+    "keywords": "mic drop winner done nailed it",
+    "caption": "MIC DROP",
+    "png": {
+      "bytes": 202293,
+      "sha256": "a0255288079b2205435f462d277875842ba8f2a8e0d197616818c839142c546d"
+    },
+    "gif": {
+      "bytes": 200200,
+      "sha256": "66d55bd87d9c36811eca89095370926be03ef39ef190314b4bbf49e49c6d5d6f"
+    }
+  },
+  {
+    "slug": "thumbsup",
+    "title": "Thumbs up",
+    "keywords": "thumbs up approve yes good thanks",
+    "caption": "NICE ONE",
+    "png": {
+      "bytes": 205917,
+      "sha256": "0bdef53915a911f151a53217d88359301f6405f3d2d01389b203e8cd678460ff"
+    },
+    "gif": {
+      "bytes": 208364,
+      "sha256": "74aded41c27e6e1544ed653e1c497544bc1e9060ba43d81b19f01f851e6dfef9"
+    }
+  },
+  {
+    "slug": "thumbsdown",
+    "title": "Thumbs down",
+    "keywords": "thumbs down no dislike nope",
+    "caption": "NOPE",
+    "png": {
+      "bytes": 189380,
+      "sha256": "b28be8d27599f7971dcd12a193504f6ff8220830daa49ab3dc0768e506d33916"
+    },
+    "gif": {
+      "bytes": 196826,
+      "sha256": "718382669792860db182e6c23d452138c9b123e4266e3496e287bc770afb4350"
+    }
+  },
+  {
+    "slug": "slowclap",
+    "title": "Slow clap",
+    "keywords": "slow clap sarcastic applause brilliant",
+    "caption": "BRILLIANT",
+    "png": {
+      "bytes": 197716,
+      "sha256": "5e88bf8504de1deacb421a2e5b7a0d439635d84e0bcdd517842bccf3a0723c6c"
+    },
+    "gif": {
+      "bytes": 192025,
+      "sha256": "fe15950709c0db4fc79ce996ca92d5fc1bd3f3f0fc07b72ef8c2c69011d27297"
+    }
+  },
+  {
+    "slug": "eyeroll",
+    "title": "Eye roll",
+    "keywords": "eye roll bored annoyed unbelievable",
+    "caption": "OH PLEASE",
+    "png": {
+      "bytes": 189826,
+      "sha256": "0fd217057d381e08357bb020c8063b52bf0e8dac7167cd3c52dc6ae578530931"
+    },
+    "gif": {
+      "bytes": 198432,
+      "sha256": "6ab0cd20422f7433856d1f6f9f972e8be5de14b3c4c73125e6de03596a6cfdf2"
+    }
+  },
+  {
+    "slug": "waiting",
+    "title": "Waiting",
+    "keywords": "waiting impatient time clock hurry",
+    "caption": "STILL WAITING",
+    "png": {
+      "bytes": 199975,
+      "sha256": "2cecbd5ad2294092c9cc89785528b2310025f239e102662409a272130201a610"
+    },
+    "gif": {
+      "bytes": 215675,
+      "sha256": "36f8bdc7cff94a2c994fb603575bc0b3af8f041dc3c2071aaa175c4329484c70"
+    }
+  },
+  {
+    "slug": "exhausted",
+    "title": "Exhausted",
+    "keywords": "exhausted dead tired done sleepy",
+    "caption": "I AM DONE",
+    "png": {
+      "bytes": 200755,
+      "sha256": "49193696fbd2a378371f48c649b70f2e4f4646eb836d87842323f4e9a94172f0"
+    },
+    "gif": {
+      "bytes": 170187,
+      "sha256": "49c7cb92bc0754b162a1c6770ebbd0ca4e1b6ff8768b1cfb84d276ec75606d91"
+    }
+  },
+  {
+    "slug": "wtf",
+    "title": "What",
+    "keywords": "wtf what confused baffled huh",
+    "caption": "WTF",
+    "png": {
+      "bytes": 205065,
+      "sha256": "152e053ca93f4992525cf6fe6a73c3a3576b86ba06d7c16f6e9608eb2301ebef"
+    },
+    "gif": {
+      "bytes": 205238,
+      "sha256": "52c718b06d1c70475e62b4781bf6e2a3ff647062704888cae83525c5c16a3254"
+    }
+  },
+  {
+    "slug": "melting",
+    "title": "Melting",
+    "keywords": "melting embarrassed cringe awkward",
+    "caption": "THIS IS FINE",
+    "png": {
+      "bytes": 192504,
+      "sha256": "e83309850cf3499de2191b3b1f12fc7d062ceb4b5327637c3ec8ea2faf93791e"
+    },
+    "gif": {
+      "bytes": 192286,
+      "sha256": "5b5e472059cc1a5043f3460509ba01f29d76b53a73ccd78746a4df792f76e9bf"
+    }
+  },
+  {
+    "slug": "plotting",
+    "title": "Plotting",
+    "keywords": "plotting evil cheeky grin mischievous",
+    "caption": "HEH HEH",
+    "png": {
+      "bytes": 196182,
+      "sha256": "e96b173bf188fe8ad6c435fbe24c98156319ab2d825631da9f4e6569f546d512"
+    },
+    "gif": {
+      "bytes": 210422,
+      "sha256": "bd968524b5060c6b06d8124b80b5676fe156e9225bb16b129238672bdb6d09a8"
+    }
+  },
+  {
+    "slug": "moon",
+    "title": "To the moon",
+    "keywords": "moon rocket fly launch to the moon",
+    "caption": "TO THE MOON",
+    "png": {
+      "bytes": 221611,
+      "sha256": "456f171f213383a98f5768291e746fc51c52d8cc70cf75958b77c9be1effcca6"
+    },
+    "gif": {
+      "bytes": 196509,
+      "sha256": "bf70e0d1f9c49fb25c9a2b8a3481d8003a92b4922d15927a5b637aae45ac6996"
+    }
+  },
+  {
+    "slug": "coffee",
+    "title": "Coffee",
+    "keywords": "coffee tired morning wake caffeine",
+    "caption": "COFFEE FIRST",
+    "png": {
+      "bytes": 202751,
+      "sha256": "fa77ef4cf74855a53992310c045ac7a983909a82b07a674c761e3b6d13390989"
+    },
+    "gif": {
+      "bytes": 228108,
+      "sha256": "d2c376184058ed1a40db9a44285aaa7bb85938fff2ef3d19e72a8e59d531c8d8"
+    }
+  },
+  {
+    "slug": "handshake",
+    "title": "Handshake",
+    "keywords": "handshake agree deal friends respect",
+    "caption": "DEAL",
+    "png": {
+      "bytes": 195638,
+      "sha256": "5e34b849c9d790fc48e8933bec22921c2dda67007d478315bf4d57748087d87c"
+    },
+    "gif": {
+      "bytes": 180119,
+      "sha256": "142e3f6b0974ec93b00e16886440bf0d94f0e46bb3e63f591435e1f6dbfd5520"
+    }
+  }
+]
