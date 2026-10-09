@@ -79,6 +79,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withTimeout
 import java.util.TreeMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock as withStateLock
 import kotlin.random.Random
 
 /** One message kept on this phone and not yet in the room's log, as the chat lists it. */
@@ -290,13 +292,13 @@ class RoomSession(
     private val onMembers: suspend (List<String>) -> Unit = {},
 ) {
 
-    private val lock = Any()
+    private val lock = ReentrantLock()
     private val epochMutex = Mutex()
     private var activeEpoch = initialEpoch
     @Volatile private var ends: Long? = ends
 
     /** Apply a deadline learned during this visit to subsequent signed room traffic. */
-    fun learnRoomEnd(end: Long) = synchronized(lock) {
+    fun learnRoomEnd(end: Long) = lock.withStateLock {
         require(end > 0)
         ends = minOf(ends ?: Long.MAX_VALUE, end)
     }
@@ -326,7 +328,7 @@ class RoomSession(
     private val removedParticipants = mutableSetOf<String>()
 
     init {
-        synchronized(lock) {
+        lock.withStateLock {
             for (past in initialPastEpochs.filter { it.keys.epoch < initialEpoch.epoch }) {
                 keepPastLocked(listOf(past.keys), past.leftAt)
             }
@@ -336,7 +338,7 @@ class RoomSession(
     private val roster = linkedMapOf<String, RosterEntry>()
 
     /** Whether [participant] is in this room's roster now: they hold its current key. */
-    fun hasParticipant(participant: String): Boolean = synchronized(lock) {
+    fun hasParticipant(participant: String): Boolean = lock.withStateLock {
         roster.values.any { it.participant.equals(participant, ignoreCase = true) }
     }
 
@@ -441,26 +443,33 @@ class RoomSession(
     /** Every epoch the authority's rekeys disagree about, as this session saw them. */
     val epochConflicts: StateFlow<List<EpochConflict>> = _epochConflicts.asStateFlow()
 
-    fun epochKeys(): EpochKeys = synchronized(lock) { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
+    fun epochKeys(): EpochKeys = lock.withStateLock { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
     /** Current authority for the separately consented foreground chat owner.
      * Reuses the room decoder and removal floor; a disk queue is not authority. */
-    internal fun forwardingProfileMatches(binding: RoomForwardingBinding): Boolean = synchronized(lock) {
+    internal fun forwardingProfileMatches(binding: RoomForwardingBinding): Boolean = lock.withStateLock {
         room.roomId == binding.room && identity.participant == binding.participant && identity.devicePubkey == binding.device &&
             policy?.quiet != true && (policy == null || policy.tier == KindredTier.OPEN) && call == null && joined
     }
 
-    internal fun forwardingVerdict(event: NostrEvent, binding: RoomForwardingBinding, at: Long): ForwardingVerdict = synchronized(lock) {
-        if (!forwardingProfileMatches(binding) || identity.participant in removedParticipants ||
-            _epochState.value is RoomEpochState.Removed || _epochState.value is RoomEpochState.Closed) return@synchronized ForwardingVerdict.MOVED
-        if (!publicationAllowed || _epochState.value !is RoomEpochState.Active) return@synchronized ForwardingVerdict.WAITING
-        if (at >= (ends ?: Long.MAX_VALUE) ||
-            verifyDeviceCredential(identity.credential, room.roomId, at) !is CredentialCheck.Valid ||
-            (policy != null && !evaluateAccess(policy, identity.participant, proof, at, room.roomId).admitted)) return@synchronized ForwardingVerdict.MOVED
-        val message = decodeChatEvent(event, activeEpoch.id, activeEpoch.key, at, policy, credentialRoomId = room.roomId)
-            ?: return@synchronized ForwardingVerdict.MOVED
-        if (message.participant !in binding.senders || message.participant in removedParticipants) ForwardingVerdict.MOVED
-        else ForwardingVerdict.CURRENT
+    /** Ordinary observation waits for current state; dispatch cannot wait while
+     * holding a transport lock. Contention there defers the original reservation
+     * without a receipt or refund. */
+    internal fun forwardingVerdict(event: NostrEvent, binding: RoomForwardingBinding, at: Long,
+        waitForState: Boolean = true): ForwardingVerdict {
+        if (waitForState) lock.lock() else if (!lock.tryLock()) return ForwardingVerdict.WAITING
+        try {
+            if (!forwardingProfileMatches(binding) || identity.participant in removedParticipants ||
+                _epochState.value is RoomEpochState.Removed || _epochState.value is RoomEpochState.Closed) return ForwardingVerdict.MOVED
+            if (!publicationAllowed || _epochState.value !is RoomEpochState.Active) return ForwardingVerdict.WAITING
+            if (at >= (ends ?: Long.MAX_VALUE) ||
+                verifyDeviceCredential(identity.credential, room.roomId, at) !is CredentialCheck.Valid ||
+                (policy != null && !evaluateAccess(policy, identity.participant, proof, at, room.roomId).admitted)) return ForwardingVerdict.MOVED
+            val message = decodeChatEvent(event, activeEpoch.id, activeEpoch.key, at, policy, credentialRoomId = room.roomId)
+                ?: return ForwardingVerdict.MOVED
+            return if (message.participant !in binding.senders || message.participant in removedParticipants) ForwardingVerdict.MOVED
+            else ForwardingVerdict.CURRENT
+        } finally { lock.unlock() }
     }
 
     suspend fun retryEpoch() = epochMutex.withLock {
@@ -551,7 +560,7 @@ class RoomSession(
         }
         coroutineScope {
             val attempt = requireNotNull(currentCoroutineContext()[Job])
-            synchronized(lock) {
+            lock.withStateLock {
                 check(freshJoinJob == null) { "Fresh admission is already running" }
                 freshJoinJob = attempt
             }
@@ -560,11 +569,11 @@ class RoomSession(
                 currentCoroutineContext().ensureActive()
                 check(joined) { "Room admission was cancelled" }
             } catch (error: Throwable) {
-                synchronized(lock) { if (freshJoinJob === attempt) freshJoinJob = null }
+                lock.withStateLock { if (freshJoinJob === attempt) freshJoinJob = null }
                 leave()
                 throw error
             } finally {
-                synchronized(lock) { if (freshJoinJob === attempt) freshJoinJob = null }
+                lock.withStateLock { if (freshJoinJob === attempt) freshJoinJob = null }
             }
         }
     }
@@ -574,14 +583,14 @@ class RoomSession(
             val decision = evaluateAccess(it, identity.participant, proof, now(), room.roomId)
             require(decision.admitted) { decision.reason }
         }
-        synchronized(lock) {
+        lock.withStateLock {
             if (joined) return
             if (requireFreshEpoch) settled = false
             joined = true
         }
         // Left epochs seeded at opening: a quiet room's transport opens drops
         // under them only once it is told (kithmoot-android #127, #128).
-        if (synchronized(lock) { pastEpochs.isNotEmpty() }) handPastToTransport()
+        if (lock.withStateLock { pastEpochs.isNotEmpty() }) handPastToTransport()
         if (authority != null) {
             val replayed = CompletableDeferred<Unit>()
             jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -631,7 +640,7 @@ class RoomSession(
                 transport.completeRekey()
                 transportBlocked = false
             }
-            synchronized(lock) { publicationAllowed = true }
+            lock.withStateLock { publicationAllowed = true }
         }
         jobs += scope.launch {
             while (true) {
@@ -679,7 +688,7 @@ class RoomSession(
         val traffic: List<Job>
         val farewell: Boolean
         var offCall: CallMembership? = null
-        synchronized(lock) {
+        lock.withStateLock {
             if (!joined) return
             farewell = publicationAllowed
             joined = false
@@ -717,7 +726,7 @@ class RoomSession(
      *  an answer or a farewell rather than an arrival; `left` marks the
      *  farewell itself. */
     fun announce(reply: Boolean = false, left: Boolean = false) {
-        synchronized(lock) {
+        lock.withStateLock {
             check(publicationAllowed) { "Room publication is blocked during a secure update" }
             publishAnnouncement(reply, left)
         }
@@ -733,7 +742,7 @@ class RoomSession(
      * behaviour.
      */
     private fun announceIfPublishing(reply: Boolean = false) {
-        synchronized(lock) {
+        lock.withStateLock {
             if (!joined || !publicationAllowed) return
             try { publishAnnouncement(reply, left = false) }
             catch (_: Exception) { /* Presence retries on its next tick; deliberate sends retain their errors. */ }
@@ -742,7 +751,7 @@ class RoomSession(
 
     private fun publishAnnouncement(reply: Boolean, left: Boolean) {
         val epoch = epochKeys()
-        val entry = synchronized(lock) {
+        val entry = lock.withStateLock {
             RosterEntry(
                 participant = identity.participant,
                 device = identity.devicePubkey,
@@ -786,7 +795,7 @@ class RoomSession(
      * Mirrors `Session.setCall` in the web client's `src/session.ts`.
      */
     fun setCall(membership: CallMembership?) {
-        val bells = synchronized(lock) {
+        val bells = lock.withStateLock {
             val previous = call
             val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
             call = next
@@ -797,7 +806,7 @@ class RoomSession(
     }
 
     /** The call this device says it is on, if any. */
-    fun currentCall(): CallMembership? = synchronized(lock) { call }
+    fun currentCall(): CallMembership? = lock.withStateLock { call }
 
     /**
      * Decided on the presence as it stood before the change: the bell is
@@ -866,7 +875,7 @@ class RoomSession(
      * announcement (`applyEpoch`) and every heartbeat after it carry it.
      */
     fun setTracks(tracks: List<TrackRef>) {
-        synchronized(lock) { this.tracks = tracks }
+        lock.withStateLock { this.tracks = tracks }
         announceIfPublishing()
     }
 
@@ -879,7 +888,7 @@ class RoomSession(
      * anything having to agree first.
      */
     fun claim(role: String) {
-        synchronized(lock) {
+        lock.withStateLock {
             val at = now()
             val latest = maxOf(claims[role] ?: 0L, roster.values
                 .filter { it.participant == identity.participant && it.updatedAt >= at - timing.presenceTtlSeconds }
@@ -891,7 +900,7 @@ class RoomSession(
     }
 
     fun release(role: String) {
-        synchronized(lock) { claims = claims - role }
+        lock.withStateLock { claims = claims - role }
         announce()
     }
 
@@ -1172,7 +1181,7 @@ class RoomSession(
         if (entry.updatedAt < now() - timing.presenceTtlSeconds) return
 
         val respond: Boolean
-        synchronized(lock) {
+        lock.withStateLock {
             val existing = roster[entry.device]
             // Strictly older is dropped; equal is accepted. Timestamps are
             // whole seconds, and an announce and the answer to it routinely
@@ -1208,14 +1217,14 @@ class RoomSession(
 
     internal fun onChatEvent(event: NostrEvent) {
         val tag = event.tagValue("d")
-        val (epoch, left) = synchronized(lock) {
+        val (epoch, left) = lock.withStateLock {
             if (tag == activeEpoch.id) activeEpoch to false
             else pastEpochs.values.firstOrNull { it.keys.id == tag }?.let { it.keys to true }
         } ?: return
         val message = decodeChatEvent(event, epoch.id, epoch.key, now(), policy, credentialRoomId = room.roomId) ?: return
         // Somebody removed from the room still holds the keys of the epochs
         // before their removal: on those, what they write now is refused.
-        if (left && synchronized(lock) { message.participant.lowercase() in removedParticipants }) return
+        if (left && lock.withStateLock { message.participant.lowercase() in removedParticipants }) return
         if (ingestChat(message)) retainOwnOuterEvent(event, message)
     }
 
@@ -1236,7 +1245,7 @@ class RoomSession(
         // stable identity a budget can be held against is the one inside.
         if (!signalGuard.admitEvent("inner:${signal.id}")) return
 
-        val sender = synchronized(lock) { roster[signal.from] }
+        val sender = lock.withStateLock { roster[signal.from] }
         // The roster authenticates sibling devices too. Only our exact local
         // device is excluded; paired cameras need ordinary negotiation.
         if (sender == null || signal.from == identity.devicePubkey) return
@@ -1266,7 +1275,7 @@ class RoomSession(
      * between them, not twenty.
      */
     private fun scheduleResponse() {
-        synchronized(lock) {
+        lock.withStateLock {
             if (responseJob?.isActive == true) return
             responseJob = scope.launch {
                 delay(random.nextLong(timing.announceJitterMs + 1))
@@ -1277,7 +1286,7 @@ class RoomSession(
 
     private fun sweep() {
         var changed = false
-        synchronized(lock) {
+        lock.withStateLock {
             val cutoff = now() - timing.presenceTtlSeconds
             // A farewell only needs remembering for as long as an entry from
             // before it could still be delivered and still be fresh.
@@ -1322,7 +1331,7 @@ class RoomSession(
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
         val message = incoming.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
-        synchronized(lock) {
+        lock.withStateLock {
             val at = now()
             if (message.sentAt < at - CHAT_RETENTION_SECONDS) return false
             if (!chatSeen.add(message.id)) return false
@@ -1347,7 +1356,7 @@ class RoomSession(
     }
 
     private fun recompute() {
-        val snapshot = synchronized(lock) { roster.values.toList() }
+        val snapshot = lock.withStateLock { roster.values.toList() }
         val grouped = groupByParticipant(snapshot)
         _participants.value = grouped
         val remote = snapshot.filter { it.device != identity.devicePubkey }
@@ -1501,7 +1510,7 @@ class RoomSession(
         currentCoroutineContext().ensureActive()
         val grant = response.grant
         check(joined && grant.epoch >= floor()) { "Room admission changed while awaiting its authority" }
-        check(identity.participant !in grant.removed && synchronized(lock) { identity.participant !in removedParticipants }) { "Epoch admission refused: removed" }
+        check(identity.participant !in grant.removed && lock.withStateLock { identity.participant !in removedParticipants }) { "Epoch admission refused: removed" }
         check(_epochState.value !is RoomEpochState.Closed && _epochState.value !is RoomEpochState.Removed) { "This room is unavailable" }
         if (grant.epoch > epochKeys().epoch) {
             answerFromAuthority(EpochAnswer.Authority(response.event, grant), grant.epoch, "The root epoch could not be committed")
@@ -1511,7 +1520,7 @@ class RoomSession(
                 "The room authority returned a conflicting epoch key"
             }
             grant.members?.let { onMembers(it) }
-            synchronized(lock) { removedParticipants += grant.removed }
+            lock.withStateLock { removedParticipants += grant.removed }
         }
     }
 
@@ -1787,7 +1796,7 @@ class RoomSession(
     }
 
     private suspend fun blockForRekey() {
-        synchronized(lock) {
+        lock.withStateLock {
             publicationAllowed = false
             responseJob?.cancel()
         }
@@ -1805,7 +1814,7 @@ class RoomSession(
         stopTraffic()
         transport.rekey(next.key)
         onEpochApplied(notice, next)
-        val gap = synchronized(lock) {
+        val gap = lock.withStateLock {
             val from = activeEpoch
             val between = crossed.filter { it.epoch > from.epoch && it.epoch < next.epoch }.distinctBy { it.epoch }
             for (left in listOf(from) + between.map(::deriveEpoch)) keepPastLocked(listOf(left), leftAt[left.epoch] ?: notice.at)
@@ -1827,7 +1836,7 @@ class RoomSession(
             startTrafficJobs()
             transport.completeRekey()
             transportBlocked = false
-            synchronized(lock) { publicationAllowed = true }
+            lock.withStateLock { publicationAllowed = true }
             announceIfPublishing(reply = true)
             onEpochReady(next)
         }
@@ -1835,7 +1844,7 @@ class RoomSession(
 
     /** Tell the transport which left epochs are read, so a quiet room can open drops sealed under them. */
     private fun handPastToTransport() {
-        transport.keepPast(synchronized(lock) { pastEpochs.descendingMap().values.map { it.keys.key } })
+        transport.keepPast(lock.withStateLock { pastEpochs.descendingMap().values.map { it.keys.key } })
     }
 
     /** Keep [left] as epochs left at [leftAt], then drop the oldest past the age and count limits. */
@@ -1898,7 +1907,7 @@ class RoomSession(
     /** Chat on the current epoch and on every epoch left that is still read, in one filter. */
     private fun chatFilter() = Filter(
         kinds = listOf(KIND_CHAT),
-        tags = mapOf("#d" to synchronized(lock) { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }),
+        tags = mapOf("#d" to lock.withStateLock { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }),
         since = now() - CHAT_RETENTION_SECONDS,
     )
 

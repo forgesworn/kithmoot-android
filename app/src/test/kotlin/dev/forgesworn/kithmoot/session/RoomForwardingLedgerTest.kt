@@ -6,8 +6,44 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.serialization.json.*
 import kotlin.test.*
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class RoomForwardingLedgerTest {
+    @Test fun dispatchDoesNotWaitForAnObservationHoldingTheLedger() {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val pause = AtomicBoolean(false)
+        val workers = Executors.newFixedThreadPool(2) { task -> Thread(task, "ledger-lock-regression").apply { isDaemon = true } }
+        RoomForwardingLedger(Store(), binding(), { 1_000_000 }, true).use { box ->
+            try {
+                box.current { _, _ ->
+                    if (pause.compareAndSet(true, false)) {
+                        entered.countDown(); check(release.await(10, TimeUnit.SECONDS))
+                    }
+                    ForwardingVerdict.CURRENT
+                }
+                val original = event()
+                box.observe(original, ForwardingLane.NEARBY)
+                val reservation = assertNotNull(box.reserve(original.id, ForwardingLane.INTERNET))
+                val before = box.status()
+                pause.set(true)
+                val observe = workers.submit<ForwardingObservation> { box.observe(original, ForwardingLane.NEARBY) }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                val guard = workers.submit<Boolean> { box.canHandoff(reservation) }
+                assertFalse(guard.get(2, TimeUnit.SECONDS), "Dispatch cannot wait for an observation's authority check")
+                release.countDown()
+                assertEquals(ForwardingObservation.DUPLICATE, observe.get(5, TimeUnit.SECONDS))
+                assertTrue(box.canHandoff(reservation))
+                assertEquals(before, box.status(), "Contention creates no receipt, expiry change or retry refund")
+            } finally {
+                release.countDown(); workers.shutdown()
+                assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS))
+            }
+        }
+    }
+
     private class Store : RoomStorage {
         var bytes: ByteArray? = null
         var fail = false

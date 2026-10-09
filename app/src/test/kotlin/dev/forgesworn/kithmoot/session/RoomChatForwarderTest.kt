@@ -14,9 +14,65 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import kotlinx.coroutines.flow.filter
 import kotlin.test.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.TimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomChatForwarderTest {
+    @Test fun `a transport dispatch guard defers instead of waiting for an announcing session`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 5, 6)
+        val peer = Fixtures.primary(room, 3, 4)
+        val relay = FakeRelay()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val pause = AtomicBoolean(false)
+        val live = RoomSession(room, owner, relay.transport(), backgroundScope, timing = Fixtures.QUIET,
+            now = {
+                if (pause.compareAndSet(true, false)) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+                0
+            })
+        val binding = RoomForwardingBinding(room.roomId, owner.participant, owner.devicePubkey,
+            RoomNearbyDiscovery.scope(room.roomId), listOf("wss://fixture.invalid/"), setOf(peer.participant))
+        val event = encodeChatEvent("guarded original", peer.participant, peer.credential,
+            room.roomId, room.roomKey, peer.deviceSecretKey, 0)
+        val workers = Executors.newFixedThreadPool(2) { task -> Thread(task, "authority-lock-regression").apply { isDaemon = true } }
+        try {
+            live.join()
+            assertEquals(ForwardingVerdict.CURRENT, live.forwardingVerdict(event, binding, 0))
+            pause.set(true)
+            val announce = workers.submit { live.announce() }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val guard = workers.submit<ForwardingVerdict> { live.forwardingVerdict(event, binding, 0, waitForState = false) }
+            // The transport may already hold its own dispatch lock. Waiting for
+            // an announcement's state lock here would invert that lock order.
+            assertEquals(ForwardingVerdict.WAITING, guard.get(2, TimeUnit.SECONDS))
+            val checking = CountDownLatch(1)
+            val observation = workers.submit<ForwardingVerdict> {
+                checking.countDown()
+                live.forwardingVerdict(event, binding, 0)
+            }
+            assertTrue(checking.await(5, TimeUnit.SECONDS))
+            assertFailsWith<TimeoutException> { observation.get(100, TimeUnit.MILLISECONDS) }
+            release.countDown()
+            announce.get(5, TimeUnit.SECONDS)
+            assertEquals(ForwardingVerdict.CURRENT, observation.get(5, TimeUnit.SECONDS),
+                "An ordinary incoming message waits for valid authority rather than being refused on contention")
+            assertEquals(ForwardingVerdict.CURRENT, live.forwardingVerdict(event, binding, 0))
+        } finally {
+            release.countDown()
+            workers.shutdown()
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS))
+            live.leave()
+        }
+    }
+
     private class Store : RoomStorage {
         var value: ByteArray? = null
         var onWrite: (() -> Unit)? = null
@@ -99,6 +155,22 @@ class RoomChatForwarderTest {
         rig.alice.sendChat("Only nearby"); runCurrent()
         assertEquals(listOf("Only nearby"), rig.owner.chat.value.map { it.body })
         assertTrue(rig.bob.chat.value.isEmpty()); assertEquals(0, rig.relay.countOfKind(1460))
+        rig.close()
+    }
+
+    @Test fun `an empty saved selection cannot start an exporting owner`() = runTest {
+        val rig = Rig(this); rig.join()
+        val empty = RoomForwardingBinding(rig.binding.room, rig.binding.participant, rig.binding.device,
+            rig.binding.meshScope, rig.binding.relays, emptySet())
+        RoomForwardingLedger(rig.store, empty, { currentTime }, true).use { ledger ->
+            assertFailsWith<IllegalArgumentException> {
+                RoomChatForwarder.start(rig.saved, rig.consents, rig.owner, rig.ownerMesh, rig.internet,
+                    ledger, backgroundScope, { true }, StandardTestDispatcher(testScheduler))
+            }
+            assertTrue(ledger.status().suspended)
+            rig.alice.sendChat("No approved people"); runCurrent()
+            assertTrue(rig.bob.chat.value.isEmpty())
+        }
         rig.close()
     }
 

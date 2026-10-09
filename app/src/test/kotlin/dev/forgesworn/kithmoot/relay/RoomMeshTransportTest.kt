@@ -13,6 +13,13 @@ import dev.forgesworn.kithmoot.session.session
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
 import kotlin.test.*
@@ -24,6 +31,39 @@ class RoomMeshTransportTest {
         tags: List<List<String>> = emptyList()) = Events.sign(Fixtures.key(2), kind, at, tags, text)
     private fun frame(event: NostrEvent, scope: String = meshScope) = RoomMeshWire.encode(RoomMeshWire.EVENT,
         buildJsonObject { put("scope", scope); put("event", event.toJson()) })
+
+    @Test fun `an unconfined subscriber waiting for room state cannot block concurrent mesh publication`() {
+        val link = Link()
+        val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val workers = Executors.newFixedThreadPool(2) { task -> Thread(task, "mesh-lock-regression").apply { isDaemon = true } }
+        val original = event("received before announcement")
+        try {
+            scope.launch {
+                mesh.subscribe(listOf(Filter())).collect {
+                    if (it.id == original.id) {
+                        entered.countDown()
+                        check(release.await(10, TimeUnit.SECONDS))
+                    }
+                }
+            }
+            val receive = workers.submit { link.inbound(frame(original)) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "Subscriber did not receive the original event")
+            // A RoomSession announcement can hold its state lock while publishing.
+            // Reception must release the mesh lock before resuming that subscriber.
+            val publish = workers.submit { mesh.publish(event("concurrent announcement", kind = 1463)) }
+            publish.get(2, TimeUnit.SECONDS)
+            receive.get(2, TimeUnit.SECONDS)
+        } finally {
+            release.countDown()
+            workers.shutdown()
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS))
+            scope.cancel()
+            mesh.close()
+        }
+    }
 
     private class Link : RoomMeshLink {
         var receive: ((ByteArray, String) -> Unit)? = null
@@ -38,6 +78,29 @@ class RoomMeshTransportTest {
         override fun reachable() = !closed
         override fun close() { closed = true; offered.clear(); receive = null }
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
+    }
+
+    @Test fun `a burst exceeding subscriber capacity closes its bounded queue without leaking a reader`() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val received = mutableListOf<NostrEvent>()
+        var failure: Exception? = null
+        backgroundScope.launch {
+            try { mesh.subscribe(listOf(Filter())).collect { received += it } }
+            catch (error: Exception) { failure = error }
+        }
+        runCurrent()
+        repeat(66) { link.inbound(frame(event("burst $it"))) }
+        runCurrent()
+        // One message was handed to the waiting delivery worker, plus the
+        // bounded 64 queued behind it; the next message closes the reader.
+        assertEquals(65, received.size)
+        assertIs<IllegalStateException>(failure)
+        assertEquals("Mesh subscription capacity exceeded", failure!!.message)
+        val after = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { after += it } }
+        runCurrent()
+        assertEquals(64, after.size)
+        mesh.close()
     }
 
     @Test fun inbound_subscription_excludes_local_publications_and_their_cached_replay() = runTest {

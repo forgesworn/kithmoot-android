@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.withLock
  * participant fanout. Does not own the supplied transports, host admission or
  * relay other people's rekey/control/presence. The app must close this owner
  * before route/background teardown. Dispatch also reads [stillSelected].
- * Not yet enabled by the ViewModel/UI. */
+ * Enabled only by explicit foreground ViewModel/UI consent. */
 internal class RoomChatForwarder private constructor(
     private val session: RoomSession,
     private val nearby: RoomMeshTransport,
@@ -40,9 +40,9 @@ internal class RoomChatForwarder private constructor(
         runCatching { stillSelected() }.getOrDefault(false)
 
     init {
-        ledger.bind(binding.room, binding.participant, binding.device) { event, at ->
-            if (selected()) session.forwardingVerdict(event, binding, at) else ForwardingVerdict.WAITING
-        }
+        ledger.bindWithDispatch(binding.room, binding.participant, binding.device,
+            { event, at -> if (selected()) session.forwardingVerdict(event, binding, at) else ForwardingVerdict.WAITING },
+            { event, at -> if (selected()) session.forwardingVerdict(event, binding, at, waitForState = false) else ForwardingVerdict.WAITING })
         scope.launch {
             try {
                 session.epochState.collectLatest { state ->
@@ -114,6 +114,7 @@ internal class RoomChatForwarder private constructor(
             scope: CoroutineScope, stillSelected: () -> Boolean,
             dispatcher: CoroutineDispatcher = Dispatchers.IO): RoomChatForwarder {
             val b = ledger.binding
+            require(b.senders.isNotEmpty()) { "Choose people before starting sharing" }
             require(saved.route == RoomRoute.MIXED && !saved.anonymous && saved.policy?.quiet != true && !saved.destruct)
             require(consents.all().none { it.roomId == saved.id }) { "Bothy sharing is not qualified" }
             require(saved.id == b.room && saved.participant == b.participant && saved.devicePubkey == b.device)
