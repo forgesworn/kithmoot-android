@@ -136,7 +136,9 @@ class RoomSharingEntryTest {
             assertTrue(before.suspended); assertTrue(before.internetBytes > 0)
             val queued = before.entries.single()
             assertEquals(original, queued.event); assertEquals(ForwardingLaneState.UNKNOWN, queued.internet.state)
-            assertEquals(1, queued.internet.attempts); assertTrue(f.root.chat.value.isEmpty())
+            assertTrue(queued.internet.attempts in 1..RoomForwardingLedger.MAX_ATTEMPTS)
+            assertEquals(0, before.internetBytes % queued.internet.attempts)
+            assertTrue(f.root.chat.value.isEmpty())
             f.main { f.model.leave() }
             await("old room and pool finish closing") { f.model.stage.value == Stage.START && !f.model.start.value.busy && f.relaySockets.size == 1 }
             f.relayEnabled = true
@@ -152,6 +154,7 @@ class RoomSharingEntryTest {
             assertEquals(queued.event, held.entries.single().event)
             assertEquals(queued.expires, held.entries.single().expires)
             assertEquals(before.internetBytes, held.internetBytes)
+            assertEquals(queued.internet.attempts, held.entries.single().internet.attempts)
             compose.onNodeWithText("Resume sharing").performClick()
             await("explicit resume exports original queue") { f.root.chat.value.count { it.body == "original retained during outage" } == 1 }
             f.main { f.model.stopRoomSharing() }
@@ -159,7 +162,11 @@ class RoomSharingEntryTest {
             assertEquals(listOf(original, original), f.relayWrites.filter { it.id == original.id })
             assertEquals(original, after.entries.single().event)
             assertEquals(queued.expires, after.entries.single().expires)
-            assertEquals(2, after.entries.single().internet.attempts)
+            // A reservation is charged before dispatch. A contended dispatch
+            // guard can defer it without a wire write, receipt or debt refund.
+            val attempts = after.entries.single().internet.attempts
+            assertTrue(attempts > queued.internet.attempts && attempts <= RoomForwardingLedger.MAX_ATTEMPTS)
+            assertEquals(before.internetBytes / queued.internet.attempts * attempts, after.internetBytes)
             assertTrue(after.internetBytes > before.internetBytes)
             assertTrue(after.high >= before.high)
         } finally { member?.leave(); f.close() }
