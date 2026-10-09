@@ -32,6 +32,10 @@ import kotlin.random.Random
 class RelayHistoryException(val relay: String, val authenticationRequired: Boolean) :
     IllegalStateException("Stored relay query was refused by $relay")
 
+/** A transport offered the event but has no receipt proving durable acceptance.
+ * Distinct from a refusal and from failing before anything left the device. */
+class PublicationUnconfirmedException : IllegalStateException("Publication was offered without a durable receipt")
+
 /**
  * What a room needs from the outside world: somewhere to put events, and a way
  * to be told about them.
@@ -44,9 +48,14 @@ interface RoomTransport {
     /** Fire and forget. Delivery is the pool's problem, not the caller's. */
     fun publish(event: NostrEvent)
 
-    /** Durable work must not treat an unconfirmed queue operation as delivery. */
+    /** True means durable acceptance, false means refusal. An offered event
+     * without such a receipt raises [PublicationUnconfirmedException]. */
     suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long = 15_000): Boolean =
         throw UnsupportedOperationException("This transport cannot confirm durable publication")
+
+    /** Whether receiving this event can reconcile a pending publication. Mesh
+     * local echoes and unauthenticated replay cannot provide that evidence. */
+    fun receivedEventConfirmsPublication(eventId: String): Boolean = false
 
     /** Whether a write relay is connected now, so a durable send knows if offering
      *  it is worth a try. Cheap and in memory; a transport that cannot say answers yes. */
@@ -162,6 +171,8 @@ class RelayPool(
     private var started = false
     @Volatile private var publicationBlocked = false
     private val rekeyGeneration = MutableStateFlow(0L)
+
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean = true
 
     override fun publicationGeneration(): Long = synchronized(lock) { rekeyGeneration.value }
 

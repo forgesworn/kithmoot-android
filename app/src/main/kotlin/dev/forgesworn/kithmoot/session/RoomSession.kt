@@ -53,6 +53,7 @@ import dev.forgesworn.kithmoot.epoch.MemberDeskDecision
 import dev.forgesworn.kithmoot.epoch.MemberEpochDesk
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -919,7 +920,10 @@ class RoomSession(
         fun idOf(item: PendingChatOutbox.Pending): String = item.messageId.ifEmpty {
             if (item.epochId != epoch.id) "" else runCatching { decodeOwnChat(item.event, item.event.createdAt, epoch).id }.getOrDefault("")
         }
-        val arrived = outbox.items().filter { (it.event.id in shown || idOf(it) in shown) && it.event.id !in inFlight }
+        val arrived = outbox.items().filter {
+            (it.event.id in shown || idOf(it) in shown) && it.event.id !in inFlight &&
+                transport.receivedEventConfirmsPublication(it.event.id)
+        }
         if (arrived.isEmpty()) return
         arrived.forEach { outbox.confirm(it.event.id) }
         refreshPendingChats()
@@ -993,6 +997,10 @@ class RoomSession(
             if (transport.publicationGeneration() == generation) withContext(NonCancellable) {
                 outbox.setState(event.id, PendingChatState.REFUSED, force = before.state != PendingChatState.UNKNOWN)
             }
+            return false
+        } catch (_: PublicationUnconfirmedException) {
+            // A mesh offer has no durable receipt. begin() already persisted UNKNOWN;
+            // never turn it into REFUSED or restore the earlier unsent state.
             return false
         } catch (timeout: TimeoutCancellationException) {
             // No relay answered in time: it may have arrived, and stays UNKNOWN. When it was

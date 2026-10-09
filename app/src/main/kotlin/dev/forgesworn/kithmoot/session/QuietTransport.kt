@@ -275,6 +275,9 @@ class QuietTransport(
      * bucket is refused here, to the caller, not discovered at its slot.
      * Anything else goes straight to the relays.
      */
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean =
+        inner.receivedEventConfirmsPublication(eventId)
+
     override fun publish(event: NostrEvent) = retain(event, forBox = false)
 
     /** Retain a delegated event across process death and keep the phone timer

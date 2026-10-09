@@ -10,6 +10,7 @@ import dev.forgesworn.kithmoot.relay.HybridRelaySockets
 import dev.forgesworn.kithmoot.relay.LinkRelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.session.CHAT_RETENTION_SECONDS
 import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.PastEpoch
@@ -180,7 +181,15 @@ suspend fun flushPending(outbox: PendingChatOutbox, activeEpochId: String, trans
     for (pending in items) {
         if (pending.state == PendingChatState.MOVED) continue
         if (pending.epochId != activeEpochId) return FlushOutcome.EPOCH_CHANGED
-        if (!transport.publishConfirmed(pending.event, timeoutMs)) return FlushOutcome.NOT_CONFIRMED
+        // Commit possible handoff before dispatch, including a process death or
+        // cancellation between the platform accepting the offer and returning.
+        val before = outbox.begin(pending.event.id) ?: continue
+        val confirmed = try { transport.publishConfirmed(pending.event, timeoutMs) }
+            catch (_: PublicationUnconfirmedException) { return FlushOutcome.NOT_CONFIRMED }
+        if (!confirmed) {
+            outbox.setState(pending.event.id, PendingChatState.REFUSED, force = before.state != PendingChatState.UNKNOWN)
+            return FlushOutcome.NOT_CONFIRMED
+        }
         outbox.confirm(pending.event.id)
         sent = true
     }

@@ -1,0 +1,277 @@
+package dev.forgesworn.kithmoot.relay
+
+import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.serialization.json.*
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+
+/** Byte boundary supplied by BLE (or a test link). Never an internet fallback.
+ * Calls are non-blocking and must not invoke or wait for receive callbacks inline.
+ * resetQueued discards every previously offered frame before returning; subsequent
+ * offers may reconnect. A platform unable to provide that barrier must fail closed.
+ * from/to are routing hints, not authenticated participants or delivery receipts. */
+interface RoomMeshLink : AutoCloseable {
+    fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable
+    fun offer(bytes: ByteArray, to: String? = null)
+    fun resetQueued()
+    fun reachable(): Boolean
+}
+
+/** JSON-only profile of mesh-webrtc-lan's length-prefixed MeshFrame codec.
+ * No binary sidecars are used by the room event/query profile. */
+internal object RoomMeshWire {
+    const val EVENT = "kithmoot-lab/event/v1"
+    const val QUERY = "kithmoot-lab/query/v1"
+    const val MAX_BYTES = 20 * 1024
+
+    fun encode(kind: String, payload: JsonObject): ByteArray {
+        val json = buildJsonObject { put("k", kind); put("p", payload) }.toString().toByteArray(Charsets.UTF_8)
+        require(json.size + 4 <= MAX_BYTES) { "Mesh frame exceeds room profile limit" }
+        return ByteBuffer.allocate(json.size + 4).putInt(json.size).put(json).array()
+    }
+
+    fun decode(bytes: ByteArray): Pair<String, JsonObject>? = try {
+        require(bytes.size in 6..MAX_BYTES)
+        val input = ByteBuffer.wrap(bytes)
+        require(input.int == bytes.size - 4) // Reject sidecars, trailing bytes and unsigned overflow.
+        val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT).decode(input).toString()
+        // Bound parser nesting before constructing attacker-controlled JSON trees.
+        var depth = 0; var quoted = false; var escaped = false
+        for (c in text) {
+            if (quoted) {
+                if (escaped) escaped = false else if (c == '\\') escaped = true else if (c == '"') quoted = false
+            } else when (c) {
+                '"' -> quoted = true
+                '{', '[' -> { depth++; require(depth <= 16) }
+                '}', ']' -> depth--
+            }
+        }
+        val frame = Json.parseToJsonElement(text).jsonObject
+        val kind = frame.getValue("k").jsonPrimitive
+        require(kind.isString)
+        kind.content to frame.getValue("p").jsonObject
+    } catch (_: Exception) { null }
+}
+
+/** A bounded, volatile room lane. It never claims complete mesh history or peer
+ * delivery. RoomSession still authenticates room membership and decrypts events.
+ * It does not forward received traffic to another lane or start a radio itself. */
+class RoomMeshTransport(
+    private val meshScope: String,
+    private val link: RoomMeshLink,
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+) : RoomTransport, AutoCloseable {
+    private val lock = Any()
+    private var closed = false
+    private var blocked = false
+    private var resetReady = true
+    private var generation = 0L
+    private var highTime = 0L
+    private var queryWindow = -1L
+    private var queryCount = 0
+    private var replyCount = 0
+    private val seen = linkedSetOf<String>()
+    private data class Stored(val event: NostrEvent, val expires: Long)
+    private val retained = linkedMapOf<String, Stored>()
+    private data class Reader(val filters: List<Filter>, val event: (NostrEvent) -> Unit, val end: () -> Unit)
+    private val readers = linkedSetOf<Reader>()
+    private val receiver: AutoCloseable
+
+    init {
+        require(Regex("[0-9a-f]{64}").matches(meshScope)) { "An explicit mesh scope is required" }
+        receiver = link.subscribe(::receive)
+    }
+
+    private fun time(): Long { highTime = maxOf(highTime, nowSeconds()); return highTime }
+    private fun prune(at: Long) { retained.entries.removeAll { it.value.expires <= at } }
+    private fun checked(event: NostrEvent, at: Long): NostrEvent? {
+        if (event.toCompactJson().toByteArray(Charsets.UTF_8).size > 16 * 1024 ||
+            event.kind !in 0..65535 || event.createdAt < 0 || event.createdAt > at + 300 || !Events.verify(event)) return null
+        if (event.tags.filter { it.firstOrNull() == "expiration" }.any {
+                val value = it.getOrNull(1)
+                value == null || !value.all { digit -> digit in '0'..'9' } || (value.toLongOrNull() ?: -1) <= at
+            }) return null
+        // Callers and subscribers must not retain mutable references to cached tags.
+        return event.copy(tags = event.tags.map { it.toList() })
+    }
+
+    private fun accept(event: NostrEvent, at: Long) {
+        prune(at)
+        if (!seen.add(event.id)) return
+        while (seen.size > 512) seen.remove(seen.first())
+        if (event.kind in setOf(1460, 1463) && !blocked) {
+            val expires = minOf(at + 3600, event.tags.filter { it.firstOrNull() == "expiration" }
+                .mapNotNull { it.getOrNull(1)?.toLongOrNull() }.minOrNull() ?: Long.MAX_VALUE)
+            retained[event.id] = Stored(event, expires)
+            while (retained.size > 64) retained.remove(retained.keys.first())
+        }
+        readers.toList().forEach { reader ->
+            if (reader.filters.any { matches(it, event) }) reader.event(event.copy(tags = event.tags.map { it.toList() }))
+        }
+    }
+
+    private fun payload(event: NostrEvent) = buildJsonObject { put("scope", meshScope); put("event", event.toJson()) }
+
+    override fun publish(event: NostrEvent) = synchronized(lock) {
+        check(!closed && !blocked) { "Mesh publication is closed or awaiting rekey" }
+        offer(event)
+    }
+
+    private fun offer(event: NostrEvent) {
+        val at = time()
+        val safe = requireNotNull(checked(event, at)) { "Invalid mesh room event" }
+        link.offer(RoomMeshWire.encode(RoomMeshWire.EVENT, payload(safe)))
+        accept(safe, at)
+    }
+
+    /** Local admission cannot be reported as either delivery or a refusal. */
+    override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+        publish(event)
+        throw PublicationUnconfirmedException()
+    }
+
+    override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean = synchronized(lock) {
+        if (!closed && !blocked && this.generation == generation && stillAllowed()) {
+            offer(event)
+            throw PublicationUnconfirmedException()
+        }
+        false
+    }
+
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean = false
+
+    override fun publicationGeneration(): Long = synchronized(lock) { generation }
+    override fun reachable(): Boolean = synchronized(lock) { !closed && !blocked && link.reachable() }
+
+    // queryStored and subscribeReplayed intentionally retain the interface's
+    // fail-closed defaults. A timer is not proof of complete mesh history.
+    override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> = coroutineScope {
+        require(timeoutMs in 1..15_000)
+        val found = linkedMapOf<String, NostrEvent>()
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            subscribe(filters).collect { if (found.size < 64) found[it.id] = it }
+        }
+        try { delay(timeoutMs); job.cancelAndJoin(); found.values.toList() } finally { job.cancel() }
+    }
+
+    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = callbackFlow {
+        val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
+        val reader = Reader(frozen, { event ->
+            if (!trySend(event).isSuccess) close(IllegalStateException("Mesh subscription capacity exceeded"))
+        }, { close() })
+        synchronized(lock) {
+            check(!closed) { "Mesh transport closed" }
+            check(readers.size < 32) { "Too many mesh subscriptions" }
+            readers.add(reader)
+            try {
+                prune(time())
+                retained.values.filter { row -> frozen.any { matches(it, row.event) } }.forEach {
+                    reader.event(it.event.copy(tags = it.event.tags.map { tag -> tag.toList() }))
+                }
+                if (!blocked) link.offer(RoomMeshWire.encode(RoomMeshWire.QUERY, buildJsonObject {
+                    put("scope", meshScope); put("filters", JsonArray(frozen.map { it.toJson() }))
+                }))
+            } catch (error: Exception) { readers.remove(reader); throw error }
+        }
+        awaitClose { synchronized(lock) { readers.remove(reader) } }
+    }
+
+    private fun receive(bytes: ByteArray, from: String) = synchronized(lock) {
+        if (closed || from.isBlank() || from.length > 256) return@synchronized
+        val (kind, body) = RoomMeshWire.decode(bytes) ?: return@synchronized
+        if (body["scope"] != JsonPrimitive(meshScope)) return@synchronized
+        try {
+            val at = time()
+            when (kind) {
+                RoomMeshWire.EVENT -> {
+                    val encoded = body.getValue("event").jsonObject
+                    val event = NostrEvent.fromJson(encoded)
+                    // Parsing helpers are permissive elsewhere; this boundary requires
+                    // the actual Nostr JSON types, including numbers and string tags.
+                    if (event.toJson().all { (key, value) -> encoded[key] == value })
+                        checked(event, at)?.let { accept(it, at) }
+                }
+                RoomMeshWire.QUERY -> {
+                    if (blocked || bytes.size > 4096) return@synchronized
+                    if (queryWindow != at) { queryWindow = at; queryCount = 0; replyCount = 0 }
+                    if (queryCount++ >= 8 || replyCount >= 8) return@synchronized
+                    val filters = parseFilters(body.getValue("filters").jsonArray)
+                    prune(at)
+                    for (row in retained.values) {
+                        if (replyCount >= 8) break
+                        if (filters.any { matches(it, row.event) }) {
+                            replyCount++
+                            link.offer(RoomMeshWire.encode(RoomMeshWire.EVENT, payload(row.event)), from)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) { /* Malformed input and failed best-effort replay have no authority. */ }
+    }
+
+    override suspend fun beginRekey() = synchronized(lock) {
+        check(!closed)
+        blocked = true; resetReady = false; generation++
+        retained.clear(); seen.clear()
+        link.resetQueued() // If this fails, publication remains blocked.
+        resetReady = true
+    }
+    override suspend fun rekey(roomKey: ByteArray) = synchronized(lock) {
+        check(!closed && blocked)
+        retained.clear(); seen.clear() // Old-epoch arrivals during the barrier cannot become replay.
+    }
+    override fun completeRekey() = synchronized(lock) { check(!closed && resetReady); blocked = false }
+
+    override fun publishRecovery(event: NostrEvent) = synchronized(lock) {
+        check(!closed && resetReady)
+        require(event.kind in setOf(20468, 20469, 20471, 20472)) { "Not an epoch recovery event" }
+        offer(event)
+    }
+
+    override fun close() = synchronized(lock) {
+        if (!closed) {
+            closed = true; blocked = true; generation++
+            try { receiver.close() } finally {
+                try { link.close() } finally {
+                    retained.clear(); seen.clear(); readers.toList().forEach { it.end() }; readers.clear()
+                }
+            }
+        }
+    }
+
+    companion object {
+        private fun parseFilters(json: JsonArray): List<Filter> {
+            require(json.size in 1..8 && json.toString().toByteArray(Charsets.UTF_8).size <= 3500)
+            return json.map { value ->
+                val f = value.jsonObject
+                require(f.keys.all { it in setOf("ids", "authors", "kinds", "since", "until", "limit") ||
+                    (it.length == 2 && it[0] == '#') })
+                fun strings(v: JsonElement): List<String> = v.jsonArray.map {
+                    require(it.jsonPrimitive.isString); it.jsonPrimitive.content
+                }
+                Filter(ids = f["ids"]?.let(::strings), authors = f["authors"]?.let(::strings),
+                    kinds = f["kinds"]?.jsonArray?.map { require(!it.jsonPrimitive.isString); it.jsonPrimitive.int },
+                    tags = f.filterKeys { it.startsWith('#') }.mapValues { strings(it.value) },
+                    since = f["since"]?.jsonPrimitive?.long, until = f["until"]?.jsonPrimitive?.long,
+                    limit = f["limit"]?.jsonPrimitive?.int?.also { require(it in 0..64) })
+            }
+        }
+        private fun matches(f: Filter, e: NostrEvent): Boolean =
+            (f.ids == null || f.ids.any { e.id.startsWith(it) }) &&
+            (f.authors == null || f.authors.any { e.pubkey.startsWith(it) }) &&
+            (f.kinds == null || e.kind in f.kinds) &&
+            (f.since == null || e.createdAt >= f.since) && (f.until == null || e.createdAt <= f.until) &&
+            f.tags.all { (name, values) -> e.tags.any { it.size >= 2 && it[0] == name.drop(1) && it[1] in values } }
+    }
+}

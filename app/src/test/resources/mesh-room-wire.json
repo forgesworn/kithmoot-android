@@ -1,0 +1,54 @@
+{
+  "source": "mesh-webrtc-lan/src/frame-codec.ts",
+  "frames": [
+    {
+      "frame": {
+        "kind": "kithmoot-lab/event/v1",
+        "payload": {
+          "scope": "1111111111111111111111111111111111111111111111111111111111111111",
+          "event": {
+            "kind": 1460,
+            "created_at": 100,
+            "tags": [
+              [
+                "d",
+                "fixture"
+              ],
+              [
+                "expiration",
+                "200"
+              ]
+            ],
+            "content": "opaque synthetic event: 🌿 café\nline",
+            "pubkey": "460a7b966efffb36946f6dc3c17ff73ad789fc1c2df43c1258039ca2f9a1e3e6",
+            "id": "e83ccb83bd2c9031646efc450bb02316343b07b6d84fe7896b16c95e1c01bff2",
+            "sig": "bc71fb613e780c85a50f4a316e90f91da3f0133164ee2e8c11ae45de040b348ccbe25491358fd87a04bf28a57dcb076b5228f0c901a2b55e0a24092dafabd68b"
+          }
+        }
+      },
+      "base64": "AAACFXsiayI6ImtpdGhtb290LWxhYi9ldmVudC92MSIsInAiOnsic2NvcGUiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwiZXZlbnQiOnsia2luZCI6MTQ2MCwiY3JlYXRlZF9hdCI6MTAwLCJ0YWdzIjpbWyJkIiwiZml4dHVyZSJdLFsiZXhwaXJhdGlvbiIsIjIwMCJdXSwiY29udGVudCI6Im9wYXF1ZSBzeW50aGV0aWMgZXZlbnQ6IPCfjL8gY2Fmw6lcbmxpbmUiLCJwdWJrZXkiOiI0NjBhN2I5NjZlZmZmYjM2OTQ2ZjZkYzNjMTdmZjczYWQ3ODlmYzFjMmRmNDNjMTI1ODAzOWNhMmY5YTFlM2U2IiwiaWQiOiJlODNjY2I4M2JkMmM5MDMxNjQ2ZWZjNDUwYmIwMjMxNjM0M2IwN2I2ZDg0ZmU3ODk2YjE2Yzk1ZTFjMDFiZmYyIiwic2lnIjoiYmM3MWZiNjEzZTc4MGM4NWE1MGY0YTMxNmU5MGY5MWRhM2YwMTMzMTY0ZWUyZThjMTFhZTQ1ZGUwNDBiMzQ4Y2NiZTI1NDkxMzU4ZmQ4N2EwNGJmMjhhNTdkY2IwNzZiNTIyOGYwYzkwMWEyYjU1ZTBhMjQwOTJkYWZhYmQ2OGIifX19"
+    },
+    {
+      "frame": {
+        "kind": "kithmoot-lab/query/v1",
+        "payload": {
+          "scope": "1111111111111111111111111111111111111111111111111111111111111111",
+          "filters": [
+            {
+              "kinds": [
+                1460
+              ],
+              "#d": [
+                "fixture"
+              ],
+              "since": 0,
+              "limit": 8
+            }
+          ]
+        }
+      },
+      "base64": "AAAAsHsiayI6ImtpdGhtb290LWxhYi9xdWVyeS92MSIsInAiOnsic2NvcGUiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIiwiZmlsdGVycyI6W3sia2luZHMiOlsxNDYwXSwiI2QiOlsiZml4dHVyZSJdLCJzaW5jZSI6MCwibGltaXQiOjh9XX19"
+    }
+  ],
+  "sourceCommit": "e3c6161ddd4d96055df4dcbc9e45ab5f6b6f6dd2"
+}

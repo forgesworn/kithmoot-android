@@ -24,6 +24,9 @@ class CadenceRoomTransport(
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val onFailure: (String) -> Unit = {},
 ) : RoomTransport {
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean =
+        inner.receivedEventConfirmsPublication(eventId)
+
     override fun publish(event: NostrEvent) {
         val lease = delegated(event) ?: return inner.publish(event)
         scope.launch {
