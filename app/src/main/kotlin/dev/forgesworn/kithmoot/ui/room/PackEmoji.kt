@@ -25,6 +25,10 @@ import dev.forgesworn.kithmoot.session.*
 
 @Composable
 fun PackEmoji(emoji: String, modifier: Modifier = Modifier) {
+    if (isOriginalEmoji(emoji)) {
+        Image(painterResource(originalArtworkDrawable(emoji.removePrefix(":km_").removeSuffix(":"))), ORIGINAL_EMOJIS.first { it.first == emoji }.second, modifier)
+        return
+    }
     if (!isCultEmoji(emoji)) { Text(emoji, modifier); return }
     val id = when (emoji) { ":600_facepalm:" -> R.drawable.cult_600_facepalm; ":600_moon:" -> R.drawable.cult_600_moon; ":600_laser:" -> R.drawable.cult_600_laser; else -> R.drawable.cult_600 }
     val moving = emoji in setOf(":600_spin:", ":600_rainbow:") && ValueAnimator.areAnimatorsEnabled()
@@ -43,8 +47,8 @@ fun PackEmoji(emoji: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun PackMessageText(body: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface) {
-    if (isCultEmoji(body.trim())) { PackEmoji(body.trim(), modifier.size(144.dp)); return }
-    val codes = CULT_EMOJIS.map { it.first }
+    if (isCultEmoji(body.trim()) || isOriginalEmoji(body.trim())) { PackEmoji(body.trim(), modifier.size(144.dp)); return }
+    val codes = (CULT_EMOJIS + ORIGINAL_EMOJIS).map { it.first }
     val regex = remember { Regex(codes.joinToString("|", transform = Regex::escape)) }
     val text = AnnotatedString.Builder()
     var offset = 0

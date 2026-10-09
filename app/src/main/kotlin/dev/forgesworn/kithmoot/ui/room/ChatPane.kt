@@ -338,11 +338,7 @@ fun ChatPane(
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly, mediaBusy, attachments, onAddImage, onRemoveAttachment) { text ->
-            val combined = draft.text + (if (draft.text.isBlank()) "" else "\n") + text
-            require(combined.length <= MAX_CHAT_TEXT_LENGTH) { "Shorten your message before adding this file’s credit." }
-            draft = TextFieldValue(combined, TextRange(combined.length))
-        }
+        if (mediaOpen || mediaBusy || attachments.isNotEmpty()) MediaComposer(canSend && !torOnly, mediaBusy, attachments, onAddImage, onRemoveAttachment)
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
                 shape = RoundedCornerShape(24.dp),
@@ -446,6 +442,7 @@ fun ChatPane(
 @Composable
 private fun EmojiDialog(onDismiss: () -> Unit, memberPackAvailable: () -> Boolean, unlockMemberPacks: suspend () -> Boolean, choose: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
+    var standard by remember { mutableStateOf(false) }
     var available by remember { mutableStateOf(memberPackAvailable()) }
     var status by remember { mutableStateOf("") }
     var unlocking by remember { mutableStateOf(false) }
@@ -463,8 +460,9 @@ private fun EmojiDialog(onDismiss: () -> Unit, memberPackAvailable: () -> Boolea
                 }
             }) { Text("Unlock Nostr packs") }
             if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { standard = !standard }) { Text(if (standard) "KithMoot originals" else "Standard emoji") }
             LazyColumn(Modifier.heightIn(max = 260.dp)) {
-                item { FlowRow { (if (available && memberPackAvailable()) CULT_EMOJIS + EmojiCatalog.entries else EmojiCatalog.entries).map { (emoji, words) -> emoji to if (emoji == "🤦") "facepalm head against wall frustrated $words" else words }.filter { (emoji, words) -> "$emoji $words".contains(query, true) }.take(120).forEach { (emoji, words) ->
+                item { FlowRow { (ORIGINAL_EMOJIS + (if (available && memberPackAvailable()) CULT_EMOJIS else emptyList()) + (if (standard || query.isNotBlank()) EmojiCatalog.entries.filterNot { it.second.contains("flag") } else emptyList())).map { (emoji, words) -> emoji to if (emoji == "🤦") "facepalm head against wall frustrated $words" else words }.filter { (emoji, words) -> "$emoji $words".contains(query, true) }.take(120).forEach { (emoji, words) ->
                     TextButton(onClick = { choose(emoji) }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics { contentDescription = "$emoji $words" }) { PackEmoji(emoji, Modifier.size(32.dp)) }
                 } } }
             }

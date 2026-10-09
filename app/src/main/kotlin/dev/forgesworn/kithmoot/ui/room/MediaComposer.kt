@@ -1,7 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import android.net.Uri
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -21,7 +20,7 @@ import java.util.UUID
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachment>, onAdd: (Uri, String, Boolean) -> Unit,
-    onRemove: (String) -> Unit, insertCredit: (String) -> Unit) {
+    onRemove: (String) -> Unit) {
     val context = LocalContext.current
     var selected by remember { mutableStateOf<Uri?>(null) }
     var catalogue by remember { mutableStateOf(false) }
@@ -53,7 +52,7 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
         }) { Text("Encrypt and upload") } }, dismissButton = { TextButton(onClick = { selected = null }) { Text("Cancel") } })
     }
     if (catalogue) CatalogueDialog(onClose = { catalogue = false }) { image ->
-        val bytes = withContext(Dispatchers.IO) { downloadCatalogueImage(image) }
+        val bytes = withContext(Dispatchers.IO) { downloadCatalogueImage(image, context) }
         try {
             val file = withContext(Dispatchers.IO) {
                 val directory = File(context.cacheDir, "opened-images").apply { mkdirs() }
@@ -62,7 +61,6 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
                 File(directory, UUID.randomUUID().toString() + extension).also { it.writeBytes(bytes) }
             }
             currentCoroutineContext().ensureActive()
-            insertCredit("${image.credit}\n${image.source}")
             selected = FileProvider.getUriForFile(context, "${context.packageName}.images", file)
             catalogue = false
         } finally { bytes.fill(0) }
@@ -73,36 +71,27 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
 private fun CatalogueDialog(onClose: () -> Unit, onChoose: suspend (CatalogueImage) -> Unit) {
     var query by remember { mutableStateOf("") }
     var stickers by remember { mutableStateOf(false) }
-    var results by remember { mutableStateOf(emptyList<CatalogueImage>()) }
+    val results = remember(query, stickers) { searchMediaCatalogue(query, stickers) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     AlertDialog(onDismissRequest = onClose, title = { Text("GIFs and stickers") }, text = {
         Column {
-            Text("Search sends your query and IP address to Wikimedia Commons. Selected files are encrypted before sharing.", style = MaterialTheme.typography.bodySmall)
+            Text("Our original artwork. Browsing and searching stay on this device.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(query, { query = it.take(80) }, label = { Text("Search GIFs and stickers") }, singleLine = true)
             Row { FilterChip(!stickers, { stickers = false }, label = { Text("GIFs") }); FilterChip(stickers, { stickers = true }, label = { Text("Stickers") }) }
-            TextButton(enabled = !busy, onClick = {
-                busy = true; status = "Searching…"
-                scope.launch {
-                    try { results = withContext(Dispatchers.IO) { searchMediaCatalogue(query.ifBlank { "celebration" }, stickers) }; status = if (results.isEmpty()) "No matching files. Try another search." else "Choose an image to add." }
-                    catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { status = failure.message ?: "The catalogue could not be reached." }
-                    finally { busy = false }
-                }
-            }) { Text("Search catalogue") }
             Text(status, style = MaterialTheme.typography.bodySmall)
             LazyColumn(Modifier.heightIn(max = 260.dp)) {
-                items(results, key = { it.url }) { image ->
+                items(results, key = { it.asset }) { image ->
                     TextButton(enabled = !busy, onClick = {
-                        busy = true; status = "Downloading…"
+                        busy = true; status = "Opening artwork…"
                         scope.launch {
                             try { onChoose(image) }
                             catch (cancelled: CancellationException) { throw cancelled }
                             catch (failure: Exception) { status = failure.message ?: "Could not add this image." }
                             finally { busy = false }
                         }
-                    }) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { CatalogueThumbnail(image); Column(Modifier.weight(1f)) { Text(image.name); Text(image.credit, style = MaterialTheme.typography.bodySmall) } } }
+                    }) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { CatalogueThumbnail(image); Column(Modifier.weight(1f)) { Text(image.name) } } }
                 }
             }
         }
@@ -111,25 +100,29 @@ private fun CatalogueDialog(onClose: () -> Unit, onChoose: suspend (CatalogueIma
 
 @Composable
 private fun CatalogueThumbnail(image: CatalogueImage) {
-    var bitmap by remember(image.preview) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(image.preview) {
-        val url = image.preview ?: return@LaunchedEffect
-        bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val bytes = downloadCataloguePreview(url)
-                try {
-                    android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))) { decoder, info, _ ->
-                        require(info.size.width in 1..8192 && info.size.height in 1..8192 && info.size.width.toLong() * info.size.height <= 16_000_000)
-                        val scale = minOf(1f, 160f / maxOf(info.size.width, info.size.height))
-                        decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
-                        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
-                        decoder.setOnPartialImageListener { false }
-                    }
-                } finally { bytes.fill(0) }
-            }.getOrNull()
+    if (image.type != "image/gif") {
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(originalArtworkDrawable(image.slug)), contentDescription = null, modifier = Modifier.size(64.dp))
+        return
+    }
+    val context = LocalContext.current
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var drawable by remember(image.asset) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
+    LaunchedEffect(image.asset) {
+        drawable = withContext(Dispatchers.IO) {
+            android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(context.assets, image.asset))
         }
     }
-    val decoded = bitmap
-    if (decoded == null) Text(if (image.type == "image/gif") "GIF" else "Image", Modifier.width(64.dp), style = MaterialTheme.typography.labelMedium)
-    else androidx.compose.foundation.Image(decoded.asImageBitmap(), contentDescription = null, modifier = Modifier.size(64.dp))
+    DisposableEffect(drawable, owner) {
+        val animation = drawable as? android.graphics.drawable.AnimatedImageDrawable
+        fun play() { if (android.animation.ValueAnimator.areAnimatorsEnabled()) animation?.start() }
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START) play()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) animation?.stop()
+        }
+        owner.lifecycle.addObserver(observer)
+        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) play()
+        onDispose { owner.lifecycle.removeObserver(observer); animation?.stop() }
+    }
+    androidx.compose.ui.viewinterop.AndroidView(factory = { android.widget.ImageView(it).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER } },
+        update = { if (it.drawable !== drawable) it.setImageDrawable(drawable) }, modifier = Modifier.size(64.dp))
 }
