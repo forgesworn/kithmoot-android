@@ -18,6 +18,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.TimeoutException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomChatForwarderTest {
@@ -48,12 +49,21 @@ class RoomChatForwarderTest {
             pause.set(true)
             val announce = workers.submit { live.announce() }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
-            val guard = workers.submit<ForwardingVerdict> { live.forwardingVerdict(event, binding, 0) }
+            val guard = workers.submit<ForwardingVerdict> { live.forwardingVerdict(event, binding, 0, waitForState = false) }
             // The transport may already hold its own dispatch lock. Waiting for
             // an announcement's state lock here would invert that lock order.
             assertEquals(ForwardingVerdict.WAITING, guard.get(2, TimeUnit.SECONDS))
+            val checking = CountDownLatch(1)
+            val observation = workers.submit<ForwardingVerdict> {
+                checking.countDown()
+                live.forwardingVerdict(event, binding, 0)
+            }
+            assertTrue(checking.await(5, TimeUnit.SECONDS))
+            assertFailsWith<TimeoutException> { observation.get(100, TimeUnit.MILLISECONDS) }
             release.countDown()
             announce.get(5, TimeUnit.SECONDS)
+            assertEquals(ForwardingVerdict.CURRENT, observation.get(5, TimeUnit.SECONDS),
+                "An ordinary incoming message waits for valid authority rather than being refused on contention")
             assertEquals(ForwardingVerdict.CURRENT, live.forwardingVerdict(event, binding, 0))
         } finally {
             release.countDown()

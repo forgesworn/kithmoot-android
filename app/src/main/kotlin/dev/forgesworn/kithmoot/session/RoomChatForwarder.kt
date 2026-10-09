@@ -40,9 +40,9 @@ internal class RoomChatForwarder private constructor(
         runCatching { stillSelected() }.getOrDefault(false)
 
     init {
-        ledger.bind(binding.room, binding.participant, binding.device) { event, at ->
-            if (selected()) session.forwardingVerdict(event, binding, at) else ForwardingVerdict.WAITING
-        }
+        ledger.bindWithDispatch(binding.room, binding.participant, binding.device,
+            { event, at -> if (selected()) session.forwardingVerdict(event, binding, at) else ForwardingVerdict.WAITING },
+            { event, at -> if (selected()) session.forwardingVerdict(event, binding, at, waitForState = false) else ForwardingVerdict.WAITING })
         scope.launch {
             try {
                 session.epochState.collectLatest { state ->

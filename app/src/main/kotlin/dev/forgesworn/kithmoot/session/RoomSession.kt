@@ -452,11 +452,12 @@ class RoomSession(
             policy?.quiet != true && (policy == null || policy.tier == KindredTier.OPEN) && call == null && joined
     }
 
-    /** Called inside a transport dispatch barrier. Presence publication takes
-     * state then transport locks, so this reverse direction must never wait.
-     * Contention defers the original reservation without a receipt or refund. */
-    internal fun forwardingVerdict(event: NostrEvent, binding: RoomForwardingBinding, at: Long): ForwardingVerdict {
-        if (!lock.tryLock()) return ForwardingVerdict.WAITING
+    /** Ordinary observation waits for current state; dispatch cannot wait while
+     * holding a transport lock. Contention there defers the original reservation
+     * without a receipt or refund. */
+    internal fun forwardingVerdict(event: NostrEvent, binding: RoomForwardingBinding, at: Long,
+        waitForState: Boolean = true): ForwardingVerdict {
+        if (waitForState) lock.lock() else if (!lock.tryLock()) return ForwardingVerdict.WAITING
         try {
             if (!forwardingProfileMatches(binding) || identity.participant in removedParticipants ||
                 _epochState.value is RoomEpochState.Removed || _epochState.value is RoomEpochState.Closed) return ForwardingVerdict.MOVED

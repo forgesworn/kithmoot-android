@@ -80,6 +80,29 @@ class RoomMeshTransportTest {
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
     }
 
+    @Test fun `a burst exceeding subscriber capacity closes its bounded queue without leaking a reader`() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val received = mutableListOf<NostrEvent>()
+        var failure: Exception? = null
+        backgroundScope.launch {
+            try { mesh.subscribe(listOf(Filter())).collect { received += it } }
+            catch (error: Exception) { failure = error }
+        }
+        runCurrent()
+        repeat(66) { link.inbound(frame(event("burst $it"))) }
+        runCurrent()
+        // One message was handed to the waiting delivery worker, plus the
+        // bounded 64 queued behind it; the next message closes the reader.
+        assertEquals(65, received.size)
+        assertIs<IllegalStateException>(failure)
+        assertEquals("Mesh subscription capacity exceeded", failure!!.message)
+        val after = mutableListOf<NostrEvent>()
+        backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { after += it } }
+        runCurrent()
+        assertEquals(64, after.size)
+        mesh.close()
+    }
+
     @Test fun inbound_subscription_excludes_local_publications_and_their_cached_replay() = runTest {
         val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
         val first = event("first local"); val second = event("second local")
