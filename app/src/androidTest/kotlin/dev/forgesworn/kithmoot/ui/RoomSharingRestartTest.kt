@@ -99,7 +99,10 @@ class RoomSharingRestartTest {
             }.toString().toByteArray(Charsets.UTF_8)
             try { checkpoint.write(expected) } finally { expected.fill(0) }
             assertTrue(f.model.room.value.sharing!!.enabled)
-            assertFalse(f.radios.any { it.closed })
+            // Fresh admission retired its provisional radio; only the current
+            // room path must remain live at the active-owner checkpoint.
+            assertEquals(1, f.radios.count { !it.closed })
+            assertFalse(f.radios.last().closed)
             InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
                 putString("sharing_restart_checkpoint", "ready")
                 putString("sharing_restart_pid", Process.myPid().toString())
