@@ -6019,9 +6019,9 @@ class RoomViewModel @JvmOverloads constructor(
         if (_room.value.mediaBusy) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val draft = recordingApplication.recordingShareDrafts.selected(id, room)
-                draft.storageOrigin?.let { recordingApplication.recordingUploadJournal.discard(it, draft.sealed.hash) }
-                recordingApplication.recordingShareDrafts.remove(id, room)
+                recordingApplication.recordingShareDrafts.discard(id, room) { draft ->
+                    draft.storageOrigin?.let { recordingApplication.recordingUploadJournal.discard(it, draft.sealed.hash) }
+                }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { if (_room.value.roomId == room) note("Recording draft could not be removed: ${failure.message ?: "storage unavailable"}") }
         }

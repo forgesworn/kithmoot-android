@@ -127,6 +127,31 @@ changes: 417 protocol tests, 2,010 app unit tests, debug/instrumentation builds,
 the release build. Hosted run 38086034518 was still in progress at the receipt
 snapshot; complete hosted and production qualification remain open.
 
+## Exact Send ownership candidate
+
+`RoomSession.prepareChatForSend` signs without retaining or publishing. The
+recording draft journal can keep that exact room/identity-bound message before
+handoff. `sendPreparedChatDurable` and the outbox reuse it on retry, preserving
+an existing UNKNOWN or MOVED delivery state. A short draft-owner guard covers
+the outbox storage commit, so Forget cannot precede a late journal write.
+
+Once prepared, Send cannot be replaced by another signed message or removed
+through the ordinary discard path. Failed local cleanup keeps the exact
+message for retry. Restart also retains its journal entry when the local
+ciphertext file is missing after upload. Successful handoff cleanup removes
+local draft keys without scheduling deletion of the uploaded copy.
+
+The [Send-owner receipt](evidence/native-recording-prepared-send-2026-10-10.json)
+records all 2,019 app unit tests, debug/instrumentation builds, 15 recording
+emulator checks (39.194 seconds) and six admission UI checks (5.334 seconds)
+passing. The room-session fixture confirms that retries use the same relay
+event and leave one own chat message with the original recording descriptor;
+it uses a synthetic transport, not an independent recipient network journey.
+
+The Send control and the confirmation path for non-retaining chat are still
+unwired. Prepared Send must also reject a new Upload before offering bytes.
+This checkpoint does not qualify the full Upload-to-Send journey or production.
+
 ## Member-rekey recovery release gate
 
 Hosted run 38078615048 failed the member-removal case while the controller

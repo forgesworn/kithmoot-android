@@ -1105,22 +1105,46 @@ class RoomSession(
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
-        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        val prepared = prepareChatForSend(body, reaction, attachments, artwork) ?: return false
+        return sendPreparedChatDurable(prepared, onRetained = onRetained)
+    }
+
+    /** Signs but neither retains nor publishes. Recording Send first commits
+     * this exact message to its private draft owner, so a failed handoff can
+     * retry without creating another signed message. */
+    fun prepareChatForSend(body: String, reaction: ChatReaction? = null,
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): PreparedRoomChat? {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
-        if (text.isEmpty()) return false
+        if (text.isEmpty()) return null
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
+        check(at < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
             sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id)
+        return PreparedRoomChat(room.roomId, identity.participant, identity.devicePubkey,
+            PendingChatOutbox.Pending(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id))
+    }
+
+    /** Transfers the same prepared event on every retry. The synchronous guard
+     * checks the recording owner at the outbox storage boundary. Existing
+     * authority, epoch and admission checks still control publication. */
+    suspend fun sendPreparedChatDurable(prepared: PreparedRoomChat,
+        commitGuard: ((() -> Unit) -> Unit) = { it() }, onRetained: suspend () -> Unit = {}): Boolean {
+        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        check(now() < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
+        outbox.retainPrepared(prepared.pending, commitGuard)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)
-        return outbox.items().none { it.event.id == event.id }
+        return outbox.items().none { it.event.id == prepared.pending.event.id }
     }
 
     /** Everything kept on this phone for the room, oldest first, with what became of each. */

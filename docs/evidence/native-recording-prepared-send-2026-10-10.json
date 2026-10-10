@@ -1,0 +1,90 @@
+{
+  "production_ready": false,
+  "base_commit": "26b8374a1ef60d20e5dbc362eb403fa99bde4fab",
+  "scope": "Exact signed Send owner and idempotent outbox handoff. The recording Send UI and non-retaining confirmation path remain unfinished. No recipient network delivery or physical acceptance claim.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChat.kt": "a280741a7a8168e6855adb48a8affba89709880e7835e08c6d0732ff525b8ebc",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/PendingChatOutbox.kt": "da164439e5e3c2fec542ce8d15b5ba8bb310181e0445d99c8f8a1a37dbeacefc",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "a773a5aac94b0f19c5a1a1efabf8ce1e22142604b5e78512462a1a540e6ed8c7",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingShareDraftStore.kt": "843c8da3ca1e3a41e0260e47c33fc271fcf4f50272bc649cf886bf481dde0db4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "24abb5213cdc2d249f55fe84c94c985097391912719492dcd5218715bc5f4466",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedChatOutboxTest.kt": "f2b4dcd8a0f9fd5b10b2fdcf5105190452aa6ec9b74feaa55c473889a790b1a8",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChatTest.kt": "e3f2a149ed63824d65793454b07bc14c3d52a8e4080d6f43cac71414c802f19c",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingShareDraftStoreTest.kt": "966180ff6130cb65d13be5be7a9df375430503efd3e4fcb10796c333fdc3d943"
+  },
+  "build": {
+    "debug_app_and_instrumentation": true,
+    "full_app_unit_tests": true,
+    "elapsed": "3m 3s",
+    "lint_or_release_build_included": false
+  },
+  "jvm": {
+    "tests": 2019,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "report_bundle_sha256": "9eda24053bef6c37ac69f1e60ad2c12cd89e36008cf5387e12f2004a61bd59e5",
+    "focused_owner_suites": {
+      "dev.forgesworn.kithmoot.media.recording.RecordingShareDraftStoreTest": 9,
+      "dev.forgesworn.kithmoot.session.PreparedChatOutboxTest": 4,
+      "dev.forgesworn.kithmoot.session.PreparedRoomChatTest": 2
+    }
+  },
+  "runtime": {
+    "recording": {
+      "tests": 15,
+      "failures": 0,
+      "elapsed_seconds": 39.194,
+      "report_sha256": "41b7454ae04c692fb28c890a18bf989c223e0686259b4f8b16144144085157bc",
+      "physical": false,
+      "serial": "emulator-5586",
+      "live_browser_interop_included": false
+    },
+    "admission_ui": {
+      "tests": 6,
+      "failures": 0,
+      "elapsed_seconds": 5.334,
+      "report_sha256": "0b8799489e18270efdf98e91b8fb48a1894bbb54bd74b0057af42b677f7cf1a9",
+      "physical": false,
+      "serial": "emulator-5586"
+    }
+  },
+  "checks": [
+    "Preparing a room message neither retains nor publishes it",
+    "Handoff retains the same event and preserves UNKNOWN or MOVED state",
+    "Retry after confirmation reuses the same relay event and does not duplicate the own chat message",
+    "Original room and sending identity cannot be substituted",
+    "Prepared message persists in the encrypted draft journal before handoff",
+    "Restart preserves the exact prepared message even if local ciphertext is missing",
+    "Failed journal cleanup leaves the exact message for retry",
+    "Remove cannot schedule remote deletion after Send preparation",
+    "Forget rejects a late outbox write under the draft owner monitor"
+  ],
+  "hosted_preceding_head": {
+    "source": "3fd3b0fcdfba13f311f7d57960b3926d120d9e95",
+    "run": 38086034518,
+    "verify": "success",
+    "recovery_and_signing": "not_complete_at_snapshot",
+    "covers_this_send_source": false
+  },
+  "remaining": [
+    "Explicit Send UI and non-retaining confirmation path",
+    "UI-driven HTTPS transfer and originating-room Upload-to-Send journey",
+    "Prepared Send must also prevent a new upload attempt before bytes are offered",
+    "Stop-notice recovery across close/restart",
+    "Live browser/native video capture",
+    "Background reliability under load",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Complete final hosted CI and signed production delivery"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "ecbf37a5eb481fbd121fa7f0c56867e95fd820796c00e730ab75c752ad0ad9a1"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "57af2dcfd155fda40e8a39fce968b37552495e5491bd5ab46497a726b181f1d4"
+    }
+  ]
+}

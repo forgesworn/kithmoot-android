@@ -5,6 +5,8 @@ import dev.forgesworn.kithmoot.session.SealedFile
 import dev.forgesworn.kithmoot.session.mediaStorageOrigin
 import dev.forgesworn.kithmoot.session.parseAttachment
 import dev.forgesworn.kithmoot.session.toJson
+import dev.forgesworn.kithmoot.session.PreparedRoomChat
+import dev.forgesworn.kithmoot.session.preparedRoomChatFromJson
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,7 @@ data class RecordingShareDraft(
     val sealed: SealedFile,
     val storageOrigin: String? = null,
     val uploaded: ChatAttachment? = null,
+    val preparedSend: PreparedRoomChat? = null,
 )
 
 /** A process-local reservation. Restarts discard unfinished encryption rather
@@ -54,7 +57,8 @@ class RecordingShareDraftStore(
             Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonArray.map(::decode)
         } finally { bytes.fill(0) }
         require(decoded.size <= MAX_DRAFTS && decoded.map { it.id }.distinct().size == decoded.size)
-        val retained = decoded.filter { available(it) && it.sealed.file.isFile && it.sealed.file.length() in 73L..MAX_BYTES }
+        val retained = decoded.filter { available(it) &&
+            (it.preparedSend != null || (it.sealed.file.isFile && it.sealed.file.length() in 73L..MAX_BYTES)) }
         if (retained != decoded) persist(retained) else entries = retained
         val owned = retained.map { it.sealed.file.name }.toSet()
         directory.listFiles()?.filter { it.name !in owned }?.forEach {
@@ -126,6 +130,7 @@ class RecordingShareDraftStore(
 
     @Synchronized fun retainUpload(id: String, room: String, origin: String, attachment: ChatAttachment): RecordingShareDraft {
         val draft = selected(id, room)
+        check(draft.preparedSend == null) { "This recording already has an exact message for Send" }
         validateReceipt(draft, origin, attachment)
         val next = draft.copy(uploaded = attachment)
         persist(entries.map { if (it.id == id) next else it })
@@ -146,7 +151,48 @@ class RecordingShareDraftStore(
 
     @Synchronized fun clearUpload(id: String, room: String, expected: ChatAttachment) {
         val draft = selected(id, room)
+        check(draft.preparedSend == null) { "This recording's Send has already started" }
         if (draft.uploaded == expected) persist(entries.map { if (it.id == id) it.copy(uploaded = null) else it })
+    }
+
+    /** Persist before any outbox handoff or publication. A retry must use this
+     * exact signed message, even if the previous handoff may have arrived. */
+    @Synchronized fun retainPreparedSend(id: String, room: String, prepared: PreparedRoomChat): RecordingShareDraft {
+        val draft = selected(id, room)
+        require(draft.uploaded != null && prepared.room == draft.origin.room &&
+            !prepared.pending.editable && prepared.pending.text == draft.sealed.name)
+        if (draft.preparedSend != null) {
+            check(draft.preparedSend == prepared) { "This recording already owns another signed message" }
+            return draft
+        }
+        val next = draft.copy(preparedSend = prepared)
+        persist(entries.map { if (it.id == id) next else it })
+        return next
+    }
+
+    /** Short synchronous boundary: Forget takes the same monitor before it
+     * clears the room's outbox. No late handoff can recreate that journal. */
+    @Synchronized fun withPreparedSend(id: String, room: String, prepared: PreparedRoomChat, commit: () -> Unit) {
+        check(selected(id, room).preparedSend == prepared) { "The original recording's Send was revoked or changed" }
+        commit()
+    }
+
+    /** Drop local draft keys only after the exact message is durably handed
+     * off (or confirmed for non-retaining chat). No remote deletion is due. */
+    @Synchronized fun finishPreparedSend(id: String, room: String, prepared: PreparedRoomChat) {
+        val draft = selected(id, room)
+        check(draft.preparedSend == prepared)
+        persist(entries.filterNot { it.id == id })
+        check(!draft.sealed.file.exists() || draft.sealed.file.delete()) { "The sent recording's encrypted draft could not be removed" }
+    }
+
+    /** Claim discard before scheduling remote cleanup. A prepared Send may
+     * already be on the wire, so Remove must not delete its uploaded copy. */
+    @Synchronized fun discard(id: String, room: String, beforeRemoval: (RecordingShareDraft) -> Unit = {}): RecordingShareDraft {
+        val draft = selected(id, room)
+        check(draft.preparedSend == null) { "Send has started for this recording. Finish its message handoff instead" }
+        beforeRemoval(draft)
+        return remove(id, room)
     }
 
     /** Remove only after an explicit discard or after Send retains the exact
@@ -154,6 +200,7 @@ class RecordingShareDraftStore(
      * deletion when discarding an uploaded copy. */
     @Synchronized fun remove(id: String, room: String): RecordingShareDraft {
         val draft = selected(id, room)
+        check(draft.preparedSend == null) { "Use the exact message handoff to finish this recording's Send" }
         persist(entries.filterNot { it.id == id })
         check(!draft.sealed.file.exists() || draft.sealed.file.delete()) { "The encrypted draft copy could not be removed" }
         return draft
@@ -194,6 +241,7 @@ class RecordingShareDraftStore(
         put("sourceName", draft.sourceName); draft.discardAt?.let { put("discardAt", it) }
         put("hash", draft.sealed.hash); put("key", draft.sealed.key); put("name", draft.sealed.name); put("type", draft.sealed.type)
         draft.storageOrigin?.let { put("storageOrigin", it) }; draft.uploaded?.let { put("uploaded", it.toJson()) }
+        draft.preparedSend?.let { put("preparedSend", it.toJson()) }
     }
     private fun decode(value: JsonElement): RecordingShareDraft {
         val obj = value.jsonObject
@@ -207,8 +255,11 @@ class RecordingShareDraftStore(
         val deadline = obj["discardAt"]?.jsonPrimitive?.long.also { require(it == null || it > 0) }
         val storage = obj["storageOrigin"]?.jsonPrimitive?.content?.also { require(mediaStorageOrigin(it) == it) }
         val upload = obj["uploaded"]?.let { checkNotNull(parseAttachment(it)) }
+        val prepared = obj["preparedSend"]?.let(::preparedRoomChatFromJson)
         require(upload == null || storage != null)
-        return RecordingShareDraft(id, origin, source, deadline, SealedFile(File(directory, "$id.enc"), hash, key, name, type), storage, upload).also {
+        require(prepared == null || (upload != null && prepared.room == origin.room &&
+            !prepared.pending.editable && prepared.pending.text == name))
+        return RecordingShareDraft(id, origin, source, deadline, SealedFile(File(directory, "$id.enc"), hash, key, name, type), storage, upload, prepared).also {
             if (upload != null) validateReceipt(it, checkNotNull(storage), upload)
         }
     }

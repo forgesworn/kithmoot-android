@@ -2,6 +2,8 @@ package dev.forgesworn.kithmoot.media.recording
 
 import dev.forgesworn.kithmoot.session.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.protocol.Events
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.*
@@ -25,6 +27,96 @@ class RecordingShareDraftStoreTest {
         "$storage/${draft.sealed.hash}", draft.sealed.hash, draft.sealed.key,
         draft.sealed.name, draft.sealed.type, draft.sealed.file.length(),
     )
+
+    private fun prepared(draft: RecordingShareDraft, seed: Int = 1): PreparedRoomChat {
+        val event = Events.sign(ByteArray(32) { 1 }, KIND_CHAT, 100,
+            listOf(listOf("d", "synthetic recording lease")), "synthetic ciphertext $seed", ByteArray(32))
+        return PreparedRoomChat(origin.room, "aa".repeat(32), event.pubkey,
+            PendingChatOutbox.Pending(origin.room, event, editable = false, text = draft.sealed.name,
+                messageId = seed.toString(16).padStart(32, '0')))
+    }
+
+    @Test fun `signed Send survives restart and missing ciphertext and cannot be substituted or discarded`() {
+        val root = Files.createTempDirectory("recording-send-owner-").toFile()
+        try {
+            val journal = MemoryJournal(); val directory = File(root, "drafts")
+            val store = RecordingShareDraftStore(directory, journal, { 100 }).apply { recover() }
+            val ticket = store.begin(origin, "original.m4a", null)
+            val draft = store.complete(ticket, seal(ticket, root))
+            val message = prepared(draft)
+            assertFails { store.retainPreparedSend(draft.id, origin.room, message) }
+            store.bindOrigin(draft.id, origin.room, "https://private.example")
+            val upload = receipt(draft, "https://private.example")
+            store.retainUpload(draft.id, origin.room, "https://private.example", upload)
+            val retained = store.retainPreparedSend(draft.id, origin.room, message)
+            assertEquals(retained, store.retainPreparedSend(draft.id, origin.room, message))
+            assertFails { store.retainPreparedSend(draft.id, origin.room, prepared(draft, 2)) }
+            assertFails { store.retainPreparedSend(draft.id, otherRoom, message) }
+            assertFails { store.clearUpload(draft.id, origin.room, upload) }
+            var deletionScheduled = false
+            assertFails { store.discard(draft.id, origin.room) { deletionScheduled = true } }
+            assertFalse(deletionScheduled)
+            assertFails { store.remove(draft.id, origin.room) }
+            assertTrue(draft.sealed.file.delete())
+            val restored = RecordingShareDraftStore(directory, journal, { 101 }).apply { recover() }
+            assertEquals(retained, restored.selected(draft.id, origin.room))
+            var committed = false
+            restored.withPreparedSend(draft.id, origin.room, message) { committed = true }
+            assertTrue(committed)
+            restored.finishPreparedSend(draft.id, origin.room, message)
+            assertTrue(restored.list().isEmpty())
+            assertTrue(File(root, "original.m4a").exists())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun `failed lease and draft cleanup writes retain the exact owner for outbox retry`() = runBlocking {
+        val root = Files.createTempDirectory("recording-send-write-").toFile()
+        try {
+            val journal = MemoryJournal(); val directory = File(root, "drafts")
+            val store = RecordingShareDraftStore(directory, journal, { 100 }).apply { recover() }
+            val ticket = store.begin(origin, "original.m4a", null)
+            val draft = store.complete(ticket, seal(ticket, root))
+            store.bindOrigin(draft.id, origin.room, "https://private.example")
+            store.retainUpload(draft.id, origin.room, "https://private.example", receipt(draft, "https://private.example"))
+            val message = prepared(draft)
+            journal.fail = true
+            assertFails { store.retainPreparedSend(draft.id, origin.room, message) }
+            assertNull(store.selected(draft.id, origin.room).preparedSend)
+            journal.fail = false
+            store.retainPreparedSend(draft.id, origin.room, message)
+            val outboxJournal = MemoryJournal()
+            val outbox = PendingChatOutbox(outboxJournal, origin.room, message.participant, message.device)
+            outbox.retainPrepared(message.pending) { commit -> store.withPreparedSend(draft.id, origin.room, message, commit) }
+            journal.fail = true
+            assertFails { store.finishPreparedSend(draft.id, origin.room, message) }
+            assertEquals(message, store.selected(draft.id, origin.room).preparedSend)
+            journal.fail = false
+            val restored = RecordingShareDraftStore(directory, journal, { 101 }).apply { recover() }
+            val exact = requireNotNull(restored.selected(draft.id, origin.room).preparedSend)
+            outbox.retainPrepared(exact.pending) { commit -> restored.withPreparedSend(draft.id, origin.room, exact, commit) }
+            assertEquals(listOf(message.pending), outbox.items())
+            restored.finishPreparedSend(draft.id, origin.room, exact)
+            assertTrue(restored.list().isEmpty())
+            assertEquals(listOf(message.pending), outbox.items())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun `Forget rejects a late prepared handoff before recreating any outbox record`() = runBlocking {
+        val root = Files.createTempDirectory("recording-send-forget-").toFile()
+        try {
+            val store = RecordingShareDraftStore(File(root, "drafts"), MemoryJournal(), { 100 }).apply { recover() }
+            val ticket = store.begin(origin, "original.m4a", null)
+            val draft = store.complete(ticket, seal(ticket, root))
+            store.bindOrigin(draft.id, origin.room, "https://private.example")
+            store.retainUpload(draft.id, origin.room, "https://private.example", receipt(draft, "https://private.example"))
+            val message = prepared(draft)
+            store.retainPreparedSend(draft.id, origin.room, message)
+            val outbox = PendingChatOutbox(MemoryJournal(), origin.room, message.participant, message.device)
+            store.forgetRoom(origin.room)
+            assertFails { outbox.retainPrepared(message.pending) { commit -> store.withPreparedSend(draft.id, origin.room, message, commit) } }
+            assertTrue(outbox.items().isEmpty())
+        } finally { root.deleteRecursively() }
+    }
 
     @Test fun `Add survives restart without choosing a server and leaves the local export independent`() {
         val root = Files.createTempDirectory("recording-draft-").toFile()
