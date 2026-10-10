@@ -25,6 +25,8 @@ Design mesh-kit fbef5e2 precedes these controls; approval ordering is refined in
 journeys and add Nearby/Mixed retirement/reopen/resend plus open-QR withdrawal.
 The final integrated head must pass its own four hosted jobs, every retained
 member/PID gate and main's actual repeated-Send acceptance before merge.
+The integrated runner requires 131 ordinary checks in 43 groups, plus all four
+active process-kill/recovery drivers; no earlier case is removed.
 Local source compilation is not installed Android or physical radio evidence.
 
 Replacement, pending-recovery controls, terminal controls/migration,
