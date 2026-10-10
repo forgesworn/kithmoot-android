@@ -3,8 +3,9 @@
 The Android assignment journal can observe an already admitted room without
 receiving an identity, signer, device credential or writable storage. This is
 the reader required for native cross-project Inbox and Work navigation; the
-native navigation, lifecycle coordinator and chat attention UI are still to be
-connected. This foundation alone does not complete the product's G9 journey.
+native navigation, lifecycle coordinator and chat attention UI are connected
+by [Native Inbox and Work](workspace-inbox.md). This foundation alone does not
+complete the product's G9 journey.
 
 A caller supplies the current account's existing room keys, current traffic
 epoch and the originating room's encrypted journal through `AssignmentSource`.
