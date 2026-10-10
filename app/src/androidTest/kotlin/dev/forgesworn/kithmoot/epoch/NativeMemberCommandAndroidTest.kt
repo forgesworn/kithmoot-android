@@ -23,12 +23,16 @@ class NativeMemberCommandAndroidTest {
         @Volatile var receive: ((ByteArray, String) -> Unit)? = null
         var peer: Link? = null
         val events = CopyOnWriteArrayList<NostrEvent>()
+        private val queries = CopyOnWriteArrayList<JsonObject>()
         override fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable {
             this.receive = receive
             return AutoCloseable { this.receive = null }
         }
         override fun offer(bytes: ByteArray, to: String?) {
-            RoomMeshWire.decode(bytes)?.second?.get("event")?.let { events += NostrEvent.fromJson(it) }
+            RoomMeshWire.decode(bytes)?.let { (kind, payload) ->
+                payload["event"]?.let { events += NostrEvent.fromJson(it) }
+                if (kind == RoomMeshWire.QUERY) payload.getValue("filters").jsonArray.forEach { queries += it.jsonObject }
+            }
             val copy = bytes.clone()
             scope.launch { delay(1); peer?.receive?.invoke(copy, "lab-member") }
         }
@@ -37,6 +41,7 @@ class NativeMemberCommandAndroidTest {
         override suspend fun resetQueued() = Unit
         override fun reachable() = true
         override fun close() { receive = null }
+        fun subscribedTo(kind: Int) = queries.any { query -> query["kinds"]?.jsonArray?.any { it.jsonPrimitive.int == kind } == true }
     }
 
     private class Rig {
@@ -92,20 +97,42 @@ class NativeMemberCommandAndroidTest {
             live.join()
             controller = NativeKeeperController.start(source, receiver, live, ledger,
                 NativeKeeperEndpoints(queueBinding, mesh, null), scope, { selected })
-            await { controller!!.state.value == NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE) }
+            await("native controller ready") { controller!!.state.value == NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE) }
+            // Ready describes authority recovery, not callbackFlow registration.
+            // Requests are volatile: observe the real subscription query before
+            // injecting one rather than losing it in the startup race.
+            await("native epoch-request subscription") { link.subscribedTo(KIND_EPOCH_REQUEST) }
             for ((key, credential) in listOf(member.deviceSecretKey to member.credential, offlineKey to offlineCredential)) {
-                val ask = encodeEpochRequest(room.roomId, binding.authority, room.roomKey, key, credential, System.currentTimeMillis() / 1000)
+                var ask = encodeEpochRequest(room.roomId, binding.authority, room.roomKey, key, credential, System.currentTimeMillis() / 1000)
                 link.inject(ask)
                 if (credential == member.credential) {
-                    await { member.participant in controller!!.unknownParticipants.value }
+                    await("unknown primary participant") { member.participant in controller!!.unknownParticipants.value }
+                    await("unapproved primary refusal") { grants(key, ask.id).any { it == EpochGrant.Refused("unknown") } }
                     controller!!.approve(member.participant)
+                    // Approval does not turn the original refused answer into
+                    // a secret-bearing grant. Ask again with a fresh request.
+                    val refusedRequest = ask.id
+                    ask = encodeEpochRequest(room.roomId, binding.authority, room.roomKey, key, credential, System.currentTimeMillis() / 1000)
+                    assertNotEquals(refusedRequest, ask.id)
+                    link.inject(ask)
                 }
-                await { link.events.any { it.kind == KIND_EPOCH_GRANT &&
-                    decodeEpochGrant(it, room.roomId, binding.authority, key, ask.id, System.currentTimeMillis() / 1000) != null } }
+                await("approved ${if (credential == member.credential) "primary" else "offline"} device grant") {
+                    grants(key, ask.id).any { it is EpochGrant.Current && it.epoch == 0 && member.participant in it.members.orEmpty() }
+                }
             }
             // An idempotent command is a worker barrier: observing the byte
             // offer alone does not prove its source accounting has finished.
             controller!!.approve(member.participant)
+        }
+
+        private fun grants(key: ByteArray, request: String) = link.events.mapNotNull {
+            decodeEpochGrant(it, room.roomId, binding.authority, key, request, System.currentTimeMillis() / 1000)
+        }
+
+        suspend fun joinPeer() {
+            peer.join()
+            await("member chat subscription") { peerLink.subscribedTo(KIND_CHAT) }
+            await("member rekey subscription") { peerLink.subscribedTo(KIND_ROOM_REKEY) }
         }
 
         suspend fun command(removed: List<String> = emptyList(), destruct: Boolean = false) =
@@ -157,10 +184,10 @@ class NativeMemberCommandAndroidTest {
                 }
                 assertTrue(source.contentEquals(r.ciphertext(true))); assertTrue(queue.contentEquals(r.ciphertext(false)))
             } finally { source.fill(0); queue.fill(0) }
-            r.peer.join(); r.live.sendChat("Host after native command refusal"); r.peer.sendChat("Member after native command refusal")
-            await { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
+            r.joinPeer(); r.live.sendChat("Host after native command refusal"); r.peer.sendChat("Member after native command refusal")
+            await("paired chat after refusal") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
             r.command()
-            await { r.live.epochState.value is RoomEpochState.Active && r.peer.epochState.value is RoomEpochState.Active &&
+            await("paired successor epoch") { r.live.epochState.value is RoomEpochState.Active && r.peer.epochState.value is RoomEpochState.Active &&
                 (r.peer.epochState.value as RoomEpochState.Active).epoch == 1 }
             val original = r.ledger.status().entries.single().event
             assertTrue(Events.verify(original)); assertEquals(original.id, r.source.snapshot().epochCause)
@@ -174,15 +201,15 @@ class NativeMemberCommandAndroidTest {
                 finally { notice.secret?.fill(0) }
             } finally { previous.key.fill(0) }
             r.live.sendChat("Host after source-derived successor"); r.peer.sendChat("Member after source-derived successor")
-            await { r.live.chat.value.size == 4 && r.peer.chat.value.size == 4 }
+            await("paired chat after successor") { r.live.chat.value.size == 4 && r.peer.chat.value.size == 4 }
         } finally { r.close() }
     }
 
     @Test fun removalRetiresBothDeviceSealsAndTheActualRemovedSessionCannotPublish() = runBlocking {
         val r = Rig()
         try {
-            r.start(); r.peer.join(); r.command(listOf(r.member.participant))
-            await { r.peer.epochState.value == RoomEpochState.Removed(1) }
+            r.start(); r.joinPeer(); r.command(listOf(r.member.participant))
+            await("removed member epoch") { r.peer.epochState.value == RoomEpochState.Removed(1) }
             assertEquals(listOf(r.owner.participant), r.source.snapshot().members)
             assertEquals(listOf(r.member.participant), r.source.snapshot().removed)
             val original = r.ledger.status().entries.single().event
@@ -197,11 +224,14 @@ class NativeMemberCommandAndroidTest {
             try { r.peer.sendChat("Removed member must not publish") } catch (error: IllegalStateException) { refused = true }
             assertTrue(refused)
             r.live.sendChat("Remaining native owner after removal")
-            await { r.live.chat.value.any { it.body == "Remaining native owner after removal" } }
+            await("remaining owner chat") { r.live.chat.value.any { it.body == "Remaining native owner after removal" } }
         } finally { r.close() }
     }
 
     companion object {
-        private suspend fun await(test: () -> Boolean) = withTimeout(30_000) { while (!test()) delay(10) }
+        private suspend fun await(stage: String, test: () -> Boolean) {
+            try { withTimeout(30_000) { while (!test()) delay(10) } }
+            catch (timeout: TimeoutCancellationException) { throw AssertionError("Native member command stage timed out: $stage", timeout) }
+        }
     }
 }
