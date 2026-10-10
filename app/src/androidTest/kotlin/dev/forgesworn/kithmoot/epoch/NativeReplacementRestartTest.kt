@@ -473,6 +473,7 @@ class NativeReplacementRestartTest {
             finally { bytes.fill(0) }
         val originals = mutableMapOf<File, ByteArray>()
         val rows = mutableListOf<String>()
+        val receiverKeys = ReceiverKeyCreationProbe.open(ReceiverKeyCreationProbe.Context(mode, "NONE", "NONE", ReceiverKeyCreationProbe.Phase.BASELINE))
         var saved: SavedRoom? = null
         var primary: Throwable? = null
         try {
@@ -538,6 +539,7 @@ class NativeReplacementRestartTest {
             val faults = targets.keys.flatMap { target -> listOf(target to "MISSING", target to "CORRUPT") } +
                 listOf("INDEX" to "OWNER_DEVICE", "INDEX" to "ROUTE_PINS", "INDEX" to "INVITATION")
             for ((target, fault) in faults) {
+                receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.BASELINE))
                 // Every preceding attempt and foreground owner has closed.
                 originals.forEach { (file, value) -> file.writeBytes(value) }
                 assertEquals(keys, aliases())
@@ -567,6 +569,7 @@ class NativeReplacementRestartTest {
                     var entry: NativeKeeperEntry? = null
                     var refused = false
                     try {
+                        receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.DIRECT_ENTRY))
                         entry = NativeKeeperEntry.openForRoom(selected, receiver, rooms,
                             { NativeKeeperVault.forSavedRoom(f.app, selected).openForEntry() },
                             { q, initialise ->
@@ -582,10 +585,13 @@ class NativeReplacementRestartTest {
                     } else {
                         // New ViewModel/fixture per row; never reuse a recovered
                         // owner, receiver, courier or source between faults.
+                        receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.FOREGROUND_CONSTRUCTION))
                         foreground = NativeHostFixture()
                         val owner = foreground
+                        receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.FOREGROUND_STARTUP))
                         owner.startModel()
                         assertEquals(0, owner.server.requestCount)
+                        receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.FOREGROUND_REOPEN))
                         owner.main { owner.model.reopenRoom(room) }
                         NativeHostFixture.await("pending fault refuses foreground before routes") {
                             !owner.model.start.value.busy && owner.model.start.value.error != null
@@ -595,6 +601,7 @@ class NativeReplacementRestartTest {
                         assertTrue(owner.radios.isEmpty()); assertTrue(owner.phoneEvents.isEmpty())
                         assertTrue(owner.relayWrites.isEmpty()); assertEquals(0, owner.server.requestCount)
                     }
+                    receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.OWNER_BARRIERS))
                     NativeKeeperJournal.withInactiveOwner(binding.owner) { Unit }
                     val q = RoomRekeyBinding(binding.room, binding.authority, binding.device, binding.meshScope, binding.relays, binding.route)
                     RoomRekeyLedger.withInactiveOwner(q.owner) { Unit }
@@ -608,6 +615,7 @@ class NativeReplacementRestartTest {
                         "newRadios=0 newSubscriptions=0 newOffers=0 relayRequests=0 filesUnchanged=true keysUnchanged=true"
                 } catch (error: Throwable) { rowFailure = error; throw error }
                 finally { cleanup(rowFailure) {
+                    receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, target, fault, ReceiverKeyCreationProbe.Phase.LEASE_CLOSE))
                     try { foreground?.close(); assertEquals(keysAfterFault, aliases()); assertCiphertexts(afterFault, directory) }
                     finally { afterFault.values.forEach { it.fill(0) } }
                 } }
@@ -615,6 +623,7 @@ class NativeReplacementRestartTest {
             assertEquals(11, rows.size)
         } catch (error: Throwable) { primary = error; throw error }
         finally { cleanup(primary) {
+            receiverKeys.phase(ReceiverKeyCreationProbe.Context(mode, "NONE", "NONE", ReceiverKeyCreationProbe.Phase.CASE_CLEANUP))
             try {
                 originals.forEach { (file, value) -> file.writeBytes(value) }
                 saved?.let { selected ->
@@ -636,7 +645,10 @@ class NativeReplacementRestartTest {
                         assertFalse(File(f.app.noBackupFilesDir, alias + suffix).exists())
                 }
             } finally {
-                try { f.close() } finally { originals.values.forEach { it.fill(0) } }
+                try { f.close() } finally {
+                    originals.values.forEach { it.fill(0) }
+                    reportReceiverKeys(receiverKeys)
+                }
             }
         } }
         // Numeric rows reach the actual instrument result stream only after
@@ -690,6 +702,28 @@ class NativeReplacementRestartTest {
                 } finally { invitation.bearer.fill(0) }
             }
             else -> error("Unknown hostile pending index fault")
+        }
+    }
+
+    /** Diagnostic stream only: even failed assertions must retain their caller
+     * evidence, and reporting can never replace the original store exception. */
+    private fun reportReceiverKeys(session: ReceiverKeyCreationProbe.Session) {
+        try {
+            val capture = session.closeAndSnapshot()
+            val header = "NATIVE_RECEIVER_KEY_OBSERVER category=receiver events=${capture.events.size} overflow=${capture.overflow} " +
+                "inFlight=${capture.inFlight} activeRecorders=${capture.activeRecorders} missingRecords=${capture.missingRecords} " +
+                "observationErrors=${capture.observationErrors} complete=${capture.complete} diagnosticOnly=true"
+            val rows = capture.events.map { event ->
+                "NATIVE_RECEIVER_KEY_DIAGNOSTIC sequence=${event.sequence} request=${event.request} outcome=${event.outcome} thread=${event.thread} " +
+                    "window=${event.context.window} target=${event.context.target} fault=${event.context.fault} phase=${event.context.phase.wire} " +
+                    "callers=${event.callers.joinToString(",")} callersTruncated=${event.callersTruncated} diagnosticOnly=true"
+            }
+            InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+                putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\n" + (listOf(header) + rows).joinToString("\n") + "\n")
+            })
+        } catch (_: Throwable) {
+            session.close()
+            android.util.Log.e("ReceiverKeyProbe", "Disposable receiver diagnostics incomplete")
         }
     }
 
