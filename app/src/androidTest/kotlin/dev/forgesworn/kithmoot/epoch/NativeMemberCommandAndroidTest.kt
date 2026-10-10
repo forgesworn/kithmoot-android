@@ -81,7 +81,7 @@ class NativeMemberCommandAndroidTest {
         private fun session(identity: RoomIdentity, transport: RoomTransport, vault: EpochVault) =
             RoomSession(room, identity, transport, scope, authority = binding.authority,
                 epochGate = { event, notice ->
-                    if (notice.closed) vault.terminal(room.roomId, notice.epoch - 1, notice, event.id, System.currentTimeMillis() / 1000)
+                    if (notice.closed || notice.secret == null) vault.terminal(room.roomId, notice.epoch - 1, notice, event.id, System.currentTimeMillis() / 1000)
                     else requireNotNull(vault.follow(room.roomId, notice, event.id, System.currentTimeMillis() / 1000))
                     EpochGateResult.COMMITTED
                 }, timing = SessionTiming(announceJitterMs = 0))
@@ -92,6 +92,7 @@ class NativeMemberCommandAndroidTest {
             peerReceiver.initialise(room.roomId, binding.authority, base, at)
             source = authority.create(creation, owner.credential)
             ledger = queueVault.open(initialise = true)
+            source.recordCourierCreated(ledger)
             live = session(owner, mesh, receiver); peer = session(member, peerMesh, peerReceiver)
             link.peer = peerLink; peerLink.peer = link
             live.join()
@@ -137,6 +138,8 @@ class NativeMemberCommandAndroidTest {
 
         suspend fun command(removed: List<String> = emptyList(), destruct: Boolean = false) =
             controller!!.rekeyMembers(removed, destruct = destruct)
+
+        fun peerDurable() = requireNotNull(peerReceiver.get(room.roomId))
 
         fun ciphertext(sourceFile: Boolean): ByteArray {
             val alias = if (sourceFile) "kithmoot.keeper-authority." + Digests.sha256(binding.owner.toByteArray()).toHex()
@@ -213,6 +216,14 @@ class NativeMemberCommandAndroidTest {
             assertEquals(listOf(r.owner.participant), r.source.snapshot().members)
             assertEquals(listOf(r.member.participant), r.source.snapshot().removed)
             val original = r.ledger.status().entries.single().event
+            val terminal = r.peerDurable()
+            try {
+                assertEquals(EpochPhase.REMOVED, terminal.phase)
+                assertEquals(0, terminal.currentEpoch)
+                assertEquals(original.id, terminal.terminalCause)
+                assertEquals(listOf(r.member.participant), terminal.removed)
+                assertNull(terminal.pending)
+            } finally { terminal.currentSecret.fill(0) }
             val previous = deriveEpoch(RoomEpoch(0, r.base))
             try {
                 val body = Json.parseToJsonElement(Nip44.decrypt(original.content, previous.key)).jsonObject
