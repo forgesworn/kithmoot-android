@@ -12,6 +12,14 @@ if [[ -n "${ANDROID_ADB_SERVER_PORT:-}" ]]; then
   adb_args=(-P "$ANDROID_ADB_SERVER_PORT" "${adb_args[@]}")
 fi
 adb_device() { "$adb_bin" "${adb_args[@]}" "$@"; }
+pull_proof() {
+  local copier=(python3 scripts/pull-recovery-proof.py --adb "$adb_bin"
+    --serial "$ANDROID_SERIAL" --source "$1" --destination "$reports" --reports "$reports")
+  if [[ -n "${ANDROID_ADB_SERVER_PORT:-}" ]]; then
+    copier+=(--server-port "$ANDROID_ADB_SERVER_PORT")
+  fi
+  "${copier[@]}"
+}
 if [[ "$(adb_device shell getprop ro.kernel.qemu | tr -d '\r')" != 1 ]]; then
   echo 'Refusing to replace room data on a non-emulator device.' >&2
   exit 2
@@ -82,41 +90,41 @@ run_tests group-reopen 1 -e class dev.forgesworn.kithmoot.storage.PersistentGrou
 run_tests group-refusals 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#c_refused_publication_and_retired_web_link_stay_outside_room
 
 run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTest
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png"
 run_tests room-countdown-journey 2 -e class dev.forgesworn.kithmoot.storage.RoomCountdownJourneyUiTest
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-room-journey.png" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-room-journey.png"
 run_tests room-destruct-journey 1 -e class dev.forgesworn.kithmoot.storage.RoomDestructJourneyUiTest#a_expiry_deletes_the_open_room_and_shows_the_burst
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests room-destruct-restarted 1 -e class dev.forgesworn.kithmoot.storage.RoomDestructJourneyUiTest#b_the_deleted_room_stays_gone_after_a_process_restart -e requireRestart true
 for picture in final-minute burst restarted; do
-  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-journey-$picture.png" "$reports/"
+  pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-journey-$picture.png"
 done
 run_tests chat-and-screen-share 2 -e class dev.forgesworn.kithmoot.ui.ChatAndShareUiTest
 for picture in chat viewer pip; do
-  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png" "$reports/"
+  pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png"
 done
 run_tests artwork-picker 5 -e class dev.forgesworn.kithmoot.ui.ArtworkPickerUiTest
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/box-discovery.png" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/box-discovery.png"
 run_tests cadence-ui 1 -e class dev.forgesworn.kithmoot.ui.CadenceUiTest
 run_tests room-epoch-ui 1 -e class dev.forgesworn.kithmoot.ui.RoomEpochUiTest
 run_tests shared-work-ui 2 -e class dev.forgesworn.kithmoot.ui.SharedWorkUiTest
 run_tests shared-work-relay 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkRelayTest
 run_tests shared-work-entry 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#d_shared_work_survives_initial_epoch_and_real_room_entry
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-review.png" "$reports/"
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-entry.png" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-review.png"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-entry.png"
 
 run_tests site-address-choose 1 -e class dev.forgesworn.kithmoot.storage.SiteAddressUiTest#a_choose_site
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAddressUiTest#b_reopen_and_share_without_the_workshop_site -e requireRestart true
 
-adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png" "$reports/"
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png"
 
 run_tests shared-projects-ui 2 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
 for picture in three-shared-projects project-room-admission restored-project-membership project-room-assignment; do
-  adb_device pull "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png" "$reports/"
+  pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png"
 done
 run_tests project-restart-prepare 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#a_prepare_pending
 adb_device shell am force-stop dev.forgesworn.kithmoot
