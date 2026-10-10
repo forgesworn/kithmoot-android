@@ -91,9 +91,10 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
     return fromSaved + fromBookmarks
 }
 
-/** The moment a room last had something happen in it: the newest message
- *  this device can read (pass 2), or the last time this device opened it. */
-internal fun activityAt(room: HomeRoom, activity: RoomActivity?): Long = maxOf(room.openedAt, activity?.latestAt ?: 0L)
+/** Latest readable message time. Opening a conversation is a read action,
+ * not new activity. Zero means no readable message time is known. */
+internal fun activityAt(@Suppress("UNUSED_PARAMETER") room: HomeRoom, activity: RoomActivity?): Long =
+    activity?.latestAt?.coerceAtLeast(0L) ?: 0L
 
 /** Newest activity first, like the web. Ties break by label, then id, so
  *  the order is stable and never depends on list insertion order. */
@@ -116,7 +117,8 @@ internal fun holdOrder(previous: List<String>?, sorted: List<String>, held: Bool
 }
 
 internal enum class HomeSection(val label: String, val foldable: Boolean) {
-    PINNED("Pinned", false), UNREAD("Unread", false), RECENT("Recent", false), OLDER("Older", true), ENDED("Ended", true),
+    PINNED("Pinned", false), UNREAD("Unread", false), RECENT("Recent", false), OLDER("Older", true),
+    OTHER("Other rooms", false), ENDED("Ended", true),
 }
 
 /** A run of rooms under one heading; a null [section] is the flat list, with no heading. */
@@ -132,6 +134,7 @@ internal fun sectionOf(room: HomeRoom, activity: RoomActivity?, now: Long): Home
     room.pinned -> HomeSection.PINNED
     room.ended || conferenceEnded(room.endsAt, now) -> HomeSection.ENDED
     (activity?.unreadPeople ?: 0) > 0 -> HomeSection.UNREAD
+    activityAt(room, activity) <= 0L -> HomeSection.OTHER
     activityAt(room, activity) >= now - RECENT_WINDOW_SECONDS -> HomeSection.RECENT
     else -> HomeSection.OLDER
 }
@@ -185,6 +188,7 @@ internal fun roomRowState(
     room: HomeRoom, activity: RoomActivity?, callRoomId: String?, signedInAs: String?,
     now: Long, zone: ZoneId, locale: Locale, is24Hour: Boolean,
     selfParticipant: String? = null, nameOf: (String) -> String = { it },
+    latestMessageAt: Long? = null,
 ): RoomRowState {
     val conferenceOver = conferenceEnded(room.endsAt, now)
     val status = when {
@@ -201,13 +205,14 @@ internal fun roomRowState(
         !activity.readsChat -> "Quiet room. Open it to read."
         else -> previewLine(activity.latest, selfParticipant.orEmpty(), nameOf) ?: NO_MESSAGES_YET
     }
-    val (time, timeSpoken) = formatActivityTime(activityAt(room, activity), now, zone, locale, is24Hour)
+    val (time, timeSpoken) = formatActivityTime(latestMessageAt ?: activityAt(room, activity), now, zone, locale, is24Hour)
     return RoomRowState(status, time, timeSpoken)
 }
 
 /** en-GB-shaped time for a row's second line, following the device's
  *  12/24-hour setting and adding the year outside the current year. */
 internal fun formatActivityTime(at: Long, now: Long, zone: ZoneId, locale: Locale, is24Hour: Boolean): Pair<String, String> {
+    if (at <= 0L) return "" to ""
     val atDate = Instant.ofEpochSecond(at).atZone(zone)
     val nowDate = Instant.ofEpochSecond(now).atZone(zone)
     val days = ChronoUnit.DAYS.between(atDate.toLocalDate(), nowDate.toLocalDate())
