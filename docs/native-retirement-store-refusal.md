@@ -30,3 +30,29 @@ and a private method; the final assertion reads only the saved document's
 host-field presence through the test's existing friend boundary. The ordinary
 runner passes all eleven fault checks in 58.812 s, with 140/44 counted groups.
 All prior process-kill profiles remain. Full hosted acceptance is still required.
+
+Own CI 38057986098 for 8ecf27f passes verification and both signing jobs,
+then stops in the existing native-host index-corruption case: 23 earlier checks
+in six groups pass, followed by ten of eleven host cases (211.587 s). The six
+new refusal cases and all later groups/process-kill drivers are unexecuted.
+That failed head is not qualified. A source-inspected interleaving allows an
+index writer already in progress to replace fixture corruption because the
+fixture previously injected outside RoomRepository's monitor. The actual run's
+writer or projection ordering is not established.
+
+Design mesh-kit 4799836 precedes the correction. The fixture now captures,
+damages and restores its original index under the actual repository monitor.
+Every assertion and the 60-second wait remain unchanged. A failed wait reports
+only public booleans about visible state, exact damaged-byte preservation,
+unfinished intent preservation, backup/new files and repository-read refusal.
+The retirement restart status additionally reports each original public event
+ID and creation time without changing signing, attempts, debt or traffic.
+
+Fresh Kotlin 2.0.21 compilation of all three changed instrumentation classes
+passes against validated unchanged production/UI sources with source and
+read-only dependency hashes unchanged. This is compilation, not installed
+execution or full Gradle/lint/APK qualification. An initial local check stopped
+before compilation because equivalent relative source paths were compared
+without normalisation; the corrected check validates their canonical paths.
+The corrected head still requires its own four jobs, 140 checks/44 groups,
+all six refusal cases and all eight actual process-kill drivers before merge.
