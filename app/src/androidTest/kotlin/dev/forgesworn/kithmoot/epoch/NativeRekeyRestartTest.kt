@@ -89,7 +89,7 @@ class NativeRekeyRestartTest {
         }
     }
 
-    private class Rig(saved: SavedRoom? = null) {
+    private class Rig(saved: SavedRoom? = null, private val holdReceiverCommit: Boolean = false) {
         init { require(Build.HARDWARE in setOf("ranchu", "goldfish")) { "Use the guarded disposable emulator driver" } }
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -126,6 +126,10 @@ class NativeRekeyRestartTest {
         lateinit var peer: RoomSession
         @Volatile private var selected = true
         private var controller: NativeKeeperController? = null
+        val ownerReceiverPaused = AtomicBoolean()
+        private val receiverCommit = CompletableDeferred<Unit>().apply {
+            if (!holdReceiverCommit) complete(Unit)
+        }
 
         init { if (saved != null) savedRoom = saved; link.peer = peerLink; peerLink.peer = link }
 
@@ -136,6 +140,15 @@ class NativeRekeyRestartTest {
             return RoomSession(room, identity, transport, scope, authority = binding.authority,
                 initialEpoch = initial, initialRemoved = stored.removed,
                 epochGate = { event, notice ->
+                    // The preparation checkpoint requires the predecessor
+                    // receiver to remain durable. Nearby also echoes locally;
+                    // hold that actual callback BEFORE its first storage write
+                    // so SIGKILL does not select an unrelated key-rotation
+                    // window. Recovery never holds this coroutine barrier.
+                    if (holdReceiverCommit && identity.devicePubkey == owner.devicePubkey) {
+                        ownerReceiverPaused.set(true)
+                        receiverCommit.await()
+                    }
                     if (notice.closed || notice.secret == null) vault.terminal(room.roomId, notice.epoch - 1, notice, event.id, System.currentTimeMillis() / 1000)
                     else requireNotNull(vault.follow(room.roomId, notice, event.id, System.currentTimeMillis() / 1000))
                     EpochGateResult.COMMITTED
@@ -212,7 +225,7 @@ class NativeRekeyRestartTest {
         }
 
         suspend fun close() {
-            selected = false; pause.checkpoint = null; pause.release.countDown()
+            selected = false; pause.checkpoint = null; pause.release.countDown(); receiverCommit.complete(Unit)
             try { controller?.stop() ?: run {
                 if (::source.isInitialized) source.close()
                 if (::ledger.isInitialized) ledger.close()
@@ -236,7 +249,7 @@ class NativeRekeyRestartTest {
 
     @Test fun a_prepare(): Unit = runBlocking {
         val mode = mode()
-        val r = Rig()
+        val r = Rig(holdReceiverCommit = true)
         val ready = AtomicBoolean()
         try {
             r.create()
@@ -257,12 +270,22 @@ class NativeRekeyRestartTest {
                     // beyond the public checkpoint. The source owner stays live.
                     r.link.available = false
                     assertEquals(listOf(original), r.link.events.filter { it.kind == KIND_ROOM_REKEY }.distinct())
+                    while (!r.ownerReceiverPaused.get()) {
+                        check(System.nanoTime() < until) { "Actual owner local-echo receiver did not reach its pre-write barrier" }
+                        Thread.sleep(10)
+                    }
                 } else {
                     assertTrue(r.ledger.status().entries.isEmpty())
                     assertTrue(r.link.events.none { it.kind == KIND_ROOM_REKEY })
                 }
                 val status = r.ledger.status()
                 val row = status.entries.singleOrNull()
+                val predecessor = requireNotNull(r.receiver.get(r.room.roomId))
+                try {
+                    assertEquals(EpochPhase.ACTIVE, predecessor.phase)
+                    assertEquals(0, predecessor.currentEpoch)
+                    assertNull(predecessor.pending)
+                } finally { predecessor.currentSecret.fill(0) }
                 val expected = buildJsonObject {
                     put("pid", Process.myPid()); put("mode", mode); put("room", r.room.roomId); put("pin", r.binding.pin)
                     put("source", publicSource(record)); put("original", original.toJson())
@@ -297,6 +320,7 @@ class NativeRekeyRestartTest {
         val saved = requireNotNull(app.savedRooms.get(expected.getValue("room").jsonPrimitive.content))
         assertEquals(expected.getValue("pin").jsonPrimitive.content, saved.nativeAuthority!!.pin)
         val r = Rig(saved)
+        var primaryFailure: Throwable? = null
         try {
             // No native owner, route activation, credential refresh or source
             // recreation has happened before this exact persisted comparison.
@@ -371,7 +395,16 @@ class NativeRekeyRestartTest {
                 putString("native_rekey_recovery_debt_after_reopen", after.nearbyBytes.toString())
                 putString("native_rekey_recovery_devices", "3")
             })
-        } finally { r.close() }
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            try { r.close() } catch (cleanup: Throwable) {
+                val primary = primaryFailure
+                if (primary == null) throw cleanup
+                primary.addSuppressed(cleanup)
+            }
+        }
     }
 
     companion object {
