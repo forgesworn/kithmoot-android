@@ -15,11 +15,16 @@ CASE = APP + ".ui.RoomSharingRestartTest"
 
 
 def main(profile="sharing"):
-    if profile not in ("sharing", "native-host"):
+    profiles = {
+        "sharing": (CASE, "sharing", "KITHMOOT_SHARING", None),
+        "native-host": (APP + ".ui.NativeHostRestartTest", "native_host", "KITHMOOT_NATIVE_HOST", None),
+        "native-rekey-before": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "before-handoff"),
+        "native-rekey-after": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "after-handoff"),
+    }
+    if profile not in profiles:
         raise RuntimeError("Unknown process-restart acceptance profile")
-    case = CASE if profile == "sharing" else APP + ".ui.NativeHostRestartTest"
-    marker = "sharing" if profile == "sharing" else "native_host"
-    deadline_env = "KITHMOOT_SHARING" if profile == "sharing" else "KITHMOOT_NATIVE_HOST"
+    case, marker, deadline_env, mode = profiles[profile]
+    mode_args = [] if mode is None else ["-e", "transitionMode", mode]
     serial = os.environ.get("ANDROID_SERIAL", "")
     if not re.fullmatch(r"emulator-[0-9]+", serial):
         raise RuntimeError("Set ANDROID_SERIAL to a disposable emulator")
@@ -46,7 +51,7 @@ def main(profile="sharing"):
         raise RuntimeError("Invalid bounded acceptance deadline")
     process = None
     try:
-        process = subprocess.Popen(adb + ["shell", "am", "instrument", "-w", "-e", "class", case + "#a_prepare", RUNNER],
+        process = subprocess.Popen(adb + ["shell", "am", "instrument", "-w", "-e", "class", case + "#a_prepare"] + mode_args + [RUNNER],
                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
         events = queue.Queue()
 
@@ -63,7 +68,8 @@ def main(profile="sharing"):
         deadline = time.monotonic() + prepare_seconds
         pid = None
         ready = False
-        while not (ready and pid):
+        reported_mode = None
+        while not (ready and pid and (mode is None or reported_mode == mode)):
             if time.monotonic() >= deadline:
                 raise RuntimeError("Active " + profile + " checkpoint timed out")
             try:
@@ -83,6 +89,10 @@ def main(profile="sharing"):
                 pid = match.group(1)
             if line == "INSTRUMENTATION_STATUS: " + marker + "_restart_checkpoint=ready":
                 ready = True
+            if mode is not None and line.startswith("INSTRUMENTATION_STATUS: " + marker + "_restart_mode="):
+                if reported_mode is not None or line != "INSTRUMENTATION_STATUS: " + marker + "_restart_mode=" + mode:
+                    raise RuntimeError("Invalid or duplicate transition checkpoint mode")
+                reported_mode = mode
         alive = command("shell", "pidof", APP)
         if alive.returncode != 0 or alive.stdout.split() != [pid] or process.poll() is not None:
             raise RuntimeError("Checkpoint PID is not the live app process")
@@ -109,21 +119,26 @@ def main(profile="sharing"):
             raise RuntimeError("Preparing command did not terminate after SIGKILL")
         print(f"Observed SIGKILL of active {profile} PID {pid}; requiring new-process recovery", flush=True)
         recovered = command("shell", "am", "instrument", "-w", "-e", "class", case + "#b_recover",
-                            "-e", "requireRestart", "true", RUNNER, timeout=180)
+                            "-e", "requireRestart", "true", *mode_args, RUNNER, timeout=180)
         (reports / "recover.txt").write_text(recovered.stdout)
         print(recovered.stdout, flush=True)
         if recovered.returncode != 0 or not re.search(r"^OK \(1 tests?\)$", recovered.stdout.replace("\r", ""), re.M):
             raise RuntimeError("New-process " + profile + " recovery did not pass exactly one case")
         recovery_lines = recovered.stdout.replace("\r", "").splitlines()
         recovery_pids = []
+        recovery_modes = []
         for line in recovery_lines:
             if line.startswith(case + ":"):
                 line = line[len(case) + 1:]
             match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + marker + r"_recovery_pid=([1-9][0-9]*)", line)
             if match:
                 recovery_pids.append(match.group(1))
+            if mode is not None and line.startswith("INSTRUMENTATION_STATUS: " + marker + "_recovery_mode="):
+                recovery_modes.append(line.split("=", 1)[1])
         if len(recovery_pids) != 1 or recovery_pids[0] == pid:
             raise RuntimeError("Recovery did not report exactly one different process PID")
+        if mode is not None and recovery_modes != [mode]:
+            raise RuntimeError("Recovery did not report exactly the requested transition mode")
     except Exception:
         try:
             (reports / "failure-logcat.txt").write_text(command("logcat", "-d", "-t", "20000").stdout)
@@ -138,7 +153,7 @@ def main(profile="sharing"):
                 if stopped.returncode != 0:
                     raise RuntimeError("Could not force-stop app during cleanup")
             finally:
-                if profile == "native-host":
+                if profile.startswith("native-"):
                     # This profile requires an exclusively disposable emulator.
                     # Attempt key deletion even when force-stop itself fails.
                     cleared = command("shell", "pm", "clear", APP)

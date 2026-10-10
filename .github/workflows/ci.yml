@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption]
   pull_request:
     branches: [main]
 
@@ -194,6 +194,8 @@ jobs:
             bash scripts/check-recovery-emulator.sh
             python3 scripts/check-sharing-restart-emulator.py
             python3 scripts/check-native-host-restart-emulator.py
+            python3 scripts/check-native-rekey-restart-emulator.py before-handoff
+            python3 scripts/check-native-rekey-restart-emulator.py after-handoff
 
       - name: Keep emulator reports
         if: always()
@@ -204,6 +206,8 @@ jobs:
             app/build/reports/recovery-emulator/
             app/build/reports/sharing-restart-emulator/
             app/build/reports/native-host-restart-emulator/
+            app/build/reports/native-rekey-before-restart-emulator/
+            app/build/reports/native-rekey-after-restart-emulator/
           if-no-files-found: warn
           retention-days: 7
 
