@@ -139,6 +139,7 @@ class NativeKeeperControllerTest {
                     expected.copy(binding = expected.binding.copy(device = "0".repeat(64))),
                     expected.copy(epoch = 1), expected.copy(revision = expected.revision!! + 1),
                     expected.copy(revision = null), expected.copy(lifecycle = NativeHostingLifecycle.CLOSED),
+                    expected.copy(ownerGeneration = null), expected.copy(ownerGeneration = expected.ownerGeneration!! + 1),
                     expected.copy(pendingOriginals = listOf("0".repeat(64))),
                 ) + NativeHostingStatus.entries.filter { it != NativeHostingStatus.READY }.map { expected.copy(status = it) })
                     refused(observation)
@@ -170,6 +171,28 @@ class NativeKeeperControllerTest {
             assertEquals(originals, r.events(RekeyLane.NEARBY).filter { it.kind == KIND_ROOM_REKEY })
             assertEquals(1, r.vault.get(r.room.roomId)!!.currentEpoch)
             r.live.sendChat("confirmed successor remains usable")
+        } finally { r.stop() }
+    }
+
+    @Test fun reopeningTheActualUnchangedSourceRequiresANewOwnerObservationBeforeACommand() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val old = r.controller!!.hosting.value
+            r.controller!!.stop(); r.live.leave()
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
+            r.live = r.newSession(); r.start()
+            val fresh = r.controller!!.hosting.value
+            assertEquals(old.binding, fresh.binding); assertEquals(old.epoch, fresh.epoch)
+            assertEquals(old.revision, fresh.revision)
+            assertNotEquals(old.ownerGeneration, fresh.ownerGeneration)
+            val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
+            assertFails { r.controller!!.rekeyObservedMembers(old) }; runCurrent()
+            assertContentEquals(source, r.sourceStore.bytes); assertContentEquals(queue, r.queueStore.bytes)
+            assertEquals(0, r.vault.get(r.room.roomId)!!.currentEpoch)
+            r.controller!!.rekeyObservedMembers(fresh); runCurrent()
+            assertEquals(1, r.vault.get(r.room.roomId)!!.currentEpoch)
+            assertEquals(1, r.ledger.status().entries.size)
         } finally { r.stop() }
     }
 

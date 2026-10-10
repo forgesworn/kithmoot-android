@@ -20,6 +20,8 @@ data class NativeHostingState(
     val lifecycle: NativeHostingLifecycle? = null,
     val epoch: Int? = null,
     val revision: Long? = null,
+    /** Non-secret controller observation identity; never persisted authority. */
+    val ownerGeneration: Long? = null,
     val approved: List<String> = emptyList(),
     val removed: List<String> = emptyList(),
     val pendingOriginals: List<String> = emptyList(),
@@ -27,13 +29,14 @@ data class NativeHostingState(
     val canRetry: Boolean get() = status == NativeHostingStatus.RECOVERING && pendingOriginals.isNotEmpty()
     val canChangeMembers: Boolean get() = status == NativeHostingStatus.READY &&
         lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
-        epoch != null && revision != null && pendingOriginals.isEmpty()
+        epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isEmpty()
     fun paused() = copy(status = if (status == NativeHostingStatus.FAILED) status else NativeHostingStatus.SUSPENDED)
 
     companion object {
-        internal fun starting(binding: NativeKeeperBinding) = NativeHostingState(
+        internal fun starting(binding: NativeKeeperBinding, ownerGeneration: Long? = null) = NativeHostingState(
             NativeHostingBinding(binding.room, binding.authority, binding.participant, binding.device,
                 binding.route, frozen(binding.relays), binding.pin), NativeHostingStatus.STARTING,
+            ownerGeneration = ownerGeneration,
         )
         internal fun frozen(values: List<String>): List<String> = Collections.unmodifiableList(ArrayList(values))
     }

@@ -61,6 +61,7 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
     }
     confirmation?.let { request ->
         val current = enabled && request.expected.binding == hosting.binding &&
+            request.expected.ownerGeneration == hosting.ownerGeneration &&
             request.expected.revision == hosting.revision && request.expected.epoch == hosting.epoch &&
             request.expected.lifecycle == hosting.lifecycle
         AlertDialog(onDismissRequest = { confirmation = null },

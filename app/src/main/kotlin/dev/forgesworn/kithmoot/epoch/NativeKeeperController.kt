@@ -38,7 +38,8 @@ internal class NativeKeeperController private constructor(private val source: Na
     private val mutableState = MutableStateFlow<State>(State.Starting)
     val state = mutableState.asStateFlow()
     private val publicationGate = Any()
-    private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding))
+    private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding,
+        observationGenerations.incrementAndGet().also { check(it > 0) }))
     val hosting = mutableHosting.asStateFlow()
     private val mutableUnknown = MutableStateFlow<List<String>>(emptyList())
     val unknownParticipants = mutableUnknown.asStateFlow()
@@ -132,6 +133,7 @@ internal class NativeKeeperController private constructor(private val source: Na
             source.verifyReceiver(receiver, live)
             val current = source.snapshot()
             require(expected.canChangeMembers && expected.binding == mutableHosting.value.binding &&
+                expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
                 expected.epoch == current.epoch && expected.revision == current.revision &&
                 expected.lifecycle?.name == current.phase.name && current.pending.isEmpty()) {
                 "Room hosting changed. Open the confirmation again."
@@ -340,6 +342,7 @@ internal class NativeKeeperController private constructor(private val source: Na
     }
 
     companion object {
+        private val observationGenerations = java.util.concurrent.atomic.AtomicLong()
         suspend fun start(source: NativeKeeperJournal, receiver: EpochVault, live: RoomSession?, ledger: RoomRekeyLedger,
             endpoints: NativeKeeperEndpoints, parent: CoroutineScope, stillSelected: () -> Boolean,
             dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = withContext(dispatcher) {

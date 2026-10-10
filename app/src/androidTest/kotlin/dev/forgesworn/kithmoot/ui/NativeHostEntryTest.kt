@@ -130,6 +130,7 @@ class NativeHostEntryTest {
             compose.onNodeWithTag("native-remove-${who.participant}").assertDoesNotExist()
             assertTrue(runCatching { peer.sendChat("removed member must be blocked") }.isFailure)
             compose.onNodeWithText("Done").performClick()
+            val oldOwner = requireNotNull(f.model.room.value.nativeHosting)
             f.main { f.model.leave() }
             NativeHostFixture.await("member controls leave") { f.model.stage.value == Stage.START && !f.model.start.value.busy }
             f.main { f.model.reopenRoom(saved.id) }; f.opened()
@@ -139,6 +140,13 @@ class NativeHostEntryTest {
                 } == true
             }
             compose.onNodeWithText("Hosting · epoch 2").assertIsDisplayed()
+            assertNotEquals(oldOwner.ownerGeneration, f.model.room.value.nativeHosting!!.ownerGeneration)
+            val sourceAfterReopen = sourceDigest(f.source(saved))
+            f.main { f.model.changeNativeRoomKey(oldOwner) }
+            NativeHostFixture.await("confirmation from the previous visit is refused") {
+                f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
+            }
+            assertEquals(sourceAfterReopen, sourceDigest(f.source(saved)))
             if (!route.internet) assertEquals(0, f.server.requestCount)
         } finally { offlineKey.fill(0); f.close() }
     }

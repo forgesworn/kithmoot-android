@@ -7149,6 +7149,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (!attached() || state.roomId != expected.binding.room ||
                     state.nativeHosting?.binding != expected.binding ||
                     state.nativeHosting?.revision != expected.revision ||
+                    state.nativeHosting?.ownerGeneration != expected.ownerGeneration ||
                     state.nativeHosting?.canChangeMembers != true || !expected.canChangeMembers) {
                     _room.update { if (attached() && it.roomId == expected.binding.room)
                         it.copy(notice = "Room hosting changed. Open the confirmation again.") else it }
