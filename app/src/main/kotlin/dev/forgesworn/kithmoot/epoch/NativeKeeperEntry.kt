@@ -11,13 +11,15 @@ import kotlinx.coroutines.sync.withLock
 internal class NativeKeeperEntry private constructor(private val source: NativeKeeperJournal,
     private val receiver: EpochVault, private val ledger: RoomRekeyLedger) : AutoCloseable {
     val binding get() = source.binding
-    private var controller: NativeKeeperController? = null
+    @Volatile private var controller: NativeKeeperController? = null
+    @Volatile private var live: RoomSession? = null
     private val gate = Mutex()
     @Volatile private var closed = false
 
     suspend fun start(live: RoomSession, endpoints: NativeKeeperEndpoints, parent: CoroutineScope,
         stillSelected: () -> Boolean, dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = gate.withLock {
         check(!closed && controller == null)
+        this.live = live
         live.holdKeeperStartup()
         val owner = NativeKeeperController.start(source, receiver, live, ledger, endpoints, parent,
             { !closed && stillSelected() }, dispatcher)
@@ -26,7 +28,7 @@ internal class NativeKeeperEntry private constructor(private val source: NativeK
         owner
     }
 
-    override fun close() { closed = true; controller?.close() }
+    override fun close() { closed = true; live?.holdKeeperStartup(); controller?.close() }
     suspend fun stop() = withContext(NonCancellable + Dispatchers.IO) {
         close()
         gate.withLock { controller?.stop() ?: run { try { ledger.closeIfUnbound() } finally { source.close() } } }

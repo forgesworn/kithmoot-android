@@ -403,10 +403,12 @@ class RoomSession(
     private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld
 
     /** Set before join and synchronously on foreground-owner withdrawal. */
-    internal fun holdKeeperStartup() { keeperStartupHeld = true }
+    internal fun holdKeeperStartup() = lock.withStateLock { keeperStartupHeld = true }
 
-    internal fun releaseKeeperStartup(stableRoom: String, root: String, participant: String, device: String) {
+    internal fun releaseKeeperStartup(stableRoom: String, root: String, participant: String, device: String,
+        stillAllowed: () -> Boolean = { true }) {
         lock.withStateLock {
+            if (!stillAllowed()) { keeperStartupHeld = true; return@withStateLock }
             require(keeperProfileMatches(stableRoom, root, participant, device) && publicationAllowed &&
                 _epochState.value is RoomEpochState.Active)
             keeperStartupHeld = false

@@ -45,7 +45,7 @@ internal class NativeKeeperController private constructor(private val source: Na
     @Volatile private var closed = false
     @Volatile private var routeFailed = false
     @Volatile private var verified = false
-    private var ownsSource = false
+    @Volatile private var ownsSource = false
     private var courier: RoomRekeyCourier? = null
     private var invitationId: String? = null
     private fun lifetimeSelected() = !closed && owner.isActive && runCatching(stillSelected).getOrDefault(false)
@@ -205,7 +205,7 @@ internal class NativeKeeperController private constructor(private val source: Na
             else State.Ready(source.snapshot().epoch, phase)
         mutableUnknown.value = source.unknownParticipants()
         if (phase != KeeperPhase.CLOSED) source.binding.let {
-            live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device)
+            live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device, ::selected)
         }
     }
 

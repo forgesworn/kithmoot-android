@@ -149,6 +149,24 @@ class NativeKeeperEntryTest {
         assertContentEquals(original, r.sourceStore.bytes)
     }
 
+    @Test fun withdrawnOwnerCannotReleaseTheStartupHoldAfterItsLastVerification() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val relay = FakeRelay()
+        val live = session(r.room, r.who, relay, authority = r.binding.authority)
+        try {
+            live.holdKeeperStartup(); live.join(); runCurrent()
+            assertTrue(relay.published.isEmpty())
+            live.releaseKeeperStartup(r.binding.room, r.binding.authority, r.binding.participant, r.binding.device) { false }
+            assertFails { live.sendChat("late release after withdrawal") }
+            assertTrue(relay.published.isEmpty())
+            live.releaseKeeperStartup(r.binding.room, r.binding.authority, r.binding.participant, r.binding.device) { true }
+            live.sendChat("current selected owner")
+            live.holdKeeperStartup()
+            live.releaseKeeperStartup(r.binding.room, r.binding.authority, r.binding.participant, r.binding.device) { false }
+            assertFails { live.announce() }
+        } finally { live.leave() }
+    }
+
     @Test fun ambiguousCourierCreationReopensTheActualEmptyLedgerAndDuplicateEntryCannotCloseItsOwner() = runTest {
         val r = Rig(this, RoomRoute.NEARBY)
         r.queueStore.ambiguous = true

@@ -969,8 +969,8 @@ class RoomViewModel @JvmOverloads constructor(
     private var roomInvitation: InvitationPayload? = null
     private var roomInvitationHost: RoomInvitationHost? = null
     private var invitationHostJob: Job? = null
-    private var nativeKeeperEntry: NativeKeeperEntry? = null
-    private var nativeKeeperController: NativeKeeperController? = null
+    @Volatile private var nativeKeeperEntry: NativeKeeperEntry? = null
+    @Volatile private var nativeKeeperController: NativeKeeperController? = null
     private var closingKeeper: Job? = null
     private var relayUrls: List<String> = emptyList()
     private var anonymousRoom: Boolean = false
