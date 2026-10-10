@@ -1,3 +1,24 @@
+## 0.6.80 (103): authenticated admission decisions
+
+Temporary-room admission verifies a signed account proof before treating an
+invited account as eligible for automatic entry. An unproved account claim
+still needs a host decision. Requests show the device and distinguish available
+account evidence, keeping duplicate names separate.
+
+Decline sends an authenticated, encrypted refusal bound to the exact guest
+request and current root or delegated responder. Host cards wait for relay
+acknowledgement; a failed decision retains its immutable signed reply for Retry
+and offers a separate local Dismiss. A cancelled or stale decision cannot write
+through a delayed connection. Guests authenticate a refusal before ending their
+wait; it carries no room secret or new admission authority. Older guests ignore
+this new refusal envelope and retain their bounded wait.
+
+This release retains the repeat-tap send guard and conversation activity fix.
+Android guest device preview, anonymous temporary-meeting creation, complete
+background admission and unfamiliar-person physical acceptance remain open.
+Signing, public GitHub/website/Zapstore delivery and physical installation are
+separate gates; this source section does not claim publication.
+
 ## 0.6.79 (102): conversation activity follows messages
 
 Opening or reading a room no longer changes its activity time or moves it to
