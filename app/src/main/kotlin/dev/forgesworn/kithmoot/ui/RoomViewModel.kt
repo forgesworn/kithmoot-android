@@ -898,6 +898,8 @@ class RoomViewModel @JvmOverloads constructor(
         ),
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
+    private val guestAdmissionGate = GuestAdmissionGate()
+    val guestAdmission: StateFlow<GuestAdmissionView?> = guestAdmissionGate.view
 
     /** The remembered background, read before [_room] because the room's first
      *  value carries it: a device that has chosen a sea must never come up on
@@ -3101,7 +3103,9 @@ class RoomViewModel @JvmOverloads constructor(
     private class QueuedEnter(val label: String, val opening: String, val block: suspend () -> Unit)
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
-    private fun enter(label: String = "That room", opening: String = "Opening the room…", block: suspend () -> Unit) {
+    private fun enter(label: String = "That room", opening: String = "Opening the room…", guest: GuestAdmissionAttempt? = null, block: suspend () -> Unit) {
+        if (guest == null) guestAdmissionGate.clear()
+        else if (!guestAdmissionGate.isCurrent(guest)) return
         // Whatever the person opens wins over reopening a parked room.
         parkedRoomId = null
         if (_stage.value != Stage.START) {
@@ -3188,6 +3192,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun stopOpening() {
         if (_stage.value != Stage.START) return
+        if (guestAdmission.value != null) guestAdmissionGate.cancel()
         Log.i(JOIN_LOG, "enter stopped by the person")
         queuedEnter.take()
         entryWait?.cancel()
@@ -3574,7 +3579,56 @@ class RoomViewModel @JvmOverloads constructor(
             _start.value = _start.value.copy(error = "Paste a join link first.")
             return
         }
+        val preview = guestAdmission.value
+        if (preview != null && _start.value.joinUrl == url && _start.value.busy) return
+        val payload = runCatching { decodeInvitationUrl(url) }.getOrNull()
+        if (_stage.value == Stage.START && payload != null && !payload.invitation.persistent &&
+            decodeInvitationPairingLink(url) == null && runCatching { savedRooms.findInvitation(url) }.getOrNull() == null) {
+            guestAdmissionGate.clear()
+            if (_start.value.busy) stopOpening()
+            _start.update { it.copy(joinUrl = url, error = null, notice = null) }
+            guestAdmissionGate.prepare(url, payload.name?.take(120).orEmpty(),
+                if (_start.value.anonymousMode) "" else _start.value.account?.shownName.orEmpty())
+            return
+        }
+        guestAdmissionGate.clear()
         enter(label = "The invitation", opening = "Opening the invitation…") { join(url) }
+    }
+
+    fun onGuestAdmissionNameChanged(name: String) { guestAdmissionGate.editName(name) }
+
+    fun requestGuestAdmission() {
+        if (_stage.value != Stage.START) return
+        val attempt = guestAdmissionGate.request() ?: return
+        enter(label = "The invitation", opening = "Sending your request…", guest = attempt) {
+            try {
+                ensureGuestAdmissionCurrent(attempt)
+                join(attempt.url, attempt)
+                if (session != null) guestAdmissionGate.finish(attempt)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                guestAdmissionGate.phase(attempt, GuestAdmissionPhase.UNAVAILABLE, roomEntryFailureMessage(error))
+                throw error
+            }
+        }
+    }
+
+    fun cancelGuestAdmission() {
+        if (_stage.value != Stage.START) return
+        guestAdmissionGate.cancel()
+        if (_start.value.busy) stopOpening()
+    }
+
+    fun closeGuestAdmission() {
+        cancelGuestAdmission()
+        guestAdmissionGate.clear()
+    }
+
+    fun retryGuestAdmission() { if (!_start.value.busy) guestAdmissionGate.retry() }
+
+    private suspend fun ensureGuestAdmissionCurrent(attempt: GuestAdmissionAttempt?) {
+        currentCoroutineContext().ensureActive()
+        if (attempt != null && !guestAdmissionGate.isCurrent(attempt)) throw CancellationException("Guest entry cancelled")
     }
 
     /** Explicit nearby/local-identity choice; both stages keep the selected owner. */
@@ -3672,7 +3726,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private suspend fun join(url: String) {
+    private suspend fun join(url: String, guest: GuestAdmissionAttempt? = null) {
         // A contact card opened as a link is not a room. It is offered, and
         // nothing is kept until the person presses the button.
         val read = ContactCards.read(url, epochSeconds())
@@ -3696,7 +3750,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (decodeInvitationPairingLink(url) == null) {
                 savedRooms.findInvitation(url)?.let { openSaved(it); return }
             }
-            joinInvitation(url, invitation)
+            joinInvitation(url, invitation, guest)
             return
         }
 
@@ -3771,11 +3825,13 @@ class RoomViewModel @JvmOverloads constructor(
         )
     }
 
-    private suspend fun joinInvitation(url: String, payload: InvitationPayload) {
+    private suspend fun joinInvitation(url: String, payload: InvitationPayload, guest: GuestAdmissionAttempt? = null) {
         val ownRelays = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
         val relays = payload.relays.ifEmpty { ownRelays }
         val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
             _start.update { it.copy(busy = false, error = error.message ?: "Anonymous rooms need onion relays.") }
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.UNAVAILABLE,
+                error.message ?: "Anonymous rooms need onion relays.") }
             return
         }
         if (anonymous) holdForTorOnlyEntry()
@@ -3786,14 +3842,19 @@ class RoomViewModel @JvmOverloads constructor(
         if (synced != null) savedRooms.get(synced.room.roomId)?.let { synced.admission.secret.fill(0); openSaved(it); return }
         var foundFurther = emptyList<String>()
         val admission = synced?.admission ?: try {
-            requestAdmission(payload, relays, anonymous) { foundFurther = it }
+            requestAdmission(payload, relays, anonymous, guest) { foundFurther = it }
         } catch (e: GroupInvitationException) {
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.UNAVAILABLE, e.message) }
             _start.update { it.copy(busy = false, error = e.message) }
             return
         } catch (_: dev.forgesworn.kithmoot.session.DeclinedInvitationException) {
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.DECLINED,
+                "Someone in the room declined your request. Ask them before trying again.") }
             _start.update { it.copy(busy = false, opening = null, error = "Your request was declined. Ask someone in the room before trying again.") }
             return
         } catch (_: RetiredInvitationException) {
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.REVOKED,
+                "This invitation was retired. Ask for the current room link.") }
             _start.value = _start.value.copy(
                 busy = false,
                 error = "This invitation was retired. Ask for the current room link.",
@@ -3801,6 +3862,8 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         if (admission == null) {
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.EXPIRED,
+                "The request expired without an answer. The host may be away or the connection may be unavailable. Retry sends a new request after you review your details.") }
             _start.value = _start.value.copy(
                 busy = false,
                 error = if (payload.invitation.persistent) INVITATION_NOT_FOUND
@@ -3809,9 +3872,12 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val secret = admission.secret
+        try { ensureGuestAdmissionCurrent(guest) }
+        catch (cancelled: CancellationException) { secret.fill(0); throw cancelled }
         // A relay that ignores NIP-40 can still hand over an ended room's invitation.
         admission.endsAt?.takeIf { conferenceEnded(it, epochSeconds()) }?.let { ends ->
             secret.fill(0)
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.ROOM_ENDED, conferenceEndedMessage(ends)) }
             _start.update { it.copy(busy = false, error = conferenceEndedMessage(ends)) }
             return
         }
@@ -3869,6 +3935,9 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
+        try { ensureGuestAdmissionCurrent(guest) }
+        catch (cancelled: CancellationException) { secret.fill(0); throw cancelled }
+        guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.ADMITTED) }
         open(
             derived,
             secret,
@@ -3908,6 +3977,7 @@ class RoomViewModel @JvmOverloads constructor(
         payload: InvitationPayload,
         relays: List<String>,
         anonymous: Boolean = false,
+        guest: GuestAdmissionAttempt? = null,
         onWider: ((List<String>) -> Unit)? = null,
     ): RoomAdmission? {
         if (payload.invitation.persistent) {
@@ -3952,15 +4022,24 @@ class RoomViewModel @JvmOverloads constructor(
         return try {
             dev.forgesworn.kithmoot.session.requestTemporaryRoomAdmission(
                 transport, payload.invitation,
-                name = if (anonymous) null else accountAtRequest?.account?.displayName,
+                name = if (anonymous) null else guest?.name?.takeIf { it.isNotBlank() } ?: accountAtRequest?.account?.displayName,
                 participant = actor?.pubkey,
                 signer = actor,
                 timeoutMs = if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS,
-                stillCurrent = { anonymous || accountSession === accountAtRequest },
+                stillCurrent = { (anonymous || accountSession === accountAtRequest) &&
+                    (guest == null || guestAdmissionGate.isCurrent(guest)) },
                 onPhase = { phase ->
+                    guest?.let { guestAdmissionGate.phase(it, when (phase) {
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SIGNING -> GuestAdmissionPhase.SIGNING
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SENDING -> GuestAdmissionPhase.SENDING
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.WAITING -> GuestAdmissionPhase.WAITING
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.RECONNECTING -> GuestAdmissionPhase.RECONNECTING
+                    }) }
                     if (_start.value.busy) _start.update { it.copy(opening = when (phase) {
                         dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SIGNING -> "Confirm your identity in your signer…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
                         dev.forgesworn.kithmoot.session.AdmissionRequestPhase.WAITING -> "Waiting for someone in the room to let you in…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.RECONNECTING -> "Your request has not been confirmed. Reconnecting…"
                     }) }
                 },
             )

@@ -24,9 +24,16 @@ class TemporaryRoomAdmissionTest {
         val sent = mutableListOf<NostrEvent>()
         var subscribers = 0
         var onPublish: (NostrEvent) -> Unit = {}
+        var confirm: suspend (NostrEvent) -> Boolean = { true }
         override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = incoming
             .onStart { subscribers++ }.onCompletion { subscribers-- }
         override fun publish(event: NostrEvent) { sent += event; onPublish(event) }
+        override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+            stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+            check(stillAllowed())
+            publish(event)
+            return confirm(event)
+        }
     }
 
     @Test fun `an authenticated refusal stops retries and wipes the owned request key`() = runTest {
@@ -79,7 +86,7 @@ class TemporaryRoomAdmissionTest {
         assertContentEquals(roomKey, result.secret)
         assertTrue(key.all { it == 0.toByte() })
         assertEquals(0, transport.subscribers)
-        assertEquals(listOf(AdmissionRequestPhase.SIGNING, AdmissionRequestPhase.WAITING), phases)
+        assertEquals(listOf(AdmissionRequestPhase.SIGNING, AdmissionRequestPhase.SENDING, AdmissionRequestPhase.WAITING), phases)
         assertNotNull(result.delegate)
         assertTrue(Events.verify(encodeInvitationGrant(result.delegate!!, account, "a".repeat(64), roomKey, now)))
     }
@@ -185,6 +192,52 @@ class TemporaryRoomAdmissionTest {
             requestTemporaryRoomAdmission(transport, host.invitation, participant = account,
                 signer = LocalSigner(accountKey), stillCurrent = { current }, now = { now })
         }
+        assertEquals(1, transport.sent.size)
+        assertEquals(0, transport.subscribers)
+    }
+
+    @Test fun `waiting starts only after relay acceptance and does not flicker on retries`() = runTest {
+        val transport = Transport()
+        val receipt = CompletableDeferred<Boolean>()
+        val phases = mutableListOf<AdmissionRequestPhase>()
+        transport.confirm = { if (transport.sent.size == 1) receipt.await() else true }
+        val request = async { requestTemporaryRoomAdmission(transport, host.invitation,
+            timeoutMs = 6_001, retryMs = 2_000, now = { now }, onPhase = phases::add) }
+        runCurrent()
+        assertEquals(listOf(AdmissionRequestPhase.SENDING), phases)
+        receipt.complete(true); runCurrent()
+        assertEquals(listOf(AdmissionRequestPhase.SENDING, AdmissionRequestPhase.WAITING), phases)
+        advanceTimeBy(6_002); runCurrent()
+        assertNull(request.await())
+        assertEquals(4, transport.sent.size)
+        assertEquals(1, transport.sent.map { it.id }.distinct().size)
+        assertEquals(listOf(AdmissionRequestPhase.SENDING, AdmissionRequestPhase.WAITING), phases)
+    }
+
+    @Test fun `unconfirmed sends reconnect with the same event until acceptance`() = runTest {
+        val transport = Transport()
+        val phases = mutableListOf<AdmissionRequestPhase>()
+        transport.confirm = { transport.sent.size > 1 }
+        val request = async { requestTemporaryRoomAdmission(transport, host.invitation,
+            timeoutMs = 4_001, retryMs = 2_000, now = { now }, onPhase = phases::add) }
+        advanceUntilIdle()
+        assertNull(request.await())
+        assertEquals(listOf(AdmissionRequestPhase.SENDING, AdmissionRequestPhase.RECONNECTING, AdmissionRequestPhase.WAITING), phases)
+        assertEquals(1, transport.sent.map { it.id }.distinct().size)
+        assertEquals(0, transport.subscribers)
+    }
+
+    @Test fun `a late grant after cancellation cannot admit the guest`() = runTest {
+        val transport = Transport()
+        val phases = mutableListOf<AdmissionRequestPhase>()
+        val request = async { requestTemporaryRoomAdmission(transport, host.invitation,
+            now = { now }, onPhase = phases::add) }
+        runCurrent()
+        val sent = decodeInvitationRequest(transport.sent.single(), host.invitation, now)!!
+        request.cancelAndJoin()
+        transport.incoming.emit(encodeInvitationGrant(host, sent.device, sent.requestId, roomKey, now))
+        advanceTimeBy(10_000); runCurrent()
+        assertTrue(request.isCancelled)
         assertEquals(1, transport.sent.size)
         assertEquals(0, transport.subscribers)
     }
