@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery]
   pull_request:
     branches: [main]
 

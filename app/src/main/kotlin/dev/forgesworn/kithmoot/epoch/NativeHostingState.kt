@@ -28,7 +28,9 @@ data class NativeHostingState(
     val retirementOriginals: List<String> = emptyList(),
     val missingRetirementSlots: Int = 0,
 ) {
-    val canRetry: Boolean get() = status == NativeHostingStatus.RECOVERING && pendingOriginals.isNotEmpty()
+    val canRetry: Boolean get() = status == NativeHostingStatus.RECOVERING &&
+        lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
+        epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isNotEmpty()
     val canChangeMembers: Boolean get() = status == NativeHostingStatus.READY &&
         lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
         epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isEmpty()

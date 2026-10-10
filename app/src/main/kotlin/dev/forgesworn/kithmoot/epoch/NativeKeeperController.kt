@@ -30,6 +30,8 @@ internal class NativeKeeperController private constructor(private val source: Na
     private sealed interface Work {
         data class Request(val event: NostrEvent, val lane: RekeyLane) : Work
         data class Command(val action: suspend () -> Unit, val done: CompletableDeferred<Unit>) : Work
+        data class PendingRecovery(val expected: NativeHostingState,
+            val done: CompletableDeferred<NativeHostingState>) : Work
         data object Retry : Work
         data object RouteFailed : Work
     }
@@ -91,6 +93,31 @@ internal class NativeKeeperController private constructor(private val source: Na
                                 throw error
                         }
                     }
+                    is Work.PendingRecovery -> {
+                        if (!work.done.isActive) continue
+                        try {
+                            val expected = work.expected
+                            val current = source.snapshot()
+                            require(mutableState.value is State.Pending && expected.canRetry &&
+                                expected.binding == mutableHosting.value.binding &&
+                                expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
+                                expected.revision == current.revision && expected.epoch == current.epoch &&
+                                expected.lifecycle?.name == current.phase.name && current.phase != KeeperPhase.CLOSED &&
+                                expected.pendingOriginals == current.pending.map { it.id }) {
+                                "Room hosting changed. Open the confirmation again."
+                            }
+                        } catch (error: Exception) {
+                            work.done.completeExceptionally(error)
+                            if (source.persistenceFailed() || ledger.persistenceFailed()) throw error
+                            continue
+                        }
+                        try {
+                            validateReceiverBeforeRecovery()
+                            recover()
+                            work.done.complete(mutableHosting.value)
+                        } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
+                        catch (error: Exception) { work.done.completeExceptionally(error); throw error }
+                    }
                     Work.Retry -> { recover(); publishWelcome() }
                     Work.RouteFailed -> error("Keeper route subscription failed")
                 }
@@ -106,6 +133,7 @@ internal class NativeKeeperController private constructor(private val source: Na
             while (true) {
                 val work = queue.tryReceive().getOrNull() ?: break
                 if (work is Work.Command) work.done.cancel()
+                if (work is Work.PendingRecovery) work.done.cancel()
             }
             release()
         }
@@ -199,6 +227,15 @@ internal class NativeKeeperController private constructor(private val source: Na
     suspend fun retry() {
         check(selected()); check(queue.trySend(Work.Retry).isSuccess)
     }
+    /** Waits for recovery of these retained originals, including a still-pending
+     * outcome. It never signs a replacement or retries an archived notice. */
+    suspend fun retryObservedPending(expected: NativeHostingState): NativeHostingState {
+        check(selected()) { "Native keeper is suspended" }
+        val done = CompletableDeferred<NativeHostingState>()
+        val frozen = expected.copy(pendingOriginals = expected.pendingOriginals.toList())
+        check(queue.trySend(Work.PendingRecovery(frozen, done)).isSuccess) { "Native keeper is busy" }
+        try { return done.await() } catch (cancel: CancellationException) { done.cancel(cancel); throw cancel }
+    }
     private suspend fun command(action: suspend () -> Unit) {
         check(selected()) { "Native keeper is suspended" }
         val done = CompletableDeferred<Unit>()
@@ -284,7 +321,11 @@ internal class NativeKeeperController private constructor(private val source: Na
                     if (offer(reserved, generation, answer = false)) { source.offered(reserved); break }
                 }
             }
-            if (pending.any { source.pendingNeedsOffer(it.id) }) return
+            if (pending.any { source.pendingNeedsOffer(it.id) }) {
+                val remaining = source.snapshot()
+                publishState(State.Pending(remaining.pending.map { it.id }), remaining)
+                return
+            }
             source.completePending(receiver, requireNotNull(live))
         }
         val phase = source.verifyReceiver(receiver, live)

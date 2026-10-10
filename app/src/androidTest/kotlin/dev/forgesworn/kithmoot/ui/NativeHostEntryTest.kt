@@ -47,6 +47,139 @@ class NativeHostEntryTest {
         retirementJourney(RoomRoute.MIXED)
     }
 
+    @Test fun nearby_pending_recovery_cancel_unavailable_lane_and_encrypted_reopen_keep_the_same_original_and_limits() = runBlocking {
+        val f = NativeHostFixture()
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText("Start nearby chat").performScrollTo().performClick()
+            val saved = f.opened(); val at = System.currentTimeMillis() / 1000
+            val who = f.identity(saved, at)
+            val joining = async { f.join(saved, at, who = who) }
+            NativeHostFixture.await("pending recovery member approval") { f.model.room.value.letInAsks.any { it.participant == who.participant } }
+            compose.onNodeWithText("Let in").performClick(); val peer = joining.await()
+            f.awaitHost("pending recovery observes approved member") { f.model.room.value.nativeHosting?.approved?.contains(who.participant) == true }
+            f.main { f.setNearbyAvailable(false) }
+            f.awaitHost("permitted nearby lane is unavailable") { f.model.room.value.nearby?.writablePeers == 0 }
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
+            compose.onNodeWithText("Retire link").performClick()
+            f.awaitHost("original waits for its permitted lane") {
+                f.model.room.value.nativeHosting?.canRetry == true && !f.model.room.value.nativeHostingBusy
+            }
+            val pending = f.source(saved)
+            val held = pending.getValue("pending").jsonObject
+            val original = NostrEvent.fromJson(held.getValue("events").jsonArray.single())
+            val spend = pending.getValue("spends")
+            assertTrue(held.getValue("attempts").jsonObject.isEmpty())
+            assertFalse(f.model.room.value.canShareInvitation)
+            assertTrue(f.phoneEvents.none { it.kind == KIND_INVITATION_RETIREMENT })
+            compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
+            val beforeCancel = sourceDigest(f.source(saved))
+            compose.onNodeWithText("Cancel").performClick()
+            assertEquals(beforeCancel, sourceDigest(f.source(saved)))
+            compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
+            compose.onNodeWithText("Recover update").performClick()
+            f.awaitHost("unavailable recovery reports still pending without new credit") {
+                !f.model.room.value.nativeHostingBusy && f.model.room.value.notice ==
+                    "Room update is still pending. Check the connection and remaining retry limits."
+            }
+            assertEquals(beforeCancel, sourceDigest(f.source(saved)))
+            val oldOwner = requireNotNull(f.model.room.value.nativeHosting)
+            f.main { f.model.leave() }
+            NativeHostFixture.await("pending authority closes before actual encrypted reopen") {
+                f.model.stage.value == Stage.START && !f.model.start.value.busy && f.radios.all { it.closed }
+            }
+            f.main { f.model.reopenRoom(saved.id) }; f.opened()
+            f.awaitHost("new selected owner reopens the retained pending original") {
+                f.model.room.value.nativeHosting?.canRetry == true && f.model.room.value.nearby?.writablePeers == 0
+            }
+            val reopened = f.source(saved)
+            assertEquals(original, NostrEvent.fromJson(reopened.getValue("pending").jsonObject.getValue("events").jsonArray.single()))
+            assertEquals(held.getValue("attempts"), reopened.getValue("pending").jsonObject.getValue("attempts"))
+            assertEquals(spend, reopened.getValue("spends"))
+            assertNotEquals(oldOwner.ownerGeneration, f.model.room.value.nativeHosting!!.ownerGeneration)
+            val beforeStale = sourceDigest(reopened)
+            f.main { f.model.recoverNativePendingUpdate(oldOwner) }
+            f.awaitHost("previous owner recovery callback refuses without a new attempt") {
+                f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
+            }
+            assertEquals(beforeStale, sourceDigest(f.source(saved)))
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
+            f.main { f.setNearbyAvailable(true) }
+            f.awaitHost("same nearby lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
+            compose.onNodeWithText("Recover update").performClick()
+            f.awaitHost("saved original completes with sharing still withdrawn") {
+                f.model.room.value.nativeHosting?.canResendRetirement == true && !f.model.room.value.nativeHostingBusy
+            }
+            val recovered = f.source(saved)
+            assertEquals(JsonNull, recovered.getValue("pending"))
+            val archive = recovered.getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
+            assertEquals(1, archive.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int })
+            val nearbySpend = recovered.getValue("spends").jsonArray.filter {
+                it.jsonObject.getValue("lane") == JsonPrimitive("NEARBY")
+            }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
+            assertEquals(original.toCompactJson().toByteArray(Charsets.UTF_8).size, nearbySpend)
+            assertEquals(listOf(original), f.phoneEvents.filter { it.kind == KIND_INVITATION_RETIREMENT })
+            assertTrue(f.model.room.value.joinUrl.isEmpty())
+            compose.onNodeWithText("Recover saved update").assertDoesNotExist()
+            f.main { f.model.sendChat("host after pending recovery") }; peer.sendChat("member after pending recovery")
+            f.awaitHost("approved chat survives pending encrypted reopen and recovery") {
+                peer.chat.value.any { it.body == "host after pending recovery" } &&
+                    f.model.room.value.chat.any { it.body == "member after pending recovery" }
+            }
+            assertEquals(0, f.server.requestCount)
+            println("NATIVE_PENDING_RECOVERY_MEASUREMENT route=nearby encrypted-reopen=true same-original=true attempts=1 charged-bytes=$nearbySpend process-death=false participant-receipt=false")
+        } finally { f.close() }
+    }
+
+    @Test fun mixed_pending_recovery_actual_source_refresh_disables_the_rendered_confirmation() = runBlocking {
+        val f = NativeHostFixture()
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText("Start nearby + Internet chat").performScrollTo().performClick()
+            val saved = f.opened()
+            f.awaitHost("mixed authority is ready") { f.model.room.value.nativeHosting?.canRetireInvitation == true }
+            f.main { f.setNearbyAvailable(false); f.retirementAccepted = false }
+            f.awaitHost("mixed nearby lane is unavailable") { f.model.room.value.nearby?.writablePeers == 0 }
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
+            compose.onNodeWithText("Retire link").performClick()
+            f.awaitHost("loopback refusal leaves a source-current pending observation") {
+                !f.model.room.value.nativeHostingBusy && f.model.room.value.nativeHosting?.let {
+                    it.canRetry && it.revision == f.source(saved).getValue("revision").jsonPrimitive.long
+                } == true
+            }
+            val expected = requireNotNull(f.model.room.value.nativeHosting)
+            val original = NostrEvent.fromJson(f.source(saved).getValue("pending").jsonObject.getValue("events").jsonArray.single())
+            compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
+            f.main { f.model.recoverNativePendingUpdate(expected) }
+            f.awaitHost("actual rejected recovery refreshes the source revision") {
+                !f.model.room.value.nativeHostingBusy && f.model.room.value.nativeHosting?.revision != expected.revision
+            }
+            compose.onNodeWithText("Recover update").assertIsNotEnabled()
+            compose.onNodeWithText("Room hosting changed. Close this confirmation and try again.").assertIsDisplayed()
+            assertEquals(original, NostrEvent.fromJson(f.source(saved).getValue("pending").jsonObject.getValue("events").jsonArray.single()))
+            compose.onNodeWithText("Cancel").performClick()
+            f.main { f.retirementAccepted = true }
+            // Capture a fresh actual observation after any ordinary retry. A
+            // completed update makes this control disappear without new signing.
+            if (f.model.room.value.nativeHosting?.canRetry == true) {
+                compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
+                compose.onNodeWithText("Recover update").performClick()
+            }
+            f.awaitHost("same saved original reaches loopback custody") {
+                f.model.room.value.nativeHosting?.canResendRetirement == true && !f.model.room.value.nativeHostingBusy
+            }
+            val archive = f.source(saved).getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
+            assertTrue(f.relayWrites.filter { it.kind == KIND_INVITATION_RETIREMENT }.all { it == original })
+            assertTrue(f.phoneEvents.none { it.kind == KIND_INVITATION_RETIREMENT })
+            println("NATIVE_PENDING_RECOVERY_MEASUREMENT route=mixed source-refresh=true stale-confirmation-disabled=true same-original=true participant-receipt=false")
+        } finally { f.close() }
+    }
+
     private suspend fun retirementJourney(route: RoomRoute) = coroutineScope {
         val f = NativeHostFixture()
         val offlineKey = ByteArray(32).apply { this[31] = 6 }

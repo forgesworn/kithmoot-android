@@ -25,7 +25,7 @@ Design mesh-kit fbef5e2 precedes these controls; approval ordering is refined in
 journeys and add Nearby/Mixed retirement/reopen/resend plus open-QR withdrawal.
 The final integrated head must pass its own four hosted jobs, every retained
 member/PID gate and main's actual repeated-Send acceptance before merge.
-The integrated runner requires 132 ordinary checks in 43 groups, plus all four
+The integrated runner requires 134 ordinary checks in 43 groups, plus all four
 active process-kill/recovery drivers; no earlier case is removed.
 Local source compilation is not installed Android or physical radio evidence.
 
@@ -38,7 +38,8 @@ maintenance cannot race them. The fifth member case measures ordinary encrypted
 maintenance separately, including no queue/debt credit and a scoped strict
 refusal. No production source, clock, accounting, assertion or timeout is relaxed.
 
-Replacement, pending-recovery controls, terminal controls/migration,
+Explicit pending-recovery controls are described in native-pending-recovery.md.
+Replacement, terminal controls/migration,
 retirement-specific SIGKILL windows and propagation to every participant client
 remain separate work. This host increment does not prove joint store/key rollback
 resistance or real BLE/radio/group/UK-Portugal operation. No radio settings,

@@ -7,6 +7,7 @@ import dev.forgesworn.kithmoot.epoch.NativeKeeperCreation
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEntry
 import dev.forgesworn.kithmoot.epoch.NativeKeeperController
 import dev.forgesworn.kithmoot.epoch.NativeHostingState
+import dev.forgesworn.kithmoot.epoch.NativeHostingStatus
 import dev.forgesworn.kithmoot.epoch.NativeHostingLifecycle
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEndpoints
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
@@ -7197,19 +7198,35 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun changeNativeMembers(expected: NativeHostingState, removed: List<String>) {
         val gone = removed.toList()
-        runNativeCommand(expected, { it.canChangeMembers },
-            "Room update saved. Hosting state does not confirm delivery to members.") { it.rekeyObservedMembers(expected, gone) }
+        runNativeCommand(expected, { it.canChangeMembers }) {
+            it.rekeyObservedMembers(expected, gone)
+            "Room update saved. Hosting state does not confirm delivery to members."
+        }
     }
 
     fun retireNativeInvitation(expected: NativeHostingState) = runNativeCommand(expected,
-        { it.canRetireInvitation }, "Invitation retired. Existing members can still chat.") { it.retireObservedInvitation(expected) }
+        { it.canRetireInvitation }) {
+        it.retireObservedInvitation(expected)
+        "Invitation retired. Existing members can still chat."
+    }
 
     fun resendNativeRetirement(expected: NativeHostingState, id: String) = runNativeCommand(expected,
-        { it.canResendRetirement && id in it.retirementOriginals },
-        "Notice resend requested. This does not confirm delivery to members.") { it.retryObservedRetirement(expected, id) }
+        { it.canResendRetirement && id in it.retirementOriginals }) {
+        it.retryObservedRetirement(expected, id)
+        "Notice resend requested. This does not confirm delivery to members."
+    }
+
+    fun recoverNativePendingUpdate(expected: NativeHostingState) = runNativeCommand(expected, { it.canRetry }) {
+        val outcome = it.retryObservedPending(expected)
+        when (outcome.status) {
+            NativeHostingStatus.RECOVERING -> "Room update is still pending. Check the connection and remaining retry limits."
+            NativeHostingStatus.READY -> "Saved room update recovered. This does not confirm delivery to members."
+            else -> "Room hosting is unavailable. Reopen to inspect the saved update."
+        }
+    }
 
     private fun runNativeCommand(expected: NativeHostingState, allowed: (NativeHostingState) -> Boolean,
-        success: String, action: suspend (NativeKeeperController) -> Unit) {
+        action: suspend (NativeKeeperController) -> String) {
         val entry = nativeKeeperEntry
         val controller = nativeKeeperController
         val live = session
@@ -7223,6 +7240,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (!attached() || state.roomId != expected.binding.room || current == null ||
                     current.binding != expected.binding || current.revision != expected.revision ||
                     current.epoch != expected.epoch || current.lifecycle != expected.lifecycle ||
+                    current.pendingOriginals != expected.pendingOriginals ||
                     current.ownerGeneration != expected.ownerGeneration || !allowed(current) || !allowed(expected)) {
                     _room.update { if (attached() && it.roomId == expected.binding.room)
                         it.copy(notice = "Room hosting changed. Open the confirmation again.") else it }
@@ -7233,8 +7251,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
             var result: String? = null
             try {
-                withContext(Dispatchers.IO) { action(requireNotNull(controller)) }
-                result = success
+                result = withContext(Dispatchers.IO) { action(requireNotNull(controller)) }
             } catch (cancel: CancellationException) { throw cancel }
             catch (_: Exception) { result = "Room update could not complete. Inspect the hosting state before trying again." }
             finally {

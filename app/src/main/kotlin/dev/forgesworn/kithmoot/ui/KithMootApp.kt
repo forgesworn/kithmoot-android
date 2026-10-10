@@ -845,6 +845,7 @@ fun KithMootApp(
                     onRemoveNativeRoomMember = model::removeNativeRoomMember,
                     onRetireNativeInvitation = model::retireNativeInvitation,
                     onResendNativeRetirement = model::resendNativeRetirement,
+                    onRecoverNativePending = model::recoverNativePendingUpdate,
                     onCanShareInvitation = model::canShareRoomInvitation,
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,

@@ -49,4 +49,18 @@ class NativeInvitationSharingTest {
         assertFalse(room.copy(privateConversationBusy = true).canShareInvitation)
         assertFalse(room.copy(movedOn = 1).canShareInvitation)
     }
+
+    @Test fun explicitRecoveryRequiresACompleteNonterminalPendingObservation() {
+        val pending = active.copy(status = NativeHostingStatus.RECOVERING, pendingOriginals = listOf("6".repeat(64)))
+        assertTrue(pending.canRetry)
+        assertTrue(pending.copy(lifecycle = NativeHostingLifecycle.RETIRED).canRetry)
+        assertFalse(pending.copy(lifecycle = NativeHostingLifecycle.CLOSED).canRetry)
+        assertFalse(pending.copy(lifecycle = null).canRetry)
+        assertFalse(pending.copy(epoch = null).canRetry)
+        assertFalse(pending.copy(revision = null).canRetry)
+        assertFalse(pending.copy(ownerGeneration = null).canRetry)
+        assertFalse(pending.copy(pendingOriginals = emptyList()).canRetry)
+        for (status in NativeHostingStatus.entries.filter { it != NativeHostingStatus.RECOVERING })
+            assertFalse(pending.copy(status = status).canRetry)
+    }
 }

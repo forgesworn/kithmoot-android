@@ -57,6 +57,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     private var grantToLose = loseGrant
     @Volatile private var phone: ((RoomBleEvent) -> Unit)? = null
     @Volatile var welcomeAccepted = true
+    @Volatile var retirementAccepted = true
+    @Volatile private var nearbyAvailable = true
     val server = MockWebServer().also {
         it.serverSocketFactory = object : ServerSocketFactory() {
             override fun createServerSocket() = object : ServerSocket() {
@@ -89,6 +91,10 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
                             val event = NostrEvent.fromJson(frame[1]); require(Events.verify(event))
                             relayWrites += event
                             if (event.kind == 1463 && !welcomeAccepted) return
+                            if (event.kind == KIND_INVITATION_RETIREMENT && !retirementAccepted) {
+                                socket.send(buildJsonArray { add("OK"); add(event.id); add(false); add("fixture refusal") }.toString())
+                                return
+                            }
                             if (stored.none { it.id == event.id }) stored += event
                             for ((peer, subs) in sockets) for ((id, filters) in subs) if (filters.any { matches(it, event) }) {
                                 peer.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
@@ -206,8 +212,10 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
 
     inner class Radio(private val receive: (RoomBleEvent) -> Unit) : RoomBleRadio {
         @Volatile var closed = false
-        override fun start(config: RoomBleConfig) { phone = receive; receive(RoomBleEvent.Status(true, 1)) }
+        override fun start(config: RoomBleConfig) { phone = receive; status() }
+        fun status() { if (!closed) receive(RoomBleEvent.Status(true, if (nearbyAvailable) 1 else 0)) }
         override fun offer(bytes: ByteArray, to: String?): Int {
+            if (!nearbyAvailable) return 0
             val e = RoomMeshWire.decode(bytes)?.takeIf { it.first == RoomMeshWire.EVENT }
                 ?.second?.get("event")?.jsonObject?.let(NostrEvent::fromJson)
             if (e != null) phoneEvents += e
@@ -219,6 +227,11 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             return 1
         }
         override fun close() { closed = true; if (phone === receive) phone = null }
+    }
+
+    fun setNearbyAvailable(available: Boolean) {
+        nearbyAvailable = available
+        radios.filter { !it.closed }.forEach { it.status() }
     }
 
     fun sourceStore(saved: SavedRoom): EncryptedRoomStorage {
@@ -304,6 +317,7 @@ internal fun ComposeContentTestRule.showNativeHost(f: NativeHostFixture) = setCo
             onRemoveNativeRoomMember = f.model::removeNativeRoomMember,
             onRetireNativeInvitation = f.model::retireNativeInvitation,
             onResendNativeRetirement = f.model::resendNativeRetirement,
+            onRecoverNativePending = f.model::recoverNativePendingUpdate,
             onCanShareInvitation = f.model::canShareRoomInvitation)
         else Column(Modifier.verticalScroll(rememberScrollState())) {
             NewRoomForm(start.roomName, f.model::onRoomNameChanged, start.anonymousMode, f.model::onAnonymousModeChanged,

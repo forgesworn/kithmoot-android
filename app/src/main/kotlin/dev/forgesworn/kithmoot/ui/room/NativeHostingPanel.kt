@@ -35,9 +35,11 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
     onChangeKey: ((NativeHostingState) -> Unit)? = null,
     onRemoveMember: ((NativeHostingState, String) -> Unit)? = null,
     onRetireInvitation: ((NativeHostingState) -> Unit)? = null,
-    onResendRetirement: ((NativeHostingState, String) -> Unit)? = null) {
+    onResendRetirement: ((NativeHostingState, String) -> Unit)? = null,
+    onRecoverPending: ((NativeHostingState) -> Unit)? = null) {
     var confirmation by remember(hosting.binding.pin) { mutableStateOf<NativeMemberConfirmation?>(null) }
     var invitationConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeInvitationConfirmation?>(null) }
+    var recoveryConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeHostingState?>(null) }
     val enabled = hosting.canChangeMembers && !busy
     Column {
         Text(nativeHostingLine(hosting), style = MaterialTheme.typography.titleSmall)
@@ -50,6 +52,12 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             style = MaterialTheme.typography.bodySmall,
         )
         if (busy) Text("Saving room update…", style = MaterialTheme.typography.bodySmall)
+        if (onRecoverPending != null && hosting.pendingOriginals.isNotEmpty() &&
+            hosting.lifecycle != NativeHostingLifecycle.CLOSED) {
+            TextButton(onClick = { recoveryConfirmation = hosting }, enabled = hosting.canRetry && !busy) {
+                Text("Recover saved update")
+            }
+        }
         if (hosting.missingRetirementSlots > 0) Text(
             "Earlier invitation notices were not retained. Those notices cannot be resent.",
             style = MaterialTheme.typography.bodySmall,
@@ -75,6 +83,24 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
                 Text("Remove ${shortId(participant)}")
             }
         }
+    }
+    recoveryConfirmation?.let { expected ->
+        val current = !busy && hosting.canRetry && expected.canRetry && expected.binding == hosting.binding &&
+            expected.ownerGeneration == hosting.ownerGeneration && expected.revision == hosting.revision &&
+            expected.epoch == hosting.epoch && expected.lifecycle == hosting.lifecycle &&
+            expected.pendingOriginals == hosting.pendingOriginals
+        AlertDialog(onDismissRequest = { recoveryConfirmation = null },
+            title = { Text("Recover this saved update?") },
+            text = { Column {
+                Text("Continue the saved room update within its remaining retry and airtime limits. It may stay pending if the connection is unavailable. This does not confirm delivery to members.")
+                if (!current && !busy) Text("Room hosting changed. Close this confirmation and try again.")
+            } },
+            confirmButton = { TextButton(enabled = current, onClick = {
+                recoveryConfirmation = null
+                onRecoverPending?.invoke(expected)
+            }) { Text("Recover update") } },
+            dismissButton = { TextButton(onClick = { recoveryConfirmation = null }) { Text("Cancel") } },
+        )
     }
     invitationConfirmation?.let { request ->
         val retiring = request.original == null

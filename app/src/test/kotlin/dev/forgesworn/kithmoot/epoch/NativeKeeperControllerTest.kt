@@ -656,6 +656,97 @@ class NativeKeeperControllerTest {
         } finally { r.stop() }
     }
 
+    @Test fun observedPendingRecoveryRefusesStaleMetadataAndRetainsTheOriginalAcrossUnavailableLaneAndReopen() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val first = assertNotNull(r.controller)
+            r.link.up = false
+            first.retire(); runCurrent()
+            val expected = first.hosting.value
+            assertTrue(expected.canRetry); assertFalse(expected.canShareInvitation)
+            val original = r.source.snapshot().pending.single()
+            val before = r.sourceStore.bytes!!.clone()
+            for (bad in listOf(
+                expected.copy(binding = expected.binding.copy(pin = "0".repeat(64))),
+                expected.copy(ownerGeneration = expected.ownerGeneration!! + 1),
+                expected.copy(revision = expected.revision!! + 1), expected.copy(epoch = expected.epoch!! + 1),
+                expected.copy(lifecycle = NativeHostingLifecycle.ACTIVE),
+                expected.copy(pendingOriginals = listOf("0".repeat(64))),
+                expected.copy(status = NativeHostingStatus.READY), expected.copy(ownerGeneration = null),
+            )) {
+                assertFails { first.retryObservedPending(bad) }; runCurrent()
+                assertContentEquals(before, r.sourceStore.bytes)
+                assertTrue(r.events(RekeyLane.NEARBY).none { it.kind == KIND_INVITATION_RETIREMENT })
+            }
+            val unavailable = first.retryObservedPending(expected)
+            assertEquals(expected, unavailable)
+            assertContentEquals(before, r.sourceStore.bytes)
+            first.stop()
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
+            r.controller = NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
+                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler))
+            runCurrent(); val next = r.controller!!
+            assertNotEquals(expected.ownerGeneration, next.hosting.value.ownerGeneration)
+            assertEquals(original, r.source.snapshot().pending.single())
+            assertFails { next.retryObservedPending(expected) }
+            assertContentEquals(before, r.sourceStore.bytes)
+            val current = next.hosting.value
+            r.link.up = true
+            val recovered = next.retryObservedPending(current); runCurrent()
+            assertEquals(NativeHostingStatus.READY, recovered.status)
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertTrue(r.source.snapshot().pending.isEmpty())
+            val archive = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject
+                .getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
+            assertEquals(1, archive.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int })
+            assertEquals(listOf(original), r.events(RekeyLane.NEARBY).filter { it.kind == KIND_INVITATION_RETIREMENT })
+            r.live.sendChat("Approved chat survives explicit pending recovery")
+            val after = r.sourceStore.bytes!!.clone()
+            assertFails { next.retryObservedPending(current) }
+            assertContentEquals(after, r.sourceStore.bytes)
+        } finally { r.stop() }
+    }
+
+    @Test fun observedPendingRecoveryWaitsForTheActualRelayOfferBeforeReturningItsOutcome() = runTest {
+        val r = Rig(this, RoomRoute.INTERNET)
+        try {
+            r.start(); r.acknowledge(); runCurrent()
+            val socket = r.sockets.opened.last()
+            val controller = assertNotNull(r.controller)
+            val retiring = backgroundScope.async { controller.retire() }
+            runCurrent()
+            val firstOriginal = r.source.snapshot().pending.single()
+            socket.deliverOk(firstOriginal.id, false); runCurrent(); retiring.await()
+            val expected = controller.hosting.value
+            assertTrue(expected.canRetry)
+            val original = r.source.snapshot().pending.single()
+            assertEquals(r.source.snapshot().revision, expected.revision)
+            val unconfirmed = backgroundScope.async { controller.retryObservedPending(expected) }
+            runCurrent(); assertFalse(unconfirmed.isCompleted)
+            socket.deliverOk(original.id, false); runCurrent()
+            val latest = unconfirmed.await()
+            assertEquals(NativeHostingStatus.RECOVERING, latest.status)
+            assertEquals(r.source.snapshot().revision, latest.revision)
+            assertNotEquals(expected.revision, latest.revision)
+            assertEquals(original, r.source.snapshot().pending.single())
+            val beforeStale = r.sourceStore.bytes!!.clone()
+            assertFails { controller.retryObservedPending(expected) }
+            assertContentEquals(beforeStale, r.sourceStore.bytes)
+            val recovering = backgroundScope.async { controller.retryObservedPending(latest) }
+            runCurrent()
+            assertFalse(recovering.isCompleted, "Queue admission is not completed recovery")
+            assertEquals(listOf(original.id), controller.hosting.value.pendingOriginals)
+            r.acknowledge(); runCurrent()
+            assertEquals(NativeHostingStatus.READY, recovering.await().status)
+            val archive = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject
+                .getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
+            assertEquals(3, archive.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int })
+        } finally { r.stop() }
+    }
+
     @Test fun pendingRetirementWithdrawsUnknownApprovalBeforeTheTransportAcceptsItsNotice() = runTest {
         val r = Rig(this, RoomRoute.INTERNET)
         try {
