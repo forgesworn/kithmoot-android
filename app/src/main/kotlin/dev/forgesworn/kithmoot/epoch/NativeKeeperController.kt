@@ -37,6 +37,9 @@ internal class NativeKeeperController private constructor(private val source: Na
     private val queue = Channel<Work>(64)
     private val mutableState = MutableStateFlow<State>(State.Starting)
     val state = mutableState.asStateFlow()
+    private val publicationGate = Any()
+    private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding))
+    val hosting = mutableHosting.asStateFlow()
     private val mutableUnknown = MutableStateFlow<List<String>>(emptyList())
     val unknownParticipants = mutableUnknown.asStateFlow()
     private val started = CompletableDeferred<Unit>(owner)
@@ -88,16 +91,15 @@ internal class NativeKeeperController private constructor(private val source: Na
                 }
             }
         } catch (cancel: CancellationException) { started.cancel(cancel); throw cancel }
-        catch (error: Exception) { mutableState.value = State.Failed; started.completeExceptionally(error) }
+        catch (error: Exception) { publishState(State.Failed); started.completeExceptionally(error) }
         finally {
             if (ownsSource) live?.holdKeeperStartup()
-            closed = true; queue.close(); owner.cancel()
+            closed = true; withdrawPublicState(); queue.close(); owner.cancel()
             while (true) {
                 val work = queue.tryReceive().getOrNull() ?: break
                 if (work is Work.Command) work.done.cancel()
             }
             release()
-            if (mutableState.value != State.Failed) mutableState.value = State.Suspended
         }
     }
 
@@ -178,9 +180,10 @@ internal class NativeKeeperController private constructor(private val source: Na
             KIND_INVITATION_REQUEST -> source.answer(request.event, request.lane)
             KIND_EPOCH_REQUEST -> source.answerEpoch(request.event, request.lane)
             else -> null
-        } ?: run { mutableUnknown.value = source.unknownParticipants(); return }
+        } ?: run { mutableUnknown.value = source.unknownParticipants(); publishState(mutableState.value, source.snapshot()); return }
         mutableUnknown.value = source.unknownParticipants()
         if (offer(reserved, generation, answer = true)) source.offered(reserved)
+        publishState(mutableState.value, source.snapshot())
     }
     private suspend fun offer(reserved: NativeKeeperJournal.Handoff, generation: Long, answer: Boolean): Boolean = try {
         val guard = { selected() && source.canHandoff(reserved) }
@@ -193,9 +196,10 @@ internal class NativeKeeperController private constructor(private val source: Na
 
     private suspend fun recover() {
         check(selected())
-        val pending = source.snapshot().pending
+        val beginning = source.snapshot()
+        val pending = beginning.pending
         if (pending.isNotEmpty()) {
-            mutableState.value = State.Pending(pending.map { it.id })
+            publishState(State.Pending(pending.map { it.id }), beginning)
             validateReceiverBeforeRecovery()
             for (event in pending.filter { it.kind == KIND_ROOM_REKEY }) {
                 requireNotNull(courier).admit(event); source.queued(event)
@@ -220,8 +224,9 @@ internal class NativeKeeperController private constructor(private val source: Na
             source.completePending(receiver, requireNotNull(live))
         }
         val phase = source.verifyReceiver(receiver, live)
-        mutableState.value = if (phase == KeeperPhase.CLOSED) State.Closed(source.snapshot().epoch)
-            else State.Ready(source.snapshot().epoch, phase)
+        val completed = source.snapshot()
+        publishState(if (phase == KeeperPhase.CLOSED) State.Closed(completed.epoch)
+            else State.Ready(completed.epoch, phase), completed)
         mutableUnknown.value = source.unknownParticipants()
         if (phase != KeeperPhase.CLOSED) source.binding.let {
             live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device, ::selected)
@@ -275,7 +280,34 @@ internal class NativeKeeperController private constructor(private val source: Na
     }
 
     /** Invalidates the handoff guard synchronously; cleanup stays on IO. */
-    override fun close() { closed = true; if (ownsSource) live?.holdKeeperStartup(); queue.close(); owner.cancel() }
+    override fun close() { closed = true; withdrawPublicState(); if (ownsSource) live?.holdKeeperStartup(); queue.close(); owner.cancel() }
+
+    /** Worker snapshots are taken BEFORE this lock. UI withdrawal never waits
+     * for source/receiver/courier IO, and an old snapshot cannot revive Ready. */
+    private fun publishState(next: State, snapshot: NativeKeeperJournal.Snapshot? = null) = synchronized(publicationGate) {
+        if (closed && next != State.Failed) return@synchronized
+        val status = when (next) {
+            State.Starting -> NativeHostingStatus.STARTING
+            is State.Ready -> NativeHostingStatus.READY
+            is State.Pending -> NativeHostingStatus.RECOVERING
+            is State.Closed -> NativeHostingStatus.CLOSED
+            State.Suspended -> NativeHostingStatus.SUSPENDED
+            State.Failed -> NativeHostingStatus.FAILED
+        }
+        val previous = mutableHosting.value
+        val observed = if (snapshot == null) previous.copy(status = status) else previous.copy(
+            status = status, lifecycle = NativeHostingLifecycle.valueOf(snapshot.phase.name), epoch = snapshot.epoch,
+            approved = NativeHostingState.frozen(snapshot.members), removed = NativeHostingState.frozen(snapshot.removed),
+            pendingOriginals = NativeHostingState.frozen(snapshot.pending.map { it.id }),
+        )
+        mutableState.value = next
+        mutableHosting.value = if (next == State.Failed || lifetimeSelected()) observed else observed.paused()
+    }
+
+    private fun withdrawPublicState() = synchronized(publicationGate) {
+        if (mutableState.value != State.Failed) mutableState.value = State.Suspended
+        mutableHosting.value = mutableHosting.value.paused()
+    }
     suspend fun stop() { close(); worker.join(); release(); owner.join() }
     private suspend fun release() = withContext(NonCancellable + dispatcher) {
         releaseGate.withLock {

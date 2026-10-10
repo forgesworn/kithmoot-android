@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.epoch.RoomRekeyBinding
+import dev.forgesworn.kithmoot.epoch.NativeHostingStatus
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
@@ -40,6 +41,12 @@ class NativeHostEntryTest {
             assertNull(saved.host(System.currentTimeMillis() / 1000))
             assertFalse(saved.json.containsKey("host"))
             assertTrue(original.getValue("courierReady").jsonPrimitive.boolean)
+            NativeHostFixture.await("selected public hosting projection is ready") {
+                f.model.room.value.nativeHosting?.status == NativeHostingStatus.READY
+            }
+            assertEquals(saved.nativeAuthority!!.pin, f.model.room.value.nativeHosting!!.binding.pin)
+            assertEquals(listOf(saved.participant), f.model.room.value.nativeHosting!!.approved)
+            compose.onNodeWithText("Hosting · epoch 0").assertIsDisplayed()
             val welcome = NostrEvent.fromJson(original.getValue("welcome"))
             val at = System.currentTimeMillis() / 1000
             val who = f.identity(saved, at)
@@ -55,6 +62,13 @@ class NativeHostEntryTest {
             NativeHostFixture.await("approval is in the real source") {
                 f.source(saved).getValue("members").jsonArray.any { it.jsonPrimitive.content == who.participant }
             }
+            NativeHostFixture.await("source approval reaches selected public hosting state") {
+                f.model.room.value.nativeHosting?.approved?.contains(who.participant) == true
+            }
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Last observed epoch 0 · 2 approved members · 0 removed")
+                .performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Done").performClick()
             f.main { f.model.sendChat("host before withdrawal") }
             peer.sendChat("member before withdrawal")
             NativeHostFixture.await("fresh chat crosses both ways") {
@@ -63,7 +77,12 @@ class NativeHostEntryTest {
             }
             if (!route.internet) assertEquals("Nearby-only creates no Internet request", 0, f.server.requestCount)
             val owners = f.radios.size
-            f.main { f.model.setAppVisible(false); f.model.setAppVisible(true) }
+            f.main {
+                f.model.setAppVisible(false)
+                assertEquals(NativeHostingStatus.SUSPENDED, f.model.room.value.nativeHosting!!.status)
+                assertFalse(f.model.room.value.nativeHosting!!.canRetry)
+                f.model.setAppVisible(true)
+            }
             NativeHostFixture.await("rapid return retires the old owner before rebinding") {
                 f.radios.size > owners && f.radios.take(owners).all { it.closed } &&
                     f.model.stage.value == Stage.ROOM && !f.model.start.value.busy
@@ -74,9 +93,16 @@ class NativeHostEntryTest {
             f.awaitHost("fresh host traffic resumes after verification") {
                 peer.chat.value.count { it.body == "host after return" } == 1
             }
-            f.main { f.model.leave() }
+            f.main { f.model.leave(); assertNull(f.model.room.value.nativeHosting) }
             NativeHostFixture.await("leave completes") { f.model.stage.value == Stage.START && !f.model.start.value.busy }
             f.main { f.model.reopenRoom(saved.id) }; f.opened()
+            NativeHostFixture.await("reopened public hosting state comes from the same source") {
+                f.model.room.value.nativeHosting?.let {
+                    it.status == NativeHostingStatus.READY && it.binding.pin == saved.nativeAuthority!!.pin &&
+                        it.approved.toSet() == setOf(saved.participant, who.participant)
+                } == true
+            }
+            compose.onNodeWithText("Hosting · epoch 0").assertIsDisplayed()
             assertEquals(saved.participant, f.model.room.value.selfParticipant)
             assertEquals(saved.devicePubkey, f.model.room.value.selfDevice)
             assertEquals(saved.json["nativeAuthority"], f.app.savedRooms.get(saved.id)!!.json["nativeAuthority"])

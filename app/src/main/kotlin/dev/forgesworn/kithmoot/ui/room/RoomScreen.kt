@@ -311,6 +311,7 @@ fun RoomScreen(
                     TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
+                state.nativeHosting?.let { NativeHostingPanel(it) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
@@ -644,6 +645,10 @@ private fun Header(
                 Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                state.nativeHosting?.let { hosting ->
+                    Text(nativeHostingLine(hosting), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (onInviteByQr != null) IconButton(onClick = onInviteByQr) { Icon(Icons.Filled.QrCode2, "Invite by QR") }
             IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search messages") }

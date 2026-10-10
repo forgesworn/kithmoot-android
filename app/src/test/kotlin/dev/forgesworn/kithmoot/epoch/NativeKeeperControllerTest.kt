@@ -15,8 +15,9 @@ import kotlin.test.*
 class NativeKeeperControllerTest {
     private class Store : RoomStorage {
         var bytes: ByteArray? = null; var fail = false
+        var onWrite: () -> Unit = {}
         override fun read() = bytes?.clone()
-        override fun write(value: ByteArray) { if (fail) error("Disk unavailable"); bytes = value.clone() }
+        override fun write(value: ByteArray) { if (fail) error("Disk unavailable"); onWrite(); bytes = value.clone() }
         override fun reset() = error("Do not reset retry or authority debt")
     }
     private class Link(private val scope: String) : RoomMeshLink {
@@ -109,6 +110,81 @@ class NativeKeeperControllerTest {
                 })
             } finally { r.stop() }
         }
+    }
+
+    @Test fun hostingObservationUsesActualSourceMembershipEvenWhenTheMemberIsOffline() {
+        for (route in RoomRoute.entries) runTest {
+            val r = Rig(this, route)
+            try {
+                r.start(); val controller = assertNotNull(r.controller)
+                val first = controller.hosting.value
+                assertEquals(r.binding.pin, first.binding.pin)
+                assertEquals(route, first.binding.route)
+                assertEquals(NativeHostingStatus.READY, first.status)
+                assertEquals(0, first.epoch)
+                assertEquals(listOf(r.owner.participant), first.approved)
+                val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    r.member.deviceSecretKey, r.member.credential, currentTime / 1000), lane)
+                runCurrent()
+                assertEquals(listOf(r.owner.participant), controller.hosting.value.approved)
+                controller.approve(r.member.participant); runCurrent()
+                assertTrue(controller.hosting.value.approved.contains(r.member.participant))
+                assertFalse(r.live.hasParticipant(r.member.participant))
+                assertFailsWith<UnsupportedOperationException> {
+                    (controller.hosting.value.approved as MutableList<String>).clear()
+                }
+                controller.rekeyMembers(removed = listOf(r.member.participant)); runCurrent()
+                val next = controller.hosting.value
+                assertEquals(NativeHostingStatus.READY, next.status)
+                assertEquals(NativeHostingLifecycle.ACTIVE, next.lifecycle)
+                assertEquals(1, next.epoch)
+                assertEquals(listOf(r.owner.participant), next.approved)
+                assertEquals(listOf(r.member.participant), next.removed)
+                assertTrue(next.pendingOriginals.isEmpty()); assertFalse(next.canRetry)
+                assertEquals(listOf(r.owner.participant), first.approved)
+            } finally { r.stop() }
+        }
+    }
+
+    @Test fun withdrawingDuringASourceWriteSynchronouslyPausesAndCannotRepublishReady() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val controller = assertNotNull(r.controller)
+            r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000), RekeyLane.NEARBY)
+            runCurrent()
+            var observed = false
+            r.sourceStore.onWrite = {
+                controller.close()
+                assertEquals(NativeHostingStatus.SUSPENDED, controller.hosting.value.status)
+                assertFalse(controller.hosting.value.canRetry)
+                observed = true
+            }
+            assertFails { controller.approve(r.member.participant) }
+            runCurrent()
+            assertTrue(observed)
+            assertEquals(NativeHostingStatus.SUSPENDED, controller.hosting.value.status)
+            assertFalse(controller.hosting.value.canRetry)
+        } finally { r.sourceStore.onWrite = {}; r.stop() }
+    }
+
+    @Test fun failedReceiverAdoptionKeepsOriginalRecoveryMetadataWithoutClaimingReady() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val controller = assertNotNull(r.controller)
+            r.receiverStore.fail = true
+            assertFails { controller.rekeyMembers() }; runCurrent()
+            val observed = controller.hosting.value
+            assertEquals(NativeHostingStatus.FAILED, observed.status)
+            assertEquals(0, observed.epoch)
+            val persisted = Json.parseToJsonElement(assertNotNull(r.queueStore.bytes).decodeToString()).jsonObject
+            val original = NostrEvent.fromJson(persisted.getValue("entries").jsonArray.single().jsonObject.getValue("event"))
+            assertEquals(listOf(original.id), observed.pendingOriginals)
+            assertFalse(observed.canRetry)
+            controller.close()
+            assertEquals(NativeHostingStatus.FAILED, controller.hosting.value.status)
+        } finally { r.receiverStore.fail = false; r.stop() }
     }
 
     @Test fun sourceDerivedAudienceRetainsBothOfflineMemberDevicesAfterCacheExpiryOnEveryRoute() {

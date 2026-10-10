@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
 import dev.forgesworn.kithmoot.epoch.NativeKeeperCreation
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEntry
 import dev.forgesworn.kithmoot.epoch.NativeKeeperController
+import dev.forgesworn.kithmoot.epoch.NativeHostingState
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEndpoints
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
 import dev.forgesworn.kithmoot.storage.NativeRoomCreation
@@ -503,6 +504,8 @@ data class RoomState(
     val route: RoomRoute = RoomRoute.INTERNET,
     val nearby: RoomBleState? = null,
     val sharing: RoomSharingState? = null,
+    /** Public source observation; never a root key or permission to sign. */
+    val nativeHosting: NativeHostingState? = null,
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
@@ -4405,6 +4408,9 @@ class RoomViewModel @JvmOverloads constructor(
             roomId = derived.roomId,
             route = route,
             nearby = nearbyOwner?.link?.state?.value,
+            nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
+                if (appVisible) state else state.paused()
+            } },
             mediaRunning = !route.nearby,
             name = record.name,
             joinUrl = selectedWebApp.roomLink(record.joinUrl),
@@ -4504,16 +4510,26 @@ class RoomViewModel @JvmOverloads constructor(
             val controller = nativeEntry.start(live, NativeKeeperEndpoints(q, nearby, relay), scope,
                 { session === live && nativeKeeperEntry === nativeEntry && appVisible })
             nativeKeeperController = controller
+            fun attached() = session === live && nativeKeeperEntry === nativeEntry &&
+                nativeKeeperController === controller && appVisible
+            scope.launch {
+                controller.hosting.collect { hosting ->
+                    _room.update { state ->
+                        if (attached() && state.roomId == record.id && state.nativeHosting?.binding?.pin == hosting.binding.pin)
+                            state.copy(nativeHosting = hosting) else state
+                    }
+                }
+            }
             scope.launch {
                 controller.unknownParticipants.collect { participants ->
-                    _room.update { if (session === live) it.copy(letInAsks = participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
+                    _room.update { if (attached()) it.copy(letInAsks = participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
                 }
             }
             scope.launch {
                 controller.state.collect { state ->
                     if (state == NativeKeeperController.State.Failed || state == NativeKeeperController.State.Suspended)
-                        _room.update { if (session === live) it.copy(notice = "Room hosting is paused. Reopen the room to inspect its saved state.") else it }
-                    if (state is NativeKeeperController.State.Closed && session === live)
+                        _room.update { if (attached()) it.copy(notice = "Room hosting is paused. Reopen the room to inspect its saved state.") else it }
+                    if (state is NativeKeeperController.State.Closed && attached())
                         viewModelScope.launch(Dispatchers.IO) { roomClosed(record.id) }
                 }
             }
@@ -5832,7 +5848,10 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
-        if (!visible) nativeKeeperEntry?.close()
+        if (!visible) {
+            _room.update { it.copy(nativeHosting = it.nativeHosting?.paused()) }
+            nativeKeeperEntry?.close()
+        }
         if (!visible) stopRoomSharing()
         if (!visible && freshNearbyOpening) { entryJob?.cancel(); return }
         engine?.localMedia?.setAppVisible(visible)
