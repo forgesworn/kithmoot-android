@@ -1044,8 +1044,8 @@ class RoomSession(
     /**
      * Persist the exact ciphertext before first publication, then reuse it on every
      * retry. Messages queue: each is kept as soon as it is signed and they go
-     * oldest first, one at a time, so a second send never waits on the first
-     * and never overtakes it. True when this message was confirmed.
+     * oldest first, one at a time. An unconfirmed mesh offer keeps its record
+     * while permitting later offers. True only when this message was confirmed.
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
@@ -1126,17 +1126,20 @@ class RoomSession(
     private suspend fun drainPendingChats(outbox: PendingChatOutbox) = chatSendGate.withLock {
         for (item in outbox.items()) {
             if (item.state == PendingChatState.MOVED) continue
-            // A message that fails, or cannot be tried yet, holds the ones behind it.
-            if (!publishPendingChat(outbox, item)) break
+            // Offer each retained record once in order. An unconfirmed handoff
+            // keeps UNKNOWN but cannot hold all future mesh chat indefinitely.
+            if (publishPendingChat(outbox, item) == PendingPublication.BLOCKED) break
         }
     }
 
-    /** True when this message is done with (sent, or can never go) and the next may be tried. */
-    private suspend fun publishPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending): Boolean {
+    private enum class PendingPublication { COMPLETE, UNCONFIRMED, BLOCKED }
+
+    /** Scheduling progress is separate from the evidence needed to clear a record. */
+    private suspend fun publishPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending): PendingPublication {
         val event = item.event
         // Only a message that never left may be called never sent; see PendingChatOutbox.setState.
-        suspend fun moved(): Boolean { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return true }
-        if (!trafficAllowed()) return false
+        suspend fun moved(): PendingPublication { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return PendingPublication.COMPLETE }
+        if (!trafficAllowed()) return PendingPublication.BLOCKED
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         if (epoch.id != item.epochId) return moved()
@@ -1146,8 +1149,8 @@ class RoomSession(
         if (now() >= (ends ?: Long.MAX_VALUE)) return moved()
         val message = try { decodeOwnChat(event, event.createdAt, epoch) } catch (_: IllegalStateException) { return moved() }
         // Not offered while no relay is connected: it stays cleanly unsent.
-        if (!transport.reachable()) return false
-        val before = outbox.begin(event.id) ?: return true
+        if (!transport.reachable()) return PendingPublication.BLOCKED
+        val before = outbox.begin(event.id) ?: return PendingPublication.COMPLETE
         inFlight += event.id
         refreshPendingChats()
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
@@ -1161,29 +1164,29 @@ class RoomSession(
             if (confirmed) {
                 if (ingestChat(message)) retainOwnOuterEvent(event, message)
                 outbox.confirm(event.id)
-                return true
+                return PendingPublication.COMPLETE
             }
             // Every relay said no. A rekey also ends an attempt that way, and that one was on the wire.
             if (transport.publicationGeneration() == generation) withContext(NonCancellable) {
                 outbox.setState(event.id, PendingChatState.REFUSED, force = before.state != PendingChatState.UNKNOWN)
             }
-            return false
+            return PendingPublication.BLOCKED
         } catch (_: PublicationNotOfferedException) {
             // This call never offered. Restore only what was known before it;
             // an earlier UNKNOWN must stay uncertain even after admission ends.
             withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
             if (epochKeys().id != item.epochId || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
                 event.createdAt < now() - CHAT_RETENTION_SECONDS) moved()
-            return false
+            return PendingPublication.BLOCKED
         } catch (_: PublicationUnconfirmedException) {
             // A mesh offer has no durable receipt. begin() already persisted UNKNOWN;
             // never turn it into REFUSED or restore the earlier unsent state.
-            return false
+            return PendingPublication.UNCONFIRMED
         } catch (timeout: TimeoutCancellationException) {
             // No relay answered in time: it may have arrived, and stays UNKNOWN. When it was
             // the caller's own deadline that ran out, that is cancellation, and passes on.
             if (!currentCoroutineContext().isActive) throw timeout
-            return false
+            return PendingPublication.BLOCKED
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {

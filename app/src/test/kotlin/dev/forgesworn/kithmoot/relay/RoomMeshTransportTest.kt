@@ -358,6 +358,70 @@ class RoomMeshTransportTest {
         sender.leave(); mesh.close()
     }
 
+    @Test fun `durable mesh chat progresses in offer order across sender reopen while every receipt stays unknown`() = runTest {
+        val clock = { 100L }
+        var left = Link(); val right = Link()
+        var a = RoomMeshTransport(meshScope, left, clock)
+        val b = RoomMeshTransport(meshScope, right, clock)
+        val room = Fixtures.room(); val identity = Fixtures.primary(room, 1, 2)
+        val storage = object : RoomStorage {
+            var bytes: ByteArray? = null
+            override fun read() = bytes?.copyOf()
+            override fun write(value: ByteArray) { bytes = value.copyOf() }
+            override fun reset() { bytes = null }
+        }
+        fun sender(outbox: PendingChatOutbox) = RoomSession(room, identity, a, backgroundScope,
+            timing = Fixtures.QUIET, now = clock, nowMs = { clock() * 1000 },
+            random = kotlin.random.Random(7), epochSettleMs = 0, chatOutbox = outbox)
+        var outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        var alice = sender(outbox)
+        val bob = RoomSession(room, Fixtures.primary(room, 3, 4), b, backgroundScope,
+            timing = Fixtures.QUIET, now = clock, epochSettleMs = 0)
+        val chatOffers = mutableListOf<NostrEvent>()
+        fun pump() {
+            repeat(8) {
+                runCurrent()
+                val l = left.offered.toList(); left.offered.clear()
+                val r = right.offered.toList(); right.offered.clear()
+                l.forEach { (bytes, _) ->
+                    RoomMeshWire.decode(bytes)?.takeIf { it.first == RoomMeshWire.EVENT }
+                        ?.let { NostrEvent.fromJson(it.second.getValue("event")) }
+                        ?.takeIf { it.kind == 1460 }?.let { chatOffers += it }
+                    right.inbound(bytes, "alice"); right.inbound(bytes, "alice")
+                }
+                r.forEach { (bytes, _) -> left.inbound(bytes, "bob"); left.inbound(bytes, "bob") }
+            }
+            runCurrent()
+        }
+        alice.join(); bob.join(); pump(); advanceTimeBy(2_000); pump()
+        assertFalse(alice.sendChatDurable("first retained")); pump()
+        val first = outbox.items().single().event
+        assertFalse(alice.sendChatDurable("second retained")); pump()
+        val originals = outbox.items().map { it.event }
+        assertEquals(listOf(first, first, originals[1]), chatOffers)
+        assertEquals(listOf("first retained", "second retained"), bob.chat.value.map { it.body })
+        alice.reconcilePendingChats()
+        assertTrue(outbox.items().all { it.state == PendingChatState.UNKNOWN })
+        alice.leave(); a.close()
+        left = Link(); a = RoomMeshTransport(meshScope, left, clock)
+        outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        alice = sender(outbox); alice.join(); pump(); advanceTimeBy(2_000); pump()
+        val before = chatOffers.size
+        assertFalse(alice.sendChatDurable("third after reopen")); pump()
+        val retained = outbox.items()
+        assertEquals(originals, retained.take(2).map { it.event })
+        assertEquals(retained.map { it.event }, chatOffers.drop(before))
+        assertTrue(retained.all { it.state == PendingChatState.UNKNOWN })
+        assertEquals(listOf("first retained", "second retained", "third after reopen"), bob.chat.value.map { it.body })
+        assertFalse(alice.retryPendingChat()); pump()
+        assertEquals(3, bob.chat.value.size)
+        assertTrue(retained.all { alice.editPendingChat(it.event.id) == null && !alice.deletePendingChat(it.event.id) })
+        bob.sendChat("reply to reopened sender"); pump()
+        assertEquals(1, alice.chat.value.count { it.body == "reply to reopened sender" })
+        println("DURABLE_CHAT_SCHEDULING_MEASUREMENT {\"retained\":3,\"unknown\":3,\"peerRows\":3,\"originalsUnchanged\":true,\"peerRejoined\":false,\"replyRows\":1}")
+        alice.leave(); bob.leave(); a.close(); b.close()
+    }
+
     @Test fun `background mesh flush persists possible handoff before local offer`() = runTest {
         val storage = object : RoomStorage {
             var bytes: ByteArray? = null

@@ -103,9 +103,11 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             })
         }
         // Bind only loopback: this test must never expose its synthetic relay.
-        it.start(InetAddress.getLoopbackAddress(), relayPort)
+        it.start(InetAddress.getByName("127.0.0.1"), relayPort)
     }
-    val relays = listOf(server.url("/").toString().replace("http:", "ws:"))
+    val relays = listOf("ws://127.0.0.1:${server.port}/").also { urls ->
+        check(urls.all { isSafeRoomRelayUrl(it) && isSafeRoomRelayUrl(canonicalRelayUrl(it)) })
+    }
     lateinit var model: RoomViewModel
     var savedRoom: SavedRoom? = null
     private val mesh = CopyOnWriteArrayList<RoomMeshTransport>()
@@ -118,6 +120,7 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         store.put("native-host", model)
         model.onRelaysChanged(relays.joinToString("\n"))
         model.onRoomNameChanged("Native host lab")
+        check(parseRelays(model.start.value.relays) == relays) { "Native lab endpoint selection changed" }
     }
     suspend fun opened(): SavedRoom {
         await("native host opens through ViewModel") { model.stage.value == Stage.ROOM && !model.start.value.busy || model.start.value.error != null }

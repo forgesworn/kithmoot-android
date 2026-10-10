@@ -18,6 +18,45 @@ class DurableChatDispatchTest {
         override fun reset() { bytes = null }
     }
 
+    @Test fun `refusal preoffer rejection and ambiguous failure hold later durable messages`() = runTest {
+        for (failure in listOf("refused", "not-offered", "generic")) {
+            val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+            val relay = FakeRelay(); val attempted = mutableListOf<NostrEvent>()
+            val transport = object : RoomTransport by relay.transport() {
+                override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                    stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                    assertTrue(stillAllowed()); attempted += event
+                    when (failure) {
+                        "refused" -> return false
+                        "not-offered" -> throw PublicationNotOfferedException()
+                        else -> error("Ambiguous dispatch failure")
+                    }
+                }
+            }
+            val store = Store()
+            val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+            val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
+                now = { 1L }, chatOutbox = outbox)
+            live.join(); advanceTimeBy(1_000); runCurrent()
+            suspend fun send(text: String) {
+                if (failure == "generic") assertFailsWith<IllegalStateException> { live.sendChatDurable(text) }
+                else assertFalse(live.sendChatDurable(text))
+            }
+            send("first held"); val original = outbox.items().single().event
+            send("second waits")
+            assertEquals(listOf(original, original), attempted, failure)
+            assertEquals(2, outbox.items().size)
+            assertEquals(PendingChatState.WAITING, outbox.items()[1].state)
+            assertEquals(when (failure) {
+                "refused" -> PendingChatState.REFUSED
+                "not-offered" -> PendingChatState.WAITING
+                else -> PendingChatState.UNKNOWN
+            }, outbox.items()[0].state)
+            assertEquals(outbox.items(), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).items())
+            live.leave()
+        }
+    }
+
     @Test fun `admission expiry at dispatch holds a never offered message without crashing`() = runTest {
         val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
         val issuer = Fixtures.key(90)

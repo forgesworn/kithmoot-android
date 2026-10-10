@@ -43,6 +43,16 @@ and mesh replay cannot reconcile it away. Retrying retains the original signed
 event. Quiet/cadence wrappers propagate the observation-evidence policy; that
 alone does not qualify their use over mesh.
 
+The durable sender now separates offer scheduling from confirmation. Each
+bounded sweep offers retained messages once in journal order; a typed
+unconfirmed handoff leaves its record UNKNOWN and permits the next offer.
+Unavailable routes, explicit refusal, pre-offer rejection, timeouts and generic
+errors stop the sweep. Send/retry still reports confirmation only when the
+exact record is removed through the existing receipt rules. Local echo and
+replay cannot clear the journal. Arrival order is not guaranteed after loss.
+This avoids permanently blocking later mesh chat behind the first unconfirmed
+message; it does not provide an authenticated participant storage receipt.
+
 Twelve focused JVM tests cover adversarial input, retention, replay amplification,
 rekey queue barriers, teardown despite callback failure, history/receipt distinctions, byte-exact TypeScript codec
 interop, actual RoomSession encrypted chat both ways and one row per repeated
