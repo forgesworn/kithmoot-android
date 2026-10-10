@@ -111,6 +111,8 @@ pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/box-disc
 run_tests cadence-ui 1 -e class dev.forgesworn.kithmoot.ui.CadenceUiTest
 run_tests room-epoch-ui 1 -e class dev.forgesworn.kithmoot.ui.RoomEpochUiTest
 run_tests shared-work-ui 2 -e class dev.forgesworn.kithmoot.ui.SharedWorkUiTest
+run_tests workspace-inbox-ui 5 -e class dev.forgesworn.kithmoot.ui.WorkspaceInboxUiTest
+run_tests workspace-inbox-relay 1 -e class dev.forgesworn.kithmoot.ui.WorkspaceInboxRelayUiTest
 run_tests shared-work-relay 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkRelayTest
 run_tests shared-work-entry 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#d_shared_work_survives_initial_epoch_and_real_room_entry
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/shared-work-review.png"

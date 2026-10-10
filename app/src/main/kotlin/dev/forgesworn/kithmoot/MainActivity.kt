@@ -299,6 +299,18 @@ class MainActivity : ComponentActivity() {
                     visitor.callRoomId = callRoom.roomId
                     visitor.refreshSavedRooms()
                     visiting = true
+                }, onWorkspaceOriginKeepingCall = { target ->
+                    visitor.borrowAccount(model)
+                    visitor.callRoomId = callRoom.roomId
+                    visitor.refreshSavedRooms()
+                    visitor.openWorkspaceOrigin(target)
+                    visiting = true
+                }, onWorkspaceProjectsKeepingCall = {
+                    visitor.borrowAccount(model)
+                    visitor.callRoomId = callRoom.roomId
+                    visitor.refreshSavedRooms()
+                    visitor.requestWorkspaceProjects()
+                    visiting = true
                 }, lockedCallOnly = overLock && locked, callAnswering = answeringNow || overLock, onUnlock = {
                     getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
                 })

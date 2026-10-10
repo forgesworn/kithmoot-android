@@ -25,6 +25,7 @@ internal class ProjectTestRelay : AutoCloseable {
     private val server = MockWebServer()
     val events = CopyOnWriteArrayList<NostrEvent>()
     val writes = CopyOnWriteArrayList<NostrEvent>()
+    val requests = CopyOnWriteArrayList<JsonObject>()
     private val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
     @Volatile var acknowledge = true
     val url: String get() = "ws://127.0.0.1:${server.port}/"
@@ -45,7 +46,7 @@ internal class ProjectTestRelay : AutoCloseable {
                     when (frame[0].jsonPrimitive.content) {
                         "REQ" -> {
                             val id = frame[1].jsonPrimitive.content
-                            val filters = frame.drop(2).map { it.jsonObject }; subs[id] = filters
+                            val filters = frame.drop(2).map { it.jsonObject }; requests.addAll(filters); subs[id] = filters
                             events.filter { event -> filters.any { matches(it, event) } }.forEach { event ->
                                 socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
                             }

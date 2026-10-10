@@ -184,6 +184,17 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val retirements: List<NostrEvent> get() = json["retirements"]?.jsonArray?.map { NostrEvent.fromJson(it) } ?: emptyList()
     private val identityJson: JsonObject get() = json.getValue("identity").jsonObject
 
+    /** A retained reading capability, never a renewed signing identity. Directory
+     * membership and bookmarks alone cannot admit a workspace activity reader. */
+    fun workspaceAdmission(account: String?, now: Long): Boolean {
+        if (account == null || !viaAccount || participant != account || openedAt <= 0 ||
+            anonymous || retired || movedOn || ends != null || destruct || policy?.quiet == true || !route.internet) return false
+        val credential = runCatching { NostrEvent.fromJson(identityJson.getValue("credential")) }.getOrNull() ?: return false
+        if (credential.createdAt > now + 120) return false
+        val verified = verifyDeviceCredential(credential, id, credential.createdAt)
+        return verified is CredentialCheck.Valid && verified.participant == account && verified.device == devicePubkey
+    }
+
     fun summary(now: Long = System.currentTimeMillis() / 1000): SavedRoomSummary {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,

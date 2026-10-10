@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.ui.room
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -15,14 +16,26 @@ import kotlinx.serialization.json.*
 
 /** Quiet progress, concrete decisions, and the evidence being accepted. */
 @Composable
-fun WorkPane(state:RoomState,onSubmit:(String?,JsonObject,String?)->Unit,onRetry:()->Unit,onRefresh:()->Unit) {
+fun WorkPane(state:RoomState,onSubmit:(String?,JsonObject,String?)->Unit,onRetry:()->Unit,onRefresh:()->Unit,
+    targetAssignment:String? = null, targetRequest:Int = 0, onClearTarget:()->Unit = {}) {
     var creating by rememberSaveable(state.roomId){mutableStateOf(false)}
     var submittedAt by rememberSaveable(state.roomId){mutableStateOf(-1L)}
     LaunchedEffect(state.workCompleted){if(submittedAt>=0&&state.workCompleted>submittedAt){creating=false;submittedAt=-1}}
     val canUpdate=state.work.ready&&!state.workBusy&&state.work.pendingSends==0&&!state.secondary&&state.movedOn==null
-    val decisions=state.work.assignments.filter{it.creator==state.selfParticipant&&it.needsDecision}
-    val others=state.work.assignments.filter{it !in decisions}
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+    val selected = state.work.assignments.find { it.id == targetAssignment }
+    val listState = rememberLazyListState()
+    var targetScrolled by remember(targetAssignment, targetRequest) { mutableStateOf(false) }
+    var targetWaited by remember(targetAssignment, targetRequest) { mutableStateOf(false) }
+    val targetIndex = 1 + (if (state.workBusy) 1 else 0) + (if (state.workError != null || state.work.error != null) 1 else 0) +
+        (if (state.work.pendingSends > 0 || !state.work.ready && state.workError == null && state.work.error == null) 1 else 0) +
+        (if (state.secondary) 1 else 0)
+    LaunchedEffect(targetAssignment, targetRequest) { if (targetAssignment != null) { kotlinx.coroutines.delay(10_000); targetWaited = true } }
+    LaunchedEffect(targetAssignment, targetRequest, selected?.head, targetIndex) {
+        if (selected != null && !targetScrolled) { listState.scrollToItem(targetIndex); targetScrolled = true }
+    }
+    val decisions=state.work.assignments.filter{it != selected && it.creator==state.selfParticipant&&it.needsDecision}
+    val others=state.work.assignments.filter{it != selected && it !in decisions}
+    LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         item {
             Text("Shared work",style=MaterialTheme.typography.headlineSmall)
             Text("Keep the conversation here. Bring decisions back when they need you.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -42,6 +55,14 @@ fun WorkPane(state:RoomState,onSubmit:(String?,JsonObject,String?)->Unit,onRetry
             }}
         } else if(!state.work.ready&&error==null)item{Text("Loading shared work…",color=MaterialTheme.colorScheme.onSurfaceVariant)}
         if(state.secondary)item{Text("This paired device can read shared work. Use your signing device to send decisions.",style=MaterialTheme.typography.bodyMedium)}
+        if(targetAssignment != null) item(key = "workspace-task-target") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (selected != null) "Task opened from workspace" else if (targetWaited)
+                    "This task is not in the history loaded here. Check the connection and current room access." else "Loading the originating task…")
+                TextButton(onClearTarget) { Text("Show all room work") }
+                if (selected != null) AssignmentCard(selected, state, canUpdate, onSubmit)
+            }
+        }
         if(creating)item{
             NewAssignment(state,canUpdate){operation->submittedAt=state.workCompleted;onSubmit(null,operation,null)}
         }
