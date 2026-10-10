@@ -1,3 +1,17 @@
+## 0.6.79 (102): conversation activity follows messages
+
+Opening or reading a room no longer changes its activity time or moves it to
+recent rooms. The list uses the latest readable message, including your own
+messages, and keeps unknown history visible under Other rooms with a blank
+time. Activity receipts stay encrypted and are scoped to the selected account
+and this device; reading and notification cursors remain independent.
+
+Qualified before the version bump: 401 protocol and 1,904 app unit tests,
+debug/release lint and builds, and all 26 home-screen emulator cases. Hosted
+recovery and both Android 13/15 signing-lineage checks passed on the exact
+conversation change. This section does not claim a signed APK, publication or
+physical-phone acceptance; those require the release receipts.
+
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
 ## 0.6.78 (101): prevent repeated taps from submitting the same draft
