@@ -9,6 +9,8 @@ import dev.forgesworn.kithmoot.session.RoomSession
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.serialization.json.*
 import java.util.Base64
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -25,26 +27,44 @@ internal class NativeKeeperCreation private constructor(private val secret: Byte
         check(!consumed); return RoomInvitation(host.invitation.bearer.clone(), authority, true)
     }
     @Synchronized fun welcome(): NostrEvent { check(!consumed); return keeperEvent(welcome) }
-    @Synchronized internal fun consume(): KeeperMaterial {
+    @Synchronized internal fun consume(): KeeperSeed {
         check(!consumed) { "Keeper creation was already consumed" }
-        val material = KeeperMaterial(secret.clone(), host.inviterSecretKey.clone(), host.invitation.bearer.clone(), keeperEvent(welcome))
-        close(); return material
+        val seed = KeeperSeed(KeeperMaterial(secret.clone(), host.inviterSecretKey.clone()),
+            host.invitation.bearer.clone(), keeperEvent(welcome))
+        close(); return seed
     }
     @Synchronized override fun close() {
         consumed = true; secret.fill(0); host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0)
     }
     override fun toString() = "NativeKeeperCreation(room=$room, signingMaterial=<private>)"
     companion object {
-        fun fresh(now: Long, roomRelays: List<String>? = null, ends: Long? = null, destruct: Boolean = false): NativeKeeperCreation {
+        fun fresh(now: Long, roomRelays: List<String>? = null, ends: Long? = null, destruct: Boolean = false): NativeKeeperCreation =
+            freshChecked(now, roomRelays, ends, destruct,
+                { createRoomInvitation(persistent = true) }, { Entropy.bytes(32) })
+
+        /** Production uses the real minting sources above. Keeping them behind
+         * this policy gate also lets refusal tests observe whether minting ran. */
+        internal fun freshChecked(now: Long, roomRelays: List<String>?, ends: Long?, destruct: Boolean,
+            createHost: () -> RoomInvitationHost, createSecret: () -> ByteArray): NativeKeeperCreation {
             require(now in 0..KEEPER_MAX_TIME)
             // Signed invitation URLs have a different canonical root-path form
             // from endpoint pins. Validate the complete list before minting keys.
             val signedRelays = roomRelays?.let(::canonicalRoomRelays)
-            val host = createRoomInvitation(persistent = true)
-            val secret = Entropy.bytes(32)
-            try { return NativeKeeperCreation(secret, host, encodePersistentInvitation(host, secret, now,
-                ends = ends, relays = signedRelays, destruct = destruct), now) }
-            catch (error: Exception) { secret.fill(0); host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0); throw error }
+            // A signed envelope that cannot decode must never mint an authority.
+            ends?.let { require(it in 1..((1L shl 53) - 1)) { "room end must be a positive safe integer" } }
+            require(persistentInvitationEventBytes(now, ends, signedRelays, destruct) <= NativeKeeperJournal.MAX_EVENT_BYTES) {
+                "Invitation event exceeds source bound"
+            }
+            val host = createHost()
+            var secret: ByteArray? = null
+            try {
+                val base = createSecret().also { secret = it }
+                require(base.size == 32)
+                return NativeKeeperCreation(base, host, encodePersistentInvitation(host, base, now,
+                    ends = ends, relays = signedRelays, destruct = destruct), now)
+            } catch (error: Exception) {
+                secret?.fill(0); host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0); throw error
+            }
         }
     }
 }
@@ -71,9 +91,11 @@ internal class NativeKeeperBinding(val room: String, val authority: String, val 
 internal enum class KeeperPhase { ACTIVE, RETIRED, CLOSED }
 internal class NativeKeeperMigrationRequiredException : IllegalStateException("Native authority journal needs explicit migration")
 internal class NativeRekeyRefusedException(cause: Exception) : IllegalStateException("Native rekey refused before signing", cause)
-internal class KeeperMaterial(val base: ByteArray, val signer: ByteArray, val bearer: ByteArray, val welcome: NostrEvent) {
-    fun wipe() { base.fill(0); signer.fill(0); bearer.fill(0) }
+internal class KeeperMaterial(val base: ByteArray, val signer: ByteArray) {
+    fun wipe() { base.fill(0); signer.fill(0) }
 }
+/** Fresh material transfers once; the durable Record then owns the invitation. */
+internal class KeeperSeed(val material: KeeperMaterial, val bearer: ByteArray, val welcome: NostrEvent)
 
 /** Exclusive one-room signing authority. No network, subscriptions or UI are
  * opened here. All IO/signing calls belong on the controller's IO dispatcher;
@@ -105,21 +127,28 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val destruct: Boolean, val queued: Set<String> = emptySet(), val attempts: Map<String, Int> = emptyMap(),
         val offered: Map<String, Int> = emptyMap())
     private data class WelcomeDelivery(val event: NostrEvent, val attempts: Int = 0, val nextAt: Long = 0, val accepted: Boolean = false)
+    /** One invitation truth, with its delivery counters in the same commit.
+     * Schema 4/5 still represent exactly their original generation zero. */
+    private data class InvitationState(val bearer: ByteArray, val welcome: NostrEvent,
+        val delivery: WelcomeDelivery? = null)
     private data class Device(val participant: String, val device: String, val credential: NostrEvent,
         val verifiedAt: Long, val removed: Boolean = false)
     private data class Retirement(val event: NostrEvent, val invitation: String, val epoch: Int,
         val attempts: Map<String, Int>, val offered: Map<String, Int>)
     private data class Record(val epoch: Int, val secret: ByteArray, val phase: KeeperPhase, val removed: List<String>,
         val members: List<String>, val at: Long, val high: Long, val revision: Long, val destruct: Boolean,
-        val cause: String?, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null,
+        val cause: String?, val invitation: InvitationState, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null,
         val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null,
-        val courierReady: Boolean = false, val welcomeDelivery: WelcomeDelivery? = null,
+        val courierReady: Boolean = false,
         val devices: List<Device> = emptyList(), val retirements: List<Retirement> = emptyList(),
         val legacyRetirementSlots: Int = 0)
     private val lock = ReentrantLock()
     private val lease = Any()
     private lateinit var material: KeeperMaterial
     private lateinit var data: Record
+    // Track each decoded private buffer immediately. A later strict field or
+    // signature failure must wipe it even before Record/material is assigned.
+    private val decodedBuffers = Collections.newSetFromMap(IdentityHashMap<ByteArray, Boolean>())
     private var selected: (() -> Boolean)? = null
     private var bound = false
     private var end: Long? = null
@@ -145,13 +174,20 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 val checked = verifyDeviceCredential(frozenOwner, binding.room, at) as? CredentialCheck.Valid
                 require(checked?.participant == binding.participant && checked.device == binding.device)
                 require(keeperBytes(frozenOwner) <= MAX_CREDENTIAL_BYTES)
-                material = creation.consume()
-                val welcome = requireNotNull(decodePersistentInvitation(material.welcome, invitationUnlocked()))
-                end = welcome.endsAt
-                data = Record(0, material.base.clone(), KeeperPhase.ACTIVE, emptyList(), listOf(binding.participant),
-                    at, at, 0, welcome.destruct, null,
-                    devices = listOf(Device(binding.participant, binding.device, frozenOwner, at)))
-                save(data, initial = true)
+                val seed = creation.consume()
+                material = seed.material
+                val active = InvitationState(seed.bearer, seed.welcome)
+                decodedBuffers.add(active.bearer)
+                val invitation = invitationOf(active)
+                val welcome = try { requireNotNull(decodePersistentInvitation(active.welcome, invitation)) }
+                    finally { invitation.bearer.fill(0) }
+                try {
+                    end = welcome.endsAt
+                    data = Record(0, material.base.clone(), KeeperPhase.ACTIVE, emptyList(), listOf(binding.participant),
+                        at, at, 0, welcome.destruct, null, active,
+                        devices = listOf(Device(binding.participant, binding.device, frozenOwner, at)))
+                    save(data, initial = true)
+                } finally { welcome.secret.fill(0) }
             }
         } catch (error: Exception) {
             wipe(); closed = true
@@ -165,9 +201,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     fun suspendExports() = lock.withLock { selected = null }
     fun invitation(): RoomInvitation = lock.withLock { usable(); invitationUnlocked() }
-    private fun invitationUnlocked() = RoomInvitation(material.bearer.clone(), binding.authority, true)
+    private fun invitationOf(active: InvitationState) = RoomInvitation(active.bearer.clone(), binding.authority, true)
+    private fun invitationUnlocked() = invitationOf(data.invitation)
     fun epoch(): RoomEpoch = lock.withLock { usable(); RoomEpoch(data.epoch, data.secret) }
-    fun welcome(): NostrEvent = lock.withLock { usable(); keeperEvent(material.welcome) }
+    fun welcome(): NostrEvent = lock.withLock { usable(); keeperEvent(data.invitation.welcome) }
     fun snapshot(): Snapshot = lock.withLock {
         usable()
         Snapshot(data.phase, data.epoch, deriveEpoch(RoomEpoch(data.epoch, data.secret)).id, data.high, data.revision,
@@ -215,14 +252,14 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     fun reserveWelcome(): Handoff? = lock.withLock {
         usable(); val at = time()
         if (!allowed() || !binding.route.internet || data.phase != KeeperPhase.ACTIVE || data.pending != null || ended(at)) return@withLock null
-        var kept = data.welcomeDelivery
+        var kept = data.invitation.delivery
         if (kept == null || at - kept.event.createdAt >= WELCOME_REFRESH_SECONDS) {
-            val event = if (kept == null && at - material.welcome.createdAt < WELCOME_REFRESH_SECONDS) keeperEvent(material.welcome)
+            val event = if (kept == null && at - data.invitation.welcome.createdAt < WELCOME_REFRESH_SECONDS) keeperEvent(data.invitation.welcome)
             else {
                 if (!reserve(at, null, 0, true)) return@withLock null
                 val invitation = invitationUnlocked()
                 try {
-                    val body = requireNotNull(decodePersistentInvitation(material.welcome, invitation))
+                    val body = requireNotNull(decodePersistentInvitation(data.invitation.welcome, invitation))
                     try { encodePersistentInvitation(RoomInvitationHost(invitation, material.signer), material.base, at,
                         ends = body.endsAt, relays = body.relays, destruct = body.destruct) }
                     finally { body.secret.fill(0) }
@@ -233,7 +270,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (kept.accepted || kept.attempts >= 8 || kept.nextAt > at) return@withLock null
         val next = kept.copy(attempts = kept.attempts + 1,
             nextAt = at + minOf(300L, 5L * (1L shl minOf(6, kept.attempts))))
-        if (!reserve(at, RekeyLane.INTERNET, keeperBytes(next.event), false, data.copy(welcomeDelivery = next))) return@withLock null
+        if (!reserve(at, RekeyLane.INTERNET, keeperBytes(next.event), false, data.copy(invitation = data.invitation.copy(delivery = next)))) return@withLock null
         Handoff(keeperEvent(next.event), RekeyLane.INTERNET, next.attempts, false)
     }
 
@@ -330,7 +367,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 ?: return@reserveAnswer null
             if (!reserve(at, null, 0, true)) return@reserveAnswer null
             encodeLivePersistentAnswer(LivePersistentContext(invitationUnlocked(), binding.room),
-                requestEvent, material.welcome, material.signer, data.epoch.toLong(), at)
+                requestEvent, data.invitation.welcome, material.signer, data.epoch.toLong(), at)
         }
     }
 
@@ -601,7 +638,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                     kept.event == handoff.event && kept.attempts[key] == handoff.attempt && kept.offered[key] != handoff.attempt
                 }
             if (handoff.event.kind == KIND_GROUP_INVITATION) return data.phase == KeeperPhase.ACTIVE && data.pending == null &&
-                handoff.lane == RekeyLane.INTERNET && data.welcomeDelivery?.let {
+                handoff.lane == RekeyLane.INTERNET && data.invitation.delivery?.let {
                     it.event == handoff.event && it.attempts == handoff.attempt && !it.accepted && at - it.event.createdAt < WELCOME_REFRESH_SECONDS
                 } == true
             return if (handoff.pending) data.pending?.let { p -> p.events.any { it == handoff.event } &&
@@ -622,9 +659,9 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             return@withLock
         }
         if (handoff.event.kind == KIND_GROUP_INVITATION) {
-            val kept = data.welcomeDelivery ?: return@withLock
+            val kept = data.invitation.delivery ?: return@withLock
             require(handoff.lane == RekeyLane.INTERNET && kept.event == handoff.event && kept.attempts == handoff.attempt)
-            save(data.copy(high = time(), welcomeDelivery = kept.copy(accepted = true)))
+            save(data.copy(high = time(), invitation = data.invitation.copy(delivery = kept.copy(accepted = true))))
             return@withLock
         }
         if (handoff.pending) {
@@ -778,12 +815,16 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun wipe() {
         proposal = null; rejectedProposal = null; retirementProposal = null
         if (::material.isInitialized) material.wipe()
-        if (::data.isInitialized) { data.secret.fill(0); data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0) }
+        if (::data.isInitialized) {
+            data.invitation.bearer.fill(0); data.secret.fill(0)
+            data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0)
+        }
+        decodedBuffers.forEach { it.fill(0) }; decodedBuffers.clear()
     }
 
     private fun encode(record: Record): JsonObject = buildJsonObject {
         put("v", 5); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
-        put("bearer", material.bearer.toHex()); put("welcome", material.welcome.toJson())
+        put("bearer", record.invitation.bearer.toHex()); put("welcome", record.invitation.welcome.toJson())
         put("epoch", record.epoch); put("secret", record.secret.toHex()); put("phase", record.phase.name)
         put("removed", strings(record.removed)); put("members", strings(record.members)); put("at", record.at)
         put("high", record.high); put("revision", record.revision); put("destruct", record.destruct)
@@ -800,7 +841,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             put("participant", it.participant); put("device", it.device); put("credential", it.credential.toJson())
             put("verifiedAt", it.verifiedAt); put("removed", it.removed)
         }) } })
-        put("welcomeDelivery", record.welcomeDelivery?.let { delivery -> buildJsonObject {
+        put("welcomeDelivery", record.invitation.delivery?.let { delivery -> buildJsonObject {
             put("event", delivery.event.toJson()); put("attempts", delivery.attempts)
             put("nextAt", delivery.nextAt); put("accepted", delivery.accepted)
         } } ?: JsonNull)
@@ -831,12 +872,18 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending", "courierReady", "welcomeDelivery", "devices")
         require(root.keys == fields + if (version == 5) setOf("retirements", "legacyRetirementSlots") else emptySet())
         require(text(root, "pin") == binding.pin)
-        material = KeeperMaterial(secret(root, "base"), secret(root, "signer"), secret(root, "bearer"), event(root.getValue("welcome")))
+        fun decodedSecret(obj: JsonObject, name: String) = secret(obj, name).also { decodedBuffers.add(it) }
+        material = KeeperMaterial(decodedSecret(root, "base"), decodedSecret(root, "signer"))
+        val bearer = decodedSecret(root, "bearer")
+        val active = InvitationState(bearer, event(root.getValue("welcome")))
         require(deriveRoom(material.base).roomId == binding.room && Schnorr.publicKeyHex(material.signer) == binding.authority)
-        val welcome = requireNotNull(decodePersistentInvitation(material.welcome, invitationUnlocked()))
+        val invitation = invitationOf(active)
+        val welcome = try { requireNotNull(decodePersistentInvitation(active.welcome, invitation)) }
+            finally { invitation.bearer.fill(0) }
+        decodedBuffers.add(welcome.secret)
         end = welcome.endsAt
         require(welcome.secret.contentEquals(material.base))
-        val epoch = integer(root, "epoch"); val phase = KeeperPhase.valueOf(text(root, "phase")); val current = secret(root, "secret")
+        val epoch = integer(root, "epoch"); val phase = KeeperPhase.valueOf(text(root, "phase")); val current = decodedSecret(root, "secret")
         val removed = members(root, "removed"); val known = members(root, "members")
         val at = long(root, "at"); val high = long(root, "high"); val revision = long(root, "revision")
         require(epoch in 0..MAX_EPOCH && high in 0..KEEPER_MAX_TIME && at in 0..high && revision in 0..KEEPER_MAX_TIME)
@@ -862,7 +909,11 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val epochCause = if (root.getValue("epochCause") == JsonNull) null else text(root, "epochCause").also { require(keeperHex(it)) }
         require((epoch == 0) == (epochCause == null))
         val predecessor = root.getValue("terminalPredecessor").takeUnless { it == JsonNull }?.jsonObject?.let {
-            require(it.keys == setOf("epoch", "secret")); RoomEpoch(integer(it, "epoch"), secret(it, "secret"))
+            require(it.keys == setOf("epoch", "secret"))
+            val number = integer(it, "epoch"); require(number in 0..MAX_EPOCH)
+            // RoomEpoch copies before checking its range. Reject that field
+            // before it could allocate an unowned private copy and throw.
+            RoomEpoch(number, decodedSecret(it, "secret")).also { previous -> decodedBuffers.add(previous.secret) }
         }
         val destruct = boolean(root, "destruct"); require(!welcome.destruct || destruct)
         val answers = root.getValue("answers").jsonArray.also { require(it.size <= MAX_ANSWERS) }.map { raw ->
@@ -883,7 +934,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             val attempts = p.getValue("attempts").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.also { require(!it.isString) }.int }
             val offered = p.getValue("offered").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.also { require(!it.isString) }.int }
             val queued = members(p, "queued", max = 2).toSet()
-            Pending(events, integer(p, "epoch"), secret(p, "secret"), members(p, "removed"), members(p, "members"),
+            Pending(events, integer(p, "epoch"), decodedSecret(p, "secret"), members(p, "removed"), members(p, "members"),
                 KeeperPhase.valueOf(text(p, "phase")), long(p, "at"), boolean(p, "destruct"), queued, attempts, offered)
         }
         require(if (phase == KeeperPhase.CLOSED && pending == null) predecessor != null && predecessor.epoch == epoch - 1 && cause == epochCause else predecessor == null)
@@ -891,8 +942,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val delivery = root.getValue("welcomeDelivery").takeUnless { it == JsonNull }?.jsonObject?.let { obj ->
             require(binding.route.internet && obj.keys == setOf("event", "attempts", "nextAt", "accepted"))
             val value = WelcomeDelivery(event(obj.getValue("event")), integer(obj, "attempts"), long(obj, "nextAt"), boolean(obj, "accepted"))
-            require(value.attempts in 1..8 && value.nextAt in 0..high + 300 && value.event.createdAt in material.welcome.createdAt..high)
-            val body = requireNotNull(decodePersistentInvitation(value.event, invitationUnlocked()))
+            require(value.attempts in 1..8 && value.nextAt in 0..high + 300 && value.event.createdAt in active.welcome.createdAt..high)
+            val link = invitationOf(active)
+            val body = try { requireNotNull(decodePersistentInvitation(value.event, link)) }
+                finally { link.bearer.fill(0) }
             try { require(body.secret.contentEquals(material.base) && body.endsAt == welcome.endsAt &&
                 body.relays == welcome.relays && body.destruct == welcome.destruct) }
             finally { body.secret.fill(0) }
@@ -917,8 +970,9 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         require(legacySlots in 0..2 && retirements.size + legacySlots <= MAX_RETIREMENTS)
         val pendingRetirements = pending?.events?.count { it.kind == KIND_INVITATION_RETIREMENT } ?: 0
         require(retirements.size + legacySlots + pendingRetirements <= MAX_RETIREMENTS)
-        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending,
-            epochCause, predecessor, courierReady, delivery, devices, retirements, legacySlots)
+        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause,
+            active.copy(delivery = delivery), answers, spends, pending,
+            epochCause, predecessor, courierReady, devices, retirements, legacySlots)
         require(retirements.map { it.event.id }.distinct().size == retirements.size)
         require(retirements.none { kept -> pending?.events?.any { it.id == kept.event.id } == true })
         require(phase != KeeperPhase.ACTIVE || retirements.isEmpty() && legacySlots == 0)
@@ -938,7 +992,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         try {
             require(value.kind == KIND_INVITATION_RETIREMENT && value.pubkey == binding.authority &&
                 kept.invitation == deriveInvitationId(invitation) && decodeInvitationRetirement(value, invitation))
-            require(value.createdAt in material.welcome.createdAt..data.at && kept.epoch in 0..data.epoch)
+            require(value.createdAt in data.invitation.welcome.createdAt..data.at && kept.epoch in 0..data.epoch)
             require(value.tags == retirementTags(kept.invitation))
             val body = Json.parseToJsonElement(value.content).jsonObject
             val terminal = body["ended"] == JsonPrimitive(true)
@@ -968,7 +1022,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val expected = buildJsonObject {
             put("v", 1); put("profile", "persistent-live"); put("request", request.requestId); put("room", binding.room); put("epoch", c.epoch)
             put("invitation", buildJsonObject {
-                val w = material.welcome
+                val w = data.invitation.welcome
                 put("id", w.id); put("pubkey", w.pubkey); put("created_at", w.createdAt); put("kind", w.kind)
                 put("tags", JsonArray(w.tags.map { strings(it) })); put("content", w.content); put("sig", w.sig)
             })

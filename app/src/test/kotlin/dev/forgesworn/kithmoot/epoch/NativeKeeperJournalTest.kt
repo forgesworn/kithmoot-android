@@ -52,6 +52,123 @@ class NativeKeeperJournalTest {
     }
     private fun NativeKeeperJournal.select() = bind { true }
 
+    @Test fun invalidCreationPoliciesRefuseBeforeEitherMintingSourceRuns() {
+        data class Policy(val at: Long = 1000, val ends: Long? = null, val relays: List<String>? = null)
+        val policies = listOf(Policy(at = -1), Policy(at = Long.MAX_VALUE),
+            Policy(ends = 999), Policy(ends = 1000), Policy(ends = Long.MAX_VALUE),
+            Policy(relays = emptyList()), Policy(relays = listOf("ws://remote.invalid/")),
+            Policy(relays = (0..8).map { "wss://r$it.invalid/" }),
+            Policy(relays = listOf("wss://fixture.invalid/" + "a".repeat(256))))
+        for (policy in policies) {
+            var hosts = 0; var secrets = 0
+            assertFailsWith<IllegalArgumentException> {
+                NativeKeeperCreation.freshChecked(policy.at, policy.relays, policy.ends, true,
+                    { hosts++; error("Host minting must not run") },
+                    { secrets++; error("Secret entropy must not run") })
+            }
+            assertEquals(0, hosts); assertEquals(0, secrets)
+        }
+    }
+
+    @Test fun validCreationUsesTheSamePolicyGateAndCanonicalSignedLayout() {
+        var hosts = 0; var secrets = 0
+        val host = createRoomInvitation(persistent = true)
+        val secret = Fixtures.key(41)
+        NativeKeeperCreation.freshChecked(1000, listOf("WSS://FIXTURE.invalid", "wss://fixture.invalid/"), 1100, true,
+            { hosts++; host }, { secrets++; secret }).use { creation ->
+            assertEquals(1, hosts); assertEquals(1, secrets)
+            val invitation = creation.invitation()
+            try {
+                val welcome = creation.welcome()
+                val admission = assertNotNull(decodePersistentInvitation(welcome, invitation))
+                try {
+                    assertContentEquals(secret, admission.secret)
+                    assertEquals(1100L, admission.endsAt); assertTrue(admission.destruct)
+                    assertEquals(listOf("wss://fixture.invalid/"), admission.relays)
+                    assertEquals(persistentInvitationEventBytes(1000, 1100, admission.relays, true), keeperTestBytes(welcome))
+                } finally { admission.secret.fill(0) }
+            } finally { invitation.bearer.fill(0) }
+        }
+        assertTrue(secret.all { it == 0.toByte() })
+        assertTrue(host.inviterSecretKey.all { it == 0.toByte() })
+        assertTrue(host.invitation.bearer.all { it == 0.toByte() })
+    }
+
+    @Test fun failedBaseMintingAndInvalidCandidateBuffersWipeTheAlreadyMintedHost() {
+        for (fail in listOf(false, true)) {
+            val host = createRoomInvitation(persistent = true)
+            val invalid = ByteArray(31) { 7 }
+            assertFails {
+                NativeKeeperCreation.freshChecked(1000, null, null, false, { host }, {
+                    if (fail) error("Base entropy failed") else invalid
+                })
+            }
+            assertTrue(host.inviterSecretKey.all { it == 0.toByte() })
+            assertTrue(host.invitation.bearer.all { it == 0.toByte() })
+            if (!fail) assertTrue(invalid.all { it == 0.toByte() })
+        }
+    }
+
+    private fun keeperTestBytes(event: NostrEvent) = event.toCompactJson().toByteArray(Charsets.UTF_8).size
+
+    @Test fun committedInvitationAndWelcomeDeliveryKeepTheLegacyBytesAcrossColdReopen() {
+        val r = Rig(RoomRoute.INTERNET)
+        lateinit var original: NativeKeeperJournal.Handoff
+        r.create().use { source ->
+            source.select()
+            original = assertNotNull(source.reserveWelcome())
+            assertEquals(1, original.attempt)
+            source.invitation().bearer.fill(0) // The caller owns this exported copy.
+            val restored = source.invitation()
+            try { assertEquals(deriveInvitationId(r.invitation), deriveInvitationId(restored)) }
+            finally { restored.bearer.fill(0) }
+        }
+        val retained = r.store.bytes!!.clone()
+        val old = Json.parseToJsonElement(retained.toString(Charsets.UTF_8)).jsonObject
+        assertEquals(5, old.getValue("v").jsonPrimitive.int)
+        assertFalse("activeInvitation" in old)
+        assertFalse("invitationHistory" in old)
+        assertFalse("replacement" in old)
+        assertEquals(original.event.toJson(), old.getValue("welcome"))
+        assertEquals(original.event.toJson(), old.getValue("welcomeDelivery").jsonObject.getValue("event"))
+        r.at += 6
+        r.open().use { source ->
+            assertContentEquals(retained, r.store.bytes) // Opening alone cannot migrate or rewrite.
+            source.select()
+            val retry = assertNotNull(source.reserveWelcome())
+            assertEquals(original.event, retry.event); assertEquals(2, retry.attempt)
+            assertEquals(0, source.snapshot().epoch); assertEquals(KeeperPhase.ACTIVE, source.snapshot().phase)
+            val next = Json.parseToJsonElement(r.store.bytes!!.toString(Charsets.UTF_8)).jsonObject
+            assertEquals(old.keys.toList(), next.keys.toList())
+            assertEquals(old.getValue("bearer"), next.getValue("bearer"))
+            assertEquals(old.getValue("welcome"), next.getValue("welcome"))
+            assertTrue(old.getValue("spends").jsonArray.all { it in next.getValue("spends").jsonArray })
+            assertEquals(2, next.getValue("welcomeDelivery").jsonObject.getValue("attempts").jsonPrimitive.int)
+        }
+    }
+
+    @Test fun malformedTerminalPredecessorRefusesWithoutWritingAndReleasesTheFailedOwner() {
+        val r = Rig()
+        r.create().close()
+        val retained = r.store.bytes!!.clone()
+        val root = Json.parseToJsonElement(retained.toString(Charsets.UTF_8)).jsonObject
+        for (number in listOf(-1, MAX_EPOCH + 1)) {
+            val predecessor = buildJsonObject {
+                put("epoch", number); put("secret", root.getValue("secret"))
+            }
+            r.store.bytes = JsonObject(root + ("terminalPredecessor" to predecessor)).toString().toByteArray(Charsets.UTF_8)
+            val refused = r.store.bytes!!.clone()
+            assertFailsWith<IllegalArgumentException> { r.open() }
+            assertContentEquals(refused, r.store.bytes)
+            r.store.bytes = retained.clone()
+            r.open().use { source ->
+                assertEquals(KeeperPhase.ACTIVE, source.snapshot().phase)
+                assertEquals(0, source.snapshot().epoch)
+                assertContentEquals(retained, r.store.bytes)
+            }
+        }
+    }
+
     @Test fun invitationReadUsesActualPhaseClockOwnerAndRevisionWithoutWritingOrWaiting() {
         val r = Rig(ends = 1100)
         val q = RoomRekeyBinding(r.room.roomId, r.binding.authority, r.owner.devicePubkey,
