@@ -164,6 +164,7 @@ import dev.forgesworn.kithmoot.protocol.JoinUrlException
 import dev.forgesworn.kithmoot.protocol.InvitationPayload
 import dev.forgesworn.kithmoot.protocol.encodePersistentInvitation
 import dev.forgesworn.kithmoot.session.requestPersistentAdmission
+import dev.forgesworn.kithmoot.session.RetiredInvitationException
 import dev.forgesworn.kithmoot.session.GroupInvitationException
 import dev.forgesworn.kithmoot.session.INVITATION_NOT_FOUND
 import dev.forgesworn.kithmoot.session.MissingGroupInvitationException
@@ -781,8 +782,7 @@ private const val DM_RELAY_LOOKUP_MS = 2_500L
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 /** How often the banner's picture of which rooms cannot answer calls is looked at again. */
 private const val REACHABILITY_CHECK_MS = 60_000L
-private const val INVITATION_TIMEOUT_MS = 60_000L
-private const val INVITATION_RETRY_MS = 2_000L
+private const val INVITATION_TIMEOUT_MS = 90_000L
 private const val GROUP_INVITATION_REFRESH_MS = 6L * 60 * 60 * 1000
 /** How long the one background read of a group invitation, for the room's relays, may take. */
 private const val ROOM_RELAYS_READ_MS = 20_000L
@@ -823,7 +823,6 @@ private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
  */
 private const val EPOCH_ACTIVATION_TIMEOUT_MS = 60_000L
 
-private class RetiredInvitationException : Exception()
 
 internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
     is SignerException,
@@ -3850,58 +3849,26 @@ class RoomViewModel @JvmOverloads constructor(
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
-        val requesterKey = Entropy.bytes(32)
-        val request = encodeInvitationRequest(payload.invitation, requesterKey, epochSeconds())
-        val invitationId = deriveInvitationId(payload.invitation)
+        val accountAtRequest = accountSession
+        val actor = if (anonymous) null else accountSigner?.takeIf {
+            it.pubkey == _start.value.account?.pubkey
+        }
         transport.start()
         return try {
-            withTimeoutOrNull(if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS) {
-                coroutineScope {
-                    // Start collecting before the first publish. Invitation
-                    // events are ephemeral, so subscribing one line later is
-                    // enough to miss a fast response for good.
-                    val response = async(start = CoroutineStart.UNDISPATCHED) {
-                        transport.subscribe(
-                            listOf(
-                                Filter(
-                                    kinds = listOf(KIND_INVITATION_GRANT),
-                                    tags = mapOf(
-                                        "#d" to listOf(invitationId),
-                                        "#p" to listOf(Schnorr.publicKeyHex(requesterKey)),
-                                    ),
-                                ),
-                                Filter(
-                                    authors = listOf(payload.invitation.canonicalInviter),
-                                    kinds = listOf(KIND_INVITATION_RETIREMENT),
-                                    tags = mapOf("#d" to listOf(invitationId)),
-                                ),
-                            ),
-                        ).mapNotNull { event ->
-                            if (decodeInvitationRetirement(event, payload.invitation)) {
-                                throw RetiredInvitationException()
-                            }
-                            decodeRoomAdmissionGrant(
-                                event,
-                                payload.invitation,
-                                requesterKey,
-                                request.id,
-                                epochSeconds(),
-                            )
-                        }.first()
-                    }
-                    val retry = launch {
-                        while (isActive) {
-                            transport.publish(request)
-                            delay(INVITATION_RETRY_MS)
-                        }
-                    }
-                    try {
-                        response.await()
-                    } finally {
-                        retry.cancel()
-                    }
-                }
-            }
+            dev.forgesworn.kithmoot.session.requestTemporaryRoomAdmission(
+                transport, payload.invitation,
+                name = if (anonymous) null else accountAtRequest?.account?.displayName,
+                participant = actor?.pubkey,
+                signer = actor,
+                timeoutMs = if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS,
+                stillCurrent = { anonymous || accountSession === accountAtRequest },
+                onPhase = { phase ->
+                    if (_start.value.busy) _start.update { it.copy(opening = when (phase) {
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SIGNING -> "Confirm your identity in your signer…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.WAITING -> "Waiting for someone in the room to let you in…"
+                    }) }
+                },
+            )
         } finally {
             transport.stop()
             scope.cancel()
