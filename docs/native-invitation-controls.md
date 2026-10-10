@@ -25,9 +25,18 @@ Design mesh-kit fbef5e2 precedes these controls; approval ordering is refined in
 journeys and add Nearby/Mixed retirement/reopen/resend plus open-QR withdrawal.
 The final integrated head must pass its own four hosted jobs, every retained
 member/PID gate and main's actual repeated-Send acceptance before merge.
-The integrated runner requires 131 ordinary checks in 43 groups, plus all four
+The integrated runner requires 132 ordinary checks in 43 groups, plus all four
 active process-kill/recovery drivers; no earlier case is removed.
 Local source compilation is not installed Android or physical radio evidence.
+
+Exact d68 CI passes verification/both signing checks and all nine rendered host
+journeys (133.989 s), then fails strict courier ciphertext equality in the older
+stale-owner member test. Source ciphertext and refusal pass; the historical
+writer is unproved. Design mesh-kit ac4be7e precedes a fixture-only write gate
+around negative commands: all exact comparisons remain, while unrelated courier
+maintenance cannot race them. The fifth member case measures ordinary encrypted
+maintenance separately, including no queue/debt credit and a scoped strict
+refusal. No production source, clock, accounting, assertion or timeout is relaxed.
 
 Replacement, pending-recovery controls, terminal controls/migration,
 retirement-specific SIGKILL windows and propagation to every participant client
