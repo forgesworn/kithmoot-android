@@ -112,6 +112,64 @@ class NativeKeeperControllerTest {
         }
     }
 
+    @Test fun observedRetirementAndSharingRefuseStaleForeignOrUnavailableOwnersWithoutWritesOrHolds() {
+        for (route in RoomRoute.entries) runTest {
+            val r = Rig(this, route)
+            try {
+                r.source.recordCourierCreated(r.ledger)
+                r.start(); r.acknowledge(); runCurrent()
+                val controller = assertNotNull(r.controller)
+                val expected = controller.hosting.value
+                assertTrue(expected.canRetireInvitation)
+                assertTrue(controller.canShareObservedInvitation(expected))
+                var holds = 0; r.whenHeld = { holds++ }
+                suspend fun refuse(observation: NativeHostingState) {
+                    val source = r.sourceStore.bytes?.clone(); val receiver = r.receiverStore.bytes?.clone()
+                    val courier = r.queueStore.bytes?.clone()
+                    val nearby = r.events(RekeyLane.NEARBY).toList(); val internet = r.events(RekeyLane.INTERNET).toList()
+                    assertFalse(controller.canShareObservedInvitation(observation))
+                    assertFails { controller.retireObservedInvitation(observation) }; runCurrent()
+                    assertContentEquals(source, r.sourceStore.bytes); assertContentEquals(receiver, r.receiverStore.bytes)
+                    assertContentEquals(courier, r.queueStore.bytes)
+                    assertEquals(nearby, r.events(RekeyLane.NEARBY)); assertEquals(internet, r.events(RekeyLane.INTERNET))
+                    assertEquals(0, holds)
+                    assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+                }
+                for (observation in listOf(
+                    expected.copy(binding = expected.binding.copy(pin = "0".repeat(64))),
+                    expected.copy(ownerGeneration = null), expected.copy(ownerGeneration = expected.ownerGeneration!! + 1),
+                    expected.copy(revision = expected.revision!! + 1), expected.copy(epoch = expected.epoch!! + 1),
+                    expected.copy(lifecycle = NativeHostingLifecycle.RETIRED), expected.copy(revision = null),
+                    expected.copy(pendingOriginals = listOf("0".repeat(64))),
+                ) + NativeHostingStatus.entries.filter { it != NativeHostingStatus.READY }.map { expected.copy(status = it) })
+                    refuse(observation)
+                val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    r.member.deviceSecretKey, r.member.credential, currentTime / 1000), lane)
+                runCurrent(); r.acknowledge(); runCurrent()
+                assertNotEquals(expected.revision, controller.hosting.value.revision)
+                refuse(expected)
+                val fresh = controller.hosting.value
+                val retiring = backgroundScope.async { controller.retireObservedInvitation(fresh) }
+                runCurrent()
+                assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+                assertFalse(controller.canShareObservedInvitation(fresh))
+                assertEquals(0, holds)
+                r.live.sendChat("Retirement preserves existing verified traffic")
+                r.acknowledge(); runCurrent(); retiring.await()
+                assertTrue(controller.hosting.value.canResendRetirement)
+                assertFalse(controller.hosting.value.canRetireInvitation)
+                run {
+                    val source = r.sourceStore.bytes?.clone()
+                    assertFails { controller.retireObservedInvitation(fresh) }
+                    assertContentEquals(source, r.sourceStore.bytes)
+                }
+                r.selected = false
+                assertFalse(controller.canShareObservedInvitation(controller.hosting.value))
+            } finally { r.stop() }
+        }
+    }
+
     @Test fun observedMemberCommandsRejectForeignStaleUnavailableAndInvalidConfirmationsWithoutHoldingOrWriting() {
         for (route in RoomRoute.entries) runTest {
             val r = Rig(this, route)

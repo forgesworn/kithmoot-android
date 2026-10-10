@@ -158,6 +158,24 @@ internal class NativeKeeperController private constructor(private val source: Na
             throw refused
         }
     }
+    fun canShareObservedInvitation(expected: NativeHostingState): Boolean = selected() &&
+        expected.canShareInvitation && expected.binding == mutableHosting.value.binding &&
+        expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
+        mutableHosting.value.canShareInvitation && expected.revision == mutableHosting.value.revision &&
+        expected.epoch == mutableHosting.value.epoch &&
+        source.canShareInvitation(requireNotNull(expected.revision), requireNotNull(expected.epoch))
+
+    suspend fun retireObservedInvitation(expected: NativeHostingState) = command {
+        source.verifyReceiver(receiver, live)
+        val current = source.snapshot()
+        require(expected.canRetireInvitation && expected.binding == mutableHosting.value.binding &&
+            expected.ownerGeneration == mutableHosting.value.ownerGeneration && expected.epoch == current.epoch &&
+            expected.revision == current.revision && expected.lifecycle?.name == current.phase.name &&
+            current.phase == KeeperPhase.ACTIVE && current.pending.isEmpty()) {
+            "Room hosting changed. Open the confirmation again."
+        }
+        source.prepareRetirement(source.preflightRetirement())
+    }
     suspend fun retire() = command { source.verifyReceiver(receiver, live); source.prepareRetirement() }
     /** Explicit selected-owner command. Ordinary recovery never spends an
      * archived original's remaining lifetime attempts. */

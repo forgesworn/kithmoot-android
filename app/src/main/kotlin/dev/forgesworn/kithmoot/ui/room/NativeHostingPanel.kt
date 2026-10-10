@@ -33,8 +33,11 @@ internal fun nativeHostingLine(hosting: NativeHostingState): String = when (host
 @Composable
 internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = false,
     onChangeKey: ((NativeHostingState) -> Unit)? = null,
-    onRemoveMember: ((NativeHostingState, String) -> Unit)? = null) {
+    onRemoveMember: ((NativeHostingState, String) -> Unit)? = null,
+    onRetireInvitation: ((NativeHostingState) -> Unit)? = null,
+    onResendRetirement: ((NativeHostingState, String) -> Unit)? = null) {
     var confirmation by remember(hosting.binding.pin) { mutableStateOf<NativeMemberConfirmation?>(null) }
+    var invitationConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeInvitationConfirmation?>(null) }
     val enabled = hosting.canChangeMembers && !busy
     Column {
         Text(nativeHostingLine(hosting), style = MaterialTheme.typography.titleSmall)
@@ -51,6 +54,16 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             "Earlier invitation notices were not retained. Those notices cannot be resent.",
             style = MaterialTheme.typography.bodySmall,
         )
+        if (onRetireInvitation != null && hosting.lifecycle == NativeHostingLifecycle.ACTIVE) {
+            TextButton(onClick = { invitationConfirmation = NativeInvitationConfirmation(hosting, null) },
+                enabled = hosting.canRetireInvitation && !busy) { Text("Retire invitation") }
+        }
+        if (onResendRetirement != null) hosting.retirementOriginals.forEachIndexed { index, id ->
+            TextButton(onClick = { invitationConfirmation = NativeInvitationConfirmation(hosting, id) },
+                enabled = hosting.canResendRetirement && !busy, modifier = Modifier.testTag("native-resend-$id")) {
+                Text(if (hosting.retirementOriginals.size == 1) "Resend invitation notice" else "Resend invitation notice ${index + 1}")
+            }
+        }
         if (onChangeKey != null) {
             TextButton(onClick = { confirmation = NativeMemberConfirmation(hosting, null) }, enabled = enabled) {
                 Text("Change room key")
@@ -62,6 +75,28 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
                 Text("Remove ${shortId(participant)}")
             }
         }
+    }
+    invitationConfirmation?.let { request ->
+        val retiring = request.original == null
+        val current = !busy && request.expected.binding == hosting.binding &&
+            request.expected.ownerGeneration == hosting.ownerGeneration &&
+            request.expected.revision == hosting.revision && request.expected.epoch == hosting.epoch &&
+            request.expected.lifecycle == hosting.lifecycle &&
+            if (retiring) hosting.canRetireInvitation else hosting.canResendRetirement && request.original in hosting.retirementOriginals
+        AlertDialog(onDismissRequest = { invitationConfirmation = null },
+            title = { Text(if (retiring) "Retire this invitation?" else "Resend this invitation notice?") },
+            text = { Column {
+                Text(if (retiring) "Stop admitting new people with this link or nearby code. Existing approved members can still chat."
+                    else "Send the saved notice again within its remaining retry and airtime limits. This does not confirm that members receive it.")
+                if (!current && !busy) Text("Room hosting changed. Close this confirmation and try again.")
+            } },
+            confirmButton = { TextButton(enabled = current, onClick = {
+                invitationConfirmation = null
+                if (retiring) onRetireInvitation?.invoke(request.expected)
+                else onResendRetirement?.invoke(request.expected, requireNotNull(request.original))
+            }) { Text(if (retiring) "Retire link" else "Resend notice") } },
+            dismissButton = { TextButton(onClick = { invitationConfirmation = null }) { Text("Cancel") } },
+        )
     }
     confirmation?.let { request ->
         val current = enabled && request.expected.binding == hosting.binding &&
@@ -87,3 +122,5 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
 }
 
 private data class NativeMemberConfirmation(val expected: NativeHostingState, val participant: String?)
+
+private data class NativeInvitationConfirmation(val expected: NativeHostingState, val original: String?)

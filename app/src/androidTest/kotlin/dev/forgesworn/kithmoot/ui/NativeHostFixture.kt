@@ -301,7 +301,10 @@ internal fun ComposeContentTestRule.showNativeHost(f: NativeHostFixture) = setCo
             {}, {}, {}, {}, {}, {}, {}, f.model::leave,
             chat = {}, onAnswerLetIn = f.model::answerLetIn,
             onChangeNativeRoomKey = f.model::changeNativeRoomKey,
-            onRemoveNativeRoomMember = f.model::removeNativeRoomMember)
+            onRemoveNativeRoomMember = f.model::removeNativeRoomMember,
+            onRetireNativeInvitation = f.model::retireNativeInvitation,
+            onResendNativeRetirement = f.model::resendNativeRetirement,
+            onCanShareInvitation = f.model::canShareRoomInvitation)
         else Column(Modifier.verticalScroll(rememberScrollState())) {
             NewRoomForm(start.roomName, f.model::onRoomNameChanged, start.anonymousMode, f.model::onAnonymousModeChanged,
                 enabled = !start.busy, busy = start.busy, error = start.error, onStartRoom = f.model::startRoom,

@@ -175,6 +175,23 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause,
             data.retirements.map { it.event.id }, data.legacyRetirementSlots, data.devices.size)
     }
+    /** UI callback guard: no signing, storage IO, reservation or waiting. */
+    fun canShareInvitation(revision: Long, epoch: Int): Boolean {
+        if (!lock.tryLock()) return false
+        try { return allowed() && invitationAvailable(revision, epoch) }
+        catch (_: Exception) { return false }
+        finally { lock.unlock() }
+    }
+    /** Only a fresh IO reader holding this source's exclusive unbound lease.
+     * This reads the actual source, never promotes a SavedRoom hint. */
+    fun canReadStoredInvitation(): Boolean = lock.withLock {
+        try { !bound && invitationAvailable(data.revision, data.epoch) }
+        catch (_: Exception) { false }
+    }
+    private fun invitationAvailable(revision: Long, epoch: Int): Boolean = !closed && !failed &&
+        data.courierReady && data.phase == KeeperPhase.ACTIVE && data.pending == null &&
+        data.revision == revision && data.epoch == epoch && !ended(time())
+
     fun persistenceFailed() = failed
     fun courierReady() = lock.withLock { usable(); data.courierReady }
     fun mayInitialiseReceiver() = lock.withLock {

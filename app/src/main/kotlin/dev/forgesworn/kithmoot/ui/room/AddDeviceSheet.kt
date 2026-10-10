@@ -171,14 +171,14 @@ fun AddDeviceSheet(
 
 /** A copy of the room's own link, for the people you actually mean to invite. */
 @Composable
-fun ShareRoomRow(joinUrl: String, modifier: Modifier = Modifier) {
+fun ShareRoomRow(joinUrl: String, modifier: Modifier = Modifier, canShare: () -> Boolean = { true }) {
     val context = LocalContext.current
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Button(
-            onClick = { copy(context, joinUrl) },
+            onClick = { if (canShare()) copy(context, joinUrl) },
             modifier = Modifier.weight(1f).heightIn(min = 56.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -191,7 +191,7 @@ fun ShareRoomRow(joinUrl: String, modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.width(10.dp))
         OutlinedButton(
-            onClick = { dev.forgesworn.kithmoot.ui.share(context, joinUrl) },
+            onClick = { if (canShare()) dev.forgesworn.kithmoot.ui.share(context, joinUrl) },
             modifier = Modifier.heightIn(min = 56.dp),
         ) {
             Text("Send", style = MaterialTheme.typography.titleSmall)
@@ -214,7 +214,9 @@ fun InviteSheet(
     onRotateInvitation: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    canShare: () -> Boolean = { true },
 ) {
+    if (!canShare()) return
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -248,7 +250,7 @@ fun InviteSheet(
                 .padding(12.dp),
         )
         Spacer(Modifier.height(20.dp))
-        ShareRoomRow(joinUrl)
+        ShareRoomRow(joinUrl, canShare = canShare)
         if (canRotateInvitation) {
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onRotateInvitation, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("New link") }

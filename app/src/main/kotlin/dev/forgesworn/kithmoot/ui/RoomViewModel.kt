@@ -7,6 +7,7 @@ import dev.forgesworn.kithmoot.epoch.NativeKeeperCreation
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEntry
 import dev.forgesworn.kithmoot.epoch.NativeKeeperController
 import dev.forgesworn.kithmoot.epoch.NativeHostingState
+import dev.forgesworn.kithmoot.epoch.NativeHostingLifecycle
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEndpoints
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
 import dev.forgesworn.kithmoot.storage.NativeRoomCreation
@@ -698,6 +699,11 @@ data class RoomState(
     /** When this device first knew the room, for scaling its countdown. */
     val startsAt: Long? = null,
 ) {
+    val canShareInvitation: Boolean get() = !privateConversation && movedOn == null && !conferenceEnded &&
+        joinUrl.isNotBlank() && !privateConversationBusy &&
+        (nativeHosting == null || nativeHosting.canShareInvitation && !nativeHostingBusy)
+    internal fun withNativeUnknownApprovals(asks: List<LetInAsk>): RoomState =
+        copy(letInAsks = if (nativeHosting?.canShareInvitation == true) asks else emptyList())
     val self: ParticipantTile? get() = tiles.firstOrNull { it.isSelf }
     val deviceCount: Int get() = self?.deviceCount ?: 1
 }
@@ -2669,6 +2675,16 @@ class RoomViewModel @JvmOverloads constructor(
         val saved = savedRooms.get(id) ?: return@withContext null
         val summary = saved.summary()
         if (!summary.canShareInvite) return@withContext null
+        if (saved.nativeAuthority != null) {
+            if (nativeKeeperEntry?.binding?.pin == saved.nativeAuthority?.pin) {
+                if (!canShareRoomInvitation(_room.value.nativeHosting)) return@withContext null
+            } else {
+                val available = runCatching {
+                    NativeKeeperVault.forSavedRoom(getApplication(), saved).open().use { it.canReadStoredInvitation() }
+                }.getOrDefault(false)
+                if (!available) return@withContext null
+            }
+        }
         runCatching { selectedWebApp.roomLink(saved.joinUrl) }.getOrNull()
     }
     fun resetSavedRooms() = changeSavedRooms {
@@ -4413,7 +4429,7 @@ class RoomViewModel @JvmOverloads constructor(
             } },
             mediaRunning = !route.nearby,
             name = record.name,
-            joinUrl = selectedWebApp.roomLink(record.joinUrl),
+            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
             lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
@@ -4516,13 +4532,37 @@ class RoomViewModel @JvmOverloads constructor(
                 controller.hosting.collect { hosting ->
                     _room.update { state ->
                         if (attached() && state.roomId == record.id && state.nativeHosting?.binding?.pin == hosting.binding.pin)
-                            state.copy(nativeHosting = hosting) else state
+                            state.copy(nativeHosting = hosting,
+                                joinUrl = if (hosting.canShareInvitation && !record.retired)
+                                    selectedWebApp.roomLink(record.joinUrl) else "",
+                                letInAsks = if (hosting.canShareInvitation) controller.unknownParticipants.value
+                                    .map { p -> LetInAsk(p, letInLabel(p)) } else emptyList()) else state
+                    }
+                    if (attached() && hosting.lifecycle in setOf(NativeHostingLifecycle.RETIRED, NativeHostingLifecycle.CLOSED)) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                if (attached()) {
+                                    val current = savedRooms.get(record.id)
+                                    if (current != null && current.nativeAuthority?.pin == hosting.binding.pin && !current.retired) {
+                                        val repaired = savedRooms.update(record.id) { stored ->
+                                            if (stored.nativeAuthority?.pin == hosting.binding.pin) stored.invitationRetired() else stored
+                                        }
+                                        if (attached()) savedRoom = repaired
+                                        _start.update { it.copy(savedRooms = savedRooms.list()) }
+                                    }
+                                }
+                            } catch (cancel: CancellationException) { throw cancel }
+                            catch (_: Exception) {
+                                _room.update { if (attached()) it.copy(notice =
+                                    "The invitation is retired. Its saved-room label could not be updated; reopen to try again.") else it }
+                            }
+                        }
                     }
                 }
             }
             scope.launch {
                 controller.unknownParticipants.collect { participants ->
-                    _room.update { if (attached()) it.copy(letInAsks = participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
+                    _room.update { if (attached()) it.withNativeUnknownApprovals(participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
                 }
             }
             scope.launch {
@@ -5849,7 +5889,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
         if (!visible) {
-            _room.update { it.copy(nativeHosting = it.nativeHosting?.paused()) }
+            _room.update { it.copy(nativeHosting = it.nativeHosting?.paused(),
+                joinUrl = if (it.nativeHosting != null) "" else it.joinUrl,
+                letInAsks = if (it.nativeHosting != null) emptyList() else it.letInAsks) }
             nativeKeeperEntry?.close()
         }
         if (!visible) stopRoomSharing()
@@ -7135,6 +7177,18 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** A stale render cannot hand out a native invitation after a source commit.
+     * Only cheap in-memory guards run here; Home storage reads stay on IO. */
+    fun canShareRoomInvitation(expected: NativeHostingState?): Boolean {
+        val state = _room.value
+        if (!appVisible || !state.canShareInvitation || state.nativeHosting != expected) return false
+        if (expected == null) return nativeKeeperEntry == null && nativeKeeperController == null
+        val entry = nativeKeeperEntry ?: return false
+        val controller = nativeKeeperController ?: return false
+        return session != null && entry.binding.pin == expected.binding.pin &&
+            state.roomId == expected.binding.room && controller.canShareObservedInvitation(expected)
+    }
+
     /** Uses the native source's complete audience; no legacy host key. */
     fun changeNativeRoomKey(expected: NativeHostingState) = changeNativeMembers(expected, emptyList())
 
@@ -7143,6 +7197,19 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun changeNativeMembers(expected: NativeHostingState, removed: List<String>) {
         val gone = removed.toList()
+        runNativeCommand(expected, { it.canChangeMembers },
+            "Room update saved. Hosting state does not confirm delivery to members.") { it.rekeyObservedMembers(expected, gone) }
+    }
+
+    fun retireNativeInvitation(expected: NativeHostingState) = runNativeCommand(expected,
+        { it.canRetireInvitation }, "Invitation retired. Existing members can still chat.") { it.retireObservedInvitation(expected) }
+
+    fun resendNativeRetirement(expected: NativeHostingState, id: String) = runNativeCommand(expected,
+        { it.canResendRetirement && id in it.retirementOriginals },
+        "Notice resend requested. This does not confirm delivery to members.") { it.retryObservedRetirement(expected, id) }
+
+    private fun runNativeCommand(expected: NativeHostingState, allowed: (NativeHostingState) -> Boolean,
+        success: String, action: suspend (NativeKeeperController) -> Unit) {
         val entry = nativeKeeperEntry
         val controller = nativeKeeperController
         val live = session
@@ -7152,11 +7219,11 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             while (true) {
                 val state = _room.value
-                if (!attached() || state.roomId != expected.binding.room ||
-                    state.nativeHosting?.binding != expected.binding ||
-                    state.nativeHosting?.revision != expected.revision ||
-                    state.nativeHosting?.ownerGeneration != expected.ownerGeneration ||
-                    state.nativeHosting?.canChangeMembers != true || !expected.canChangeMembers) {
+                val current = state.nativeHosting
+                if (!attached() || state.roomId != expected.binding.room || current == null ||
+                    current.binding != expected.binding || current.revision != expected.revision ||
+                    current.epoch != expected.epoch || current.lifecycle != expected.lifecycle ||
+                    current.ownerGeneration != expected.ownerGeneration || !allowed(current) || !allowed(expected)) {
                     _room.update { if (attached() && it.roomId == expected.binding.room)
                         it.copy(notice = "Room hosting changed. Open the confirmation again.") else it }
                     return@launch
@@ -7166,8 +7233,8 @@ class RoomViewModel @JvmOverloads constructor(
             }
             var result: String? = null
             try {
-                withContext(Dispatchers.IO) { requireNotNull(controller).rekeyObservedMembers(expected, gone) }
-                result = "Room update saved. Hosting state does not confirm delivery to members."
+                withContext(Dispatchers.IO) { action(requireNotNull(controller)) }
+                result = success
             } catch (cancel: CancellationException) { throw cancel }
             catch (_: Exception) { result = "Room update could not complete. Inspect the hosting state before trying again." }
             finally {

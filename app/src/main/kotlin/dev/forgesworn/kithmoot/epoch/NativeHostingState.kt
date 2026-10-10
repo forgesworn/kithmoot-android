@@ -32,6 +32,10 @@ data class NativeHostingState(
     val canChangeMembers: Boolean get() = status == NativeHostingStatus.READY &&
         lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
         epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isEmpty()
+    val canShareInvitation: Boolean get() = canChangeMembers && lifecycle == NativeHostingLifecycle.ACTIVE
+    val canRetireInvitation: Boolean get() = canShareInvitation
+    val canResendRetirement: Boolean get() = canChangeMembers && lifecycle == NativeHostingLifecycle.RETIRED &&
+        retirementOriginals.isNotEmpty()
     fun paused() = copy(status = if (status == NativeHostingStatus.FAILED) status else NativeHostingStatus.SUSPENDED)
 
     companion object {

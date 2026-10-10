@@ -52,6 +52,47 @@ class NativeKeeperJournalTest {
     }
     private fun NativeKeeperJournal.select() = bind { true }
 
+    @Test fun invitationReadUsesActualPhaseClockOwnerAndRevisionWithoutWritingOrWaiting() {
+        val r = Rig(ends = 1100)
+        val q = RoomRekeyBinding(r.room.roomId, r.binding.authority, r.owner.devicePubkey,
+            r.binding.meshScope, r.binding.relays, r.binding.route)
+        r.create().use { source ->
+            RoomRekeyLedger(Store(), q, { r.at * 1000 }, true).use { source.recordCourierCreated(it) }
+            val before = r.store.bytes!!.clone()
+            assertTrue(source.canReadStoredInvitation())
+            assertContentEquals(before, r.store.bytes)
+            var selected = true; source.bind { selected }
+            val expected = source.snapshot()
+            assertTrue(source.canShareInvitation(expected.revision, expected.epoch))
+            assertFalse(source.canReadStoredInvitation())
+            assertFalse(source.canShareInvitation(expected.revision + 1, expected.epoch))
+            assertFalse(source.canShareInvitation(expected.revision, expected.epoch + 1))
+            selected = false; assertFalse(source.canShareInvitation(expected.revision, expected.epoch)); selected = true
+            r.at = 999; assertFalse(source.canShareInvitation(expected.revision, expected.epoch))
+            r.at = 1100; assertFalse(source.canShareInvitation(expected.revision, expected.epoch)); r.at = 1000
+            assertContentEquals(before, r.store.bytes)
+            val writing = CountDownLatch(1); val release = CountDownLatch(1)
+            val threads = Executors.newFixedThreadPool(2)
+            try {
+                r.store.beforeWrite = { writing.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+                val writer = threads.submit<NativeKeeperJournal.Handoff?> { source.reserveWelcome() }
+                assertTrue(writing.await(5, TimeUnit.SECONDS))
+                assertFalse(threads.submit<Boolean> { source.canShareInvitation(expected.revision, expected.epoch) }.get(2, TimeUnit.SECONDS))
+                release.countDown(); assertNotNull(writer.get(5, TimeUnit.SECONDS)); r.store.beforeWrite = null
+                assertFalse(source.canShareInvitation(expected.revision, expected.epoch))
+                val fresh = source.snapshot()
+                assertTrue(source.canShareInvitation(fresh.revision, fresh.epoch))
+                source.prepareRetirement()
+                val retired = r.store.bytes!!.clone()
+                assertFalse(source.canShareInvitation(source.snapshot().revision, source.snapshot().epoch))
+                assertContentEquals(retired, r.store.bytes)
+            } finally { release.countDown(); r.store.beforeWrite = null; threads.shutdownNow() }
+        }
+        val retired = r.store.bytes!!.clone()
+        r.open().use { source -> assertFalse(source.canReadStoredInvitation()) }
+        assertContentEquals(retired, r.store.bytes)
+    }
+
     @Test fun welcomeLostOkReopensTheOriginalWithDebtBackoffAndAcceptance() {
         val r = Rig(); lateinit var first: NativeKeeperJournal.Handoff
         r.create().use { source ->

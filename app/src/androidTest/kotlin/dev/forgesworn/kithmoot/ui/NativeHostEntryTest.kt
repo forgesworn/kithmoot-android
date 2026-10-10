@@ -40,6 +40,163 @@ class NativeHostEntryTest {
         memberControlsJourney(RoomRoute.MIXED)
     }
 
+    @Test fun nearby_confirmed_retirement_preserves_devices_chat_and_source_guarded_home_reopen() = runBlocking {
+        retirementJourney(RoomRoute.NEARBY)
+    }
+    @Test fun mixed_confirmed_retirement_preserves_devices_chat_and_source_guarded_home_reopen() = runBlocking {
+        retirementJourney(RoomRoute.MIXED)
+    }
+
+    private suspend fun retirementJourney(route: RoomRoute) = coroutineScope {
+        val f = NativeHostFixture()
+        val offlineKey = ByteArray(32).apply { this[31] = 6 }
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText(if (route.internet) "Start nearby + Internet chat" else "Start nearby chat")
+                .performScrollTo().performClick()
+            val saved = f.opened(); val at = System.currentTimeMillis() / 1000
+            val who = f.identity(saved, at)
+            val joining = async { f.join(saved, at, who = who) }
+            NativeHostFixture.await("retirement approval card") { f.model.room.value.letInAsks.any { it.participant == who.participant } }
+            compose.onNodeWithText("Let in").performClick(); val peer = joining.await()
+            val credential = who.enrol(Schnorr.publicKeyHex(offlineKey), saved.id, at + 3600, at)
+            val secondary = requireNotNull(SecondaryIdentity.adopt(credential, offlineKey, saved.id, now = at))
+            f.join(saved, at, who = secondary).leave()
+            f.awaitHost("retirement observes all approved devices") {
+                f.source(saved).getValue("devices").jsonArray.size == 3 &&
+                    f.model.room.value.nativeHosting?.let { it.canRetireInvitation &&
+                        it.revision == f.source(saved).getValue("revision").jsonPrimitive.long } == true
+            }
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
+            val beforeCancel = sourceDigest(f.source(saved))
+            compose.onNodeWithText("Cancel").performClick()
+            assertEquals(beforeCancel, sourceDigest(f.source(saved)))
+            assertTrue((f.phoneEvents + f.relayWrites).none { it.kind == KIND_INVITATION_RETIREMENT })
+            compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
+            val revision = f.model.room.value.nativeHosting!!.revision
+            f.join(saved, at, who = secondary).leave()
+            NativeHostFixture.await("retirement source refresh invalidates its confirmation") {
+                f.model.room.value.nativeHosting?.revision != revision
+            }
+            compose.onNodeWithText("Retire link").assertIsNotEnabled()
+            compose.onNodeWithText("Room hosting changed. Close this confirmation and try again.").assertIsDisplayed()
+            compose.onNodeWithText("Cancel").performClick()
+            val unapproved = async { f.join(saved, at, guest = true) }
+            NativeHostFixture.await("unknown card retained before retirement") { f.model.room.value.letInAsks.isNotEmpty() }
+            unapproved.cancelAndJoin()
+            f.awaitHost("retirement source observation is current") {
+                f.model.room.value.nativeHosting?.revision == f.source(saved).getValue("revision").jsonPrimitive.long
+            }
+            val active = requireNotNull(f.model.room.value.nativeHosting)
+            compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
+            compose.onNodeWithText("Retire link").performClick()
+            f.awaitHost("confirmed retirement withdraws capability and unknown approvals") {
+                f.model.room.value.nativeHosting?.canResendRetirement == true &&
+                    !f.model.room.value.nativeHostingBusy && f.model.room.value.joinUrl.isEmpty() &&
+                    f.model.room.value.letInAsks.isEmpty() && f.app.savedRooms.get(saved.id)?.retired == true
+            }
+            val retired = f.source(saved)
+            assertEquals("RETIRED", retired.getValue("phase").jsonPrimitive.content)
+            assertEquals(0, retired.getValue("epoch").jsonPrimitive.int)
+            assertEquals(3, retired.getValue("devices").jsonArray.size)
+            assertFalse(f.model.canShareRoomInvitation(active))
+            assertNull(f.model.inviteLinkFor(saved.id))
+            compose.onNodeWithText("Invite people").performScrollTo().assertIsNotEnabled()
+            compose.onNodeWithContentDescription("Room invitation QR code").assertDoesNotExist()
+            compose.onNodeWithText("Copy join link").assertDoesNotExist()
+            val original = (f.phoneEvents + f.relayWrites).filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
+            val archive = retired.getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
+            val oldAttempts = archive.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int }
+            compose.onNodeWithTag("native-resend-${original.id}").performScrollTo().performClick()
+            val beforeResendCancel = sourceDigest(f.source(saved))
+            compose.onNodeWithText("Cancel").performClick()
+            assertEquals(beforeResendCancel, sourceDigest(f.source(saved)))
+            compose.onNodeWithTag("native-resend-${original.id}").performScrollTo().performClick()
+            compose.onNodeWithText("Resend notice").performClick()
+            f.awaitHost("confirmed resend retains original and increases permanent attempt count once") {
+                !f.model.room.value.nativeHostingBusy && f.source(saved).getValue("retirements").jsonArray.single()
+                    .jsonObject.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int } == oldAttempts + 1
+            }
+            val after = f.source(saved).getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(after.getValue("event")))
+            f.main { f.model.sendChat("host after rendered retirement") }; peer.sendChat("member after rendered retirement")
+            f.awaitHost("approved chat after rendered retirement") {
+                peer.chat.value.any { it.body == "host after rendered retirement" } &&
+                    f.model.room.value.chat.any { it.body == "member after rendered retirement" }
+            }
+            compose.onNodeWithText("Done").performClick()
+            compose.onNodeWithText("Send link").assertDoesNotExist()
+            compose.onNodeWithText("Send nearby code").assertDoesNotExist()
+            val oldOwner = f.model.room.value.nativeHosting!!
+            f.main { f.model.leave() }
+            NativeHostFixture.await("retired host leaves before source-only Home read") {
+                f.model.stage.value == Stage.START && !f.model.start.value.busy && f.radios.all { it.closed }
+            }
+            NativeHostFixture.await("retired source lease is released") {
+                runCatching { NativeKeeperVault.forSavedRoom(f.app, saved).open().use { it.snapshot().phase.name == "RETIRED" } }.getOrDefault(false)
+            }
+            // Reproduce source-before-index interruption using the real
+            // repository: restoring only the old hint never changes authority.
+            f.app.savedRooms.save(saved)
+            assertFalse(f.app.savedRooms.get(saved.id)!!.retired)
+            assertTrue(f.app.savedRooms.get(saved.id)!!.summary().canShareInvite)
+            val beforeHome = sourceDigest(f.source(saved))
+            assertNull(f.model.inviteLinkFor(saved.id))
+            assertEquals(beforeHome, sourceDigest(f.source(saved)))
+            assertFalse(f.app.savedRooms.get(saved.id)!!.retired)
+            f.main { f.model.reopenRoom(saved.id) }; f.opened()
+            f.awaitHost("cold actual retired source repairs its hint without restoring sharing") {
+                f.model.room.value.nativeHosting?.canResendRetirement == true && f.model.room.value.joinUrl.isEmpty() &&
+                    f.app.savedRooms.get(saved.id)?.retired == true
+            }
+            assertNotEquals(oldOwner.ownerGeneration, f.model.room.value.nativeHosting!!.ownerGeneration)
+            val beforeOldOwner = sourceDigest(f.source(saved))
+            f.main { f.model.resendNativeRetirement(oldOwner, original.id) }
+            NativeHostFixture.await("previous visit cannot resend an archived original") {
+                f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
+            }
+            assertEquals(beforeOldOwner, sourceDigest(f.source(saved)))
+            val current = f.source(saved).getValue("retirements").jsonArray.single().jsonObject
+            assertEquals(original, NostrEvent.fromJson(current.getValue("event")))
+            assertEquals(oldAttempts + 1, current.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int })
+            f.main { f.model.sendChat("host after retired saved reopen") }; peer.sendChat("member after retired saved reopen")
+            f.awaitHost("same approved peer chats after retired saved reopen") {
+                peer.chat.value.any { it.body == "host after retired saved reopen" } &&
+                    f.model.room.value.chat.any { it.body == "member after retired saved reopen" }
+            }
+            if (!route.internet) assertEquals(0, f.server.requestCount)
+        } finally { offlineKey.fill(0); f.close() }
+    }
+
+    @Test fun committed_retirement_closes_an_open_qr_sheet_before_saved_hint_repair_can_share() = runBlocking {
+        val f = NativeHostFixture()
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText("Start nearby chat").performScrollTo().performClick()
+            val saved = f.opened()
+            f.awaitHost("active source can show its invitation") { f.model.room.value.canShareInvitation }
+            val expected = f.model.room.value.nativeHosting!!
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Invite people").performScrollTo().performClick()
+            compose.onNodeWithContentDescription("Room invitation QR code").assertIsDisplayed()
+            compose.onNodeWithText("Copy join link").assertIsDisplayed()
+            // The other two journeys measure the rendered confirmation. This
+            // one changes the actual selected source while its sheet is open.
+            f.main { f.model.retireNativeInvitation(expected) }
+            f.awaitHost("actual retirement withdraws the open sheet and URL") {
+                f.model.room.value.nativeHosting?.canResendRetirement == true && f.model.room.value.joinUrl.isEmpty()
+            }
+            compose.onNodeWithContentDescription("Room invitation QR code").assertDoesNotExist()
+            compose.onNodeWithText("Copy join link").assertDoesNotExist()
+            compose.onNodeWithText("Send link").assertDoesNotExist()
+            compose.onNodeWithText("Send nearby code").assertDoesNotExist()
+            assertFalse(f.model.canShareRoomInvitation(expected))
+            assertNull(f.model.inviteLinkFor(saved.id))
+        } finally { f.close() }
+    }
+
     private suspend fun memberControlsJourney(route: RoomRoute) = coroutineScope {
         val f = NativeHostFixture()
         val offlineKey = ByteArray(32).apply { this[31] = 6 }
