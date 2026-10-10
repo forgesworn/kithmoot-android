@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class GuestAdmissionPhase {
     PREVIEW, SIGNING, SENDING, WAITING, RECONNECTING, ADMITTED,
-    DECLINED, EXPIRED, UNAVAILABLE, CANCELLED,
+    DECLINED, EXPIRED, UNAVAILABLE, REVOKED, ROOM_ENDED, CANCELLED,
 }
 
 /** Public display state contains neither the invitation bearer nor a room secret. */
@@ -92,6 +92,6 @@ internal class GuestAdmissionGate {
 
     private companion object {
         val terminal = setOf(GuestAdmissionPhase.DECLINED, GuestAdmissionPhase.EXPIRED,
-            GuestAdmissionPhase.UNAVAILABLE, GuestAdmissionPhase.CANCELLED)
+            GuestAdmissionPhase.UNAVAILABLE, GuestAdmissionPhase.REVOKED, GuestAdmissionPhase.ROOM_ENDED, GuestAdmissionPhase.CANCELLED)
     }
 }
