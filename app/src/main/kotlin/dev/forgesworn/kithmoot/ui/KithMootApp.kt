@@ -892,6 +892,8 @@ fun KithMootApp(
                     onRetryRoomUpdate = model::retryRoomUpdate,
                     onDismissEpochTrouble = model::dismissEpochTrouble,
                     onAnswerLetIn = model::answerLetIn,
+                    onAnswerInvitationAdmission = model::answerInvitationAdmission,
+                    onDismissInvitationAdmission = model::dismissInvitationAdmission,
                     onRenameRoom = model::renameRoomForEveryone,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },

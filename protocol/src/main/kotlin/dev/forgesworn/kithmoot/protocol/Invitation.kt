@@ -25,6 +25,7 @@ const val KIND_INVITATION_GRANT: Int = 20467
 const val KIND_INVITATION_RETIREMENT: Int = 1461
 const val INVITATION_ID_INFO: String = "kithmoot/v2/invitation-id"
 const val INVITATION_REQUEST_KEY_INFO: String = "kithmoot/v2/invitation-request-key"
+const val INVITATION_ACCOUNT_PROOF: String = "kithmoot/v2/invitation-account-proof"
 const val INVITATION_MAX_AGE_SECONDS: Long = 90
 const val INVITATION_DELEGATION_TTL_SECONDS: Long = 12 * 60 * 60
 const val MAX_INVITATION_DELEGATION_DEPTH: Int = 16
@@ -214,7 +215,63 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     return InvitationPayload(invitation, relays, policy, name)
 }
 
-data class InvitationRequest(val device: String, val requestId: String)
+data class InvitationRequest(
+    val device: String,
+    val requestId: String,
+    val name: String? = null,
+    /** A guest's claim, never sufficient for automatic account admission. */
+    val participant: String? = null,
+    /** An account freshly verified for this invitation, device and request timestamp. */
+    val verifiedParticipant: String? = null,
+)
+
+/** The exact event an account signer is asked to sign, without a room key. */
+data class InvitationAccountProofTemplate(val kind: Int, val createdAt: Long, val tags: List<List<String>>, val content: String)
+
+private const val MAX_INVITATION_ACCOUNT_TIME = 9_007_199_254_740_991L
+private const val MAX_INVITATION_REQUEST_NAME = 64
+private val invitationPubkeyPattern = Regex("^[0-9a-fA-F]{64}$")
+
+fun invitationAccountProofTemplate(invitation: RoomInvitation, device: String, now: Long): InvitationAccountProofTemplate {
+    require(now in 0..MAX_INVITATION_ACCOUNT_TIME) { "invalid invitation account proof time" }
+    require(device.matches(invitationPubkeyPattern)) { "a device is a 32-byte hex pubkey" }
+    return InvitationAccountProofTemplate(KIND_INVITATION_REQUEST, now,
+        listOf(listOf("t", INVITATION_ACCOUNT_PROOF), listOf("d", deriveInvitationId(invitation)), listOf("p", invitation.canonicalInviter)),
+        buildJsonObject { put("v", 1); put("device", device.lowercase()) }.toString())
+}
+
+fun encodeInvitationAccountProof(
+    invitation: RoomInvitation,
+    device: String,
+    accountSecretKey: ByteArray,
+    now: Long,
+    auxRand: ByteArray = Entropy.bytes(32),
+): NostrEvent {
+    val template = invitationAccountProofTemplate(invitation, device, now)
+    return Events.sign(accountSecretKey, template.kind, template.createdAt, template.tags, template.content, auxRand)
+}
+
+/** Recompute the signature and exact context every time; a cached account is not proof. */
+fun verifyInvitationAccountProof(
+    proof: NostrEvent,
+    invitation: RoomInvitation,
+    device: String,
+    participant: String?,
+    requestedAt: Long,
+): Boolean = try {
+    if (participant == null || !participant.matches(invitationPubkeyPattern)) false
+    else {
+        val expected = invitationAccountProofTemplate(invitation, device, requestedAt)
+        proof.pubkey.equals(participant, ignoreCase = true) && proof.kind == expected.kind &&
+            proof.createdAt == expected.createdAt && proof.tags == expected.tags && proof.content == expected.content && Events.verify(proof)
+    }
+} catch (_: Exception) { false }
+
+/** Stable field order for nested proofs, matching the published account-proof vectors. */
+private fun invitationAccountProofJson(proof: NostrEvent): JsonObject = buildJsonObject {
+    put("id", proof.id); put("pubkey", proof.pubkey); put("created_at", proof.createdAt); put("kind", proof.kind)
+    put("tags", tagsToJson(proof.tags)); put("content", proof.content); put("sig", proof.sig)
+}
 
 fun encodeInvitationRequest(
     invitation: RoomInvitation,
@@ -222,11 +279,19 @@ fun encodeInvitationRequest(
     now: Long,
     nonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    name: String? = null,
+    participant: String? = null,
+    accountProof: NostrEvent? = null,
 ): NostrEvent {
     val device = Schnorr.publicKeyHex(requesterSecretKey)
+    require(participant == null || participant.matches(invitationPubkeyPattern)) { "a participant is a 32-byte hex pubkey" }
+    require(accountProof == null || verifyInvitationAccountProof(accountProof, invitation, device, participant, now)) { "invalid invitation account proof" }
     val body = buildJsonObject {
         put("v", 1)
         put("device", device)
+        name?.trim()?.take(MAX_INVITATION_REQUEST_NAME)?.takeIf { it.isNotEmpty() }?.let { put("name", it) }
+        participant?.let { put("participant", it.lowercase()) }
+        accountProof?.let { put("accountProof", invitationAccountProofJson(it)) }
     }
     return Events.sign(
         secretKey = requesterSecretKey,
@@ -249,6 +314,7 @@ fun decodeInvitationRequest(
 ): InvitationRequest? {
     return try {
         if (event.kind != KIND_INVITATION_REQUEST || !Events.verify(event)) return null
+        if (now !in 0..MAX_INVITATION_ACCOUNT_TIME || event.createdAt !in 0..MAX_INVITATION_ACCOUNT_TIME || maxAgeSeconds < 0) return null
         if (kotlin.math.abs(now - event.createdAt) > maxAgeSeconds) return null
         if (event.tagValue("d") != deriveInvitationId(invitation)) return null
         if (!event.tagValue("p").equals(invitation.canonicalInviter, ignoreCase = true)) return null
@@ -258,7 +324,15 @@ fun decodeInvitationRequest(
         if (body["v"]?.jsonPrimitive?.longOrNull != 1L) return null
         val device = body.getValue("device").jsonPrimitive.content.lowercase()
         if (!device.matches(Regex("^[0-9a-f]{64}$")) || device != event.pubkey.lowercase()) return null
-        InvitationRequest(device, event.id.lowercase())
+        val name = (body["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.trim()?.take(MAX_INVITATION_REQUEST_NAME)?.takeIf { it.isNotEmpty() }
+        val participant = (body["participant"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.takeIf { it.matches(invitationPubkeyPattern) }?.lowercase()
+        // Invalid nested claims remain ordinary bearer requests for manual
+        // admission; they must never confer an account's automatic access.
+        val proof = runCatching { NostrEvent.fromJson(body.getValue("accountProof")) }.getOrNull()
+        val verified = participant?.takeIf { proof != null && verifyInvitationAccountProof(proof, invitation, device, participant, event.createdAt) }
+        InvitationRequest(device, event.id.lowercase(), name, participant, verified)
     } catch (_: Exception) {
         null
     }
@@ -443,7 +517,7 @@ fun decodeRoomAdmissionGrant(
         // admission, as fold-kit's decoder does.
         val epoch = (body["epoch"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
             ?.takeIf { it in 0..Int.MAX_VALUE.toLong() }?.toInt()
-        RoomAdmission(secret, RoomInvitationHost(invitation, requesterSecretKey, delegation), epoch = epoch)
+        RoomAdmission(secret, RoomInvitationHost(invitation, requesterSecretKey.copyOf(), delegation), epoch = epoch)
     } catch (_: Exception) {
         null
     }
