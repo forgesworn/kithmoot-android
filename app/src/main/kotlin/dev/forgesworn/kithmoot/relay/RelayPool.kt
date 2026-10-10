@@ -433,6 +433,12 @@ class RelayPool(
         return publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs, keeperControl = true)
     }
 
+    internal suspend fun publishKeeperWelcomeGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        require(event.kind == 1463 && Events.verify(event))
+        return publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs, keeperControl = true)
+    }
+
     private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
         stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false): Boolean = withTimeout(timeoutMs) {
         if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || generation != publicationGeneration() || !stillAllowed())

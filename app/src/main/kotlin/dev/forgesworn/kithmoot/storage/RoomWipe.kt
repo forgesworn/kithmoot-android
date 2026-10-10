@@ -34,6 +34,10 @@ enum class RoomWipeStep {
     NIP77_INDEX,
     /** How a call in the room rings (`CallRingSettings`). */
     CALL_RING_SETTING,
+    /** Original root notices and their retained retry debt. */
+    NATIVE_COURIER,
+    /** The sole native root signer and authority transaction state. */
+    NATIVE_AUTHORITY,
     /** The room's epoch keys and their history (`EpochVault`). */
     EPOCHS,
     /** Who the room knows, for its epoch desks (`RoomMembers`). */
@@ -54,10 +58,17 @@ class RoomWipe(private val steps: Map<RoomWipeStep, suspend (RoomWipeTarget) -> 
     }
 
     /** The steps that could not finish, empty when every one did. [only] runs a few again. */
-    suspend fun run(target: RoomWipeTarget, only: Set<RoomWipeStep> = RoomWipeStep.entries.toSet()): List<RoomWipeStep> =
-        RoomWipeStep.entries.filter { it in only }.filter { step ->
-            try { steps.getValue(step)(target); false }
+    suspend fun run(target: RoomWipeTarget, only: Set<RoomWipeStep> = RoomWipeStep.entries.toSet()): List<RoomWipeStep> {
+        val left = mutableListOf<RoomWipeStep>()
+        for (step in RoomWipeStep.entries.filter { it in only }) {
+            // Keep the public alias reference until both independent native stores are gone.
+            if (step == RoomWipeStep.SAVED_ROOM && left.any { it == RoomWipeStep.NATIVE_COURIER || it == RoomWipeStep.NATIVE_AUTHORITY }) {
+                left += step; continue
+            }
+            try { steps.getValue(step)(target) }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { true }
+            catch (_: Exception) { left += step }
         }
+        return left
+    }
 }

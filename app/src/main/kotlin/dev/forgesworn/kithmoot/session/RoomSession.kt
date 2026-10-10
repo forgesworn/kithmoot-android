@@ -399,6 +399,20 @@ class RoomSession(
     private var joined = false
     private var settled = false
     @Volatile private var publicationAllowed = false
+    @Volatile private var keeperStartupHeld = false
+    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld
+
+    /** Set before join and synchronously on foreground-owner withdrawal. */
+    internal fun holdKeeperStartup() { keeperStartupHeld = true }
+
+    internal fun releaseKeeperStartup(stableRoom: String, root: String, participant: String, device: String) {
+        lock.withStateLock {
+            require(keeperProfileMatches(stableRoom, root, participant, device) && publicationAllowed &&
+                _epochState.value is RoomEpochState.Active)
+            keeperStartupHeld = false
+        }
+        announceIfPublishing()
+    }
     @Volatile private var freshJoinJob: Job? = null
     private var freshProofExpiresAt: Long? = null
     @Volatile private var transportBlocked = false
@@ -518,7 +532,7 @@ class RoomSession(
         try {
             if (!forwardingProfileMatches(binding) || identity.participant in removedParticipants ||
                 _epochState.value is RoomEpochState.Removed || _epochState.value is RoomEpochState.Closed) return ForwardingVerdict.MOVED
-            if (!publicationAllowed || _epochState.value !is RoomEpochState.Active) return ForwardingVerdict.WAITING
+            if (!trafficAllowed() || _epochState.value !is RoomEpochState.Active) return ForwardingVerdict.WAITING
             if (at >= (ends ?: Long.MAX_VALUE) ||
                 verifyDeviceCredential(identity.credential, room.roomId, at) !is CredentialCheck.Valid ||
                 (policy != null && !evaluateAccess(policy, identity.participant, proof, at, room.roomId).admitted)) return ForwardingVerdict.MOVED
@@ -674,7 +688,7 @@ class RoomSession(
                 check(joined) { "Room admission was cancelled" }
                 if (memberEpochDesk != null) startMemberDesk(memberEpochDesk)
             } else {
-                val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe)
+                val opening = epochOpening(expectedEpoch, epochKeys().epoch, epochGate != null, epochResponder != null, epochProbe && !keeperStartupHeld)
                 // Told where the room is, there is nothing to wait for; told
                 // nothing, wait for the rekeys a relay replays.
                 if (opening !is EpochOpening.Recover && epochSettleMs > 0) {
@@ -747,7 +761,7 @@ class RoomSession(
         var offCall: CallMembership? = null
         lock.withStateLock {
             if (!joined) return
-            farewell = publicationAllowed
+            farewell = trafficAllowed()
             joined = false
             publicationAllowed = false
             tracks = emptyList()
@@ -784,7 +798,7 @@ class RoomSession(
      *  farewell itself. */
     fun announce(reply: Boolean = false, left: Boolean = false) {
         lock.withStateLock {
-            check(publicationAllowed) { "Room publication is blocked during a secure update" }
+            check(trafficAllowed()) { "Room publication is blocked during a secure update" }
             publishAnnouncement(reply, left)
         }
     }
@@ -800,7 +814,7 @@ class RoomSession(
      */
     private fun announceIfPublishing(reply: Boolean = false) {
         lock.withStateLock {
-            if (!joined || !publicationAllowed) return
+            if (!joined || !trafficAllowed()) return
             try { publishAnnouncement(reply, left = false) }
             catch (_: Exception) { /* Presence retries on its next tick; deliberate sends retain their errors. */ }
         }
@@ -965,7 +979,7 @@ class RoomSession(
     private fun millisWithin(sentAt: Long): Long? = nowMs().takeIf { Math.floorDiv(it, 1000L) == sentAt }
 
     fun sendChat(body: String, reaction: ChatReaction? = null) {
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim()
         if (text.isEmpty()) return
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
@@ -996,7 +1010,7 @@ class RoomSession(
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
     suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): Boolean {
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
@@ -1034,7 +1048,7 @@ class RoomSession(
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
@@ -1120,7 +1134,7 @@ class RoomSession(
         val event = item.event
         // Only a message that never left may be called never sent; see PendingChatOutbox.setState.
         suspend fun moved(): Boolean { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return true }
-        if (!publicationAllowed) return false
+        if (!trafficAllowed()) return false
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         if (epoch.id != item.epochId) return moved()
@@ -1139,7 +1153,7 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedGuarded(event, generation, {
-                publicationAllowed && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
@@ -1182,7 +1196,7 @@ class RoomSession(
 
     /** A room capability is exposed only after at least one relay confirms its durable event. */
     suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val sentAt = now()
         val epoch = epochKeys()
         val event = encodeChatEvent(
@@ -1215,7 +1229,7 @@ class RoomSession(
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {
-        check(publicationAllowed) { "Room publication is blocked during a secure update" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val epoch = epochKeys()
         transport.publish(
             wrapSignal(

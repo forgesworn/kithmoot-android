@@ -697,6 +697,15 @@ private fun AloneLine(state: RoomState) {
             if (offerLink) {
                 Spacer(Modifier.width(4.dp))
                 TextButton(onClick = { dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) }) { Text("Send link") }
+                if (state.route.nearby) {
+                    val invitation = dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(state.joinUrl)?.invitation
+                    val roomId = state.roomId
+                    if (invitation?.persistent == true) TextButton(onClick = {
+                        val code = dev.forgesworn.kithmoot.protocol.encodeLivePersistentDescriptor(
+                            dev.forgesworn.kithmoot.protocol.LivePersistentContext(invitation, roomId))
+                        dev.forgesworn.kithmoot.ui.share(context, code)
+                    }) { Text("Send nearby code") }
+                }
             }
         }
     }

@@ -52,6 +52,82 @@ class NativeKeeperJournalTest {
     }
     private fun NativeKeeperJournal.select() = bind { true }
 
+    @Test fun welcomeLostOkReopensTheOriginalWithDebtBackoffAndAcceptance() {
+        val r = Rig(); lateinit var first: NativeKeeperJournal.Handoff
+        r.create().use { source ->
+            source.select(); first = assertNotNull(source.reserveWelcome())
+            assertEquals(KIND_GROUP_INVITATION, first.event.kind)
+            assertEquals(1, first.attempt); assertTrue(source.canHandoff(first))
+            assertNull(source.reserveWelcome())
+        }
+        r.at += 5
+        r.open().use { source ->
+            val debt = source.snapshot().internetBytes; source.select()
+            val retry = assertNotNull(source.reserveWelcome())
+            assertEquals(first.event, retry.event); assertEquals(2, retry.attempt)
+            assertEquals(debt * 2, source.snapshot().internetBytes)
+            assertFalse(source.canHandoff(first)); assertTrue(source.canHandoff(retry))
+            source.offered(retry); assertFalse(source.canHandoff(retry)); assertNull(source.reserveWelcome())
+            println("NATIVE_KEEPER_ENTRY_MEASUREMENT welcome-original-bytes=$debt lost-ok-debt=${source.snapshot().internetBytes}")
+        }
+        r.open().use { source -> source.select(); assertNull(source.reserveWelcome()) }
+    }
+
+    @Test fun welcomeRefreshKeepsBaseLifetimeAndRefusesPendingRetiredNearbyAndRollback() {
+        val r = Rig(ends = 100_000L, destruct = true)
+        r.create().use { source ->
+            source.select(); val first = assertNotNull(source.reserveWelcome()); source.offered(first)
+            r.at += 6 * 60 * 60
+            val fresh = assertNotNull(source.reserveWelcome())
+            assertNotEquals(first.event.id, fresh.event.id)
+            val body = assertNotNull(decodePersistentInvitation(fresh.event, r.invitation))
+            assertContentEquals(r.secret, body.secret); assertEquals(r.ends, body.endsAt); assertTrue(body.destruct)
+            val renewedOwner = PrimaryIdentity.create(r.room.roomId, r.at + 3600, r.at,
+                participantSecretKey = Fixtures.key(5), deviceSecretKey = Fixtures.key(6))
+            source.prepareRekey(listOf(renewedOwner.credential)); assertFalse(source.canHandoff(fresh)); assertNull(source.reserveWelcome())
+        }
+        r.open().use { source -> source.select(); assertNull(source.reserveWelcome()) }
+        val retired = Rig()
+        retired.create().use { source -> source.select(); source.prepareRetirement(); assertNull(source.reserveWelcome()) }
+        val nearby = Rig(RoomRoute.NEARBY)
+        nearby.create().use { source -> source.select(); assertNull(source.reserveWelcome()); assertEquals(0, source.snapshot().internetBytes) }
+        val rollback = Rig()
+        rollback.create().use { source -> source.select(); val original = assertNotNull(source.reserveWelcome())
+            rollback.at--; assertFalse(source.canHandoff(original)); assertFails { source.reserveWelcome() } }
+    }
+
+    @Test fun courierMarkerRequiresAnActualEmptyPinnedLedgerAndSurvivesLostWriteReturn() {
+        val r = Rig(); val queue = Store()
+        val binding = RoomRekeyBinding(r.binding.room, r.binding.authority, r.binding.device, r.binding.meshScope, r.binding.relays, r.route)
+        RoomRekeyLedger(queue, binding, { r.at * 1000 }, true).use { ledger ->
+            r.create().use { source ->
+                assertTrue(source.mayInitialiseReceiver()); r.store.ambiguous = true
+                assertFails { source.recordCourierCreated(ledger) }; assertTrue(source.persistenceFailed())
+            }
+            r.store.ambiguous = false
+            r.open().use { source -> assertTrue(source.courierReady()); assertFalse(source.mayInitialiseReceiver()) }
+        }
+        val root = Json.parseToJsonElement(r.store.bytes!!.toString(Charsets.UTF_8)).jsonObject
+        r.store.bytes = JsonObject(root + ("v" to JsonPrimitive(2))).toString().toByteArray()
+        val bytes = r.store.bytes!!.clone()
+        assertFailsWith<NativeKeeperMigrationRequiredException> { r.open() }
+        assertContentEquals(bytes, r.store.bytes)
+    }
+
+    @Test fun approvalCardsAreOnlyVerifiedCurrentRequestsAndPersistedApprovalClearsThem() {
+        val r = Rig()
+        r.create().use { source ->
+            source.select(); assertTrue(source.unknownParticipants().isEmpty())
+            assertNotNull(source.answerEpoch(r.epochRequest(), RekeyLane.NEARBY))
+            assertEquals(listOf(r.member.participant), source.unknownParticipants())
+        }
+        r.open().use { source ->
+            assertEquals(listOf(r.member.participant), source.unknownParticipants()); source.select()
+            source.approve(r.member.participant); assertTrue(source.unknownParticipants().isEmpty())
+        }
+        r.open().use { source -> assertTrue(source.unknownParticipants().isEmpty()); assertTrue(r.member.participant in source.snapshot().members) }
+    }
+
     @Test fun creationTransfersNewAuthorityOnceAndOpenCannotReconstructMissingOrCorruptState() {
         val r = Rig()
         assertFails { r.open() }

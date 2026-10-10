@@ -89,10 +89,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val removed: List<String>, val members: List<String>, val phase: KeeperPhase, val at: Long,
         val destruct: Boolean, val queued: Set<String> = emptySet(), val attempts: Map<String, Int> = emptyMap(),
         val offered: Map<String, Int> = emptyMap())
+    private data class WelcomeDelivery(val event: NostrEvent, val attempts: Int = 0, val nextAt: Long = 0, val accepted: Boolean = false)
     private data class Record(val epoch: Int, val secret: ByteArray, val phase: KeeperPhase, val removed: List<String>,
         val members: List<String>, val at: Long, val high: Long, val revision: Long, val destruct: Boolean,
         val cause: String?, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null,
-        val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null)
+        val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null,
+        val courierReady: Boolean = false, val welcomeDelivery: WelcomeDelivery? = null)
     private val lock = ReentrantLock()
     private val lease = Any()
     private lateinit var material: KeeperMaterial
@@ -146,6 +148,59 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause)
     }
     fun persistenceFailed() = failed
+    fun courierReady() = lock.withLock { usable(); data.courierReady }
+    fun mayInitialiseReceiver() = lock.withLock {
+        usable(); !data.courierReady && data.phase == KeeperPhase.ACTIVE && data.epoch == 0 &&
+            data.pending == null && data.spends.isEmpty() && data.answers.isEmpty()
+    }
+    /** Actual empty ledger, before any dispatch. Once committed, missing state cannot regain credit. */
+    fun recordCourierCreated(ledger: RoomRekeyLedger) {
+        val q = ledger.binding
+        require(q.room == binding.room && q.authority == binding.authority && q.device == binding.device &&
+            q.route == binding.route && q.meshScope == binding.meshScope && q.relays == binding.relays)
+        val actual = ledger.status()
+        require(actual.suspended && actual.entries.isEmpty() && actual.expired == 0L && actual.nearbyBytes == 0 && actual.internetBytes == 0)
+        lock.withLock {
+            usable(); check(!bound && data.pending == null && data.epoch == 0 && data.phase == KeeperPhase.ACTIVE)
+            if (!data.courierReady) save(data.copy(courierReady = true, high = time()))
+        }
+    }
+
+    /** Original Internet welcome only. Debt and backoff commit before any offer. */
+    fun reserveWelcome(): Handoff? = lock.withLock {
+        usable(); val at = time()
+        if (!allowed() || !binding.route.internet || data.phase != KeeperPhase.ACTIVE || data.pending != null || ended(at)) return@withLock null
+        var kept = data.welcomeDelivery
+        if (kept == null || at - kept.event.createdAt >= WELCOME_REFRESH_SECONDS) {
+            val event = if (kept == null && at - material.welcome.createdAt < WELCOME_REFRESH_SECONDS) keeperEvent(material.welcome)
+            else {
+                if (!reserve(at, null, 0, true)) return@withLock null
+                val invitation = invitationUnlocked()
+                try {
+                    val body = requireNotNull(decodePersistentInvitation(material.welcome, invitation))
+                    try { encodePersistentInvitation(RoomInvitationHost(invitation, material.signer), material.base, at,
+                        ends = body.endsAt, relays = body.relays, destruct = body.destruct) }
+                    finally { body.secret.fill(0) }
+                } finally { invitation.bearer.fill(0) }
+            }
+            kept = WelcomeDelivery(event)
+        }
+        if (kept.accepted || kept.attempts >= 8 || kept.nextAt > at) return@withLock null
+        val next = kept.copy(attempts = kept.attempts + 1,
+            nextAt = at + minOf(300L, 5L * (1L shl minOf(6, kept.attempts))))
+        if (!reserve(at, RekeyLane.INTERNET, keeperBytes(next.event), false, data.copy(welcomeDelivery = next))) return@withLock null
+        Handoff(keeperEvent(next.event), RekeyLane.INTERNET, next.attempts, false)
+    }
+
+    /** Only verified retained requests can become an approval card. No incoming pubkey guess. */
+    fun unknownParticipants(): List<String> = lock.withLock {
+        usable(); val at = time(); val baseKey = deriveRoom(material.base).roomKey
+        try {
+            data.answers.filter { it.epoch == data.epoch && it.request.kind == KIND_EPOCH_REQUEST && requestDeadline(it.request) > at }
+                .mapNotNull { decodeEpochRequest(it.request, binding.room, material.signer, baseKey, at)?.participant }
+                .filter { it !in data.members && it !in data.removed }.distinct().sorted()
+        } finally { baseKey.fill(0) }
+    }
 
     /** Cold readiness reads actual receiver owners outside the source lock.
      * A terminal agreement proves closure, never permission to host answers. */
@@ -310,6 +365,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             val at = runCatching { clock() }.getOrNull() ?: return false
             if (at < data.high) return false
             if (ended(at) || handoff.event.tagValue("expiration")?.let { (it.toLongOrNull() ?: return false) <= at } == true) return false
+            if (handoff.event.kind == KIND_GROUP_INVITATION) return data.phase == KeeperPhase.ACTIVE && data.pending == null &&
+                handoff.lane == RekeyLane.INTERNET && data.welcomeDelivery?.let {
+                    it.event == handoff.event && it.attempts == handoff.attempt && !it.accepted && at - it.event.createdAt < WELCOME_REFRESH_SECONDS
+                } == true
             return if (handoff.pending) data.pending?.let { p -> p.events.any { it == handoff.event } &&
                 handoff.event.id !in p.queued && p.attempts["${handoff.lane.name}:${handoff.event.id}"] == handoff.attempt &&
                 p.offered["${handoff.lane.name}:${handoff.event.id}"] != handoff.attempt } == true
@@ -320,6 +379,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     fun offered(handoff: Handoff) = lock.withLock {
         usable()
+        if (handoff.event.kind == KIND_GROUP_INVITATION) {
+            val kept = data.welcomeDelivery ?: return@withLock
+            require(handoff.lane == RekeyLane.INTERNET && kept.event == handoff.event && kept.attempts == handoff.attempt)
+            save(data.copy(high = time(), welcomeDelivery = kept.copy(accepted = true)))
+            return@withLock
+        }
         if (handoff.pending) {
             val pending = data.pending ?: return@withLock
             val key = "${handoff.lane.name}:${handoff.event.id}"
@@ -424,13 +489,18 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
 
     private fun encode(record: Record): JsonObject = buildJsonObject {
-        put("v", 2); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
+        put("v", 3); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
         put("bearer", material.bearer.toHex()); put("welcome", material.welcome.toJson())
         put("epoch", record.epoch); put("secret", record.secret.toHex()); put("phase", record.phase.name)
         put("removed", strings(record.removed)); put("members", strings(record.members)); put("at", record.at)
         put("high", record.high); put("revision", record.revision); put("destruct", record.destruct)
         put("cause", record.cause?.let(::JsonPrimitive) ?: JsonNull)
         put("epochCause", record.epochCause?.let(::JsonPrimitive) ?: JsonNull)
+        put("courierReady", record.courierReady)
+        put("welcomeDelivery", record.welcomeDelivery?.let { delivery -> buildJsonObject {
+            put("event", delivery.event.toJson()); put("attempts", delivery.attempts)
+            put("nextAt", delivery.nextAt); put("accepted", delivery.accepted)
+        } } ?: JsonNull)
         put("terminalPredecessor", record.terminalPredecessor?.let { previous -> buildJsonObject {
             put("epoch", previous.epoch); put("secret", previous.secret.toHex())
         } } ?: JsonNull)
@@ -452,9 +522,9 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun restore(bytes: ByteArray) {
         require(bytes.size <= MAX_FILE_BYTES)
         val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
-        if (integer(root, "v") != 2) throw NativeKeeperMigrationRequiredException()
+        if (integer(root, "v") != 3) throw NativeKeeperMigrationRequiredException()
         require(root.keys == setOf("v", "pin", "base", "signer", "bearer", "welcome", "epoch", "secret", "phase", "removed",
-            "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending"))
+            "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending", "courierReady", "welcomeDelivery"))
         require(text(root, "pin") == binding.pin)
         material = KeeperMaterial(secret(root, "base"), secret(root, "signer"), secret(root, "bearer"), event(root.getValue("welcome")))
         require(deriveRoom(material.base).roomId == binding.room && Schnorr.publicKeyHex(material.signer) == binding.authority)
@@ -497,7 +567,19 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 KeeperPhase.valueOf(text(p, "phase")), long(p, "at"), boolean(p, "destruct"), queued, attempts, offered)
         }
         require(if (phase == KeeperPhase.CLOSED && pending == null) predecessor != null && predecessor.epoch == epoch - 1 && cause == epochCause else predecessor == null)
-        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending, epochCause, predecessor)
+        val courierReady = boolean(root, "courierReady")
+        val delivery = root.getValue("welcomeDelivery").takeUnless { it == JsonNull }?.jsonObject?.let { obj ->
+            require(binding.route.internet && obj.keys == setOf("event", "attempts", "nextAt", "accepted"))
+            val value = WelcomeDelivery(event(obj.getValue("event")), integer(obj, "attempts"), long(obj, "nextAt"), boolean(obj, "accepted"))
+            require(value.attempts in 1..8 && value.nextAt in 0..high + 300 && value.event.createdAt in material.welcome.createdAt..high)
+            val body = requireNotNull(decodePersistentInvitation(value.event, invitationUnlocked()))
+            try { require(body.secret.contentEquals(material.base) && body.endsAt == welcome.endsAt &&
+                body.relays == welcome.relays && body.destruct == welcome.destruct) }
+            finally { body.secret.fill(0) }
+            value
+        }
+        welcome.secret.fill(0)
+        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending, epochCause, predecessor, courierReady, delivery)
         require(answers.map { it.request.id }.distinct().size == answers.size)
         answers.forEach(::validateAnswer)
         pending?.let(::validatePending)
@@ -599,6 +681,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         private const val MAX_MEMBERS = 128
         private const val MAX_ANSWERS = 128
         private const val MAX_SPENDS = 256
+        private const val WELCOME_REFRESH_SECONDS = 6 * 60 * 60L
         private val owners = ConcurrentHashMap<String, Any>()
         private val gates = ConcurrentHashMap<String, Any>()
         private fun ownerGate(owner: String) = gates.computeIfAbsent(owner) { Any() }

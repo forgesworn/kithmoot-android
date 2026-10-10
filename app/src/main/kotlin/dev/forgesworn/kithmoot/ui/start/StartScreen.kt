@@ -59,6 +59,8 @@ fun StartScreen(
     onAnonymousModeChanged: (Boolean) -> Unit,
     onPersistentGroupChanged: (Boolean) -> Unit,
     onStartRoom: () -> Unit,
+    onStartNearby: ((RoomRoute) -> Unit)? = null,
+    onRecoverNativeCreation: () -> Unit = {},
     onConferenceLengthChanged: (ConferenceLength) -> Unit = {},
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
@@ -177,7 +179,12 @@ fun StartScreen(
 
     val loadingFirst = state.loadingRooms && state.savedRooms.isEmpty() && !state.storageError
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize()) {
+        state.unfinishedNativeRoom?.let { pending ->
+            Text("Unfinished room: ${pending.name.ifBlank { "Nearby room" }}", Modifier.padding(horizontal = 16.dp))
+            TextButton(onRecoverNativeCreation, enabled = enabled) { Text("Recover room creation") }
+        }
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
         val layout = homeLayout(maxWidth.value.roundToInt(), maxHeight.value.roundToInt())
         when {
             loadingFirst -> LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter)
@@ -188,7 +195,7 @@ fun StartScreen(
 
             !returning -> ColdContent(
                 layout = layout, state = state, enabled = enabled,
-                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom, onStartNearby = onStartNearby,
                 onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects, onAddOfferedCard = onAddOfferedCard,
                 onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening, vmlsRooms = vmlsRooms,
@@ -207,13 +214,14 @@ fun StartScreen(
                 openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
                 now = now, zone = zone, locale = locale, is24Hour = is24Hour,
                 listState = listState, newRoomOpen = newRoomOpen, onNewRoomOpenChanged = { newRoomOpen = it },
-                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom,
+                onRoomNameChanged = onRoomNameChanged, onAnonymousModeChanged = onAnonymousModeChanged, onStartRoom = onStartRoom, onStartNearby = onStartNearby,
                 onConferenceLengthChanged = onConferenceLengthChanged, onRoomDestructChanged = onRoomDestructChanged, onRoomDurationChanged = onRoomDurationChanged,
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
             )
         }
+    }
     }
 
     connectionRoom?.let { room ->
@@ -365,6 +373,7 @@ private fun ColumnScope.Preamble(state: StartState, onAddOfferedCard: () -> Unit
 private fun BoxWithConstraintsScope.ColdContent(
     layout: HomeLayout, state: StartState, enabled: Boolean,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onStartNearby: ((RoomRoute) -> Unit)?,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
@@ -400,7 +409,7 @@ private fun BoxWithConstraintsScope.ColdContent(
             }
             Column(Modifier.weight(1f).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom,
+                    enabled, state.busy, state.error, onStartRoom, onStartNearby = onStartNearby,
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
                     roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
                     durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
@@ -418,7 +427,7 @@ private fun BoxWithConstraintsScope.ColdContent(
             Intro()
             vmlsRooms?.invoke()
             NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                enabled, state.busy, state.error, onStartRoom,
+                enabled, state.busy, state.error, onStartRoom, onStartNearby = onStartNearby,
                 conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
                     roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
                     durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
@@ -437,6 +446,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
     onRoomNameChanged: (String) -> Unit, onAnonymousModeChanged: (Boolean) -> Unit, onStartRoom: () -> Unit,
+    onStartNearby: ((RoomRoute) -> Unit)?,
     onConferenceLengthChanged: (ConferenceLength) -> Unit,
     onRoomDestructChanged: (Boolean) -> Unit = {},
     onRoomDurationChanged: (Int) -> Unit = {},
@@ -556,7 +566,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
             Column(Modifier.width(360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom,
+                    enabled, state.busy, state.error, onStartRoom, onStartNearby = onStartNearby,
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
                     roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
                     durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
@@ -597,7 +607,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom, onCancel = { onNewRoomOpenChanged(false) },
+                    enabled, state.busy, state.error, onStartRoom, onStartNearby = onStartNearby, onCancel = { onNewRoomOpenChanged(false) },
                     conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
                     roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
                     durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)

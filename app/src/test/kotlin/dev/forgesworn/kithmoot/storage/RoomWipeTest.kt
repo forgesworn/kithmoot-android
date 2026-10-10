@@ -9,6 +9,22 @@ import kotlin.test.assertTrue
 class RoomWipeTest {
     private val target = RoomWipeTarget("a".repeat(64), "b".repeat(64), "c".repeat(64))
 
+    @Test fun nativeStoreFailureRetainsItsSavedAliasReferenceForDeletionRetry() = runTest {
+        val ran = mutableListOf<RoomWipeStep>()
+        var fail = true
+        val wipe = RoomWipe(RoomWipeStep.entries.associateWith { step ->
+            val clear: suspend (RoomWipeTarget) -> Unit = {
+                ran += step
+                if (step == RoomWipeStep.NATIVE_COURIER && fail) error("Courier still owned")
+            }
+            clear
+        })
+        assertEquals(listOf(RoomWipeStep.NATIVE_COURIER, RoomWipeStep.SAVED_ROOM), wipe.run(target))
+        assertTrue(RoomWipeStep.SAVED_ROOM !in ran)
+        fail = false; ran.clear()
+        assertEquals(emptyList(), wipe.run(target)); assertEquals(RoomWipeStep.SAVED_ROOM, ran.last())
+    }
+
     @Test fun `every store forgetRoom misses is a step, and the saved room goes last`() {
         // What forgetting a room by hand never cleared (the background service's
         // stores, the tray, the NIP-77 archives, how a call rings) is now named.

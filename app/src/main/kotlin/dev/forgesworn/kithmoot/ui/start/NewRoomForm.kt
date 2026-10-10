@@ -36,6 +36,7 @@ internal fun NewRoomForm(
     error: String?,
     onStartRoom: () -> Unit,
     onCancel: (() -> Unit)? = null,
+    onStartNearby: ((dev.forgesworn.kithmoot.relay.RoomRoute) -> Unit)? = null,
     modifier: Modifier = Modifier,
     nameFieldModifier: Modifier = Modifier,
     conferenceLength: ConferenceLength = ConferenceLength.NEVER,
@@ -80,6 +81,11 @@ internal fun NewRoomForm(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onStartRoom, enabled = enabled && !busy && (conferenceLength != ConferenceLength.CUSTOM || durationSeconds >= 60), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Start a room") }
             if (onCancel != null) TextButton(onCancel, Modifier.heightIn(min = 48.dp)) { Text("Cancel") }
+        }
+        if (onStartNearby != null && !anonymousMode && conferenceLength == ConferenceLength.NEVER) {
+            Text("Nearby chat uses Bluetooth while KithMoot is on screen. Send both the invitation link and nearby code.", style = MaterialTheme.typography.bodySmall)
+            TextButton({ onStartNearby(dev.forgesworn.kithmoot.relay.RoomRoute.NEARBY) }, enabled = enabled && !busy) { Text("Start nearby chat") }
+            TextButton({ onStartNearby(dev.forgesworn.kithmoot.relay.RoomRoute.MIXED) }, enabled = enabled && !busy) { Text("Start nearby + Internet chat") }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
     }

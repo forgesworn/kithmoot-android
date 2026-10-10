@@ -3,6 +3,13 @@ package dev.forgesworn.kithmoot.ui
 import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
 import dev.forgesworn.kithmoot.protocol.isSafeRoomRelayUrl
 import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
+import dev.forgesworn.kithmoot.epoch.NativeKeeperCreation
+import dev.forgesworn.kithmoot.epoch.NativeKeeperEntry
+import dev.forgesworn.kithmoot.epoch.NativeKeeperController
+import dev.forgesworn.kithmoot.epoch.NativeKeeperEndpoints
+import dev.forgesworn.kithmoot.storage.NativeKeeperVault
+import dev.forgesworn.kithmoot.storage.NativeRoomCreation
+import dev.forgesworn.kithmoot.storage.RoomRekeyVault
 
 import android.util.Log
 import dev.forgesworn.kithmoot.protocol.decodeLivePersistentDescriptor
@@ -336,6 +343,7 @@ data class RendezvousView(
 )
 
 data class StartState(
+    val unfinishedNativeRoom: SavedRoomSummary? = null,
     val roomBookmarks: RoomBookmarkSnapshot = RoomBookmarkSnapshot(),
     val roomSyncBusy: Boolean = false,
     val roomSyncError: String? = null,
@@ -961,6 +969,9 @@ class RoomViewModel @JvmOverloads constructor(
     private var roomInvitation: InvitationPayload? = null
     private var roomInvitationHost: RoomInvitationHost? = null
     private var invitationHostJob: Job? = null
+    private var nativeKeeperEntry: NativeKeeperEntry? = null
+    private var nativeKeeperController: NativeKeeperController? = null
+    private var closingKeeper: Job? = null
     private var relayUrls: List<String> = emptyList()
     private var anonymousRoom: Boolean = false
     // This instance's share of AccountWriteHold: one for a Tor-only room being
@@ -1969,6 +1980,7 @@ class RoomViewModel @JvmOverloads constructor(
             _videos.value = emptyMap()
             try { live?.leave() } catch (e: CancellationException) { throw e } catch (_: Exception) { } finally { closeSession() }
         }
+        closingKeeper?.join()
         if (_room.value.roomId == roomId) {
             _room.value = RoomState(background = backgrounds.load())
             _stage.value = Stage.START
@@ -2129,10 +2141,12 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 }
                 val rooms = savedRooms.list()
+                val pendingNative = NativeRoomCreation.open(getApplication(), savedRooms).use { it.pending() }
                 sweepForgottenRooms()
                 val linked = activeLinkRooms()
-                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
+                _start.update { it.copy(savedRooms = rooms, unfinishedNativeRoom = pendingNative, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
+            catch (error: Exception) { _start.update { it.copy(loadingRooms = false, error = error.message ?: "Room creation recovery could not be inspected.") } }
         }
     }
 
@@ -2454,6 +2468,8 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
         savedRooms.get(id)?.let {
+            closingKeeper?.join()
+            forgetNativeStores(it)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
@@ -2463,6 +2479,14 @@ class RoomViewModel @JvmOverloads constructor(
         // Its keys go with it. What cannot be erased now, the next load's sweep erases.
         runCatching { roomEpochs.forget(id) }
         roomMembers.forget(id)
+    }
+    private fun forgetNativeStores(saved: SavedRoom) {
+        saved.nativeAuthority?.let { b ->
+            check(savedRoom?.id != saved.id) { "Leave this room before forgetting its host state." }
+            RoomRekeyVault(getApplication(), dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
+                b.room, b.authority, b.device, b.meshScope, b.relays, b.route)).forget()
+            NativeKeeperVault.forSavedRoom(getApplication(), saved).forget()
+        }
     }
     fun setRoomProject(id: String, project: String) = changeSavedRooms { savedRooms.update(id) { it.inProject(project) } }
     fun setRoomPinned(id: String, pinned: Boolean) = changeSavedRooms { savedRooms.update(id) { it.withPinned(pinned) } }
@@ -2480,16 +2504,16 @@ class RoomViewModel @JvmOverloads constructor(
         if (linkConsents.all().isNotEmpty()) {
             throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
         }
+        closingKeeper?.join()
+        // The index names the independent native aliases. Preserve it if they cannot be read or cleared.
+        val readable = savedRooms.list().map { requireNotNull(savedRooms.get(it.id)) }
+        readable.forEach(::forgetNativeStores)
         linkConsents.reset()
-        // Best effort: corrupt saved rooms cannot be listed, and resetting
-        // them is exactly how the person recovers, so it must still happen.
-        try {
-            savedRooms.list().forEach { room -> savedRooms.get(room.id)?.let { saved ->
-                RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
-                dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
-                    saved.id, saved.participant, saved.devicePubkey).outbox.clear()
-            } }
-        } catch (_: RoomStorageException) { /* Nothing readable to clear. */ }
+        readable.forEach { saved ->
+            RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
+            dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
+                saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+        }
         dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
         savedRooms.reset()
         runCatching { roomEpochs.reset() }
@@ -2720,6 +2744,7 @@ class RoomViewModel @JvmOverloads constructor(
      * choice; `open` adds only the room relays its guard accepts.
      */
     private fun savedRoomRelays(saved: SavedRoom, openedFrom: String? = null): List<String> {
+        if (saved.nativeAuthority != null) return saved.relays
         if (keepsOwnRelays(saved)) return saved.relays
         val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == saved.id }?.link
         val linked = listOfNotNull(saved.joinUrl, bookmark, openedFrom).distinct().map(::linkRelays)
@@ -2908,6 +2933,8 @@ class RoomViewModel @JvmOverloads constructor(
                         .also { _room.value = RoomState(background = backgrounds.load()); _stage.value = Stage.START }
                 }
                 oldJob?.join()
+                val pending = runCatching { NativeRoomCreation.open(getApplication(), savedRooms).use { it.pending() } }.getOrNull()
+                if (pending != null) _start.update { it.copy(unfinishedNativeRoom = pending) }
                 when (e) {
                     is RoomStorageException -> storageFailed()
                     else -> _start.update { it.copy(error = roomEntryFailureMessage(e)) }
@@ -3208,6 +3235,46 @@ class RoomViewModel @JvmOverloads constructor(
                 roomRelaysSigned = true,
                 destruct = destruct,
             )
+        }
+    }
+
+    /** A local chat host; the independent journal keeps the sole root signer. */
+    fun startNearbyRoom(route: RoomRoute) {
+        val chosen = _start.value
+        enter(label = "The nearby room", opening = "Starting the nearby room…") {
+            require(route.nearby)
+            check(appVisible && !chosen.anonymousMode && !chatOnly && callRoomId == null) {
+                "Keep KithMoot on screen and finish the call or leave Tor-only mode before starting nearby."
+            }
+            check(chosen.conferenceLength == ConferenceLength.NEVER) { "Nearby hosting currently needs a room with no fixed end." }
+            val relays = if (route.internet) parseRelays(chosen.relays).map(::canonicalRelayUrl).distinct().sorted() else emptyList()
+            require(!route.internet || relays.size in 1..MAX_INVITATION_RELAYS && relays.all(::isSafeRoomRelayUrl)) {
+                "Choose one to $MAX_INVITATION_RELAYS encrypted room relays."
+            }
+            val at = epochSeconds()
+            val creation = NativeKeeperCreation.fresh(at, roomRelays = relays.takeIf { route.internet })
+            try {
+                val base = creation.roomSecret()
+                val invitation = creation.invitation()
+                try {
+                    val who = PrimaryIdentity.create(creation.room, at + CREDENTIAL_TTL_SECONDS, at)
+                    val url = encodeInvitationUrl(selectedWebApp.joinBase, invitation, relays)
+                    val draft = SavedRoom.create(base, who, url, relays, chosen.roomName, at,
+                        host = null, authority = creation.authority, route = route)
+                    val saved = NativeRoomCreation.open(getApplication(), savedRooms).use { it.begin(creation, draft, who.credential) }
+                    _start.update { it.copy(savedRooms = savedRooms.list(), unfinishedNativeRoom = null) }
+                    openSaved(saved)
+                } finally { base.fill(0); invitation.bearer.fill(0) }
+            } finally { creation.close() }
+        }
+    }
+
+    fun recoverNativeRoomCreation() {
+        enter(label = "The unfinished room", opening = "Recovering the unfinished room…") {
+            val saved = NativeRoomCreation.open(getApplication(), savedRooms).use { it.recover() }
+                ?: throw RoomRecoveryException("There is no unfinished room to recover.")
+            _start.update { it.copy(savedRooms = savedRooms.list(), unfinishedNativeRoom = null,
+                notice = "Room recovered. Open it when you are ready.") }
         }
     }
 
@@ -3861,6 +3928,15 @@ class RoomViewModel @JvmOverloads constructor(
             .withInvitationAuthority()
             .withEpochHint(expectedEpoch)
         val record = preparedRecord
+        val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
+        closeSession(keepEntry = true)
+        oldSessionJob?.join()
+        closingKeeper?.join(); closingKeeper = null
+        closingNearby?.awaitClosed(); closingNearby = null
+        val nativeEntry = if (record.nativeAuthority == null) null else NativeKeeperEntry.open(record, roomEpochs,
+            { NativeKeeperVault.forSavedRoom(getApplication(), record).open() },
+            { binding, initialise -> RoomRekeyVault(getApplication(), binding).open(initialise) })
+        nativeKeeperEntry = nativeEntry
         if (freshNearby == null) savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
@@ -3868,7 +3944,7 @@ class RoomViewModel @JvmOverloads constructor(
         // only its route and its circle's relays; it says how many it left out.
         val roomGuard = roomRelayGuard(record)
         val shared = RoomRelays.guarded(record.sharedRelays, roomGuard)
-        val activeRelays = freshNearby?.relay?.relayUrls ?: if (!route.internet) emptyList() else RoomRelays.atOpen(ownRelays, emptyList(), room = shared.accepted)
+        val activeRelays = nativeEntry?.binding?.relays ?: freshNearby?.relay?.relayUrls ?: if (!route.internet) emptyList() else RoomRelays.atOpen(ownRelays, emptyList(), room = shared.accepted)
             .also { if (anonymousProfile) TorOnlyRelayUrls.assertRoomTransport(it, emptyList()) }
         val forcedRelays = RoomRelays.ofRoom(activeRelays, shared.accepted)
         // The signer has most likely just answered: renew the other Ring me
@@ -3877,7 +3953,8 @@ class RoomViewModel @JvmOverloads constructor(
             dev.forgesworn.kithmoot.service.CredentialRenewal.renewQuietly(getApplication())
         }
         var durableEpoch = record.authority?.let {
-            roomEpochs.initialise(record.id, it, record.secret, epochSeconds())
+            if (nativeEntry != null) requireNotNull(roomEpochs.get(record.id))
+            else roomEpochs.initialise(record.id, it, record.secret, epochSeconds())
         }
         if (durableEpoch?.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
             durableEpoch = cadenceGate.withLock { resumePendingRoomEpoch(record, who, secondary, durableEpoch!!) }
@@ -3909,7 +3986,7 @@ class RoomViewModel @JvmOverloads constructor(
         // Any member in step at an epoch past 0 can bring another member's device up to date
         // while the authority's device is away (kind 20471/20472). Not on the authority's own
         // device, which answers as the authority, and never in an anonymous room.
-        val memberDesk = record.authority?.takeIf { !anonymousProfile && epochResponder == null }?.let { roomAuthority ->
+        val memberDesk = record.authority?.takeIf { !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
             MemberEpochResponder(
                 record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
                 current = {
@@ -3934,12 +4011,6 @@ class RoomViewModel @JvmOverloads constructor(
             AccountWriteHold.process.personActed()
             changeRoomBookmarks { it.save(bookmark) }
         } }
-        val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
-        // The room being opened keeps its entry share until its session holds one.
-        closeSession(keepEntry = true)
-        oldSessionJob?.join()
-        closingNearby?.awaitClosed()
-        closingNearby = null
         savedRoom = record
         val scope = freshNearby?.scope ?: CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
@@ -4089,9 +4160,9 @@ class RoomViewModel @JvmOverloads constructor(
             // before saying anything, as the web client does; told nothing,
             // ask once without holding the room up - except in a quiet room,
             // whose traffic is shaped not to say when a member opens it.
-            expectedEpoch = record.epochHint,
+            expectedEpoch = if (nativeEntry != null) openedEpoch.epoch else record.epochHint,
             requireFreshEpoch = freshNearby != null,
-            epochProbe = quietMembers == null,
+            epochProbe = quietMembers == null && nativeEntry == null,
             chatOutbox = pendingChat,
             ends = record.ends,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
@@ -4131,6 +4202,7 @@ class RoomViewModel @JvmOverloads constructor(
             },
         )
 
+        if (nativeEntry != null) live.holdKeeperStartup()
         sessionScope = scope
         pool = relay
         session = live
@@ -4241,12 +4313,32 @@ class RoomViewModel @JvmOverloads constructor(
                     record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) }, record.destruct)
             }
         }
-        if (relay != null) readRoomRelaysOnce(scope, relay, record)
+        if (relay != null && nativeEntry == null) readRoomRelaysOnce(scope, relay, record)
         record.ends?.let { ends -> endConferenceAt(live, scope, ends, record.id) }
         if (freshNearby == null) live.join() else {
             freshNearby.join(live)
             savedRooms.saveNew(record)
             _start.update { it.copy(savedRooms = savedRooms.list()) }
+        }
+        if (nativeEntry != null) {
+            val q = nativeEntry.binding.let { b -> dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
+                b.room, b.authority, b.device, b.meshScope, b.relays, b.route) }
+            val controller = nativeEntry.start(live, NativeKeeperEndpoints(q, nearby, relay), scope,
+                { session === live && nativeKeeperEntry === nativeEntry && appVisible })
+            nativeKeeperController = controller
+            scope.launch {
+                controller.unknownParticipants.collect { participants ->
+                    _room.update { if (session === live) it.copy(letInAsks = participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
+                }
+            }
+            scope.launch {
+                controller.state.collect { state ->
+                    if (state == NativeKeeperController.State.Failed || state == NativeKeeperController.State.Suspended)
+                        _room.update { if (session === live) it.copy(notice = "Room hosting is paused. Reopen the room to inspect its saved state.") else it }
+                    if (state is NativeKeeperController.State.Closed && session === live)
+                        viewModelScope.launch(Dispatchers.IO) { roomClosed(record.id) }
+                }
+            }
         }
         loadRoomSharing(live, record, scope)
         if (pendingChat != null) {
@@ -4756,7 +4848,10 @@ class RoomViewModel @JvmOverloads constructor(
                         stopRoomSharing()
                         roomWork?.close(); invitationHostJob?.cancel(); roomInvitationHost = null
                         _room.update { it.copy(movedOn = state.epoch, roomUpdate = "closed", canRotateInvitation = false, notice = "This room was closed") }
-                        closedRoom?.let { id -> viewModelScope.launch(Dispatchers.IO) { roomClosed(id) } }
+                        closedRoom?.let { id ->
+                            if (savedRoom?.nativeAuthority == null) viewModelScope.launch(Dispatchers.IO) { roomClosed(id) }
+                            // Native destruction follows the controller's durable Closed state above.
+                        }
                     }
                 }
             }
@@ -5006,6 +5101,12 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        nativeKeeperEntry?.let { entry ->
+            session?.holdKeeperStartup(); entry.close()
+            nativeKeeperEntry = null; nativeKeeperController = null
+            val previous = closingKeeper
+            closingKeeper = CoroutineScope(Dispatchers.IO).launch { previous?.join(); entry.stop() }
+        }
         stopRoomSharing()
         roomWork?.close()
         roomWork = null
@@ -5548,6 +5649,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun setAppVisible(visible: Boolean) {
         appVisible = visible
+        if (!visible) nativeKeeperEntry?.close()
         if (!visible) stopRoomSharing()
         if (!visible && freshNearbyOpening) { entryJob?.cancel(); return }
         engine?.localMedia?.setAppVisible(visible)
@@ -6902,6 +7004,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun onRoomRelaysReceived(roomId: String, record: RoomRelaysRecord, sentAt: Long) {
         if (savedRoom?.id != roomId) return
+        if (savedRoom?.nativeAuthority != null) return
         viewModelScope.launch(Dispatchers.IO) {
             if (savedRoom?.id != roomId) return@launch
             persistLiveRoom(roomId) { it.withRoomRelaysRecord(record) }
@@ -7063,6 +7166,15 @@ class RoomViewModel @JvmOverloads constructor(
         val ask = _room.value.letInAsks.firstOrNull { it.participant == participant } ?: return
         _room.update { it.copy(letInAsks = it.letInAsks.filterNot { a -> a.participant == participant }) }
         if (!yes) return
+        if (room.nativeAuthority != null) {
+            val controller = nativeKeeperController ?: run { note("Reopen the room before approving this participant."); return }
+            viewModelScope.launch(Dispatchers.IO) {
+                try { controller.approve(participant) }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (error: Exception) { _room.update { it.copy(notice = error.message ?: "The approval could not be saved.") } }
+            }
+            return
+        }
         viewModelScope.launch {
             withContext(Dispatchers.IO) { roomMembers.letIn(room.id, participant) }
             _room.update { it.copy(notice = "You let ${ask.label} in.") }

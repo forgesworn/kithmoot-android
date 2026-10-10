@@ -161,15 +161,21 @@ fun KithMootApp(
     }
     val context = LocalContext.current
     var nearbyInviteRequest by remember { mutableStateOf<Triple<String, String, dev.forgesworn.kithmoot.relay.RoomRoute>?>(null) }
+    var nearbyCreateRequest by remember { mutableStateOf<dev.forgesworn.kithmoot.relay.RoomRoute?>(null) }
     var nearbyRoomRequest by rememberSaveable { mutableStateOf<String?>(null) }
     val nearbyPermissions = remember { arrayOf(Manifest.permission.BLUETOOTH_SCAN,
         Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT) }
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val create = nearbyCreateRequest
+        nearbyCreateRequest = null
         val invite = nearbyInviteRequest
         nearbyInviteRequest = null
         val id = nearbyRoomRequest
         nearbyRoomRequest = null
-        if (invite != null) {
+        if (create != null) {
+            if (nearbyPermissions.all { grants[it] == true }) model.startNearbyRoom(create)
+            else model.nearbyPermissionDenied()
+        } else if (invite != null) {
             if (nearbyPermissions.all { grants[it] == true }) model.joinNearbyFromUrl(invite.first, invite.second, invite.third)
             else model.nearbyPermissionDenied()
         } else if (id != null) {
@@ -181,6 +187,7 @@ fun KithMootApp(
         if (id == callRoomId) { onBackToCall(); return }
         val nearby = startState.savedRooms.firstOrNull { it.id == id }?.route?.nearby == true
         if (nearby && nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+            nearbyCreateRequest = null; nearbyInviteRequest = null
             nearbyRoomRequest = id
             nearbyPermissionLauncher.launch(nearbyPermissions)
         } else model.reopenRoom(id)
@@ -583,6 +590,13 @@ fun KithMootApp(
                         onAnonymousModeChanged = model::onAnonymousModeChanged,
                         onPersistentGroupChanged = model::onPersistentGroupChanged,
                         onStartRoom = model::startRoom,
+                        onStartNearby = { route ->
+                            if (nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+                                nearbyRoomRequest = null; nearbyInviteRequest = null; nearbyCreateRequest = route
+                                nearbyPermissionLauncher.launch(nearbyPermissions)
+                            } else model.startNearbyRoom(route)
+                        },
+                        onRecoverNativeCreation = model::recoverNativeRoomCreation,
                         onConferenceLengthChanged = model::onConferenceLengthChanged,
                         onRoomDestructChanged = model::onRoomDestructChanged,
                         onRoomDurationChanged = model::onRoomDurationChanged,
@@ -590,7 +604,7 @@ fun KithMootApp(
                         onJoinNearby = { code, route ->
                             val request = Triple(startState.joinUrl, code, route)
                             if (nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-                                nearbyRoomRequest = null
+                                nearbyRoomRequest = null; nearbyCreateRequest = null
                                 nearbyInviteRequest = request
                                 nearbyPermissionLauncher.launch(nearbyPermissions)
                             } else model.joinNearbyFromUrl(request.first, request.second, request.third)

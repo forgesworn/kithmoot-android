@@ -31,4 +31,10 @@ internal class NativeKeeperEndpoints(val binding: RoomRekeyBinding,
         return if (lane == RekeyLane.NEARBY) requireNotNull(nearby).publishKeeperAnswerGuarded(event, generation, stillAllowed)
         else requireNotNull(internet).publishKeeperAnswerGuarded(event, generation, stillAllowed, timeoutMs)
     }
+
+    suspend fun offerWelcome(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        require(binding.route.internet && event.kind == 1463 && event.pubkey == binding.authority)
+        return requireNotNull(internet).publishKeeperWelcomeGuarded(event, generation, stillAllowed, timeoutMs)
+    }
 }
