@@ -57,6 +57,7 @@ class ArtworkPickerUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             mount(scenario)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
+            waitForKeyboard(scenario)
             ui.onNodeWithContentDescription("Emoji").performClick()
             ui.waitUntil(10_000) {
                 var hidden = false
@@ -64,6 +65,7 @@ class ArtworkPickerUiTest {
                 hidden
             }
             ui.onNodeWithText("Keep this draft ").assertIsDisplayed()
+            ui.onNodeWithText("Keep this draft ").assertIsNotFocused()
             capture("emoji-portrait")
             ui.onNodeWithContentDescription("👍 Thumbs up").performClick().performClick()
             ui.onNodeWithText("Keep this draft 👍👍").assertIsDisplayed()
