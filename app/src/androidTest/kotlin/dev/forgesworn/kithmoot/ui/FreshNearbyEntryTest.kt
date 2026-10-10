@@ -96,8 +96,9 @@ class FreshNearbyEntryTest {
             assertNull(f.app.savedRooms.get(f.room.roomId))
             await("mixed entry opens") { f.model.stage.value == Stage.ROOM || f.model.start.value.error != null }
             assertNull(f.model.start.value.error); assertEquals(Stage.ROOM, f.model.stage.value)
-            assertEquals(3, f.requests.size); assertEquals(1, f.requests.map { it.id }.distinct().size)
-            assertEquals(2, f.answers.size); assertEquals(1, f.answers.map { it.id }.distinct().size)
+            f.assertMixedLossRecovered()
+            assertEquals(1, f.requests.map { it.id }.distinct().size)
+            assertEquals(1, f.answers.map { it.id }.distinct().size)
             assertEquals(2, f.relayConnections.get()) // Keeper and phone; no replacement/profile pool.
             assertEquals(1, f.linkOwners.get())
             assertEquals(1, f.radios.count { !it.closed }) // Epoch confirmation may reset the engine queue.
@@ -223,6 +224,14 @@ class FreshNearbyEntryTest {
         val linkOwners = AtomicInteger()
         private val relayRequests = AtomicInteger()
         private val relayAnswers = AtomicInteger()
+        fun assertMixedLossRecovered() {
+            // Each path drops its first request and answer. The relay can deliver
+            // the retry before another radio attempt, so total radio attempts vary.
+            assertTrue("radio retries its dropped request", requests.size >= 2)
+            assertTrue("radio drops its first answer", answers.isNotEmpty())
+            assertTrue("relay retries its dropped request", relayRequests.get() >= 2)
+            assertTrue("relay retries its dropped answer", relayAnswers.get() >= 2)
+        }
         private val stored = CopyOnWriteArrayList<NostrEvent>()
         @Volatile var meshEnabled = true
         @Volatile var relayEnabled = true

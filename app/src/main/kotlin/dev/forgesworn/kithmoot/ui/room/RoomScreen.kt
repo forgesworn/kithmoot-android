@@ -120,6 +120,8 @@ fun RoomScreen(
     onRetryRoomUpdate: () -> Unit = {},
     onDismissEpochTrouble: () -> Unit = {},
     onAnswerLetIn: (String, Boolean) -> Unit = { _, _ -> },
+    onAnswerInvitationAdmission: (String, Boolean) -> Unit = { _, _ -> },
+    onDismissInvitationAdmission: (String) -> Unit = {},
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
@@ -468,6 +470,17 @@ fun RoomScreen(
         } else if (state.epochTrouble.isNotEmpty()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                 EpochTroublePanel(state.epochTrouble, onDismissEpochTrouble)
+            }
+        }
+        if (state.invitationAdmissions.isNotEmpty()) {
+            Text("Waiting to join (${state.invitationAdmissions.size})",
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleSmall)
+            Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+                for (request in state.invitationAdmissions) androidx.compose.runtime.key(request.requestId) {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        InvitationAdmissionPanel(request, onDismiss = onDismissInvitationAdmission, onAnswer = onAnswerInvitationAdmission)
+                    }
+                }
             }
         }
         for (ask in state.letInAsks) {
