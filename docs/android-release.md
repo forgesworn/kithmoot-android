@@ -1,5 +1,25 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.77 (100): Inbox and work across retained rooms
+
+Inbox and All work open from home and the room header. They show canonical
+tasks, decisions and human mentions/replies from rooms deliberately opened as
+the current account, with project filters and exact originating task/message
+navigation. Activity readers have no signer, presence publication or writable
+task journal. Changed access, authority epochs and closure drop their view;
+dismissal or backgrounding cancels observation. Signed decisions remain in the
+origin room. Existing drafts and the call visitor/dock are preserved by the UI.
+
+The source and emulator journey is recorded in
+[Native Inbox and Work](workspace-inbox.md). A combined signed-project/call
+journey, physical-phone acceptance, fresh-device summaries, older history,
+representative performance/battery and live execution remain open. This version
+also retains the independently merged native keeper journal foundations; those
+remain separate from foreground room creation and hosting attachment.
+
+Signed APK, public channels and physical/store-client acceptance require
+separate publication evidence. This version section does not claim shipment.
+
 ## 0.6.76 (99): named call recording warnings
 
 The room banner, late-join warning and call dock identify the recorder and the
