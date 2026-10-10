@@ -6054,9 +6054,18 @@ class RoomViewModel @JvmOverloads constructor(
                         }) else live.sendPreparedChatConfirmed(prepared, ::owned).also {
                             if (it) drafts.finishPreparedSend(id, room, prepared)
                         }
-                    if (session === live) note(if (confirmed) "Recording sent to its original chat." else if (durable)
-                        "Recording message is waiting in its original chat." else
-                        "The recording message was not confirmed. It may have arrived; Retry Send uses the same message.")
+                    if (session === live) {
+                        val pending = live.pendingChats.value.firstOrNull { it.id == prepared.pending.event.id }
+                        note(when {
+                            confirmed -> "Recording sent to its original chat."
+                            durable && pending?.state == dev.forgesworn.kithmoot.session.PendingChatState.MOVED ->
+                                "The room changed before this recording message could send. Its unsent message is kept in the original chat."
+                            durable && pending?.state == dev.forgesworn.kithmoot.session.PendingChatState.UNKNOWN ->
+                                "Recording delivery is unconfirmed. It may have arrived; the original chat keeps the same message."
+                            durable -> "Recording message is waiting in its original chat."
+                            else -> "The recording message was not confirmed. It may have arrived; Retry Send uses the same message."
+                        })
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {

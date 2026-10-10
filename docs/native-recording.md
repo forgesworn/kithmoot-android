@@ -186,6 +186,23 @@ journey, prepared-Send recovery across rekey/interruption, stop-notice recovery,
 live call capture, background reliability, physical acceptance and final
 hosted/signed production delivery remain open.
 
+### Interrupted Send and secure room changes
+
+The [Send recovery receipt](evidence/native-recording-send-restart-2026-10-10.json)
+records 2,024 passing app unit tests and two HTTPS Upload/Send emulator checks
+on rebuilt debug and instrumentation APKs. A session test interrupts an offer,
+restores the signed message and UNKNOWN outbox record into new objects, then
+confirms the identical ciphertext with one recording descriptor. A second
+test reopens at a newer epoch: the old event becomes MOVED, remains retained
+on retry and is never offered or replaced. Non-retaining Send refuses that
+old epoch before publication.
+
+The durable transport guard now explicitly rechecks the message's epoch.
+The sender distinguishes a cleanly unsent MOVED message from an UNKNOWN
+delivery that may have arrived, rather than describing both as waiting.
+These JVM reconstructions do not qualify Android process death or the whole
+recording owner journey through rekey; those acceptance gates remain open.
+
 ## Member-rekey recovery release gate
 
 Hosted run 38078615048 failed the member-removal case while the controller

@@ -1262,7 +1262,7 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedGuarded(event, generation, {
-                trafficAllowed() && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && epochKeys().id == item.epochId && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
