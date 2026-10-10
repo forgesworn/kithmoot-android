@@ -27,6 +27,51 @@ class EpochRequestTest {
     private val device = Schnorr.publicKeyHex(deviceSecret)
     private val credential = createDeviceCredential(participantSecret, device, room.roomId, now + 3_600, now, ByteArray(32))
 
+    @Test fun `qualified epoch request retains the exact credential independent of reader mutation`() {
+        val request = encodeEpochRequest(room.roomId, authority, room.roomKey, deviceSecret, credential, now)
+        val checked = requireNotNull(decodeVerifiedEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now))
+        assertEquals(decodeEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now), checked.request)
+        assertEquals(now, checked.verifiedAt)
+        assertEquals(credential.toCompactJson(), checked.credential().toCompactJson())
+        val exported = checked.credential()
+        @Suppress("UNCHECKED_CAST")
+        val tag = exported.tags.first() as MutableList<String>
+        tag[1] = "ff".repeat(32)
+        assertFalse(Events.verify(exported))
+        assertTrue(Events.verify(checked.credential()))
+        assertEquals(credential.toCompactJson(), checked.credential().toCompactJson())
+        // Changing a caller's outer request cannot alter retained evidence.
+        @Suppress("UNCHECKED_CAST")
+        val requestTag = request.tags.first() as MutableList<String>
+        requestTag[1] = "ff".repeat(32)
+        assertNull(decodeVerifiedEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now))
+        assertEquals(credential.toCompactJson(), checked.credential().toCompactJson())
+    }
+
+    @Test fun `enrolment evidence refuses invalid signatures credentials rooms devices admission and age`() {
+        val valid = encodeEpochRequest(room.roomId, authority, room.roomKey, deviceSecret, credential, now)
+        val expired = createDeviceCredential(participantSecret, device, room.roomId, now + 1, now)
+        val elsewhere = createDeviceCredential(participantSecret, device, "ff".repeat(32), now + 3600, now)
+        val refused = listOf(
+            valid.copy(sig = "00".repeat(64)),
+            valid.copy(tags = listOf(listOf("d", "ff".repeat(32)), listOf("p", authority))),
+            encodeEpochRequest(room.roomId, authority, room.roomKey, deviceSecret, expired, now),
+            encodeEpochRequest(room.roomId, authority, room.roomKey, deviceSecret, elsewhere, now),
+            encodeEpochRequest(room.roomId, authority, room.roomKey, "0b".repeat(32).hexToBytes(), credential, now),
+            encodeEpochRequest(room.roomId, authority, ByteArray(32) { 9 }, deviceSecret, credential, now),
+        )
+        for (request in refused) {
+            assertNull(decodeVerifiedEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now + 2))
+            assertNull(decodeEpochRequest(request, room.roomId, authoritySecret, room.roomKey, now + 2))
+        }
+        assertNull(decodeVerifiedEpochRequest(valid, room.roomId, authoritySecret, room.roomKey, now + EPOCH_MAX_AGE_SECONDS + 1))
+        assertNull(decodeVerifiedEpochRequest(valid, "ff".repeat(32), authoritySecret, room.roomKey, now))
+        assertNull(decodeVerifiedEpochRequest(valid, room.roomId, authoritySecret, ByteArray(32) { 9 }, now))
+        val excluded = RoomPolicy(KindredTier.OPEN, members = listOf("ff".repeat(32)))
+        assertNull(decodeVerifiedEpochRequest(valid, room.roomId, authoritySecret, room.roomKey, now, excluded))
+        assertNull(decodeEpochRequest(valid, room.roomId, authoritySecret, room.roomKey, now, excluded))
+    }
+
     @Test fun `the authority creates a readable successor rekey and a closed rekey seals no secret`() {
         val current = deriveEpoch(RoomEpoch(0, roomSecret))
         val nextSecret = "0c".repeat(32).hexToBytes()

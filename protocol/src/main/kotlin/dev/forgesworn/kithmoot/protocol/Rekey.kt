@@ -89,6 +89,15 @@ class RekeyNotice(
 
 data class EpochRequest(val device: String, val participant: String, val request: String)
 
+/** Qualified enrolment evidence, returned only after request, admission and
+ * policy verification. Public credential data is frozen independently of
+ * mutable event/tag lists; every reader receives its own copy. */
+class VerifiedEpochRequest internal constructor(val request: EpochRequest,
+    credential: NostrEvent, val verifiedAt: Long) {
+    private val credentialJson = credential.toCompactJson()
+    fun credential(): NostrEvent = NostrEvent.fromJson(Json.parseToJsonElement(credentialJson))
+}
+
 sealed interface EpochGrant {
     class Current(
         val epoch: Int,
@@ -397,7 +406,20 @@ fun decodeEpochRequest(
     now: Long,
     policy: RoomPolicy? = null,
     maxAgeSeconds: Long = EPOCH_MAX_AGE_SECONDS,
-): EpochRequest? = runCatching {
+): EpochRequest? = decodeVerifiedEpochRequest(event, roomId, authoritySecretKey, roomKey, now, policy, maxAgeSeconds)?.request
+
+/** The same verified boundary as [decodeEpochRequest], retaining the exact
+ * room-bound credential for durable source-owned device enrolment. It grants
+ * neither participant approval nor authority to answer an epoch request. */
+fun decodeVerifiedEpochRequest(
+    event: NostrEvent,
+    roomId: String,
+    authoritySecretKey: ByteArray,
+    roomKey: ByteArray,
+    now: Long,
+    policy: RoomPolicy? = null,
+    maxAgeSeconds: Long = EPOCH_MAX_AGE_SECONDS,
+): VerifiedEpochRequest? = runCatching {
     require(authoritySecretKey.size == 32)
     if (event.kind != KIND_EPOCH_REQUEST || !Events.verify(event) || !epochFresh(event.createdAt, now, maxAgeSeconds)) return null
     val room = requireEpochHex(roomId, "room id")
@@ -418,7 +440,7 @@ fun decodeEpochRequest(
         val proof = (body["proof"] as? JsonObject)?.let(KindredProof::fromJson)
         if (!evaluateAccess(policy, verdict.participant, proof, now, room).admitted) return null
     }
-    EpochRequest(verdict.device, verdict.participant, event.id)
+    VerifiedEpochRequest(EpochRequest(verdict.device, verdict.participant, event.id), credential, now)
 }.getOrNull()
 
 fun encodeEpochGrant(

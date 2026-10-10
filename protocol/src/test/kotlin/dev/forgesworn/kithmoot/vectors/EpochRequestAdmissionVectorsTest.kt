@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.vectors
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
+import dev.forgesworn.kithmoot.protocol.decodeVerifiedEpochRequest
 import dev.forgesworn.kithmoot.protocol.deriveEpochRequestKey
 import dev.forgesworn.kithmoot.protocol.epochRequestAdmission
 import org.junit.Assert.assertEquals
@@ -41,14 +42,19 @@ class EpochRequestAdmissionVectorsTest {
             val result = decodeEpochRequest(
                 event, decode.text("roomId"), decode.bytes("authoritySkHex"), decode.bytes("roomKeyHex"), decode.number("now"),
             )
+            val qualified = decodeVerifiedEpochRequest(
+                event, decode.text("roomId"), decode.bytes("authoritySkHex"), decode.bytes("roomKeyHex"), decode.number("now"),
+            )
             if (value.text("kind") == "negative") {
                 assertNull("$name must be refused", result)
+                assertNull("$name must not enrol a device", qualified)
             } else {
                 val expected = value.child("expected").child("result")
                 assertNotNull("$name must decode", result)
                 assertEquals("$name device", expected.text("device"), result!!.device)
                 assertEquals("$name participant", expected.text("participant"), result.participant)
                 assertEquals("$name request", expected.text("request"), result.request)
+                assertEquals("$name qualified identity", result, qualified?.request)
             }
         }
     }
