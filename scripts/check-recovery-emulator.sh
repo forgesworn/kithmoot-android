@@ -85,6 +85,8 @@ run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
+run_tests guest-admission-ui 8 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
+run_tests guest-admission-entry 4 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests restart-reopen 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#b_reopen -e requireRestart true
