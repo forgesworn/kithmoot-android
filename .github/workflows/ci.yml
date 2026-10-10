@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery, feat/native-retirement-restart, feat/native-retirement-refusal, feat/native-invitation-replacement, feat/native-invitation-generation-storage, feat/native-invitation-replacement-restart, feat/native-invitation-sharing-read, feat/native-replacement-restart-index-digest]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery, feat/native-retirement-restart, feat/native-retirement-refusal, feat/native-invitation-replacement, feat/native-invitation-generation-storage, feat/native-invitation-replacement-restart, feat/native-invitation-sharing-read, feat/native-replacement-restart-index-digest, feat/native-replacement-pending-store-refusal]
   pull_request:
     branches: [main]
 
@@ -60,6 +60,8 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 scripts/check-recovery-runner.py
           python3 scripts/check-sharing-restart-runner.py
+          python3 scripts/check-native-pending-store-refusal-rows.py
+          python3 scripts/check-native-pending-apk-inputs.py
           python3 scripts/test-pull-recovery-proof.py
 
       - name: Verify independent nearby discovery vectors
@@ -117,6 +119,17 @@ jobs:
           path: |
             app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Prepare exact pending-store APK inputs
+        run: python3 scripts/prepare-native-pending-inputs.py prepare build/native-pending-store-apks
+
+      - name: Keep exact pending-store APK inputs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-pending-store-apks
+          path: build/native-pending-store-apks/
           if-no-files-found: error
           retention-days: 1
 
@@ -219,6 +232,76 @@ jobs:
             app/build/reports/native-rekey-after-restart-emulator/
             app/build/reports/native-retirement-*-restart-emulator/
             app/build/reports/native-replacement-*-restart-emulator/
+          if-no-files-found: warn
+          retention-days: 7
+
+  pending-store-refusal-emulator:
+    name: pending-store-refusal-emulator (${{ matrix.window }})
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        window:
+          - committed-source-before-offer
+          - charged-original-before-offer
+          - offered-before-index
+          - index-committed-before-source-acknowledgement
+          - reference-installed-before-subscription-switch
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install the Android build SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Download the exact pending-store APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: native-pending-store-apks
+          path: build/native-pending-store-apks
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify pending replacement store refusals after process death
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+          PENDING_WINDOW: ${{ matrix.window }}
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: kithmoot-pending-${{ matrix.window }}
+          disable-animations: true
+          disable-spellchecker: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash scripts/check-native-pending-store-shard.sh
+
+      - name: Keep pending-store refusal reports and exact inputs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: pending-store-refusal-${{ matrix.window }}
+          path: |
+            app/build/reports/native-pending-refusal-*-restart-emulator/
+            build/native-pending-store-apks/inputs.json
           if-no-files-found: warn
           retention-days: 7
 

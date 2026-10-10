@@ -60,8 +60,31 @@ devices are refused. Existing preparation/death/recovery bounds remain intact.
 
 Local fresh instrumentation compilation and generated driver/row checks are
 separate evidence. They do not measure a process death or any real matrix row.
-Hosted workflow sizing/sharding, exact-head collector integration and the full
-changed-head base gate plus five new profiles remain pending. The sharing-read
-candidate's own workflow remains unchanged and cannot qualify this successor.
+The hosted workflow follows mesh-kit-private precode **80d8416**,
+`spec/native-pending-store-hosted-gate.md`. It retains the four base jobs and
+adds five independent 15-minute matrix jobs, one per window, with fail-fast off.
+Each shard requires the same run's successful verify job, checks its checkout
+SHA and both private APK hashes before installation, then runs only on a
+disposable qemu emulator. Reports retain the manifest and complete driver logs.
+The artifact helper refuses missing, extra, changed, oversized or linked inputs,
+duplicate manifest fields, a dirty tracked checkout and mismatching heads.
+Twenty-three generated helper/shard checks cover these refusals and installation
+ordering; mock APKs and mock adb do not measure an Android process death.
+
+This successor includes the corrected restart-index assertions from **0ffe739**:
+previous/proposed source links must differ, checkpoint index links must match
+their actual window, and completed indexes must hold the exact proposed link.
+Preparation, production behaviour, custody, traffic and recovery bounds stay
+unchanged. The earlier candidate's partial hosted run cannot qualify this one.
+
+Qualification requires this head's own nine successful jobs: all **144 ordinary
+checks in 45 groups**, six retired-store rows, thirteen positive recovery drivers,
+five additional external SIGKILL/new-PID drivers and all **55 pending-store rows**.
+The source-bound collector requires every unique fault, exact per-window debt
+and generation counters, preserved keys/files, verified cleanup, ten distinct
+new original IDs and identical checked APK inputs across all five shards.
+It refuses incomplete captures and retains predecessor failures as failures.
+No new actual pending row or death is yet measured; hosted execution and complete
+changed-head collection remain required before merge.
 No radio, firmware, channel, MQTT setting, public relay or personal signer is
 part of this work.
