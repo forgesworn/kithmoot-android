@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.CountDownLatch
@@ -212,6 +213,69 @@ class LinkTransportTest {
         manager.close()
     }
 
+    @Test fun `startup route enumeration leaves an absent identity absent`() {
+        val storage = MemoryStorage()
+        val random = CountingRandom()
+        val runtime = RecordingRuntime()
+        val manager = LinkTransportManager(LinkTransportVault(storage, random), runtime)
+        try {
+            repeat(2) { assertTrue(manager.routeIds().isEmpty()) }
+            assertEquals(0, random.calls, "Reading routes must not create a transport seed")
+            assertEquals(0, storage.writes, "Reading routes must not create a transport vault")
+            assertNull(storage.value)
+            assertEquals(0, runtime.starts)
+            println("LINK_ROUTE_READ case=absent enumerations=2 routes=0 randomCalls=0 writes=0 nativeStarts=0")
+        } finally { manager.close(); storage.value?.fill(0) }
+    }
+
+    @Test fun `startup route enumeration preserves existing seed routes and bytes`() {
+        val storage = MemoryStorage()
+        val random = CountingRandom()
+        val vault = LinkTransportVault(storage, random)
+        vault.upsert(route("route-1")); vault.upsert(route("route-2"))
+        val before = storage.value!!.copyOf()
+        val seed = vault.state().transportSeed
+        val runtime = RecordingRuntime()
+        val manager = LinkTransportManager(vault, runtime)
+        storage.writes = 0; random.calls = 0
+        try {
+            repeat(2) { assertEquals(setOf("route-1", "route-2"), manager.routeIds()) }
+            assertContentEquals(before, storage.value)
+            val reopened = LinkTransportVault(storage).state()
+            try { assertContentEquals(seed, reopened.transportSeed) }
+            finally {
+                reopened.transportSeed.fill(0)
+                reopened.routes.forEach { it.card.fill(0); it.pairedRouteSecret.fill(0) }
+            }
+            assertEquals(0, random.calls); assertEquals(0, storage.writes); assertEquals(0, runtime.starts)
+            println("LINK_ROUTE_READ case=existing enumerations=2 routes=2 randomCalls=0 writes=0 nativeStarts=0 bytesUnchanged=true seedUnchanged=true")
+        } finally { manager.close(); before.fill(0); seed.fill(0); storage.value?.fill(0) }
+    }
+
+    @Test fun `startup route enumeration refuses corrupt and unreadable vaults without replacement`() {
+        for (fault in listOf("corrupt", "unreadable")) {
+            val bytes = "{bad".toByteArray()
+            var writes = 0
+            val storage = object : RoomStorage {
+                override fun read(): ByteArray {
+                    if (fault == "unreadable") error("Fixture storage is unavailable")
+                    return bytes.copyOf()
+                }
+                override fun write(value: ByteArray) { writes++; error("Refusal must not write") }
+                override fun reset() = error("Refusal must not reset")
+            }
+            val random = CountingRandom()
+            val runtime = RecordingRuntime()
+            val manager = LinkTransportManager(LinkTransportVault(storage, random), runtime)
+            try {
+                assertFailsWith<RoomStorageException> { manager.routeIds() }
+                assertContentEquals("{bad".toByteArray(), bytes)
+                assertEquals(0, writes); assertEquals(0, random.calls); assertEquals(0, runtime.starts)
+                println("LINK_ROUTE_READ case=$fault randomCalls=0 writes=0 nativeStarts=0 bytesUnchanged=true")
+            } finally { manager.close(); bytes.fill(0) }
+        }
+    }
+
     @Test fun `manager sends exact cadence bytes on its Link worker`() {
         val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("route-1")) }
         val runtime = RequestRuntime()
@@ -273,13 +337,18 @@ class LinkTransportTest {
 
     private class MemoryStorage(initial: ByteArray? = null) : RoomStorage {
         var value = initial
+        var writes = 0
         override fun read(): ByteArray? = value?.copyOf()
-        override fun write(value: ByteArray) { this.value = value.copyOf() }
+        override fun write(value: ByteArray) { writes++; this.value = value.copyOf() }
         override fun reset() { value = null }
+    }
+    private class CountingRandom : SecureRandom() {
+        var calls = 0
+        override fun nextBytes(bytes: ByteArray) { calls++; super.nextBytes(bytes) }
     }
     private class RecordingRuntime : LinkTransportRuntime {
         var starts = 0
-        override fun start(state: LinkTransportState): LinkTransportSession = error("must not start")
+        override fun start(state: LinkTransportState): LinkTransportSession { starts++; error("must not start") }
     }
     private class RetiringRuntime : LinkTransportRuntime {
         val retired = mutableListOf<String>()

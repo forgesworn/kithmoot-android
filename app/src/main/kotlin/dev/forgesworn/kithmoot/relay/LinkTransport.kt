@@ -54,6 +54,16 @@ data class LinkTransportState(val transportSeed: ByteArray, val routes: List<Sto
 class LinkTransportVault(private val storage: RoomStorage, private val random: SecureRandom = SecureRandom()) {
     @Synchronized fun state(): LinkTransportState = read().copyForUse()
 
+    /** Startup inspection must not initialise an unused transport identity. */
+    @Synchronized fun routeIds(): Set<String> {
+        val current = readExisting() ?: return emptySet()
+        return try { current.routes.mapTo(mutableSetOf()) { it.routeId } }
+        finally {
+            current.transportSeed.fill(0)
+            current.routes.forEach { it.card.fill(0); it.pairedRouteSecret.fill(0) }
+        }
+    }
+
     @Synchronized fun upsert(route: StoredLinkRoute): LinkTransportState {
         val current = read()
         val next = LinkTransportState(current.transportSeed, (current.routes.filterNot { it.routeId == route.routeId } + route).also {
@@ -71,7 +81,11 @@ class LinkTransportVault(private val storage: RoomStorage, private val random: S
     }
 
     private fun read(): LinkTransportState = guarded {
-        val bytes = storage.read() ?: return@guarded LinkTransportState(ByteArray(32).also(random::nextBytes), emptyList()).also(::write)
+        readExisting() ?: LinkTransportState(ByteArray(32).also(random::nextBytes), emptyList()).also(::write)
+    }
+
+    private fun readExisting(): LinkTransportState? = guarded {
+        val bytes = storage.read() ?: return@guarded null
         try {
             require(bytes.size <= 256 * 1024)
             val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
@@ -416,7 +430,7 @@ class LinkTransportManager(
     }
 
     /** Used at startup to discard transport credentials that have no consent record. */
-    fun routeIds(): Set<String> = vault.state().routes.mapTo(mutableSetOf()) { it.routeId }
+    fun routeIds(): Set<String> = vault.routeIds()
 
     /** Pairing is native and blocking, so return its completion without ever blocking the UI thread. */
     fun pair(card: ByteArray, pairingSecret: ByteArray, expiresAt: Long): java.util.concurrent.CompletableFuture<StoredLinkRoute> {
