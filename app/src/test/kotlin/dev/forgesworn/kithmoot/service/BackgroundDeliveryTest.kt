@@ -49,6 +49,51 @@ class BackgroundDeliveryTest {
         replaces: String? = null, retracts: String? = null, invite: ChatInvite? = null) =
         ChatMessage(id, from, "c".repeat(64), "text", sentAt, reaction = reaction, replaces = replaces, retracts = retracts, invite = invite)
 
+    @Test fun `message activity survives reading reopening and a process restart`() {
+        val store = MemoryStore()
+        val box = inbox(store)
+        assertTrue(box.record("event", 1_100, message("message", sentAt = 1_000)))
+        assertEquals(1_000L, box.state().latestMessageAt)
+        box.markRead(5_000)
+        assertEquals(1_000L, inbox(store).state().latestMessageAt)
+        assertTrue(box.state().unread.isEmpty())
+        box.markRead(6_000)
+        assertEquals(1_000L, box.state().latestMessageAt)
+    }
+
+    @Test fun `own messages move activity but repeated echoes controls and old history do not`() {
+        val box = inbox(MemoryStore())
+        assertFalse(box.record("own", 2_000, message("own-message", from = self, sentAt = 1_000)))
+        assertEquals(1_000L, box.state().latestMessageAt)
+        box.record("reaction", 3_000, message("reaction", sentAt = 3_000, reaction = ChatReaction("own-message", self, "👍", true, 1)))
+        box.record("edit", 4_000, message("edit", sentAt = 4_000, replaces = "own-message"))
+        box.record("retract", 5_000, message("retract", sentAt = 5_000, retracts = "own-message"))
+        assertEquals(1_000L, box.state().latestMessageAt)
+        box.rememberActivity(listOf(message("old-history", sentAt = 900)))
+        assertEquals(1_000L, box.state().latestMessageAt)
+        box.rememberActivity(listOf(message("new-message", from = self, sentAt = 6_000)))
+        assertEquals(6_000L, box.state().latestMessageAt)
+        assertTrue(box.state().unread.isEmpty())
+        assertEquals(0L, box.state().readThrough)
+    }
+
+    @Test fun `legacy read clocks do not become message activity`() {
+        val store = MemoryStore()
+        inbox(store).markRead(5_000)
+        val text = store.bytes!!.toString(Charsets.UTF_8).replace(",\"latestMessageAt\":0", "")
+        store.bytes = text.toByteArray(Charsets.UTF_8)
+        assertEquals(0L, inbox(store).state().latestMessageAt)
+        assertEquals(5_000L, inbox(store).state().readThrough)
+    }
+
+    @Test fun `activity receipts do not cross an account or device boundary`() {
+        val store = MemoryStore()
+        inbox(store).rememberActivity(listOf(message("private", sentAt = 6_000)))
+        assertEquals(0L, inbox(store, device = "e".repeat(64)).state().latestMessageAt)
+        assertEquals(0L, BackgroundInbox(store, "room", other, "d".repeat(64)).state().latestMessageAt)
+        assertEquals(0L, BackgroundInbox(store, "other-room", self, "d".repeat(64)).state().latestMessageAt)
+    }
+
     // B-J01
     @Test fun `a Link relay address never reaches the public socket factory`() {
         val node = "a".repeat(51) + "q"

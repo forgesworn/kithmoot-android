@@ -394,6 +394,8 @@ data class StartState(
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
+    /** Locally retained authenticated message times, scoped to the selected account. */
+    val latestMessageTimes: Map<String, Long> = emptyMap(),
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
@@ -1342,6 +1344,30 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // Home observes encrypted message receipts; opening/read timestamps
+        // and relay subscription cursors are never conversation activity.
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision) { state, currentStage, revision ->
+                Triple(state.account?.pubkey, if (currentStage == Stage.START) state.savedRooms.filter {
+                    !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
+                } else emptyList(), revision)
+            }.distinctUntilChanged().collectLatest { selection ->
+                val times = selection.second.mapNotNull { summary ->
+                    runCatching {
+                        val record = savedRooms.get(summary.id) ?: return@runCatching null
+                        if (record.anonymous || record.viaAccount && record.participant != selection.first) return@runCatching null
+                        val time = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state().latestMessageAt
+                        (record.id to time).takeIf { time > 0 }
+                    }.getOrNull()
+                }.toMap()
+                _start.update { state ->
+                    val eligible = if (stage.value == Stage.START) state.savedRooms.filter {
+                        !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
+                    } else emptyList()
+                    state.copy(latestMessageTimes = if (state.account?.pubkey == selection.first && eligible == selection.second) times else emptyMap())
+                }
+            }
+        }
         // The list needs pictures before a conversation is opened. Keep the
         // same public-profile switch and account boundary as the room itself.
         viewModelScope.launch(Dispatchers.IO) {
@@ -4668,6 +4694,7 @@ class RoomViewModel @JvmOverloads constructor(
                 CoroutineScope(backgroundInboxWrites).launch {
                     runCatching {
                         val inbox = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox
+                        inbox.rememberActivity(shown)
                         alerted.forEach(inbox::recordAlerted)
                         if (read) inbox.markRead(epochSeconds(), shown)
                     }
