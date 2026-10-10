@@ -6,6 +6,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -91,7 +92,15 @@ class InvitationAdmissionUiTest {
         val answers = mutableListOf<Pair<String, Boolean>>()
         compose.setContent {
             KithMootTheme {
-                Box(Modifier.requiredSize(360.dp, 720.dp)) {
+                val context = LocalContext.current
+                SideEffect {
+                    // Match MainActivity's adjustResize declaration. The generic
+                    // Compose test activity otherwise pans the whole room for IME.
+                    val activity = generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
+                        .filterIsInstance<android.app.Activity>().first()
+                    activity.window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                }
+                Box(Modifier.fillMaxSize().widthIn(max = 360.dp)) {
                     RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
                         chat = { ChatPane(emptyList(), state.selfParticipant, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false) },
                         onAnswerInvitationAdmission = { id, yes ->
