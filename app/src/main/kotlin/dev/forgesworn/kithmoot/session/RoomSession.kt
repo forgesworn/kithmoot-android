@@ -500,11 +500,16 @@ class RoomSession(
 
     /** Called by the exclusive foreground source owner before it signs.
      * Uses the ordinary epoch barrier, never a transport handoff lock. */
-    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String) {
+    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String,
+        recoveringEpoch: Int? = null) {
         require(keeperProfileMatches(stableRoom, root, participant, device))
         epochMutex.withLock {
             require(keeperProfileMatches(stableRoom, root, participant, device))
             if (_epochState.value is RoomEpochState.Closed) return@withLock
+            // A courier echo can finish adoption between the controller's
+            // recovery snapshot and this barrier. Never hold the next epoch
+            // merely to replay an original notice already adopted here.
+            if (recoveringEpoch != null && epochKeys().epoch >= recoveringEpoch) return@withLock
             keeperTransitionFrom = _epochState.value as? RoomEpochState.Active
             blockForRekey()
             _epochState.value = RoomEpochState.Updating(epochKeys().epoch + 1)

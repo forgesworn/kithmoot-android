@@ -329,7 +329,7 @@ internal class NativeKeeperController private constructor(private val source: Na
                 val target = requireNotNull(peekRekeyEpoch(event, source.binding.room, source.binding.authority))
                 if (session.epochKeys().epoch < target && session.epochState.value !is RoomEpochState.Closed) {
                     val b = source.binding
-                    session.holdKeeperTransition(b.room, b.authority, b.participant, b.device)
+                    session.holdKeeperTransition(b.room, b.authority, b.participant, b.device, recoveringEpoch = target)
                     session.applyKeeperRekey(event, b.participant, b.device)
                 }
             }

@@ -40,6 +40,33 @@ Explicit Remove then deletes that draft. All 14 emulator checks passed in
 it does not qualify a live call, system Save provider, physical device, Upload,
 Send, or behaviour under concurrent build load.
 
+### Storage authorisation work still required
+
+The next sharing implementation should use a separate storage identity for each
+explicitly chosen HTTPS origin. The private node can authorise its public key
+with the existing `--allow-pubkey` policy. It must not reuse a room/device key or
+the file's encryption recovery key. This lets the cleanup owner create fresh
+five-minute DELETE requests after Forget without retaining room credentials.
+The device-encrypted cleanup journal must retain only the storage identity and
+exact origin/hash cleanup records after removing room references. Node
+authorisation, upload failure, restart, Forget and eventual deletion still need
+end-to-end verification. This is a proposed implementation path, not completed
+storage support; local recording and Save require no node authorisation.
+
+## Member-rekey recovery release gate
+
+Hosted run 38078615048 failed the member-removal case while the controller
+replayed its own rekey. Recovery observed the old epoch before taking the
+receiver barrier; an intervening receiver adoption could make its subsequent
+hold incorrectly mark the next epoch pending. Recovery now supplies its target
+to the barrier, which skips that hold if the receiver is already current.
+Normal source transactions still hold publication. A deterministic JVM test
+checks replay after adoption, a single durable commit and the next transaction's
+publication refusal. The [recovery receipt](evidence/native-recording-recovery-race-2026-10-10.json)
+records 13 focused JVM tests, all five member-command emulator checks, and all
+14 recording checks passing on the patched APKs. This closes the reproduced
+ordering defect locally; the exact patched head still needs hosted CI.
+
 ## Capture boundary
 
 `CallAudioCapture` attaches sinks to explicitly supplied remote WebRTC audio

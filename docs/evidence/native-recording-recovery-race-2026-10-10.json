@@ -1,0 +1,49 @@
+{
+  "production_ready": false,
+  "build_successful": true,
+  "build_elapsed": "4m 25s",
+  "focused_jvm": {
+    "tests": 13,
+    "failures": 0,
+    "suites": [
+      "NativeKeeperEndpointsTest",
+      "NativeKeeperReadinessTest"
+    ]
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "ad3ad4a04760025b0060ce3a880304e49a88262ad9d08fb3d5f35ad408213253",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/epoch/NativeKeeperController.kt": "dff7e2deef5d6920218934b5549ad303d3f8eea481fbfc870650387c442e3262",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/epoch/NativeKeeperEndpointsTest.kt": "07c6d327b306c0f8864465bc7bbb26781a5bcc1d593743569fd918e4b6b5d2c1"
+  },
+  "runtime": {
+    "member_commands": {
+      "tests": 5,
+      "failures": 0,
+      "elapsed_seconds": 17.964,
+      "report": "app/build/reports/native-recording-recovery-race/instrumentation.txt",
+      "report_sha256": "50ae9944fc704f10be64764443a2332b4699532e487f007a0f8a46ae3b57b057",
+      "physical": false,
+      "serial": "emulator-5586"
+    },
+    "recording": {
+      "tests": 14,
+      "failures": 0,
+      "elapsed_seconds": 45.768,
+      "report": "app/build/reports/native-recording-recovery-race-recording/instrumentation.txt",
+      "report_sha256": "decd3159040c3a8f1beb1a347d922fb78049c3ada873be59b8bae48664fc2122",
+      "physical": false,
+      "serial": "emulator-5586"
+    }
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "55dcd28dacc9802c1598d982584d81909e61e81c1579bc03840945da4f1f2b75"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "77323b962cfdc5303bf04291832df80c8af2f8e6c789e750c55e89dd73a1fbd4"
+    }
+  ],
+  "scope": "Recovery target is checked under the receiver epoch barrier before holding publication. Deterministic JVM regression, member-command emulator suite and recording suite pass; no hosted, physical or complete production qualification claim."
+}
