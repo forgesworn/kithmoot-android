@@ -57,6 +57,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     private var grantToLose = loseGrant
     @Volatile private var phone: ((RoomBleEvent) -> Unit)? = null
     @Volatile var welcomeAccepted = true
+    @Volatile var retirementAccepted = true
+    @Volatile private var nearbyAvailable = true
     val server = MockWebServer().also {
         it.serverSocketFactory = object : ServerSocketFactory() {
             override fun createServerSocket() = object : ServerSocket() {
@@ -89,6 +91,10 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
                             val event = NostrEvent.fromJson(frame[1]); require(Events.verify(event))
                             relayWrites += event
                             if (event.kind == 1463 && !welcomeAccepted) return
+                            if (event.kind == KIND_INVITATION_RETIREMENT && !retirementAccepted) {
+                                socket.send(buildJsonArray { add("OK"); add(event.id); add(false); add("fixture refusal") }.toString())
+                                return
+                            }
                             if (stored.none { it.id == event.id }) stored += event
                             for ((peer, subs) in sockets) for ((id, filters) in subs) if (filters.any { matches(it, event) }) {
                                 peer.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
@@ -131,14 +137,43 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         }
     }
 
-    private fun publicStatus() = "stage=${model.stage.value} busy=${model.start.value.busy} " +
-        "host=${model.nativeHostState()} radioOwners=${radios.count { !it.closed }} " +
-        "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
-        "chatError=${model.room.value.chatSendError != null} pending=${model.room.value.pendingChats.size}"
+    private fun publicStatus(): String {
+        val room = model.room.value
+        val hosting = room.nativeHosting
+        val command = when (room.notice) {
+            "Room hosting changed. Open the confirmation again." -> "stale"
+            "Room update could not complete. Inspect the hosting state before trying again." -> "failed"
+            "Room update saved. Hosting state does not confirm delivery to members." -> "saved"
+            else -> "none"
+        }
+        return "stage=${model.stage.value} busy=${model.start.value.busy} " +
+            "host=${model.nativeHostState()} observation=${hosting?.status} epoch=${hosting?.epoch} " +
+            "revision=${hosting?.revision} originals=${hosting?.pendingOriginals?.size} " +
+            "commandBusy=${room.nativeHostingBusy} command=$command radioOwners=${radios.count { !it.closed }} " +
+            "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
+            "chatError=${room.chatSendError != null} pending=${room.pendingChats.size} " +
+            "failure=${model.nativeHostFailureDiagnostic()}"
+    }
 
-    suspend fun awaitHost(label: String, predicate: () -> Boolean) {
+    fun receiverStatus(saved: SavedRoom): String {
+        val receiver = app.roomEpochs.get(saved.id) ?: return "receiver=missing"
+        try {
+            return "receiverPhase=${receiver.phase} receiverEpoch=${receiver.currentEpoch} " +
+                "receiverPending=${receiver.pending != null}"
+        } finally {
+            receiver.currentSecret.fill(0)
+            receiver.pending?.secret?.fill(0)
+        }
+    }
+
+    suspend fun awaitHost(label: String, diagnostic: () -> String = { "" }, predicate: () -> Boolean) {
         try { await(label, predicate) }
-        catch (error: AssertionError) { throw AssertionError("$label; ${publicStatus()}", error) }
+        catch (error: AssertionError) {
+            // Only explicit public counters/phases supplied by the fixture;
+            // never stringify an authority/receiver snapshot or event body.
+            val details = runCatching(diagnostic).getOrDefault("public diagnostic unavailable")
+            throw AssertionError("$label; ${publicStatus()}; $details", error)
+        }
     }
 
     /** Fixed synthetic member keys, never the application's root signer. */
@@ -147,9 +182,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         participantSecretKey = ByteArray(32).apply { this[31] = if (guest) 3 else 1 },
         deviceSecretKey = ByteArray(32).apply { this[31] = if (guest) 4 else 2 })
 
-    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false,
-        who: RoomIdentity = identity(saved, at, guest)): RoomSession {
-        val transport = RoomMeshTransport(RoomNearbyDiscovery.scope(saved.id), object : RoomMeshLink {
+    private fun memberTransport(saved: SavedRoom): RoomMeshTransport {
+        return RoomMeshTransport(RoomNearbyDiscovery.scope(saved.id), object : RoomMeshLink {
             override fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable {
                 listeners += receive; return AutoCloseable { listeners -= receive }
             }
@@ -160,6 +194,33 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             override fun reachable() = phone != null
             override fun close() = Unit
         }).also { mesh += it }
+    }
+
+    /** Existing qualified device recovery, without fresh invitation admission. */
+    suspend fun rejoinApproved(saved: SavedRoom, at: Long,
+        vault: dev.forgesworn.kithmoot.epoch.EpochVault): RoomSession {
+        val secret = saved.secret
+        val stored = requireNotNull(vault.get(saved.id))
+        try {
+            val derived = deriveRoom(secret)
+            val initial = deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
+            val session = RoomSession(derived, identity(saved, at), memberTransport(saved), scope,
+                authority = saved.authority, initialEpoch = initial, initialRemoved = stored.removed,
+                requireFreshEpoch = true, expectedEpoch = stored.currentEpoch,
+                epochGate = { event, notice ->
+                    check(!notice.closed)
+                    requireNotNull(vault.follow(saved.id, notice, event.id, System.currentTimeMillis() / 1000))
+                    EpochGateResult.COMMITTED
+                }, timing = SessionTiming(announceJitterMs = 0))
+            peers += session
+            session.join()
+            return session
+        } finally { secret.fill(0); stored.currentSecret.fill(0); stored.pending?.secret?.fill(0) }
+    }
+
+    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false,
+        who: RoomIdentity = identity(saved, at, guest)): RoomSession {
+        val transport = memberTransport(saved)
         val secret = saved.secret
         try {
             val derived = deriveRoom(secret)
@@ -177,8 +238,10 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
 
     inner class Radio(private val receive: (RoomBleEvent) -> Unit) : RoomBleRadio {
         @Volatile var closed = false
-        override fun start(config: RoomBleConfig) { phone = receive; receive(RoomBleEvent.Status(true, 1)) }
+        override fun start(config: RoomBleConfig) { phone = receive; status() }
+        fun status() { if (!closed) receive(RoomBleEvent.Status(true, if (nearbyAvailable) 1 else 0)) }
         override fun offer(bytes: ByteArray, to: String?): Int {
+            if (!nearbyAvailable) return 0
             val e = RoomMeshWire.decode(bytes)?.takeIf { it.first == RoomMeshWire.EVENT }
                 ?.second?.get("event")?.jsonObject?.let(NostrEvent::fromJson)
             if (e != null) phoneEvents += e
@@ -190,6 +253,11 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             return 1
         }
         override fun close() { closed = true; if (phone === receive) phone = null }
+    }
+
+    fun setNearbyAvailable(available: Boolean) {
+        nearbyAvailable = available
+        radios.filter { !it.closed }.forEach { it.status() }
     }
 
     fun sourceStore(saved: SavedRoom): EncryptedRoomStorage {
@@ -210,9 +278,18 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     fun source(saved: SavedRoom): JsonObject {
         val b = requireNotNull(saved.nativeAuthority)
         val alias = "kithmoot.keeper-authority." + Digests.sha256(b.owner.toByteArray(Charsets.UTF_8)).toHex()
+        return committed(alias, NativeKeeperJournal.MAX_FILE_BYTES)
+    }
+    fun courier(saved: SavedRoom): JsonObject {
+        val b = requireNotNull(saved.nativeAuthority)
+        val q = RoomRekeyBinding(b.room, b.authority, b.device, b.meshScope, b.relays, b.route)
+        val alias = "kithmoot.keeper-rekeys." + Digests.sha256(q.owner.toByteArray(Charsets.UTF_8)).toHex()
+        return committed(alias, RoomRekeyLedger.MAX_FILE_BYTES)
+    }
+    private fun committed(alias: String, maxBytes: Int): JsonObject {
         val sealed = File(app.noBackupFilesDir, "$alias.vault").inputStream().use {
-            check(it.channel.size() <= NativeKeeperJournal.MAX_FILE_BYTES + 64)
-            it.readBytes().also { bytes -> check(bytes.size <= NativeKeeperJournal.MAX_FILE_BYTES + 64) }
+            check(it.channel.size() <= maxBytes + 64)
+            it.readBytes().also { bytes -> check(bytes.size <= maxBytes + 64) }
         }
         try {
             val bytes = RoomCipher(key = { create ->
@@ -270,7 +347,13 @@ internal fun ComposeContentTestRule.showNativeHost(f: NativeHostFixture) = setCo
         val room by f.model.room.collectAsState()
         if (stage == Stage.ROOM) RoomScreen(room, emptyMap(), null,
             {}, {}, {}, {}, {}, {}, {}, f.model::leave,
-            chat = {}, onAnswerLetIn = f.model::answerLetIn)
+            chat = {}, onAnswerLetIn = f.model::answerLetIn,
+            onChangeNativeRoomKey = f.model::changeNativeRoomKey,
+            onRemoveNativeRoomMember = f.model::removeNativeRoomMember,
+            onRetireNativeInvitation = f.model::retireNativeInvitation,
+            onResendNativeRetirement = f.model::resendNativeRetirement,
+            onRecoverNativePending = f.model::recoverNativePendingUpdate,
+            onCanShareInvitation = f.model::canShareRoomInvitation)
         else Column(Modifier.verticalScroll(rememberScrollState())) {
             NewRoomForm(start.roomName, f.model::onRoomNameChanged, start.anonymousMode, f.model::onAnonymousModeChanged,
                 enabled = !start.busy, busy = start.busy, error = start.error, onStartRoom = f.model::startRoom,

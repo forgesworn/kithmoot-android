@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.session.RoomEpochState
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.codeLocationDiagnostic
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +30,8 @@ internal class NativeKeeperController private constructor(private val source: Na
     private sealed interface Work {
         data class Request(val event: NostrEvent, val lane: RekeyLane) : Work
         data class Command(val action: suspend () -> Unit, val done: CompletableDeferred<Unit>) : Work
+        data class PendingRecovery(val expected: NativeHostingState,
+            val done: CompletableDeferred<NativeHostingState>) : Work
         data object Retry : Work
         data object RouteFailed : Work
     }
@@ -37,8 +40,12 @@ internal class NativeKeeperController private constructor(private val source: Na
     private val queue = Channel<Work>(64)
     private val mutableState = MutableStateFlow<State>(State.Starting)
     val state = mutableState.asStateFlow()
+    @Volatile internal var failureDiagnostic: String? = null
+        private set
+    internal fun receiverFailureDiagnostic() = live?.epochFailureDiagnostic
     private val publicationGate = Any()
-    private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding))
+    private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding,
+        observationGenerations.incrementAndGet().also { check(it > 0) }))
     val hosting = mutableHosting.asStateFlow()
     private val mutableUnknown = MutableStateFlow<List<String>>(emptyList())
     val unknownParticipants = mutableUnknown.asStateFlow()
@@ -61,8 +68,9 @@ internal class NativeKeeperController private constructor(private val source: Na
             validateReceiverBeforeRecovery()
             check(lifetimeSelected()); verified = true
             courier = RoomRekeyCourier.startAuthority(ledger, endpoints, scope, ::selected, dispatcher)
-            recover()
             subscribe()
+            check(selected() && !routeFailed)
+            recover()
             started.complete(Unit)
             queue.trySend(Work.Retry)
             scope.launch { while (isActive) { delay(5_000); queue.trySend(Work.Retry) } }
@@ -86,18 +94,47 @@ internal class NativeKeeperController private constructor(private val source: Na
                                 throw error
                         }
                     }
+                    is Work.PendingRecovery -> {
+                        if (!work.done.isActive) continue
+                        try {
+                            val expected = work.expected
+                            val current = source.snapshot()
+                            require(mutableState.value is State.Pending && expected.canRetry &&
+                                expected.binding == mutableHosting.value.binding &&
+                                expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
+                                expected.revision == current.revision && expected.epoch == current.epoch &&
+                                expected.lifecycle?.name == current.phase.name && current.phase != KeeperPhase.CLOSED &&
+                                expected.pendingOriginals == current.pending.map { it.id }) {
+                                "Room hosting changed. Open the confirmation again."
+                            }
+                        } catch (error: Exception) {
+                            work.done.completeExceptionally(error)
+                            if (source.persistenceFailed() || ledger.persistenceFailed()) throw error
+                            continue
+                        }
+                        try {
+                            validateReceiverBeforeRecovery()
+                            recover()
+                            work.done.complete(mutableHosting.value)
+                        } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
+                        catch (error: Exception) { work.done.completeExceptionally(error); throw error }
+                    }
                     Work.Retry -> { recover(); publishWelcome() }
                     Work.RouteFailed -> error("Keeper route subscription failed")
                 }
             }
         } catch (cancel: CancellationException) { started.cancel(cancel); throw cancel }
-        catch (error: Exception) { publishState(State.Failed); started.completeExceptionally(error) }
+        catch (error: Exception) {
+            failureDiagnostic = codeLocationDiagnostic(error)
+            publishState(State.Failed); started.completeExceptionally(error)
+        }
         finally {
             if (ownsSource) live?.holdKeeperStartup()
             closed = true; withdrawPublicState(); queue.close(); owner.cancel()
             while (true) {
                 val work = queue.tryReceive().getOrNull() ?: break
                 if (work is Work.Command) work.done.cancel()
+                if (work is Work.PendingRecovery) work.done.cancel()
             }
             release()
         }
@@ -124,6 +161,22 @@ internal class NativeKeeperController private constructor(private val source: Na
             submitRekey(source.preflightMembers(gone, closed, destruct, scheduled))
         }
     }
+    /** A rendered confirmation is only an expectation. The real selected
+     * owner checks it in the serialized worker before holding or signing. */
+    suspend fun rekeyObservedMembers(expected: NativeHostingState, removed: List<String> = emptyList()) {
+        val gone = removed.toList()
+        command {
+            source.verifyReceiver(receiver, live)
+            val current = source.snapshot()
+            require(expected.canChangeMembers && expected.binding == mutableHosting.value.binding &&
+                expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
+                expected.epoch == current.epoch && expected.revision == current.revision &&
+                expected.lifecycle?.name == current.phase.name && current.pending.isEmpty()) {
+                "Room hosting changed. Open the confirmation again."
+            }
+            submitRekey(source.preflightMembers(gone))
+        }
+    }
     private suspend fun submitRekey(proposal: NativeKeeperJournal.RekeyProposal) {
         val session = requireNotNull(live); val b = source.binding
         session.holdKeeperTransition(b.room, b.authority, b.participant, b.device)
@@ -134,10 +187,55 @@ internal class NativeKeeperController private constructor(private val source: Na
             throw refused
         }
     }
+    fun canShareObservedInvitation(expected: NativeHostingState): Boolean = selected() &&
+        expected.canShareInvitation && expected.binding == mutableHosting.value.binding &&
+        expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
+        mutableHosting.value.canShareInvitation && expected.revision == mutableHosting.value.revision &&
+        expected.epoch == mutableHosting.value.epoch &&
+        source.canShareInvitation(requireNotNull(expected.revision), requireNotNull(expected.epoch))
+
+    suspend fun retireObservedInvitation(expected: NativeHostingState) = command {
+        source.verifyReceiver(receiver, live)
+        val current = source.snapshot()
+        require(expected.canRetireInvitation && expected.binding == mutableHosting.value.binding &&
+            expected.ownerGeneration == mutableHosting.value.ownerGeneration && expected.epoch == current.epoch &&
+            expected.revision == current.revision && expected.lifecycle?.name == current.phase.name &&
+            current.phase == KeeperPhase.ACTIVE && current.pending.isEmpty()) {
+            "Room hosting changed. Open the confirmation again."
+        }
+        source.prepareRetirement(source.preflightRetirement())
+    }
     suspend fun retire() = command { source.verifyReceiver(receiver, live); source.prepareRetirement() }
+    /** Explicit selected-owner command. Ordinary recovery never spends an
+     * archived original's remaining lifetime attempts. */
+    suspend fun retryObservedRetirement(expected: NativeHostingState, id: String) = command {
+        source.verifyReceiver(receiver, live)
+        val current = source.snapshot()
+        require(expected.canChangeMembers && expected.binding == mutableHosting.value.binding &&
+            expected.ownerGeneration == mutableHosting.value.ownerGeneration && expected.epoch == current.epoch &&
+            expected.revision == current.revision && expected.lifecycle?.name == current.phase.name &&
+            current.phase == KeeperPhase.RETIRED && current.pending.isEmpty() && id in current.retirementOriginals) {
+            "Room hosting changed. Open the confirmation again."
+        }
+        for (lane in RekeyLane.entries) {
+            if (!source.binding.permits(lane) || !endpoints.ready(lane)) continue
+            val generation = endpoints.generation(lane)
+            val reserved = source.reserveRetirement(id, lane) ?: continue
+            if (offer(reserved, generation, answer = false)) { source.offered(reserved); break }
+        }
+    }
     /** Explicit foreground recovery; no fresh signing or re-admission. */
     suspend fun retry() {
         check(selected()); check(queue.trySend(Work.Retry).isSuccess)
+    }
+    /** Waits for recovery of these retained originals, including a still-pending
+     * outcome. It never signs a replacement or retries an archived notice. */
+    suspend fun retryObservedPending(expected: NativeHostingState): NativeHostingState {
+        check(selected()) { "Native keeper is suspended" }
+        val done = CompletableDeferred<NativeHostingState>()
+        val frozen = expected.copy(pendingOriginals = expected.pendingOriginals.toList())
+        check(queue.trySend(Work.PendingRecovery(frozen, done)).isSuccess) { "Native keeper is busy" }
+        try { return done.await() } catch (cancel: CancellationException) { done.cancel(cancel); throw cancel }
     }
     private suspend fun command(action: suspend () -> Unit) {
         check(selected()) { "Native keeper is suspended" }
@@ -146,7 +244,7 @@ internal class NativeKeeperController private constructor(private val source: Na
         try { done.await() } catch (cancel: CancellationException) { done.cancel(cancel); throw cancel }
     }
 
-    private fun subscribe() {
+    private suspend fun subscribe() {
         val invitation = source.invitation()
         val invitationId = try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
         this.invitationId = invitationId
@@ -154,20 +252,40 @@ internal class NativeKeeperController private constructor(private val source: Na
             Filter(kinds = listOf(KIND_INVITATION_REQUEST), tags = mapOf("#d" to listOf(invitationId), "#p" to listOf(source.binding.authority))),
             Filter(kinds = listOf(KIND_EPOCH_REQUEST), tags = mapOf("#d" to listOf(source.binding.room), "#p" to listOf(source.binding.authority))),
         )
+        val registrations = mutableListOf<CompletableDeferred<Unit>>()
         for (lane in RekeyLane.entries) {
             if (!source.binding.permits(lane)) continue
-            scope.launch {
-                try {
-                    val flow = if (lane == RekeyLane.NEARBY) requireNotNull(endpoints.nearby).subscribeInbound(filters)
-                        else requireNotNull(endpoints.internet).subscribeKeeperRequests(filters)
-                    flow.collect { event ->
-                        if (selected()) queue.trySend(Work.Request(event.copy(tags = event.tags.map { it.toList() }), lane))
+            // Invitation lifetime and current traffic-epoch recovery have
+            // independent listeners. Neither coroutine launch nor remote EOSE
+            // proves these exact filters are registered in the selected route.
+            for (filter in filters) {
+                val installed = CompletableDeferred<Unit>(owner)
+                registrations += installed
+                scope.launch {
+                    try {
+                        val onInstalled = { installed.complete(Unit); Unit }
+                        val flow = if (lane == RekeyLane.NEARBY)
+                            requireNotNull(endpoints.nearby).subscribeKeeperRequests(listOf(filter), onInstalled)
+                        else requireNotNull(endpoints.internet).subscribeKeeperRequests(listOf(filter), onInstalled)
+                        flow.collect { event ->
+                            // A relay can send an event on the wrong subscription.
+                            // Only the exact owned kind/room/root enters this queue.
+                            if (selected() && event.kind == requireNotNull(filter.kinds).single() &&
+                                event.tagValue("d") == filter.tags.getValue("#d").single() &&
+                                event.tagValue("p") == filter.tags.getValue("#p").single())
+                                queue.trySend(Work.Request(event.copy(tags = event.tags.map { it.toList() }), lane))
+                        }
+                        installed.completeExceptionally(IllegalStateException("Keeper listener closed before registration"))
+                        if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
+                    } catch (cancel: CancellationException) { installed.cancel(cancel); throw cancel }
+                    catch (error: Exception) {
+                        installed.completeExceptionally(error)
+                        if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
                     }
-                    if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
-                } catch (cancel: CancellationException) { throw cancel }
-                catch (_: Exception) { if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) } }
+                }
             }
         }
+        withTimeout(15_000) { registrations.awaitAll() }
     }
     private suspend fun answer(request: Work.Request) {
         if (mutableState.value !is State.Ready || !endpoints.ready(request.lane)) return
@@ -197,6 +315,10 @@ internal class NativeKeeperController private constructor(private val source: Na
     private suspend fun recover() {
         check(selected())
         val beginning = source.snapshot()
+        // Admission ends at the durable source commit, even while the exact
+        // notice waits for local custody. Never keep an old approval card alive
+        // until a transport accepts it.
+        if (beginning.phase != KeeperPhase.ACTIVE) mutableUnknown.value = emptyList()
         val pending = beginning.pending
         if (pending.isNotEmpty()) {
             publishState(State.Pending(pending.map { it.id }), beginning)
@@ -220,7 +342,21 @@ internal class NativeKeeperController private constructor(private val source: Na
                     if (offer(reserved, generation, answer = false)) { source.offered(reserved); break }
                 }
             }
-            if (pending.any { source.pendingNeedsOffer(it.id) }) return
+            if (pending.any { source.pendingNeedsOffer(it.id) }) {
+                val remaining = source.snapshot()
+                publishState(State.Pending(remaining.pending.map { it.id }), remaining)
+                // A retirement notice does not change the approved traffic
+                // epoch. Cold foreground chat must not wait for its custody.
+                // Rekey/terminal pending states keep their startup hold.
+                if (remaining.phase == KeeperPhase.RETIRED && remaining.pending.isNotEmpty() &&
+                    remaining.pending.all { it.kind == KIND_INVITATION_RETIREMENT }) {
+                    validateReceiverBeforeRecovery()
+                    source.binding.let {
+                        live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device, ::selected)
+                    }
+                }
+                return
+            }
             source.completePending(receiver, requireNotNull(live))
         }
         val phase = source.verifyReceiver(receiver, live)
@@ -239,12 +375,14 @@ internal class NativeKeeperController private constructor(private val source: Na
         source.verifyReceiver(receiver, live)
         val generation = endpoints.generation(RekeyLane.INTERNET)
         val original = source.reserveWelcome() ?: return
+        publishState(mutableState.value, source.snapshot())
         val accepted = try {
             endpoints.offerWelcome(original.event, generation, { selected() && source.canHandoff(original) }, 5_000)
         } catch (_: TimeoutCancellationException) { currentCoroutineContext().ensureActive(); false }
         catch (cancel: CancellationException) { throw cancel }
         catch (_: Exception) { if (source.persistenceFailed()) error("Authority persistence failed"); false }
         if (accepted) source.offered(original)
+        publishState(mutableState.value, source.snapshot())
     }
 
     /** Before any resumed export, validate actual owner/key/cause, including
@@ -297,8 +435,11 @@ internal class NativeKeeperController private constructor(private val source: Na
         val previous = mutableHosting.value
         val observed = if (snapshot == null) previous.copy(status = status) else previous.copy(
             status = status, lifecycle = NativeHostingLifecycle.valueOf(snapshot.phase.name), epoch = snapshot.epoch,
+            revision = snapshot.revision,
             approved = NativeHostingState.frozen(snapshot.members), removed = NativeHostingState.frozen(snapshot.removed),
             pendingOriginals = NativeHostingState.frozen(snapshot.pending.map { it.id }),
+            retirementOriginals = NativeHostingState.frozen(snapshot.retirementOriginals),
+            missingRetirementSlots = snapshot.missingRetirementSlots,
         )
         mutableState.value = next
         mutableHosting.value = if (next == State.Failed || lifetimeSelected()) observed else observed.paused()
@@ -322,6 +463,7 @@ internal class NativeKeeperController private constructor(private val source: Na
     }
 
     companion object {
+        private val observationGenerations = java.util.concurrent.atomic.AtomicLong()
         suspend fun start(source: NativeKeeperJournal, receiver: EpochVault, live: RoomSession?, ledger: RoomRekeyLedger,
             endpoints: NativeKeeperEndpoints, parent: CoroutineScope, stillSelected: () -> Boolean,
             dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = withContext(dispatcher) {

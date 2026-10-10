@@ -9,10 +9,10 @@ FAKE = r'''#!/usr/bin/env python3
 import os,sys,time,json
 from pathlib import Path
 args=sys.argv[1:];mode=os.environ.get('FAKE_MODE','ok')
-profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-')
-case='dev.forgesworn.kithmoot.epoch.NativeRekeyRestartTest' if rekey else 'dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
-marker='native_rekey' if rekey else 'native_host' if native else 'sharing'
-transition='before-handoff' if profile=='native-rekey-before' else 'after-handoff'
+profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-');retirement=profile.startswith('native-retirement-');transitioned=rekey or retirement
+case='dev.forgesworn.kithmoot.epoch.NativeRetirementRestartTest' if retirement else 'dev.forgesworn.kithmoot.epoch.NativeRekeyRestartTest' if rekey else 'dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
+marker='native_retirement' if retirement else 'native_rekey' if rekey else 'native_host' if native else 'sharing'
+transition=profile.removeprefix('native-retirement-') if retirement else 'before-handoff' if profile=='native-rekey-before' else 'after-handoff'
 root=Path(os.environ['FAKE_ROOT']);killed=root/'killed'
 with (root/'calls').open('a') as out:out.write(json.dumps(args)+'\n')
 if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(7 if mode=='qemu-failure' else 0)
@@ -27,14 +27,14 @@ if 'kill' in args:
  if mode=='kill-failure':sys.exit(7)
  killed.touch();sys.exit(0)
 if 'force-stop' in args:
- if mode=='cleanup-failure':sys.exit(7)
+ if mode in ('cleanup-failure','no-checkpoint-and-cleanup-failure'):sys.exit(7)
  killed.touch();sys.exit(0)
 if 'clear' in args:
  print('Success');sys.exit(7 if mode=='clear-failure' else 0)
 if 'logcat' in args:print('fake diagnostics');sys.exit(0)
 if 'instrument' in args:
  if any('#a_prepare' in a for a in args):
-  if mode=='no-checkpoint':print('OK (1 test)');sys.exit(0)
+  if mode in ('no-checkpoint','no-checkpoint-and-cleanup-failure'):print('OK (1 test)');sys.exit(0)
   if mode=='checkpoint-timeout':
    while not killed.exists():time.sleep(.01)
    sys.exit(0)
@@ -43,7 +43,7 @@ if 'instrument' in args:
    print('INSTRUMENTATION_STATUS: '+marker+'_restart_pid=9999',flush=True)
   print(prefix+'INSTRUMENTATION_STATUS: '+marker+'_restart_checkpoint=ready',flush=True)
   print('INSTRUMENTATION_STATUS: '+marker+'_restart_pid=4242',flush=True)
-  if rekey and mode!='no-checkpoint-mode':
+  if transitioned and mode!='no-checkpoint-mode':
    print('INSTRUMENTATION_STATUS: '+marker+'_restart_mode='+('wrong-boundary' if mode=='wrong-checkpoint-mode' else transition),flush=True)
    if mode=='duplicate-checkpoint-mode':print('INSTRUMENTATION_STATUS: '+marker+'_restart_mode='+transition,flush=True)
   while not killed.exists():time.sleep(.01)
@@ -51,7 +51,7 @@ if 'instrument' in args:
  if mode!='no-recovery-pid':
   print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid='+('4242' if mode=='same-recovery-pid' else '5252'))
   if mode=='duplicate-recovery-pid':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid=5252')
- if rekey and mode!='no-recovery-mode':
+ if transitioned and mode!='no-recovery-mode':
   print('INSTRUMENTATION_STATUS: '+marker+'_recovery_mode='+('wrong-boundary' if mode=='wrong-recovery-mode' else transition))
   if mode=='duplicate-recovery-mode':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_mode='+transition)
  print('OK (2 tests)' if mode=='wrong-count' else 'OK (1 test)')
@@ -63,13 +63,13 @@ class DriverTest(unittest.TestCase):
  def run_case(self, mode='ok', serial='emulator-9998'):
   with tempfile.TemporaryDirectory(prefix='kithmoot-sharing-driver-') as folder:
    root=Path(folder);(root/'scripts').mkdir();(root/'sdk/platform-tools').mkdir(parents=True)
-   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py'):
+   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py','check-native-retirement-restart-emulator.py'):
     shutil.copyfile(Path(__file__).with_name(name),root/'scripts'/name)
-   rekey=self.profile.startswith('native-rekey-')
-   driver=root/'scripts'/('check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
+   rekey=self.profile.startswith('native-rekey-');retirement=self.profile.startswith('native-retirement-')
+   driver=root/'scripts'/('check-native-retirement-restart-emulator.py' if retirement else 'check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
    adb=root/'sdk/platform-tools/adb';adb.write_text(FAKE);adb.chmod(0o700)
-   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1')
-   command=['python3',str(driver)]+(['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
+   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1',KITHMOOT_NATIVE_RETIREMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_RETIREMENT_DEATH_SECONDS='1')
+   command=['python3',str(driver)]+([self.profile.removeprefix('native-retirement-')] if retirement else ['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
    result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=30)
    calls=(root/'calls').read_text() if (root/'calls').exists() else ''
    reports=root/'app/build/reports'/(self.profile+'-restart-emulator')
@@ -154,5 +154,27 @@ class NativeRekeyBeforeDriverTest(DriverTest):
 
 class NativeRekeyAfterDriverTest(NativeRekeyBeforeDriverTest):
  profile='native-rekey-after'
+
+class NativeRetirementPendingDriverTest(NativeRekeyBeforeDriverTest):
+ profile='native-retirement-pending-original'
+ def test_transition_profile_selects_exact_case_and_both_mode_arguments(self):
+  r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr)
+  self.assertIn('NativeRetirementRestartTest#a_prepare',c);self.assertIn('NativeRetirementRestartTest#b_recover',c)
+  self.assertNotIn('NativeRekeyRestartTest',c)
+  self.assertEqual(2,c.count('"transitionMode", "'+self.profile.removeprefix('native-retirement-')+'"'))
+  self.assertIn('"pm", "clear", "dev.forgesworn.kithmoot"',c)
+ def test_primary_failure_survives_cleanup_failure_and_still_clears_keys(self):
+  r,c,_=self.run_case('no-checkpoint-and-cleanup-failure');self.assertEqual(1,r.returncode)
+  self.assertIn('Preparation ended without its active checkpoint',r.stderr)
+  self.assertIn('Secondary cleanup failure: Could not force-stop',r.stderr)
+  self.assertIn('"pm", "clear", "dev.forgesworn.kithmoot"',c)
+  self.assertNotIn('#b_recover',c)
+  self.assertNotIn('new-process recovery passed',r.stdout)
+class NativeRetirementReservedDriverTest(NativeRetirementPendingDriverTest):
+ profile='native-retirement-reserved-before-offer'
+class NativeRetirementOfferedDriverTest(NativeRetirementPendingDriverTest):
+ profile='native-retirement-offered-before-archive'
+class NativeRetirementArchivedDriverTest(NativeRetirementPendingDriverTest):
+ profile='native-retirement-archive-before-hint'
 
 if __name__=='__main__':unittest.main()

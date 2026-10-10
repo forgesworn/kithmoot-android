@@ -452,6 +452,9 @@ class RoomSession(
 
     private val _epochState = MutableStateFlow<RoomEpochState>(RoomEpochState.Active(initialEpoch.epoch, initialEpoch.id))
     val epochState: StateFlow<RoomEpochState> = _epochState.asStateFlow()
+    /** Internal assertion diagnostics; never part of room state or storage. */
+    @Volatile internal var epochFailureDiagnostic: String? = null
+        private set
 
     private val _epochGaps = MutableStateFlow<List<EpochGap>>(emptyList())
 
@@ -1568,6 +1571,7 @@ class RoomSession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                epochFailureDiagnostic = codeLocationDiagnostic(error)
                 _epochState.value = RoomEpochState.RecoveryNeeded(notice.epoch, error.message ?: "The room update could not be recovered on this device")
                 _movedOn.value = notice.epoch
                 return
@@ -1599,6 +1603,7 @@ class RoomSession(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
+                    epochFailureDiagnostic = codeLocationDiagnostic(error)
                     _epochState.value = RoomEpochState.RecoveryNeeded(
                         notice.epoch, error.message ?: "The room update could not move every local subsystem",
                     )

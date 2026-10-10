@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -40,7 +41,9 @@ class BackgroundInbox(
     private val device: String,
 ) {
     data class Unread(val id: String, val participant: String, val sentAt: Long)
-    data class State(val cursor: Long, val readThrough: Long, val seen: List<String>, val unread: List<Unread>)
+    data class State(val cursor: Long, val readThrough: Long, val seen: List<String>, val unread: List<Unread>,
+        /** Actual conversation-message time, independent of subscription/read clocks. */
+        val latestMessageAt: Long = 0)
 
     @Synchronized fun state(): State = read() ?: EMPTY
 
@@ -81,8 +84,17 @@ class BackgroundInbox(
             maxOf(message.sentAt, createdAt) > current.readThrough - SENDER_CLOCK_ALLOWANCE_SECONDS
         val unread = if (counts) (current.unread + Unread(message.id, message.participant, message.sentAt)).takeLast(MAX_UNREAD)
             else current.unread
-        write(State(cursor, current.readThrough, seen, unread))
+        write(State(cursor, current.readThrough, seen, unread,
+            maxOf(current.latestMessageAt, if (message.isConversation()) message.sentAt else 0L)))
         return counts
+    }
+
+    /** Keep only authenticated message times, including our own messages.
+     * Observing history changes neither read receipts nor unread counts. */
+    @Synchronized fun rememberActivity(messages: List<ChatMessage>) {
+        val current = state()
+        val latest = maxOf(current.latestMessageAt, messages.filter { it.isConversation() }.maxOfOrNull { it.sentAt } ?: 0L)
+        if (latest != current.latestMessageAt) write(current.copy(latestMessageAt = latest))
     }
 
     /**
@@ -98,7 +110,8 @@ class BackgroundInbox(
         val keys = shown.filter { it.sentAt > readThrough - SENDER_CLOCK_ALLOWANCE_SECONDS }
             .map { refOf(it).key }.distinct().filter { it !in current.seen }
         write(current.copy(cursor = maxOf(current.cursor, at), readThrough = readThrough,
-            seen = (current.seen + keys).takeLast(MAX_SEEN), unread = emptyList()))
+            seen = (current.seen + keys).takeLast(MAX_SEEN), unread = emptyList(),
+            latestMessageAt = maxOf(current.latestMessageAt, shown.filter { it.isConversation() }.maxOfOrNull { it.sentAt } ?: 0L)))
     }
 
     @Synchronized fun clear() = storage.reset()
@@ -108,6 +121,7 @@ class BackgroundInbox(
             put("v", 1); put("room", roomId); put("participant", participant); put("device", device)
             put("cursor", state.cursor)
             put("readThrough", state.readThrough)
+            put("latestMessageAt", state.latestMessageAt)
             put("seen", buildJsonArray { state.seen.forEach(::add) })
             put("unread", buildJsonArray { state.unread.forEach { entry -> add(buildJsonObject {
                 put("id", entry.id); put("participant", entry.participant); put("sentAt", entry.sentAt)
@@ -132,6 +146,10 @@ class BackgroundInbox(
                     val o = it.jsonObject
                     Unread(o.text("id"), o.text("participant"), o.getValue("sentAt").jsonPrimitive.long)
                 },
+                // Legacy cursors/read-throughs include opening times and must
+                // never be migrated into message activity. Unread stamps are real.
+                root["latestMessageAt"]?.jsonPrimitive?.longOrNull?.coerceAtLeast(0L)
+                    ?: root.getValue("unread").jsonArray.maxOfOrNull { it.jsonObject.getValue("sentAt").jsonPrimitive.long }?.coerceAtLeast(0L) ?: 0L,
             )
         } finally { bytes.fill(0) }
     }

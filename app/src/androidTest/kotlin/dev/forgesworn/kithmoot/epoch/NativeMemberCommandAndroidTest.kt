@@ -14,10 +14,13 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.security.KeyStore
+import javax.crypto.SecretKey
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
 /** Actual selected controller, sessions and Keystore/AtomicFile vaults.
- * Only the Nearby byte boundary is injected; no physical BLE or Internet. */
+ * Nearby bytes and a fixture-only courier write gate are injected; no physical BLE or Internet. */
 class NativeMemberCommandAndroidTest {
     private class Link(private val meshScope: String, private val scope: CoroutineScope) : RoomMeshLink {
         @Volatile var receive: ((ByteArray, String) -> Unit)? = null
@@ -61,6 +64,24 @@ class NativeMemberCommandAndroidTest {
         val queueBinding = RoomRekeyBinding(room.roomId, binding.authority, owner.devicePubkey, binding.meshScope, emptyList(), RoomRoute.NEARBY)
         val authority = NativeKeeperVault(app, binding)
         val queueVault = RoomRekeyVault(app, queueBinding)
+        private val courierWriteGate = Semaphore(1)
+        private val courierStorage = object : RoomStorage {
+            private val actual = EncryptedRoomStorage(app,
+                "kithmoot.keeper-rekeys." + Digests.sha256(queueBinding.owner.toByteArray()).toHex(),
+                RoomRekeyLedger.MAX_FILE_BYTES)
+            override fun read() = actual.read()
+            override fun write(value: ByteArray) {
+                courierWriteGate.acquire()
+                try { actual.write(value) } finally { courierWriteGate.release() }
+            }
+            override fun reset() = actual.reset()
+        }
+        /** Exclude only independent courier maintenance while checking that a
+         * refused source command changes neither actual committed ciphertext. */
+        suspend fun freezeCourierWrites(action: suspend () -> Unit) {
+            check(courierWriteGate.tryAcquire(10, TimeUnit.SECONDS)) { "Courier maintenance did not finish for scoped refusal" }
+            try { withTimeout(10_000) { action() } } finally { courierWriteGate.release() }
+        }
         private val receiverAlias = "kithmoot.lab.native-member-receiver." + room.roomId
         private val peerAlias = "kithmoot.lab.native-member-peer." + room.roomId
         private val receiverStore = EncryptedRoomStorage(app, receiverAlias)
@@ -91,7 +112,7 @@ class NativeMemberCommandAndroidTest {
             receiver.initialise(room.roomId, binding.authority, base, at)
             peerReceiver.initialise(room.roomId, binding.authority, base, at)
             source = authority.create(creation, owner.credential)
-            ledger = queueVault.open(initialise = true)
+            ledger = RoomRekeyLedger(courierStorage, queueBinding, createIfMissing = true)
             source.recordCourierCreated(ledger)
             live = session(owner, mesh, receiver); peer = session(member, peerMesh, peerReceiver)
             link.peer = peerLink; peerLink.peer = link
@@ -138,6 +159,28 @@ class NativeMemberCommandAndroidTest {
 
         suspend fun command(removed: List<String> = emptyList(), destruct: Boolean = false) =
             controller!!.rekeyMembers(removed, destruct = destruct)
+        suspend fun retire() = controller!!.retire()
+        fun hosting() = controller!!.hosting.value
+        suspend fun retryRetirement(expected: NativeHostingState, id: String) = controller!!.retryObservedRetirement(expected, id)
+        suspend fun reopenKeeper(legacyFour: Boolean = false) {
+            controller!!.stop()
+            if (legacyFour) {
+                val alias = "kithmoot.keeper-authority." + Digests.sha256(binding.owner.toByteArray()).toHex()
+                val actual = EncryptedRoomStorage(app, alias, NativeKeeperJournal.MAX_FILE_BYTES)
+                val bytes = requireNotNull(actual.read())
+                try {
+                    val root = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
+                    val legacy = JsonObject(root - "retirements" - "legacyRetirementSlots" + ("v" to JsonPrimitive(4))).toString().toByteArray()
+                    try { actual.write(legacy) } finally { legacy.fill(0) }
+                } finally { bytes.fill(0) }
+            }
+            source = authority.open(); ledger = RoomRekeyLedger(courierStorage, queueBinding)
+            controller = NativeKeeperController.start(source, receiver, live, ledger,
+                NativeKeeperEndpoints(queueBinding, mesh, null), scope, { selected })
+            await("cold retired controller ready") {
+                controller!!.state.value == NativeKeeperController.State.Ready(0, KeeperPhase.RETIRED)
+            }
+        }
 
         fun peerDurable() = requireNotNull(peerReceiver.get(room.roomId))
 
@@ -149,6 +192,18 @@ class NativeMemberCommandAndroidTest {
                 check(stream.channel.size() <= NativeKeeperJournal.MAX_FILE_BYTES + 64)
                 stream.readBytes()
             }
+        }
+
+        /** Diagnose only already-captured committed bytes, without invoking
+         * AtomicFile recovery or another courier owner. No plaintext is logged. */
+        fun courierDocument(sealed: ByteArray): JsonObject {
+            val alias = "kithmoot.keeper-rekeys." + Digests.sha256(queueBinding.owner.toByteArray()).toHex()
+            val bytes = RoomCipher(key = { create ->
+                check(!create)
+                requireNotNull(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(alias, null)) as SecretKey
+            }).decrypt(sealed)
+            try { return Json.parseToJsonElement(bytes.decodeToString()).jsonObject }
+            finally { bytes.fill(0) }
         }
 
         suspend fun close() {
@@ -177,16 +232,18 @@ class NativeMemberCommandAndroidTest {
         val r = Rig()
         try {
             r.start()
-            val source = r.ciphertext(true); val queue = r.ciphertext(false)
-            try {
-                for (action in listOf<suspend () -> Unit>({ r.command(listOf(r.owner.participant)) },
-                    { r.command(listOf("ab".repeat(32))) }, { r.command(destruct = true) })) {
-                    var refused = false
-                    try { action() } catch (error: IllegalArgumentException) { refused = true }
-                    assertTrue("Invalid member command must refuse", refused)
-                }
-                assertTrue(source.contentEquals(r.ciphertext(true))); assertTrue(queue.contentEquals(r.ciphertext(false)))
-            } finally { source.fill(0); queue.fill(0) }
+            r.freezeCourierWrites {
+                val source = r.ciphertext(true); val queue = r.ciphertext(false)
+                try {
+                    for (action in listOf<suspend () -> Unit>({ r.command(listOf(r.owner.participant)) },
+                        { r.command(listOf("ab".repeat(32))) }, { r.command(destruct = true) })) {
+                        var refused = false
+                        try { action() } catch (error: IllegalArgumentException) { refused = true }
+                        assertTrue("Invalid member command must refuse", refused)
+                    }
+                    assertTrue(source.contentEquals(r.ciphertext(true))); assertTrue(queue.contentEquals(r.ciphertext(false)))
+                } finally { source.fill(0); queue.fill(0) }
+            }
             r.joinPeer(); r.live.sendChat("Host after native command refusal"); r.peer.sendChat("Member after native command refusal")
             await("paired chat after refusal") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
             r.command()
@@ -205,6 +262,125 @@ class NativeMemberCommandAndroidTest {
             } finally { previous.key.fill(0) }
             r.live.sendChat("Host after source-derived successor"); r.peer.sendChat("Member after source-derived successor")
             await("paired chat after successor") { r.live.chat.value.size == 4 && r.peer.chat.value.size == 4 }
+        } finally { r.close() }
+    }
+
+    @Test fun completedRetirementReopensTheActualEncryptedSourceAndConservesOriginalAttempts() = runBlocking {
+        val r = Rig()
+        try {
+            r.start(); r.joinPeer(); r.retire()
+            val original = r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertEquals(listOf(original.id), r.hosting().retirementOriginals)
+            assertEquals(0, r.hosting().missingRetirementSlots)
+            assertTrue(r.source.snapshot().pending.isEmpty())
+            val initial = r.hosting()
+            r.reopenKeeper()
+            assertNotEquals(initial.ownerGeneration, r.hosting().ownerGeneration)
+            assertEquals(listOf(original.id), r.hosting().retirementOriginals)
+            r.freezeCourierWrites {
+                val before = r.ciphertext(true); val courier = r.ciphertext(false)
+                try {
+                    var refused = false
+                    try { r.retryRetirement(initial, original.id) } catch (_: IllegalArgumentException) { refused = true }
+                    assertTrue("Previous owner's observation must refuse", refused)
+                    assertTrue(before.contentEquals(r.ciphertext(true)))
+                    assertTrue(courier.contentEquals(r.ciphertext(false)))
+                } finally { before.fill(0); courier.fill(0) }
+            }
+            val expected = r.hosting()
+            r.retryRetirement(expected, original.id)
+            assertEquals(listOf(original), r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id })
+            assertEquals(2, r.link.events.count { it.id == original.id })
+            assertEquals(0, r.source.snapshot().epoch)
+            assertEquals(3, r.source.snapshot().deviceCount)
+            r.live.sendChat("Host after retirement reopen"); r.peer.sendChat("Member after retirement reopen")
+            await("paired chat after retired source reopen") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
+            println("NATIVE_RETIREMENT_MEASUREMENT completed-source-reopen original-count=1 reserved-attempts=2 devices=3 paired-chat-rows=2 physical-radio=false")
+        } finally { r.close() }
+    }
+
+    @Test fun missingLegacyRetirementEvidenceKeepsApprovedChatAndRefusesInventedRetry() = runBlocking {
+        val r = Rig()
+        try {
+            r.start(); r.joinPeer(); r.retire()
+            val original = r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
+            r.reopenKeeper(legacyFour = true)
+            assertEquals(1, r.hosting().missingRetirementSlots)
+            assertTrue(r.hosting().retirementOriginals.isEmpty())
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertEquals(3, r.source.snapshot().deviceCount)
+            r.freezeCourierWrites {
+                val before = r.ciphertext(true); val courier = r.ciphertext(false)
+                try {
+                    var refused = false
+                    try { r.retryRetirement(r.hosting(), original.id) } catch (_: IllegalArgumentException) { refused = true }
+                    assertTrue("A missing legacy original cannot be recreated", refused)
+                    assertTrue(before.contentEquals(r.ciphertext(true)))
+                    val afterCourier = r.ciphertext(false)
+                    try {
+                        if (!courier.contentEquals(afterCourier)) {
+                            val earlier = r.courierDocument(courier)
+                            val later = r.courierDocument(afterCourier)
+                            val fields = listOf("v", "pin", "high", "expired", "entries", "spends")
+                            val changed = fields.filter { earlier[it] != later[it] }
+                            println("NATIVE_RETIREMENT_COURIER_DIAGNOSTIC fields=${changed.joinToString(",")} " +
+                                "equal-except-high=${JsonObject(earlier - "high") == JsonObject(later - "high")} " +
+                                "high-increased=${later.getValue("high").jsonPrimitive.long > earlier.getValue("high").jsonPrimitive.long} " +
+                                "entries=${earlier.getValue("entries").jsonArray.size}->${later.getValue("entries").jsonArray.size} " +
+                                "spends=${earlier.getValue("spends").jsonArray.size}->${later.getValue("spends").jsonArray.size}")
+                            assertTrue("Courier ciphertext changed; fields=${changed.joinToString(",")}; " +
+                                "equal-except-high=${JsonObject(earlier - "high") == JsonObject(later - "high")}",
+                                courier.contentEquals(afterCourier))
+                        }
+                        assertTrue(courier.contentEquals(afterCourier))
+                    } finally { afterCourier.fill(0) }
+                } finally { before.fill(0); courier.fill(0) }
+            }
+            r.live.sendChat("Host with missing old notice"); r.peer.sendChat("Approved member with missing old notice")
+            await("paired chat with missing old notice") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
+            assertEquals(1, r.link.events.count { it.id == original.id })
+            println("NATIVE_RETIREMENT_MEASUREMENT legacy-completed-reopen missing-slots=1 invented-originals=0 devices=3 paired-chat-rows=2 physical-radio=false")
+        } finally { r.close() }
+    }
+
+    @Test fun emptyCourierMaintenanceReencryptsWithoutCommandOrRetryCreditAndScopedRefusalPreservesBytes() = runBlocking {
+        val r = Rig()
+        try {
+            r.start(); r.joinPeer(); r.retire()
+            val previousOwner = r.hosting()
+            val original = previousOwner.retirementOriginals.single()
+            r.reopenKeeper()
+            val source = r.ciphertext(true); val before = r.ciphertext(false)
+            try {
+                // Ordinary real ledger maintenance, without a source command.
+                withContext(Dispatchers.IO) { r.ledger.status() }
+                val after = r.ciphertext(false)
+                try {
+                    val earlier = r.courierDocument(before); val later = r.courierDocument(after)
+                    val fields = listOf("v", "pin", "high", "expired", "entries", "spends")
+                    val changed = fields.filter { earlier[it] != later[it] }
+                    assertFalse("An actual encrypted maintenance commit changes ciphertext", before.contentEquals(after))
+                    assertEquals(JsonObject(earlier - "high"), JsonObject(later - "high"))
+                    assertTrue(later.getValue("high").jsonPrimitive.long >= earlier.getValue("high").jsonPrimitive.long)
+                    assertTrue(later.getValue("entries").jsonArray.isEmpty())
+                    assertTrue(later.getValue("spends").jsonArray.isEmpty())
+                    assertTrue(source.contentEquals(r.ciphertext(true)))
+                    println("NATIVE_RETIREMENT_COURIER_MAINTENANCE fields=${changed.joinToString(",")} " +
+                        "cipher-changed=true equal-except-high=true high-nondecreasing=true entries=0 spends=0 source-unchanged=true")
+                } finally { after.fill(0) }
+            } finally { source.fill(0); before.fill(0) }
+            r.freezeCourierWrites {
+                val frozenSource = r.ciphertext(true); val frozenCourier = r.ciphertext(false)
+                try {
+                    var refused = false
+                    try { r.retryRetirement(previousOwner, original) } catch (_: IllegalArgumentException) { refused = true }
+                    assertTrue("A previous owner must still refuse with independent writes excluded", refused)
+                    assertTrue(frozenSource.contentEquals(r.ciphertext(true)))
+                    assertTrue(frozenCourier.contentEquals(r.ciphertext(false)))
+                    println("NATIVE_RETIREMENT_COURIER_REFUSAL stale-owner-refused=true source-cipher-unchanged=true courier-cipher-unchanged=true")
+                } finally { frozenSource.fill(0); frozenCourier.fill(0) }
+            }
         } finally { r.close() }
     }
 

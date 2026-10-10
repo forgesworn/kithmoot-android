@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.animation.AnimatedVisibility
+import dev.forgesworn.kithmoot.epoch.NativeHostingState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -66,6 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -156,6 +158,12 @@ fun RoomScreen(
     onStopRoomSharing: () -> Unit = {},
     onOpenWorkspace: ((String) -> Unit)? = null,
     workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
+    onChangeNativeRoomKey: ((NativeHostingState) -> Unit)? = null,
+    onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)? = null,
+    onRetireNativeInvitation: ((NativeHostingState) -> Unit)? = null,
+    onResendNativeRetirement: ((NativeHostingState, String) -> Unit)? = null,
+    onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
+    onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var confirmRecording by rememberSaveable(state.roomId) { mutableStateOf(false) }
@@ -223,7 +231,12 @@ fun RoomScreen(
     // call shows, not even for the frame before the effect above runs.
     val showCall = callOpen || lockedCallOnly
     val showWork = workOpen && !lockedCallOnly
-    var inviteOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    // A native invitation sheet belongs to this verified foreground owner.
+    // Never restore its open flag into another visit or process.
+    val inviteState = if (state.nativeHosting == null)
+        rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    else remember(state.roomId, state.selfParticipant, state.nativeHosting.ownerGeneration) { mutableStateOf(false) }
+    var inviteOpen by inviteState
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var sharingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -236,8 +249,9 @@ fun RoomScreen(
     val chatState = rememberSaveableStateHolder()
     // Every member can share the room's link; a two-person conversation's
     // went to the other person sealed, and an ended room's no longer works.
-    val canInvite = !state.privateConversation && state.movedOn == null && !state.conferenceEnded &&
-        state.joinUrl.isNotBlank() && !state.privateConversationBusy
+    val canInvite = state.canShareInvitation
+    fun shareAllowed() = canInvite && onCanShareInvitation(state.nativeHosting)
+    androidx.compose.runtime.LaunchedEffect(canInvite) { if (!canInvite) inviteOpen = false }
 
     // Keep the screen awake while this device is actually on the call, so a
     // dark timeout does not drop the video or make the mic button hard to
@@ -289,7 +303,7 @@ fun RoomScreen(
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
             onToggleAgentsMayHear = onToggleAgentsMayHear,
             onPopOut = onPopOut,
-            onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null,
+            onInviteByQr = if (canInvite) ({ if (shareAllowed()) inviteOpen = true }) else null,
             onOpenMeeting = if (state.meetingModerator) ({ meetingOpen = true }) else null,
         )
     }
@@ -305,7 +319,7 @@ fun RoomScreen(
             )
         }
     }
-    if (inviteOpen) {
+    if (inviteOpen && shareAllowed()) {
         // What the link is and what keeps it working is said here, to the
         // person inviting, not over their own picture on the call. The QR is
         // for somebody across the table: one tap from the details or the
@@ -320,6 +334,7 @@ fun RoomScreen(
                 canRotateInvitation = state.canRotateInvitation,
                 onRotateInvitation = onRotateInvitation,
                 onDone = { inviteOpen = false },
+                canShare = ::shareAllowed,
             )
         }
     }
@@ -364,7 +379,9 @@ fun RoomScreen(
                     TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
-                state.nativeHosting?.let { NativeHostingPanel(it) }
+                state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
+                    onChangeNativeRoomKey, onRemoveNativeRoomMember, onRetireNativeInvitation, onResendNativeRetirement,
+                    onRecoverNativePending) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
@@ -381,8 +398,8 @@ fun RoomScreen(
                 if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here. " +
                     "Your account and your other rooms stay connected outside Tor. Account changes wait until a few minutes after you leave, or until you next use your account.")
                 if (!state.privateConversation) {
-                    TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) { Text("Invite people") }
-                    TextButton(onClick = { detailsOpen = false; inviteOpen = true }, enabled = canInvite) {
+                    TextButton(onClick = { if (shareAllowed()) { detailsOpen = false; inviteOpen = true } }, enabled = canInvite) { Text("Invite people") }
+                    TextButton(onClick = { if (shareAllowed()) { detailsOpen = false; inviteOpen = true } }, enabled = canInvite) {
                         Icon(Icons.Filled.QrCode2, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Invite by QR")
@@ -572,7 +589,7 @@ fun RoomScreen(
                     hideSelf = selfHidden,
                     onExpandScreen = onExpandScreen,
                     onSetVolume = onSetVolume,
-                    alone = { AloneLine(state) },
+                    alone = { AloneLine(state, ::shareAllowed) },
                 )
                 // Bottom centre, clear of the front camera's cutout and above
                 // the name plate each tile draws in its bottom corner.
@@ -759,9 +776,9 @@ private fun relayLine(state: RoomState): String = when {
  * the room's details.
  */
 @Composable
-private fun AloneLine(state: RoomState) {
+private fun AloneLine(state: RoomState, canShare: () -> Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val offerLink = !state.privateConversation && state.movedOn == null && !state.conferenceEnded && state.joinUrl.isNotBlank()
+    val offerLink = state.canShareInvitation
     Surface(
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
@@ -784,11 +801,12 @@ private fun AloneLine(state: RoomState) {
             )
             if (offerLink) {
                 Spacer(Modifier.width(4.dp))
-                TextButton(onClick = { dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) }) { Text("Send link") }
+                TextButton(onClick = { if (canShare()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) }) { Text("Send link") }
                 if (state.route.nearby) {
                     val invitation = dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(state.joinUrl)?.invitation
                     val roomId = state.roomId
                     if (invitation?.persistent == true) TextButton(onClick = {
+                        if (!canShare()) return@TextButton
                         val code = dev.forgesworn.kithmoot.protocol.encodeLivePersistentDescriptor(
                             dev.forgesworn.kithmoot.protocol.LivePersistentContext(invitation, roomId))
                         dev.forgesworn.kithmoot.ui.share(context, code)

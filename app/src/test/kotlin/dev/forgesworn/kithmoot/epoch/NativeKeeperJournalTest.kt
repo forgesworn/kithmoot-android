@@ -52,6 +52,47 @@ class NativeKeeperJournalTest {
     }
     private fun NativeKeeperJournal.select() = bind { true }
 
+    @Test fun invitationReadUsesActualPhaseClockOwnerAndRevisionWithoutWritingOrWaiting() {
+        val r = Rig(ends = 1100)
+        val q = RoomRekeyBinding(r.room.roomId, r.binding.authority, r.owner.devicePubkey,
+            r.binding.meshScope, r.binding.relays, r.binding.route)
+        r.create().use { source ->
+            RoomRekeyLedger(Store(), q, { r.at * 1000 }, true).use { source.recordCourierCreated(it) }
+            val before = r.store.bytes!!.clone()
+            assertTrue(source.canReadStoredInvitation())
+            assertContentEquals(before, r.store.bytes)
+            var selected = true; source.bind { selected }
+            val expected = source.snapshot()
+            assertTrue(source.canShareInvitation(expected.revision, expected.epoch))
+            assertFalse(source.canReadStoredInvitation())
+            assertFalse(source.canShareInvitation(expected.revision + 1, expected.epoch))
+            assertFalse(source.canShareInvitation(expected.revision, expected.epoch + 1))
+            selected = false; assertFalse(source.canShareInvitation(expected.revision, expected.epoch)); selected = true
+            r.at = 999; assertFalse(source.canShareInvitation(expected.revision, expected.epoch))
+            r.at = 1100; assertFalse(source.canShareInvitation(expected.revision, expected.epoch)); r.at = 1000
+            assertContentEquals(before, r.store.bytes)
+            val writing = CountDownLatch(1); val release = CountDownLatch(1)
+            val threads = Executors.newFixedThreadPool(2)
+            try {
+                r.store.beforeWrite = { writing.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+                val writer = threads.submit<NativeKeeperJournal.Handoff?> { source.reserveWelcome() }
+                assertTrue(writing.await(5, TimeUnit.SECONDS))
+                assertFalse(threads.submit<Boolean> { source.canShareInvitation(expected.revision, expected.epoch) }.get(2, TimeUnit.SECONDS))
+                release.countDown(); assertNotNull(writer.get(5, TimeUnit.SECONDS)); r.store.beforeWrite = null
+                assertFalse(source.canShareInvitation(expected.revision, expected.epoch))
+                val fresh = source.snapshot()
+                assertTrue(source.canShareInvitation(fresh.revision, fresh.epoch))
+                source.prepareRetirement()
+                val retired = r.store.bytes!!.clone()
+                assertFalse(source.canShareInvitation(source.snapshot().revision, source.snapshot().epoch))
+                assertContentEquals(retired, r.store.bytes)
+            } finally { release.countDown(); r.store.beforeWrite = null; threads.shutdownNow() }
+        }
+        val retired = r.store.bytes!!.clone()
+        r.open().use { source -> assertFalse(source.canReadStoredInvitation()) }
+        assertContentEquals(retired, r.store.bytes)
+    }
+
     @Test fun welcomeLostOkReopensTheOriginalWithDebtBackoffAndAcceptance() {
         val r = Rig(); lateinit var first: NativeKeeperJournal.Handoff
         r.create().use { source ->
@@ -672,6 +713,185 @@ class NativeKeeperJournalTest {
         } finally { journal.close(); keeper.leave(); peer.leave(); secret.fill(0) }
     }
 
+    private fun schemaFour(store: Store) {
+        val root = Json.parseToJsonElement(requireNotNull(store.bytes).decodeToString()).jsonObject
+        store.bytes = JsonObject(root - "retirements" - "legacyRetirementSlots" + ("v" to JsonPrimitive(4))).toString().toByteArray()
+    }
+
+    @Test fun retirementOriginalAndLifetimeAttemptsSurviveCompletionAndColdReopenOnEveryRoute() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = Rig(route); val receiverStore = Store(); val vault = EpochVault(receiverStore)
+            vault.initialise(r.room.roomId, r.binding.authority, r.secret, r.at)
+            val relay = FakeRelay(); val live = session(r.room, r.owner, relay, authority = r.binding.authority)
+            val peer = session(r.room, r.member, relay, authority = r.binding.authority)
+            var journal = r.create()
+            try {
+                live.join(); peer.join(); runCurrent(); journal.select()
+                journal.answerEpoch(r.epochRequest(), if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET)
+                journal.approve(r.member.participant)
+                val original = journal.prepareRetirement()
+                val lanes = RekeyLane.entries.filter(r.binding::permits)
+                lanes.forEach { lane -> val send = assertNotNull(journal.reservePending(original.id, lane)); journal.offered(send) }
+                assertTrue(journal.completePending(vault, live))
+                assertEquals(listOf(original.id), journal.snapshot().retirementOriginals)
+                assertTrue(journal.unknownParticipants().isEmpty())
+                assertFails { journal.approve(r.member.participant) }
+                live.sendChat("Owner after retirement"); peer.sendChat("Approved member after retirement"); runCurrent()
+                assertEquals(2, live.chat.value.size); assertEquals(2, peer.chat.value.size)
+                for (attempt in 2..8) {
+                    journal.close(); r.at += 62 * 60 + 1; journal = r.open(); journal.select()
+                    assertEquals(KeeperPhase.RETIRED, journal.verifyReceiver(vault, live))
+                    lanes.forEach { lane ->
+                        val send = assertNotNull(journal.reserveRetirement(original.id, lane))
+                        assertEquals(original, send.event); assertEquals(attempt, send.attempt)
+                        assertTrue(send.archived); assertTrue(journal.canHandoff(send))
+                        journal.offered(send); assertFalse(journal.canHandoff(send))
+                    }
+                }
+                journal.close(); r.at += 62 * 60 + 1; journal = r.open(); journal.select()
+                val before = r.store.bytes!!.clone()
+                lanes.forEach { assertNull(journal.reserveRetirement(original.id, it)) }
+                assertContentEquals(before, r.store.bytes)
+                assertEquals(0, journal.snapshot().missingRetirementSlots)
+            } finally { journal.close(); live.leave(); peer.leave(); r.secret.fill(0); r.invitation.bearer.fill(0) }
+        }
+    }
+
+    @Test fun oldSchemaActiveAndPendingRetirementKeepExactBytesUntilAnAuthorisedWrite() = runTest {
+        val active = Rig()
+        active.create().close(); schemaFour(active.store)
+        val bytes = active.store.bytes!!.clone()
+        active.open().use { source ->
+            assertEquals(0, source.snapshot().missingRetirementSlots)
+            source.select(); assertContentEquals(bytes, active.store.bytes)
+            assertNotNull(source.reserveWelcome())
+        }
+        val upgraded = Json.parseToJsonElement(active.store.bytes!!.decodeToString()).jsonObject
+        assertEquals(5, upgraded.getValue("v").jsonPrimitive.int)
+        val r = Rig(); val vault = EpochVault(Store()); vault.initialise(r.room.roomId, r.binding.authority, r.secret, r.at)
+        val live = session(r.room, r.owner, FakeRelay(), authority = r.binding.authority)
+        var source = r.create()
+        try {
+            live.join(); runCurrent(); source.select()
+            val original = source.prepareRetirement()
+            val reserved = assertNotNull(source.reservePending(original.id, RekeyLane.NEARBY))
+            source.offered(reserved); source.close(); schemaFour(r.store)
+            val oldBytes = r.store.bytes!!.clone(); source = r.open(); source.select()
+            assertContentEquals(oldBytes, r.store.bytes)
+            assertEquals(0, source.snapshot().missingRetirementSlots)
+            assertEquals(listOf(original), source.snapshot().pending)
+            assertTrue(source.completePending(vault, live))
+            source.close(); source = r.open(); source.select()
+            val retry = assertNotNull(source.reserveRetirement(original.id, RekeyLane.NEARBY))
+            assertEquals(2, retry.attempt); assertEquals(original, retry.event)
+        } finally { source.close(); live.leave(); r.secret.fill(0) }
+    }
+
+    @Test fun completedSchemaFourRetirementPreservesMissingHistoryAndCannotInventAnOriginal() = runTest {
+        val r = Rig(); val vault = EpochVault(Store()); vault.initialise(r.room.roomId, r.binding.authority, r.secret, r.at)
+        val live = session(r.room, r.owner, FakeRelay(), authority = r.binding.authority)
+        var source = r.create()
+        try {
+            live.join(); runCurrent(); source.select()
+            val original = source.prepareRetirement()
+            source.offered(assertNotNull(source.reservePending(original.id, RekeyLane.NEARBY)))
+            assertTrue(source.completePending(vault, live)); source.close(); schemaFour(r.store)
+            val oldBytes = r.store.bytes!!.clone(); source = r.open(); source.select()
+            assertEquals(KeeperPhase.RETIRED, source.verifyReceiver(vault, live))
+            assertContentEquals(oldBytes, r.store.bytes)
+            assertEquals(1, source.snapshot().missingRetirementSlots)
+            assertTrue(source.snapshot().retirementOriginals.isEmpty())
+            assertNull(source.reserveRetirement(original.id, RekeyLane.NEARBY))
+            assertNotNull(source.answerEpoch(r.epochRequest(r.owner), RekeyLane.INTERNET))
+            source.close(); source = r.open()
+            assertEquals(1, source.snapshot().missingRetirementSlots)
+            val newRoot = Json.parseToJsonElement(r.store.bytes!!.decodeToString()).jsonObject
+            val oldRoot = Json.parseToJsonElement(oldBytes.decodeToString()).jsonObject
+            assertEquals(oldRoot["devices"], newRoot["devices"])
+            assertEquals(oldRoot["secret"], newRoot["secret"])
+            assertEquals(oldRoot["cause"], newRoot["cause"])
+            assertTrue(oldRoot.getValue("spends").jsonArray.all { it in newRoot.getValue("spends").jsonArray })
+        } finally { source.close(); live.leave(); r.secret.fill(0) }
+    }
+
+    @Test fun retirementPreflightRefusesForeignStaleAndWithdrawnProposalsWithoutAWrite() {
+        val r = Rig(); val foreign = Rig()
+        r.create().use { source -> foreign.create().use { other ->
+            source.select(); other.select()
+            val proposal = source.preflightRetirement(); val otherProposal = other.preflightRetirement()
+            val before = r.store.bytes!!.clone()
+            assertFails { source.prepareRetirement(otherProposal) }; assertContentEquals(before, r.store.bytes)
+            assertNotNull(source.reserveWelcome())
+            val changed = r.store.bytes!!.clone()
+            assertFails { source.prepareRetirement(proposal) }; assertContentEquals(changed, r.store.bytes)
+            val withdrawn = source.preflightRetirement(); source.suspendExports()
+            assertFails { source.prepareRetirement(withdrawn) }; assertContentEquals(changed, r.store.bytes)
+            assertFalse(source.persistenceFailed())
+        } }
+    }
+
+    @Test fun ambiguousRetirementCompletionReopensExactOriginalCountersAndStrictlyValidatesArchive() = runTest {
+        val r = Rig(); val vault = EpochVault(Store()); vault.initialise(r.room.roomId, r.binding.authority, r.secret, r.at)
+        val live = session(r.room, r.owner, FakeRelay(), authority = r.binding.authority)
+        var source = r.create()
+        try {
+            live.join(); runCurrent(); source.select(); val original = source.prepareRetirement()
+            source.offered(assertNotNull(source.reservePending(original.id, RekeyLane.NEARBY)))
+            r.store.ambiguous = true
+            assertFails { source.completePending(vault, live) }; assertTrue(source.persistenceFailed())
+            source.close(); r.store.ambiguous = false; source = r.open(); source.select()
+            assertEquals(listOf(original.id), source.snapshot().retirementOriginals)
+            val second = assertNotNull(source.reserveRetirement(original.id, RekeyLane.NEARBY))
+            assertEquals(2, second.attempt); assertEquals(original, second.event)
+            assertTrue(source.canHandoff(second), "Historical offer does not acknowledge a new reserved attempt")
+            val reservedBytes = r.store.bytes!!.clone(); r.at--
+            assertFalse(source.canHandoff(second)); assertFails { source.reserveRetirement(original.id, RekeyLane.NEARBY) }
+            assertContentEquals(reservedBytes, r.store.bytes); r.at++
+            source.suspendExports(); source.offered(second); assertContentEquals(reservedBytes, r.store.bytes)
+            source.close()
+            val root = Json.parseToJsonElement(reservedBytes.decodeToString()).jsonObject
+            val kept = root.getValue("retirements").jsonArray.single().jsonObject
+            val invalid = listOf(
+                JsonObject(kept + ("invitation" to JsonPrimitive("ab".repeat(32)))),
+                JsonObject(kept + ("epoch" to JsonPrimitive(1))),
+                JsonObject(kept + ("extra" to JsonPrimitive(true))),
+                JsonObject(kept + ("attempts" to buildJsonObject { put("NEARBY:${original.id}", 9) })),
+                JsonObject(kept + ("offered" to buildJsonObject { put("NEARBY:${original.id}", 3) })),
+                JsonObject(kept + ("offered" to buildJsonObject { })),
+                JsonObject(kept + ("attempts" to buildJsonObject { put("NEARBY:${original.id}:extra", 2) }))
+            )
+            for (bad in invalid) {
+                r.store.bytes = JsonObject(root + ("retirements" to JsonArray(listOf(bad)))).toString().toByteArray()
+                val corrupted = r.store.bytes!!.clone()
+                assertFails { r.open() }; assertContentEquals(corrupted, r.store.bytes)
+            }
+            r.store.bytes = JsonObject(root + ("retirements" to JsonArray(List(17) { kept }))).toString().toByteArray()
+            assertFails { r.open() }
+            r.store.bytes = reservedBytes; source = r.open()
+        } finally { source.close(); live.leave(); r.secret.fill(0) }
+    }
+
+    @Test fun expiredArchivedRetirementCannotReserveOrAcknowledgeAnotherOffer() = runTest {
+        val r = Rig(ends = 1100); val vault = EpochVault(Store())
+        vault.initialise(r.room.roomId, r.binding.authority, r.secret, r.at)
+        val live = session(r.room, r.owner, FakeRelay(), authority = r.binding.authority)
+        var source = r.create()
+        try {
+            live.join(); runCurrent(); source.select(); val original = source.prepareRetirement()
+            source.offered(assertNotNull(source.reservePending(original.id, RekeyLane.NEARBY)))
+            assertTrue(source.completePending(vault, live))
+            val reserved = assertNotNull(source.reserveRetirement(original.id, RekeyLane.NEARBY))
+            r.at = 1100
+            val before = r.store.bytes!!.clone()
+            assertFalse(source.canHandoff(reserved)); source.offered(reserved)
+            assertNull(source.reserveRetirement(original.id, RekeyLane.NEARBY))
+            assertContentEquals(before, r.store.bytes)
+            source.close(); source = r.open(); source.select()
+            assertNull(source.reserveRetirement(original.id, RekeyLane.INTERNET))
+            assertContentEquals(before, r.store.bytes)
+        } finally { source.close(); live.leave(); r.secret.fill(0) }
+    }
+
     @Test fun closureCompletesOnlyAgainstTheActualTerminalCauseAndSuccessorClosedSession() = runTest {
         val creation = NativeKeeperCreation.fresh(0); val secret = creation.roomSecret(); val room = deriveRoom(secret)
         val owner = Fixtures.primary(room, 5, 6)
@@ -691,10 +911,27 @@ class NativeKeeperJournalTest {
                 relay.publish(send.event); journal.offered(send); runCurrent()
             }
             assertEquals(RoomEpochState.Closed(1), receiver.epochState.value)
+            journal.close(); schemaFour(store)
+            val oldPending = store.bytes!!.clone()
+            journal = NativeKeeperJournal.open(store, binding) { currentTime / 1000 }; journal.select()
+            assertContentEquals(oldPending, store.bytes)
+            assertEquals(1, journal.snapshot().missingRetirementSlots)
             assertTrue(journal.completePending(vault, receiver)); journal.close()
             journal = NativeKeeperJournal.open(store, binding) { currentTime / 1000 }; journal.select()
             assertEquals(KeeperPhase.CLOSED, journal.snapshot().phase); assertTrue(journal.snapshot().pending.isEmpty())
+            val retirement = events.single { it.kind == KIND_INVITATION_RETIREMENT }
+            assertEquals(listOf(retirement.id), journal.snapshot().retirementOriginals)
+            val retry = assertNotNull(journal.reserveRetirement(retirement.id, RekeyLane.INTERNET))
+            assertEquals(retirement, retry.event); assertEquals(2, retry.attempt)
             assertFails { journal.prepareRekey(listOf(owner.credential)) }
+            journal.close(); schemaFour(store)
+            val completedLegacy = store.bytes!!.clone()
+            journal = NativeKeeperJournal.open(store, binding) { currentTime / 1000 }; journal.select()
+            assertEquals(KeeperPhase.CLOSED, journal.verifyReceiver(vault))
+            assertEquals(2, journal.snapshot().missingRetirementSlots)
+            assertTrue(journal.snapshot().retirementOriginals.isEmpty())
+            assertNull(journal.reserveRetirement(retirement.id, RekeyLane.INTERNET))
+            assertContentEquals(completedLegacy, store.bytes)
         } finally { journal.close(); receiver.leave(); secret.fill(0) }
     }
 }

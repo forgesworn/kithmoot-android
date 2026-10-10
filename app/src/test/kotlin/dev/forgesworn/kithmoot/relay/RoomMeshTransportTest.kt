@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -69,15 +70,85 @@ class RoomMeshTransportTest {
         var receive: ((ByteArray, String) -> Unit)? = null
         val offered = mutableListOf<Pair<ByteArray, String?>>()
         var reset = 0; var closed = false; var resetFailure = false; var unsubscribeFailure = false
+        var offerFailure = false
         override fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable {
             this.receive = receive
             return AutoCloseable { this.receive = null; if (unsubscribeFailure) error("unsubscribe failed") }
         }
-        override fun offer(bytes: ByteArray, to: String?) { check(!closed); offered += bytes.copyOf() to to }
+        override fun offer(bytes: ByteArray, to: String?) { check(!closed && !offerFailure); offered += bytes.copyOf() to to }
         override suspend fun resetQueued() { reset++; if (resetFailure) error("queue barrier failed"); offered.clear() }
         override fun reachable() = !closed
         override fun close() { closed = true; offered.clear(); receive = null }
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
+    }
+
+    @Test fun keeper_registration_is_cold_frozen_and_precedes_actual_inbound_requests() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val names = mutableListOf("old-invitation")
+        val filters = mutableListOf(Filter(kinds = listOf(20466), tags = mapOf("#d" to names)))
+        val order = mutableListOf<String>()
+        val flow = mesh.subscribeKeeperRequests(filters) { order += "installed" }
+        assertTrue(order.isEmpty()); assertTrue(link.offered.isEmpty())
+        names[0] = "changed-caller-value"; filters.clear()
+        val collector = backgroundScope.launch { flow.collect { order += it.content } }
+        try {
+            runCurrent(); assertEquals(listOf("installed"), order)
+            val query = RoomMeshWire.decode(link.offered.single().first)!!.second
+            assertEquals(JsonPrimitive("old-invitation"), query.getValue("filters").jsonArray.single().jsonObject.getValue("#d").jsonArray.single())
+            val request = event("request", 20466, tags = listOf(listOf("d", "old-invitation")))
+            mesh.publish(request); runCurrent()
+            assertEquals(listOf("installed"), order, "A local echo cannot become keeper ingress")
+            link.inbound(frame(request)); runCurrent()
+            assertEquals(listOf("installed", "request"), order)
+            collector.cancelAndJoin()
+            link.inbound(frame(event("after cancellation", 20466, at = 101, tags = listOf(listOf("d", "old-invitation")))))
+            runCurrent(); assertEquals(listOf("installed", "request"), order)
+        } finally { collector.cancelAndJoin(); mesh.close() }
+    }
+
+    @Test fun keeper_registration_never_acknowledges_a_closed_or_capacity_rejected_reader() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val collectors = List(32) { backgroundScope.launch { mesh.subscribe(listOf(Filter())).collect { } } }
+        runCurrent()
+        var acknowledgements = 0; var failure: Exception? = null
+        val rejected = backgroundScope.launch {
+            try { mesh.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20466)))) { acknowledgements++ }.collect { } }
+            catch (error: Exception) { failure = error }
+        }
+        runCurrent(); assertEquals(0, acknowledgements)
+        assertEquals("Too many mesh subscriptions", assertIs<IllegalStateException>(failure).message)
+        collectors.forEach { it.cancelAndJoin() }; rejected.cancelAndJoin(); mesh.close()
+        failure = null
+        val closed = backgroundScope.launch {
+            try { mesh.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20468)))) { acknowledgements++ }.collect { } }
+            catch (error: Exception) { failure = error }
+        }
+        runCurrent(); assertEquals(0, acknowledgements)
+        assertEquals("Mesh transport closed", assertIs<IllegalStateException>(failure).message)
+        closed.cancelAndJoin()
+    }
+
+    @Test fun failed_keeper_query_and_registration_callback_release_the_actual_reader() = runTest {
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        var acknowledgements = 0; val errors = mutableListOf<Exception>()
+        link.offerFailure = true
+        val failedOffer = backgroundScope.launch {
+            try { mesh.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20466)))) { acknowledgements++ }.collect { } }
+            catch (error: Exception) { errors += error }
+        }
+        runCurrent(); assertEquals(0, acknowledgements); assertEquals(1, errors.size)
+        failedOffer.cancelAndJoin(); link.offerFailure = false
+        val failedCallback = backgroundScope.launch {
+            try { mesh.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20466)))) { error("owner withdrawn") }.collect { } }
+            catch (error: Exception) { errors += error }
+        }
+        runCurrent(); assertEquals(2, errors.size)
+        assertEquals("owner withdrawn", errors.last().message); failedCallback.cancelAndJoin()
+        val replacements = List(32) { backgroundScope.launch {
+            mesh.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20468)))) { acknowledgements++ }.collect { }
+        } }
+        runCurrent(); assertEquals(32, acknowledgements, "Neither failed path may leak a reader slot")
+        replacements.forEach { it.cancelAndJoin() }; mesh.close()
     }
 
     @Test fun `a burst exceeding subscriber capacity closes its bounded queue without leaking a reader`() = runTest {

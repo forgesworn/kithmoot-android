@@ -40,6 +40,10 @@ class PublicationUnconfirmedException : IllegalStateException("Publication was o
  * A generic transport error cannot establish that nothing left the device. */
 class PublicationNotOfferedException(message: String = "Publication was rejected before dispatch") : IllegalStateException(message)
 
+/** Explicit absence of complete retained history, distinct from a failed
+ * supported query or a corrupt local journal. Never means empty history. */
+class StoredHistoryUnavailableException : UnsupportedOperationException("This transport cannot verify retained history")
+
 /**
  * What a room needs from the outside world: somewhere to put events, and a way
  * to be told about them.
@@ -79,7 +83,7 @@ interface RoomTransport {
 
     /** Fails if complete retained history cannot be established. */
     suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
-        throw UnsupportedOperationException("This transport cannot verify retained history")
+        throw StoredHistoryUnavailableException()
 
     /** Best effort: whatever the answering relays hold. Never for admission, credentials,
      *  rosters or any decision where a missing event would count as proof. */
@@ -616,9 +620,12 @@ class RelayPool(
 
     /** Identical original authority requests may retry after an answer is lost.
      * This bounded exception does not change ordinary room/chat deduplication. */
-    internal fun subscribeKeeperRequests(filters: List<Filter>): Flow<NostrEvent> {
+    internal fun subscribeKeeperRequests(filters: List<Filter>, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
         require(filters.isNotEmpty() && filters.all { it.kinds?.let { kinds -> kinds.isNotEmpty() && kinds.all { k -> k in setOf(20466, 20468) } } == true })
-        return subscribeWithControl({ filters }, null, {}, {}, keeperRequests = true)
+        val frozen = filters.map { filter -> filter.copy(ids = filter.ids?.toList(),
+            authors = filter.authors?.toList(), kinds = filter.kinds?.toList(),
+            tags = filter.tags.mapValues { it.value.toList() }) }
+        return subscribeWithControl({ frozen }, null, {}, {}, keeperRequests = true, onInstalled = onInstalled)
     }
 
     /**
@@ -642,7 +649,7 @@ class RelayPool(
         return subscribeWithControl(filters, only, onEose, onReplayComplete, keeperRequests = false)
     }
     private fun subscribeWithControl(filters: () -> List<Filter>, only: Set<String>?, onEose: (url: String) -> Unit,
-        onReplayComplete: () -> Unit, keeperRequests: Boolean): Flow<NostrEvent> {
+        onReplayComplete: () -> Unit, keeperRequests: Boolean, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
         val subscription = PoolSubscription(id, filters, only, onEose, if (keeperRequests) now else null)
         // The REQ goes out only once the collector is attached. Sending it in
@@ -652,7 +659,12 @@ class RelayPool(
         val replayed = mutableSetOf<String>()
         var complete = false
         return subscription.events
-            .onSubscription { open(subscription) }
+            .onSubscription {
+                open(subscription)
+                // Real local registration, outside the pool monitor. This is
+                // not EOSE, connectivity, remote installation or delivery.
+                onInstalled()
+            }
             .transform { item ->
                 item.event?.let { emit(it) }
                 item.eose?.let { replayed += it }

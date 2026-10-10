@@ -7,6 +7,8 @@ import dev.forgesworn.kithmoot.epoch.NativeKeeperCreation
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEntry
 import dev.forgesworn.kithmoot.epoch.NativeKeeperController
 import dev.forgesworn.kithmoot.epoch.NativeHostingState
+import dev.forgesworn.kithmoot.epoch.NativeHostingStatus
+import dev.forgesworn.kithmoot.epoch.NativeHostingLifecycle
 import dev.forgesworn.kithmoot.epoch.NativeKeeperEndpoints
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
 import dev.forgesworn.kithmoot.storage.NativeRoomCreation
@@ -392,6 +394,8 @@ data class StartState(
     val loadingRooms: Boolean = true,
     val storageError: Boolean = false,
     val savedRooms: List<SavedRoomSummary> = emptyList(),
+    /** Locally retained authenticated message times, scoped to the selected account. */
+    val latestMessageTimes: Map<String, Long> = emptyMap(),
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
@@ -506,6 +510,7 @@ data class RoomState(
     val sharing: RoomSharingState? = null,
     /** Public source observation; never a root key or permission to sign. */
     val nativeHosting: NativeHostingState? = null,
+    val nativeHostingBusy: Boolean = false,
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
@@ -704,6 +709,11 @@ data class RoomState(
     /** When this device first knew the room, for scaling its countdown. */
     val startsAt: Long? = null,
 ) {
+    val canShareInvitation: Boolean get() = !privateConversation && movedOn == null && !conferenceEnded &&
+        joinUrl.isNotBlank() && !privateConversationBusy &&
+        (nativeHosting == null || nativeHosting.canShareInvitation && !nativeHostingBusy)
+    internal fun withNativeUnknownApprovals(asks: List<LetInAsk>): RoomState =
+        copy(letInAsks = if (nativeHosting?.canShareInvitation == true) asks else emptyList())
     val self: ParticipantTile? get() = tiles.firstOrNull { it.isSelf }
     val deviceCount: Int get() = self?.deviceCount ?: 1
 }
@@ -833,11 +843,7 @@ internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
 
 /** Bounded code locations only. Exception messages can contain private data. */
 internal fun roomEntryFailureDiagnostic(error: Exception): String =
-    generateSequence<Throwable>(error) { it.cause }.take(4).joinToString(" <- ") { cause ->
-        cause.javaClass.name + cause.stackTrace.take(4).joinToString(prefix = " [", postfix = "]") {
-            "${it.className}.${it.methodName}:${it.lineNumber}"
-        }
-    }
+    dev.forgesworn.kithmoot.session.codeLocationDiagnostic(error)
 
 /**
  * Everything the two screens need, and the only thing that owns a session.
@@ -870,6 +876,9 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile internal var lastRoomEntryDiagnostic: String? = null
         private set
     internal fun nativeHostState() = nativeKeeperController?.state?.value
+    internal fun nativeHostFailureDiagnostic() = nativeKeeperController?.let {
+        "keeper=${it.failureDiagnostic} receiver=${it.receiverFailureDiagnostic()}"
+    }
 
     private val _start = MutableStateFlow(
         StartState(
@@ -1357,6 +1366,30 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         refreshSavedRooms()
+        // Home observes encrypted message receipts; opening/read timestamps
+        // and relay subscription cursors are never conversation activity.
+        viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision) { state, currentStage, revision ->
+                Triple(state.account?.pubkey, if (currentStage == Stage.START) state.savedRooms.filter {
+                    !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
+                } else emptyList(), revision)
+            }.distinctUntilChanged().collectLatest { selection ->
+                val times = selection.second.mapNotNull { summary ->
+                    runCatching {
+                        val record = savedRooms.get(summary.id) ?: return@runCatching null
+                        if (record.anonymous || record.viaAccount && record.participant != selection.first) return@runCatching null
+                        val time = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state().latestMessageAt
+                        (record.id to time).takeIf { time > 0 }
+                    }.getOrNull()
+                }.toMap()
+                _start.update { state ->
+                    val eligible = if (stage.value == Stage.START) state.savedRooms.filter {
+                        !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
+                    } else emptyList()
+                    state.copy(latestMessageTimes = if (state.account?.pubkey == selection.first && eligible == selection.second) times else emptyMap())
+                }
+            }
+        }
         // The list needs pictures before a conversation is opened. Keep the
         // same public-profile switch and account boundary as the room itself.
         viewModelScope.launch(Dispatchers.IO) {
@@ -2698,6 +2731,16 @@ class RoomViewModel @JvmOverloads constructor(
         val saved = savedRooms.get(id) ?: return@withContext null
         val summary = saved.summary()
         if (!summary.canShareInvite) return@withContext null
+        if (saved.nativeAuthority != null) {
+            if (nativeKeeperEntry?.binding?.pin == saved.nativeAuthority?.pin) {
+                if (!canShareRoomInvitation(_room.value.nativeHosting)) return@withContext null
+            } else {
+                val available = runCatching {
+                    NativeKeeperVault.forSavedRoom(getApplication(), saved).open().use { it.canReadStoredInvitation() }
+                }.getOrDefault(false)
+                if (!available) return@withContext null
+            }
+        }
         runCatching { selectedWebApp.roomLink(saved.joinUrl) }.getOrNull()
     }
     fun resetSavedRooms() = changeSavedRooms {
@@ -4442,7 +4485,7 @@ class RoomViewModel @JvmOverloads constructor(
             } },
             mediaRunning = !route.nearby,
             name = record.name,
-            joinUrl = selectedWebApp.roomLink(record.joinUrl),
+            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
             lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
@@ -4545,13 +4588,37 @@ class RoomViewModel @JvmOverloads constructor(
                 controller.hosting.collect { hosting ->
                     _room.update { state ->
                         if (attached() && state.roomId == record.id && state.nativeHosting?.binding?.pin == hosting.binding.pin)
-                            state.copy(nativeHosting = hosting) else state
+                            state.copy(nativeHosting = hosting,
+                                joinUrl = if (hosting.canShareInvitation && !record.retired)
+                                    selectedWebApp.roomLink(record.joinUrl) else "",
+                                letInAsks = if (hosting.canShareInvitation) controller.unknownParticipants.value
+                                    .map { p -> LetInAsk(p, letInLabel(p)) } else emptyList()) else state
+                    }
+                    if (attached() && hosting.lifecycle in setOf(NativeHostingLifecycle.RETIRED, NativeHostingLifecycle.CLOSED)) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                if (attached()) {
+                                    val current = savedRooms.get(record.id)
+                                    if (current != null && current.nativeAuthority?.pin == hosting.binding.pin && !current.retired) {
+                                        val repaired = savedRooms.update(record.id) { stored ->
+                                            if (stored.nativeAuthority?.pin == hosting.binding.pin) stored.invitationRetired() else stored
+                                        }
+                                        if (attached()) savedRoom = repaired
+                                        _start.update { it.copy(savedRooms = savedRooms.list()) }
+                                    }
+                                }
+                            } catch (cancel: CancellationException) { throw cancel }
+                            catch (_: Exception) {
+                                _room.update { if (attached()) it.copy(notice =
+                                    "The invitation is retired. Its saved-room label could not be updated; reopen to try again.") else it }
+                            }
+                        }
                     }
                 }
             }
             scope.launch {
                 controller.unknownParticipants.collect { participants ->
-                    _room.update { if (attached()) it.copy(letInAsks = participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
+                    _room.update { if (attached()) it.withNativeUnknownApprovals(participants.map { p -> LetInAsk(p, letInLabel(p)) }) else it }
                 }
             }
             scope.launch {
@@ -4659,6 +4726,7 @@ class RoomViewModel @JvmOverloads constructor(
                 CoroutineScope(backgroundInboxWrites).launch {
                     runCatching {
                         val inbox = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox
+                        inbox.rememberActivity(shown)
                         alerted.forEach(inbox::recordAlerted)
                         if (read) inbox.markRead(epochSeconds(), shown)
                     }
@@ -6197,7 +6265,9 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         if (!visible) {
-            _room.update { it.copy(nativeHosting = it.nativeHosting?.paused()) }
+            _room.update { it.copy(nativeHosting = it.nativeHosting?.paused(),
+                joinUrl = if (it.nativeHosting != null) "" else it.joinUrl,
+                letInAsks = if (it.nativeHosting != null) emptyList() else it.letInAsks) }
             nativeKeeperEntry?.close()
         }
         if (!visible) stopRoomSharing()
@@ -7007,18 +7077,24 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val durable = !_room.value.anonymous && !_room.value.quiet
-        // A durable message queues behind any already kept; the others go one at a time as before.
-        if (!durable) {
-            if (_room.value.chatSending) return
-            _room.update { it.copy(chatSending = true, chatSendError = null) }
-        } else _room.update { it.copy(chatSendError = null) }
+        // Claim the composer before launching: repeated taps must not sign the
+        // same draft while it is still being retained. Durable messages release
+        // it once kept locally, so the next draft need not wait for a relay.
+        if (_room.value.chatSending) return
+        _room.update { it.copy(chatSending = true, chatSendError = null) }
         scope.launch(Dispatchers.IO) {
+            var composerReleased = false
             try {
                 val retainedOnMain: suspend () -> Unit = {
                     withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update {
                         it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments },
                             chatArtwork = it.chatArtwork.filterNot { staged -> artwork.any { submitted -> staged === submitted } })
-                    }; onRetained() } }
+                    }; onRetained()
+                        if (durable) {
+                            composerReleased = true
+                            _room.update { it.copy(chatSending = false) }
+                        }
+                    } }
                 }
                 val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, artwork, retainedOnMain)
                     else live.sendChatConfirmed(text, reaction, attachments, artwork).also { if (it) retainedOnMain() }
@@ -7034,7 +7110,8 @@ class RoomViewModel @JvmOverloads constructor(
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } finally {
-                if (!durable && session === live) _room.update { it.copy(chatSending = false) }
+                // A completed older publication must not unlock a newer draft.
+                if (!composerReleased && session === live) _room.update { it.copy(chatSending = false) }
                 if (durable && session === live) scheduleBackoff(live)
             }
         }
@@ -7474,6 +7551,90 @@ class RoomViewModel @JvmOverloads constructor(
                 roomInvitation = nextInvitation
                 invitationHostJob = serveInvitation(scope, transport, nextHost, secret) { session?.epochKeys()?.epoch }
                 _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
+            }
+        }
+    }
+
+    /** A stale render cannot hand out a native invitation after a source commit.
+     * Only cheap in-memory guards run here; Home storage reads stay on IO. */
+    fun canShareRoomInvitation(expected: NativeHostingState?): Boolean {
+        val state = _room.value
+        if (!appVisible || !state.canShareInvitation || state.nativeHosting != expected) return false
+        if (expected == null) return nativeKeeperEntry == null && nativeKeeperController == null
+        val entry = nativeKeeperEntry ?: return false
+        val controller = nativeKeeperController ?: return false
+        return session != null && entry.binding.pin == expected.binding.pin &&
+            state.roomId == expected.binding.room && controller.canShareObservedInvitation(expected)
+    }
+
+    /** Uses the native source's complete audience; no legacy host key. */
+    fun changeNativeRoomKey(expected: NativeHostingState) = changeNativeMembers(expected, emptyList())
+
+    fun removeNativeRoomMember(expected: NativeHostingState, participant: String) =
+        changeNativeMembers(expected, listOf(participant))
+
+    private fun changeNativeMembers(expected: NativeHostingState, removed: List<String>) {
+        val gone = removed.toList()
+        runNativeCommand(expected, { it.canChangeMembers }) {
+            it.rekeyObservedMembers(expected, gone)
+            "Room update saved. Hosting state does not confirm delivery to members."
+        }
+    }
+
+    fun retireNativeInvitation(expected: NativeHostingState) = runNativeCommand(expected,
+        { it.canRetireInvitation }) {
+        it.retireObservedInvitation(expected)
+        "Invitation retired. Existing members can still chat."
+    }
+
+    fun resendNativeRetirement(expected: NativeHostingState, id: String) = runNativeCommand(expected,
+        { it.canResendRetirement && id in it.retirementOriginals }) {
+        it.retryObservedRetirement(expected, id)
+        "Notice resend requested. This does not confirm delivery to members."
+    }
+
+    fun recoverNativePendingUpdate(expected: NativeHostingState) = runNativeCommand(expected, { it.canRetry }) {
+        val outcome = it.retryObservedPending(expected)
+        when (outcome.status) {
+            NativeHostingStatus.RECOVERING -> "Room update is still pending. Check the connection and remaining retry limits."
+            NativeHostingStatus.READY -> "Saved room update recovered. This does not confirm delivery to members."
+            else -> "Room hosting is unavailable. Reopen to inspect the saved update."
+        }
+    }
+
+    private fun runNativeCommand(expected: NativeHostingState, allowed: (NativeHostingState) -> Boolean,
+        action: suspend (NativeKeeperController) -> String) {
+        val entry = nativeKeeperEntry
+        val controller = nativeKeeperController
+        val live = session
+        fun attached() = entry != null && controller != null && live != null && appVisible &&
+            nativeKeeperEntry === entry && nativeKeeperController === controller && session === live
+        // Capture before dispatch so switching rooms cannot select another owner.
+        viewModelScope.launch {
+            while (true) {
+                val state = _room.value
+                val current = state.nativeHosting
+                if (!attached() || state.roomId != expected.binding.room || current == null ||
+                    current.binding != expected.binding || current.revision != expected.revision ||
+                    current.epoch != expected.epoch || current.lifecycle != expected.lifecycle ||
+                    current.pendingOriginals != expected.pendingOriginals ||
+                    current.ownerGeneration != expected.ownerGeneration || !allowed(current) || !allowed(expected)) {
+                    _room.update { if (attached() && it.roomId == expected.binding.room)
+                        it.copy(notice = "Room hosting changed. Open the confirmation again.") else it }
+                    return@launch
+                }
+                if (state.nativeHostingBusy) return@launch
+                if (_room.compareAndSet(state, state.copy(nativeHostingBusy = true))) break
+            }
+            var result: String? = null
+            try {
+                result = withContext(Dispatchers.IO) { action(requireNotNull(controller)) }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { result = "Room update could not complete. Inspect the hosting state before trying again." }
+            finally {
+                _room.update { if (attached() && it.roomId == expected.binding.room &&
+                    it.nativeHosting?.binding == expected.binding)
+                    it.copy(nativeHostingBusy = false, notice = result ?: it.notice) else it }
             }
         }
     }

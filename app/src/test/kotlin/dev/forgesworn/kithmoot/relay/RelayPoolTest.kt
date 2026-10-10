@@ -8,6 +8,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -45,6 +46,55 @@ class RelayPoolTest {
         id = id,
         sig = "cc".repeat(64),
     )
+
+    @Test fun keeper_registration_is_local_cold_and_keeps_frozen_filters_on_reconnect() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val invitation = mutableListOf("old-invitation")
+        val filters = mutableListOf(Filter(kinds = listOf(20466), tags = mapOf("#d" to invitation)))
+        var installed = 0
+        val flow = pool.subscribeKeeperRequests(filters) { installed++ }
+        assertEquals(0, installed)
+        invitation[0] = "mutated-caller-value"; filters.clear()
+        val collector = backgroundScope.launch { flow.collect { } }
+        try {
+            runCurrent(); assertEquals(1, installed)
+            val first = sockets.opened.single()
+            assertTrue(pool.connected.value.isEmpty(), "Local registration does not require an open remote socket or EOSE")
+            first.open(); runCurrent()
+            val request = first.sent.last { it.startsWith("[\"REQ\"") }
+            val id = first.requestedSubscriptions().distinct().single()
+            assertTrue(request.contains("old-invitation")); assertTrue(!request.contains("mutated-caller-value"))
+            first.drop(); advanceTimeBy(5_000); runCurrent()
+            val second = sockets.opened.last(); second.open(); runCurrent()
+            assertEquals(listOf(id), second.requestedSubscriptions())
+            assertEquals(request, second.sent.single { it.startsWith("[\"REQ\"") })
+            assertEquals(1, installed, "Reconnect is not a second local collector registration")
+            collector.cancelAndJoin()
+            assertTrue(second.sent.contains("[\"CLOSE\",\"$id\"]"))
+            second.drop(); advanceTimeBy(5_000); runCurrent(); sockets.opened.last().open(); runCurrent()
+            assertTrue(sockets.opened.last().requestedSubscriptions().isEmpty())
+        } finally { collector.cancelAndJoin(); pool.stop() }
+    }
+
+    @Test fun failed_keeper_registration_callback_closes_the_exact_subscription() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll()
+        var failure: Exception? = null
+        val collector = backgroundScope.launch {
+            try { pool.subscribeKeeperRequests(listOf(Filter(kinds = listOf(20466)))) { error("owner withdrawn") }.collect { } }
+            catch (error: Exception) { failure = error }
+        }
+        try {
+            runCurrent(); assertEquals("owner withdrawn", failure?.message)
+            val first = sockets.opened.single(); val id = first.requestedSubscriptions().single()
+            assertTrue(first.sent.contains("[\"CLOSE\",\"$id\"]"))
+            first.drop(); advanceTimeBy(5_000); runCurrent(); sockets.opened.last().open(); runCurrent()
+            assertTrue(sockets.opened.last().requestedSubscriptions().isEmpty(), "A failed owner must not survive reconnect")
+        } finally { collector.cancelAndJoin(); pool.stop() }
+    }
 
     @Test
     fun `offline confirmed event cannot leave after rekey and reconnect`() = runTest {

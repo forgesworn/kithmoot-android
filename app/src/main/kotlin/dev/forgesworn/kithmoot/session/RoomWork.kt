@@ -35,6 +35,7 @@ import dev.forgesworn.kithmoot.protocol.withSpeaker
 import dev.forgesworn.kithmoot.protocol.verifyRoomRelays
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.StoredHistoryUnavailableException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -451,7 +452,14 @@ class RoomWork(
         settleName()
         scheduleNameCarry(3_000L,12_000L)
         synchronized(catalogues){catalogues.clear();mutableActions.value=emptyList()}
-        journal.rekey(id,key)
+        try { journal.rekey(id,key) }
+        catch (_:StoredHistoryUnavailableException) {
+            // The journal already moved its traffic key and refused readiness.
+            // Mesh cannot prove complete assignment history; this must neither
+            // revive work publication nor strand the authenticated chat epoch.
+            check(!journal.state.value.ready && !journal.state.value.historyComplete)
+            mutableError.value="Shared work is unavailable on this connection. Room chat can continue."
+        }
         val address=deriveChatChannel(id,key,"control")
         val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
         collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {

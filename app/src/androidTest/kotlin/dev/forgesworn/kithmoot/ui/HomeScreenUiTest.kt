@@ -154,7 +154,8 @@ class HomeScreenUiTest {
             room("a", "First", openedAt = 100), room("b", "Second", openedAt = 300),
             room("c".repeat(64), "Room ${"c".repeat(8)}", openedAt = 200),
         )
-        setHome(StartState(loadingRooms = false, savedRooms = rooms))
+        setHome(StartState(loadingRooms = false, savedRooms = rooms,
+            latestMessageTimes = mapOf("a" to 100L, "b" to 300L, "c".repeat(64) to 200L)))
         compose.onNodeWithText("Rooms").assertIsDisplayed()
         compose.onNodeWithText("Untitled room").assertIsDisplayed()
         compose.onNodeWithText("New room").assertIsDisplayed()
@@ -264,9 +265,18 @@ class HomeScreenUiTest {
             SavedRoomSummary("c1" + "0".repeat(62), "Starred", false, 3, pinned = true)
     }
 
+    private fun manyRoomsWithMessages(): StartState {
+        val rooms = manyRooms()
+        // Their authenticated history has these ages. Reopening every room
+        // today must not change its section or order.
+        return StartState(loadingRooms = false,
+            savedRooms = rooms.map { it.copy(openedAt = System.currentTimeMillis() / 1000) },
+            latestMessageTimes = rooms.associate { it.id to it.openedAt })
+    }
+
     @Test fun past_eight_rooms_the_list_has_headings_with_older_and_ended_folded() {
         resetFolds()
-        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        setHome(manyRoomsWithMessages(), heightDp = 1600)
         compose.onNodeWithText("Pinned").assertExists()
         compose.onNodeWithText("Recent").assertExists()
         compose.onNodeWithText("Older · 2").assertExists()
@@ -279,7 +289,7 @@ class HomeScreenUiTest {
 
     @Test fun the_older_fold_opens_and_closes() {
         resetFolds()
-        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        setHome(manyRoomsWithMessages(), heightDp = 1600)
         compose.onNodeWithText("Older · 2").performClick()
         compose.onNodeWithText("Older").assertExists()
         compose.onNodeWithText("Dusty one").assertExists()
@@ -291,13 +301,23 @@ class HomeScreenUiTest {
 
     @Test fun a_search_lists_matches_from_closed_folds_without_headings() {
         resetFolds()
-        setHome(StartState(loadingRooms = false, savedRooms = manyRooms()), heightDp = 1600)
+        setHome(manyRoomsWithMessages(), heightDp = 1600)
         compose.onNodeWithContentDescription("Search rooms").performClick()
         compose.onNodeWithText("Find a room").performTextInput("Dusty")
         compose.onNodeWithText("Dusty one").assertExists()
         compose.onNodeWithText("Dusty two").assertExists()
         compose.onNodeWithText("Older · 2").assertDoesNotExist()
         compose.onNodeWithText("Recent").assertDoesNotExist()
+    }
+
+    @Test fun unknown_message_times_keep_a_long_room_list_visible() {
+        resetFolds()
+        val rooms = (1..12).map { room("%02x".format(it) + "0".repeat(62), "Unknown $it", openedAt = 1L) }
+        setHome(StartState(loadingRooms = false, savedRooms = rooms), heightDp = 1600)
+        compose.onNodeWithText("Other rooms").assertExists()
+        compose.onNodeWithText("Older", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Recent").assertDoesNotExist()
+        rooms.forEach { compose.onNodeWithText(it.name).assertExists() }
     }
 
     @Test fun the_menu_offers_pin_or_unpin_first_and_asks_to_toggle() {

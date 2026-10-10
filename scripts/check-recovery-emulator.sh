@@ -78,9 +78,11 @@ run_tests room-sharing-ui 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingUiTes
 run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEntryTest
 run_tests nearby-room-entry 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomEntryTest
 run_tests fresh-nearby-entry 6 -e class dev.forgesworn.kithmoot.ui.FreshNearbyEntryTest
-run_tests native-host-entry 4 -e class dev.forgesworn.kithmoot.ui.NativeHostEntryTest
-run_tests native-member-commands 2 -e class dev.forgesworn.kithmoot.epoch.NativeMemberCommandAndroidTest
-run_tests home-screen 25 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
+run_tests native-host-entry 11 -e class dev.forgesworn.kithmoot.ui.NativeHostEntryTest
+run_tests native-member-commands 5 -e class dev.forgesworn.kithmoot.epoch.NativeMemberCommandAndroidTest
+run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.NativeRetirementStoreRefusalTest
+run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
+run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests restart-reopen 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#b_reopen -e requireRestart true

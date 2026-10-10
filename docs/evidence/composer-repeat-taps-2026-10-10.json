@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-10",
+  "version": "0.6.78",
+  "versionCode": 101,
+  "baseSource": "a6f3a7e",
+  "reportedIssue": "Tester on Android 64 repeatedly taps Send and receives four copies",
+  "affectedReleasedSources": {
+    "0.6.64": "7fbca41",
+    "0.6.77": "26a043dd"
+  },
+  "change": "Synchronously claim the composer before signing; release durable composer only after local retention; completed older publication cannot release a newer submission",
+  "regression": {
+    "kind": "Real Android ViewModel, encrypted PendingChatVault and loopback ProjectTestRelay",
+    "device": "Disposable API 35 emulator emulator-5590 on M4",
+    "account": "Synthetic fixture only",
+    "relayAcknowledgements": false,
+    "before": {
+      "passed": false,
+      "failure": "Send did not claim composer before the retention callback could reach the main thread",
+      "log": "/tmp/kithmoot-composer-before.log"
+    },
+    "after": {
+      "passed": true,
+      "tests": 1,
+      "seconds": 2.283,
+      "log": "/tmp/kithmoot-composer-078-emulator.log",
+      "checks": [
+        "Four rapid calls retain exactly one draft",
+        "A distinct draft queues before a relay receipt",
+        "Empty submission releases composer without retention callback",
+        "Intentional repeated text creates a separate message"
+      ]
+    }
+  },
+  "validation": {
+    "protocol": {
+      "tests": 401,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appDebug": {
+      "tests": 1880,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appRelease": {
+      "tests": 1880,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "lintDebug": true,
+    "lintRelease": true,
+    "assembleDebug": true,
+    "assembleRelease": true,
+    "assembleDebugAndroidTest": true,
+    "log": "/tmp/kithmoot-composer-078-validation.log"
+  },
+  "sourceSha256": {
+    "app/build.gradle.kts": "0cbc8a142702fab9cc4c5a26ecf73c604aba527e3291335085b6276b559d5a0a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "8f3f5b05fc40c4ecccec4867a16df3e6a8cd24bf8996ce228b3954e045276228",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/ComposerRepeatTapUiTest.kt": "5a09d0ae6b7077be37536e782370b1bf4a8e68d63e9c302c9eeef1f306b84029"
+  },
+  "signedApk": false,
+  "published": false,
+  "physicalTesterAcceptance": false
+}
