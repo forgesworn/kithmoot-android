@@ -673,6 +673,7 @@ data class RoomState(
     val epochTrouble: List<String> = emptyList(),
     /** People the room does not know asking to come in, after a removal (kithmoot#207). */
     val letInAsks: List<LetInAsk> = emptyList(),
+    val invitationAdmissions: List<dev.forgesworn.kithmoot.session.PendingInvitationAdmission> = emptyList(),
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -994,6 +995,7 @@ class RoomViewModel @JvmOverloads constructor(
     private var roomInvitation: InvitationPayload? = null
     private var roomInvitationHost: RoomInvitationHost? = null
     private var invitationHostJob: Job? = null
+    private var invitationAdmissionDesk: dev.forgesworn.kithmoot.session.TemporaryRoomAdmissionDesk? = null
     @Volatile private var nativeKeeperEntry: NativeKeeperEntry? = null
     @Volatile private var nativeKeeperController: NativeKeeperController? = null
     private var closingKeeper: Job? = null
@@ -3966,73 +3968,53 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Auto-admit holders of the current link while any admitted member is
-     * online, and stop permanently on the creator's durable tombstone. */
+    /** Temporary invitations require an individual decision on each admitted
+     * device. A retired invitation permanently closes its decision queue. */
     private fun serveInvitation(
         scope: CoroutineScope,
         transport: RoomTransport,
         host: RoomInvitationHost,
         secret: ByteArray,
-        /** The epoch this device is at, asked on every grant: the joiner is
-         *  told whether [secret] opens the live room (fold-kit's `epoch`). */
         epoch: () -> Int?,
     ): Job {
-        val invitationId = deriveInvitationId(host.invitation)
-        val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
-        return scope.launch {
-            val answered = LinkedHashSet<String>()
-            var retired = false
-            transport.subscribe(
-                listOf(
-                    Filter(
-                        kinds = listOf(KIND_INVITATION_REQUEST),
-                        tags = mapOf(
-                            "#d" to listOf(invitationId),
-                            "#p" to listOf(host.invitation.canonicalInviter),
-                        ),
-                    ),
-                    Filter(
-                        authors = listOf(host.invitation.canonicalInviter),
-                        kinds = listOf(KIND_INVITATION_RETIREMENT),
-                        tags = mapOf("#d" to listOf(invitationId)),
-                    ),
-                ),
-            ).collect { event ->
-                if (event.kind == KIND_INVITATION_RETIREMENT) {
-                    if (!decodeInvitationRetirement(event, host.invitation)) return@collect
-                    retired = true
-                    gate.withLock {
-                        if (roomInvitation?.invitation == host.invitation) {
-                            roomInvitationHost = null
-                            savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
-                            _room.update { it.copy(
-                                canRotateInvitation = false,
-                                notice = "This invitation was retired by its creator. The live room is unchanged.",
-                            ) }
-                        }
+        val desk = dev.forgesworn.kithmoot.session.TemporaryRoomAdmissionDesk(
+            scope, transport, host, secret, epoch,
+            stillCurrent = { sessionScope === scope && session != null &&
+                roomInvitation?.invitation == host.invitation && _room.value.canShareInvitation &&
+                (_room.value.endsAt?.let { epochSeconds() < it } ?: true) },
+            onRetired = {
+                gate.withLock {
+                    if (roomInvitation?.invitation == host.invitation) {
+                        roomInvitationHost = null
+                        savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
+                        _room.update { it.copy(canRotateInvitation = false,
+                            notice = "This invitation was retired by its creator. The live room is unchanged.") }
                     }
-                    return@collect
                 }
-                if (host.invitation.persistent || retired || dev.forgesworn.kithmoot.protocol.verifyInvitationDelegation(host.invitation, host.delegation, epochSeconds()) == null) return@collect
-                val request = decodeInvitationRequest(event, host.invitation, epochSeconds()) ?: return@collect
-                // Lenient relays sometimes retain and replay ephemeral
-                // requests. A newly admitted delegate must not answer the
-                // request that admitted itself.
-                if (request.device == responder) return@collect
-                if (!answered.add(request.requestId)) return@collect
-                while (answered.size > 256) answered.remove(answered.first())
-                transport.publish(
-                    encodeInvitationGrant(
-                        host,
-                        request.device,
-                        request.requestId,
-                        secret,
-                        epochSeconds(),
-                        epoch = epoch(),
-                    ),
-                )
+            },
+            onGrantAccepted = {
+                _room.update { it.copy(notice = "A relay accepted the admission grant. The guest can now join.") }
+            },
+        )
+        invitationAdmissionDesk = desk
+        val serving = desk.start()
+        CoroutineScope(scope.coroutineContext + serving).launch {
+            desk.pending.collect { rows ->
+                if (invitationAdmissionDesk === desk) _room.update { it.copy(invitationAdmissions = rows) }
             }
         }
+        serving.invokeOnCompletion {
+            if (invitationAdmissionDesk === desk) {
+                invitationAdmissionDesk = null
+                _room.update { it.copy(invitationAdmissions = emptyList()) }
+            }
+        }
+        return serving
+    }
+
+    fun answerInvitationAdmission(requestId: String, admit: Boolean) {
+        val desk = invitationAdmissionDesk ?: return
+        if (admit) desk.admit(requestId) else desk.dismiss(requestId)
     }
 
     // --- session lifecycle ---------------------------------------------------
