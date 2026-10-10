@@ -161,11 +161,13 @@ class FakeRelay {
 /** A websocket that never touches a network. */
 class FakeSocket(val url: String, private val listener: RelaySocketListener) : RelaySocket {
     val sent = mutableListOf<String>()
+    var onSend: (String) -> Unit = {}
     var closedByPool = false
         private set
 
     override fun send(text: String) {
         sent += text
+        onSend(text)
     }
 
     override fun close() {

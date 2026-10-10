@@ -3896,7 +3896,9 @@ class RoomViewModel @JvmOverloads constructor(
                 onPhase = { phase ->
                     if (_start.value.busy) _start.update { it.copy(opening = when (phase) {
                         dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SIGNING -> "Confirm your identity in your signer…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
                         dev.forgesworn.kithmoot.session.AdmissionRequestPhase.WAITING -> "Waiting for someone in the room to let you in…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.RECONNECTING -> "Your request has not been confirmed. Reconnecting…"
                     }) }
                 },
             )

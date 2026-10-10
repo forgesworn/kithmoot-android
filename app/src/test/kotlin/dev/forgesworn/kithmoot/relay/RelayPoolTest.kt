@@ -140,6 +140,24 @@ class RelayPoolTest {
         }
     }
 
+    @Test fun `withdrawing authority during fanout prevents the next socket write`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(relays.take(2), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll(); runCurrent()
+        var allowed = true
+        sockets.opened.first().onSend = { if (it.startsWith("[\"EVENT\",")) allowed = false }
+        val request = event("d3".repeat(32), kind = 20466)
+        try {
+            val result = async { pool.publishConfirmedGuarded(request, pool.publicationGeneration(), { allowed }) }
+            runCurrent()
+            assertEquals(1, sockets.opened.first().publishedFrames().size)
+            assertTrue(sockets.opened.last().publishedFrames().isEmpty())
+            sockets.opened.first().deliverOk(request.id, true)
+            runCurrent()
+            assertTrue(result.await(), "An already-written event may still be acknowledged")
+        } finally { pool.stop() }
+    }
+
     @Test
     fun `the circle is asked each time, so a card added mid-room moves the lane`() = runTest {
         var circle = emptySet<String>()
