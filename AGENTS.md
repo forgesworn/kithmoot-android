@@ -22,8 +22,9 @@ Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 
 `./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease`
 is what CI runs on pull requests and pushes to `main` and the qualification
-branch `feat/native-keeper-journal` (`.github/workflows/ci.yml`). The feature
-branch trigger runs the same four hosted gates without requiring PR creation.
+branches `feat/native-keeper-journal` and `feat/native-device-registry`
+(`.github/workflows/ci.yml`). The feature branch triggers run the same four
+hosted gates without requiring PR creation.
 
 ## Structure
 

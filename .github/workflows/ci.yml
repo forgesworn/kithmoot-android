@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry]
   pull_request:
     branches: [main]
 
