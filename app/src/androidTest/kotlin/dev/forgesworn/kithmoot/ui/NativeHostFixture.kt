@@ -145,7 +145,19 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             "revision=${hosting?.revision} originals=${hosting?.pendingOriginals?.size} " +
             "commandBusy=${room.nativeHostingBusy} command=$command radioOwners=${radios.count { !it.closed }} " +
             "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
-            "chatError=${room.chatSendError != null} pending=${room.pendingChats.size}"
+            "chatError=${room.chatSendError != null} pending=${room.pendingChats.size} " +
+            "failure=${model.nativeHostFailureDiagnostic()}"
+    }
+
+    fun receiverStatus(saved: SavedRoom): String {
+        val receiver = app.roomEpochs.get(saved.id) ?: return "receiver=missing"
+        try {
+            return "receiverPhase=${receiver.phase} receiverEpoch=${receiver.currentEpoch} " +
+                "receiverPending=${receiver.pending != null}"
+        } finally {
+            receiver.currentSecret.fill(0)
+            receiver.pending?.secret?.fill(0)
+        }
     }
 
     suspend fun awaitHost(label: String, diagnostic: () -> String = { "" }, predicate: () -> Boolean) {

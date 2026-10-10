@@ -78,7 +78,8 @@ class NativeHostEntryTest {
                 "sourceEpoch=${source.getValue("epoch").jsonPrimitive.int} " +
                     "sourceRevision=${source.getValue("revision").jsonPrimitive.long} " +
                     "peerEpoch=${peer.epochKeys().epoch} peerPhase=${peer.epochState.value::class.simpleName} " +
-                    "rootOriginals=${(f.phoneEvents + f.relayWrites).filter { it.kind == KIND_ROOM_REKEY }.distinctBy { it.id }.size}"
+                    "rootOriginals=${(f.phoneEvents + f.relayWrites).filter { it.kind == KIND_ROOM_REKEY }.distinctBy { it.id }.size} " +
+                    f.receiverStatus(saved)
             }) {
                 f.model.room.value.nativeHosting?.let { it.status == NativeHostingStatus.READY && it.epoch == 1 } == true &&
                     peer.epochKeys().epoch == 1 && !f.model.room.value.nativeHostingBusy

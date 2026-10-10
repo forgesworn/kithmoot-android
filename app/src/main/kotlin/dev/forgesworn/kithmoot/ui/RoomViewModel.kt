@@ -827,11 +827,7 @@ internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
 
 /** Bounded code locations only. Exception messages can contain private data. */
 internal fun roomEntryFailureDiagnostic(error: Exception): String =
-    generateSequence<Throwable>(error) { it.cause }.take(4).joinToString(" <- ") { cause ->
-        cause.javaClass.name + cause.stackTrace.take(4).joinToString(prefix = " [", postfix = "]") {
-            "${it.className}.${it.methodName}:${it.lineNumber}"
-        }
-    }
+    dev.forgesworn.kithmoot.session.codeLocationDiagnostic(error)
 
 /**
  * Everything the two screens need, and the only thing that owns a session.
@@ -864,6 +860,9 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile internal var lastRoomEntryDiagnostic: String? = null
         private set
     internal fun nativeHostState() = nativeKeeperController?.state?.value
+    internal fun nativeHostFailureDiagnostic() = nativeKeeperController?.let {
+        "keeper=${it.failureDiagnostic} receiver=${it.receiverFailureDiagnostic()}"
+    }
 
     private val _start = MutableStateFlow(
         StartState(

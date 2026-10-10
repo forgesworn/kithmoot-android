@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.session.RoomEpochState
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.codeLocationDiagnostic
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,9 @@ internal class NativeKeeperController private constructor(private val source: Na
     private val queue = Channel<Work>(64)
     private val mutableState = MutableStateFlow<State>(State.Starting)
     val state = mutableState.asStateFlow()
+    @Volatile internal var failureDiagnostic: String? = null
+        private set
+    internal fun receiverFailureDiagnostic() = live?.epochFailureDiagnostic
     private val publicationGate = Any()
     private val mutableHosting = MutableStateFlow(NativeHostingState.starting(source.binding,
         observationGenerations.incrementAndGet().also { check(it > 0) }))
@@ -92,7 +96,10 @@ internal class NativeKeeperController private constructor(private val source: Na
                 }
             }
         } catch (cancel: CancellationException) { started.cancel(cancel); throw cancel }
-        catch (error: Exception) { publishState(State.Failed); started.completeExceptionally(error) }
+        catch (error: Exception) {
+            failureDiagnostic = codeLocationDiagnostic(error)
+            publishState(State.Failed); started.completeExceptionally(error)
+        }
         finally {
             if (ownsSource) live?.holdKeeperStartup()
             closed = true; withdrawPublicState(); queue.close(); owner.cancel()
