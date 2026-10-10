@@ -14,6 +14,7 @@ import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
 
 /** Rendered production controls and actual encrypted authority ownership. */
 class NativeHostEntryTest {
@@ -114,5 +115,53 @@ class NativeHostEntryTest {
             assertNull(f.courierStore(saved).read())
             assertNotNull(f.app.savedRooms.get(saved.id))
         } finally { f.close() }
+    }
+
+    @Test fun corrupt_index_cannot_orphan_the_actual_native_signer_and_restored_index_can_reset_it() = runBlocking {
+        val f = NativeHostFixture()
+        val index = File(f.app.noBackupFilesDir, "kithmoot.rooms.v1.vault")
+        val orphanIntent = File(f.app.noBackupFilesDir, "kithmoot.native-creation.v1.vault.new")
+        var original: ByteArray? = null
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText("Start nearby chat").performScrollTo().performClick()
+            val saved = f.opened()
+            f.main { f.model.leave() }
+            NativeHostFixture.await("native owner retires before index corruption") {
+                !f.model.start.value.busy && f.model.stage.value == Stage.START &&
+                    runCatching { NativeKeeperVault.forSavedRoom(f.app, saved).open().use { it.courierReady() } }.getOrDefault(false)
+            }
+            original = index.readBytes()
+            val sourceBefore = sourceDigest(f.source(saved))
+            index.writeText("broken ciphertext")
+            // A failed native creation must survive without an AtomicFile read
+            // discarding its only bytes. Only this fixture creates this file.
+            assertFalse(orphanIntent.exists())
+            orphanIntent.writeText("fixture unfinished creation")
+            f.main { f.model.refreshSavedRooms() }
+            NativeHostFixture.await("corrupt native index is visible") { !f.model.start.value.loadingRooms && f.model.start.value.storageError }
+            f.main { f.model.resetSavedRooms() }
+            NativeHostFixture.await("native state blocks destructive index reset") { !f.model.start.value.busy && f.model.start.value.error != null }
+            assertTrue(f.model.start.value.storageError)
+            assertEquals("broken ciphertext", index.readText())
+            assertEquals("fixture unfinished creation", orphanIntent.readText())
+            assertEquals(sourceBefore, sourceDigest(f.source(saved)))
+            assertNotNull(f.courierStore(saved).read())
+            assertTrue(orphanIntent.delete())
+            index.writeBytes(requireNotNull(original))
+            f.main { f.model.refreshSavedRooms() }
+            NativeHostFixture.await("restored exact index identifies native aliases") { !f.model.start.value.loadingRooms && !f.model.start.value.storageError }
+            f.main { f.model.resetSavedRooms() }
+            NativeHostFixture.await("readable native reset deletes source and references") {
+                !f.model.start.value.busy && !f.model.start.value.storageError && f.app.savedRooms.list().isEmpty()
+            }
+            assertNull(f.sourceStore(saved).read()); assertNull(f.courierStore(saved).read())
+        } finally {
+            orphanIntent.delete()
+            // Restore only this fixture's original encrypted index if a failure
+            // leaves it unreadable, so actual cleanup can still locate the source.
+            if (original != null && runCatching { f.app.savedRooms.list() }.isFailure) index.writeBytes(original!!)
+            try { f.close() } finally { original?.fill(0) }
+        }
     }
 }

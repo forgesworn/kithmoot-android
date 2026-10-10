@@ -265,6 +265,7 @@ internal class RoomRekeyLedger(private val storage: RoomStorage, val binding: Ro
         private val owners = ConcurrentHashMap<String, Any>()
         private val ownerGates = ConcurrentHashMap<String, Any>()
         private fun ownerGate(owner: String) = ownerGates.computeIfAbsent(owner) { Any() }
+        internal fun hasActiveOwners() = owners.isNotEmpty()
         internal fun <T> withInactiveOwner(owner: String, action: () -> T): T = synchronized(ownerGate(owner)) {
             check(!owners.containsKey(owner)) { "Stop the keeper courier first" }; action()
         }

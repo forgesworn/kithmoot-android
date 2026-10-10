@@ -66,6 +66,30 @@ class NativeRoomCreationTest {
         }
     }
 
+    @Test fun savedResetKeepsTheCreationLeaseAcrossInspectionAndIndexDeletion() {
+        val r = Rig()
+        try {
+            r.coordinator().use { coordinator ->
+                coordinator.requireSavedReset()
+                assertFails { r.coordinator() }
+                r.rooms.reset()
+                assertFails { r.coordinator() }
+            }
+            r.coordinator().use { assertNull(it.pending()) }
+        } finally { r.creation.close() }
+    }
+
+    @Test fun unfinishedIntentRefusesSavedResetWithoutSourceOrIndexMutation() {
+        val r = Rig(); r.intent.afterWrite = true
+        r.coordinator().use { assertFails { it.begin(r.creation, r.draft, r.who.credential) } }
+        val before = r.intent.value!!.clone()
+        var reset = false
+        r.coordinator().use { coordinator -> assertFails {
+            coordinator.requireSavedReset(); reset = true; r.rooms.reset()
+        } }
+        assertFalse(reset); assertContentEquals(before, r.intent.value); assertNull(r.source.value)
+    }
+
     @Test fun ambiguousIntentWriteNeverTransfersSourceAndColdMissingSourcePreservesEverything() {
         val r = Rig(); r.intent.afterWrite = true
         r.coordinator().use { coordinator ->

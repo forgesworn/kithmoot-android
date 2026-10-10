@@ -2505,19 +2505,26 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
         }
         closingKeeper?.join()
-        // The index names the independent native aliases. Preserve it if they cannot be read or cleared.
-        val readable = savedRooms.list().map { requireNotNull(savedRooms.get(it.id)) }
-        readable.forEach(::forgetNativeStores)
-        linkConsents.reset()
-        readable.forEach { saved ->
-            RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
-            dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
-                saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+        NativeRoomCreation.open(getApplication(), savedRooms).use { creation ->
+            val readable = dev.forgesworn.kithmoot.storage.NativeSavedReset.records(savedRooms) {
+                dev.forgesworn.kithmoot.storage.NativeSavedReset.inspect(getApplication())
+            }
+            // Inventory first: AtomicFile's intent read can remove an orphaned .new.
+            creation.requireSavedReset()
+            readable.forEach(::forgetNativeStores)
+            linkConsents.reset()
+            readable.forEach { saved ->
+                RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
+                dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
+                    saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+            }
+            dev.forgesworn.kithmoot.storage.NativeSavedReset.requireCleared(
+                dev.forgesworn.kithmoot.storage.NativeSavedReset.inspect(getApplication()))
+            dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
+            savedRooms.reset()
+            runCatching { roomEpochs.reset() }
+            roomMembers.reset()
         }
-        dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
-        savedRooms.reset()
-        runCatching { roomEpochs.reset() }
-        roomMembers.reset()
     }
 
     fun pairBothy(roomId: String, code: String) {

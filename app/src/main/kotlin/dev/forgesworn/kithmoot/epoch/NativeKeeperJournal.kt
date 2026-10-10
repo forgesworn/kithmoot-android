@@ -685,6 +685,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         private val owners = ConcurrentHashMap<String, Any>()
         private val gates = ConcurrentHashMap<String, Any>()
         private fun ownerGate(owner: String) = gates.computeIfAbsent(owner) { Any() }
+        internal fun hasActiveOwners() = owners.isNotEmpty()
         fun <T> withInactiveOwner(owner: String, action: () -> T): T = synchronized(ownerGate(owner)) {
             check(!owners.containsKey(owner)); action()
         }

@@ -63,6 +63,14 @@ internal class NativeRoomCreation(
     /** UI-safe unfinished metadata, without reading or claiming the source. */
     fun pending(): SavedRoomSummary? = lock.withLock { attempt { read()?.draft?.summary()?.copy(canShareInvite = false) } }
 
+    /** Call inside use: that owner's lease spans inspection and suspendable
+     * cleanup, without holding this thread lock across suspension. */
+    fun requireSavedReset() = lock.withLock {
+        attempt {
+            check(read() == null) { "Recover the unfinished native room before resetting saved rooms." }
+        }
+    }
+
     private fun finish(intent: Intent, source: NativeKeeperJournal): SavedRoom {
         require(source.binding.pin == intent.binding.pin && source.snapshot().suspended)
         val existing = rooms.get(intent.draft.id)
