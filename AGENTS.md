@@ -25,7 +25,7 @@ is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and
 `feat/native-rekey-preflight`, `feat/native-host-controls` and
 `feat/native-rekey-interruption`, `feat/native-host-status`, `feat/native-member-controls` and `feat/native-retirement-store`, `feat/native-invitation-controls`, `feat/native-pending-recovery`, `feat/native-retirement-restart`, `feat/native-retirement-refusal`
-and `feat/native-invitation-replacement`, `feat/native-invitation-generation-storage`, `feat/native-invitation-replacement-restart`, `feat/native-invitation-sharing-read`, `feat/native-replacement-restart-index-digest`, `feat/native-replacement-pending-store-refusal`
+and `feat/native-invitation-replacement`, `feat/native-invitation-generation-storage`, `feat/native-invitation-replacement-restart`, `feat/native-invitation-sharing-read`, `feat/native-replacement-restart-index-digest`, `feat/native-replacement-pending-store-refusal`, `feat/native-pending-store-admission-integration`
 (`.github/workflows/ci.yml`). The pending-store branch adds five independently required cold-refusal shards.
 The feature branch triggers retain the same four
 hosted gates without requiring PR creation.

@@ -88,3 +88,25 @@ No new actual pending row or death is yet measured; hosted execution and complet
 changed-head collection remain required before merge.
 No radio, firmware, channel, MQTT setting, public relay or personal signer is
 part of this work.
+
+
+## Integration with authenticated admission
+
+Mesh-kit-private precode **9f7e8b7**,
+`spec/native-pending-store-admission-integration.md`, precedes the separate
+`feat/native-pending-store-admission-integration` successor. It merges main
+**44857b8**, preserving authenticated temporary accounts, explicit host admission/
+refusal, cancellation and retained uncertain decisions. All prior replacement,
+sharing, listener and pending-store behaviour remains required.
+
+Main adds six `invitation-admission-ui` cases after the Home group. This
+successor requires its own **150 ordinary checks in 46 groups**, the same nine
+jobs, six retired-store rows, thirteen positive restart drivers, five additional
+pending-store drivers and all 55 numeric refusal rows. The collector checks the
+exact original 45 group counts/order plus the added admission group and binds
+its protocol, request/decision, entry/rendered and JVM/instrumentation sources.
+Generated checks refuse removal, reduction, substitution and duplication.
+The current predecessor runs remain immutable; their logs cannot qualify this
+integrated source head. Its own full hosted build/test/lint/signing/recovery gate
+and source-bound collection must pass before merging. No new Android/RF result
+is implied by the merge or by compilation against older dependencies.
