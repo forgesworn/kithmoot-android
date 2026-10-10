@@ -41,6 +41,12 @@ if "logcat" in args or "screencap" in args:
     if os.environ.get("FAKE_MODE") == "diagnostics-failure": sys.exit(3)
     print("fake diagnostics"); sys.exit(0)
 if "pidof" in args: print("4242"); sys.exit(0)
+if "pull" in args:
+    counter = Path(os.environ["FAKE_PULL_COUNTER"])
+    index = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(index + 1))
+    if index < int(os.environ.get("FAKE_PULL_FAILURES", "0")):
+        print("partial artifact copy", file=sys.stderr); sys.exit(7)
 if "bugreport" in args: Path(args[-1]).write_bytes(b"fixture bugreport"); sys.exit(0)
 sys.exit(0)
 '''
@@ -56,6 +62,8 @@ class RecoveryRunnerTest(unittest.TestCase):
         shutil.copyfile(DRIVER, self.driver)
         shutil.copyfile(DRIVER.with_name("run-recovery-instrumentation.py"),
                         self.driver.with_name("run-recovery-instrumentation.py"))
+        shutil.copyfile(DRIVER.with_name("pull-recovery-proof.py"),
+                        self.driver.with_name("pull-recovery-proof.py"))
         sdk = self.root / "sdk"
         (sdk / "platform-tools").mkdir(parents=True)
         adb = sdk / "platform-tools/adb"
@@ -63,6 +71,7 @@ class RecoveryRunnerTest(unittest.TestCase):
         adb.chmod(0o700)
         self.env = dict(os.environ, ANDROID_HOME=str(sdk), ANDROID_SERIAL="emulator-9998",
                         FAKE_MARKER=str(self.root / "adb-called"), FAKE_COUNTER=str(self.root / "counter"),
+                        FAKE_PULL_COUNTER=str(self.root / "pull-counter"),
                         FAKE_COUNTS=",".join(re.findall(r"^run_tests [\w-]+ (\d+)", DRIVER.read_text(), re.M)))
         self.reports = self.root / "app/build/reports/recovery-emulator"
 
@@ -83,6 +92,25 @@ class RecoveryRunnerTest(unittest.TestCase):
         self.assertTrue((self.reports / "storage-and-ui-logcat.txt").exists())
         self.assertTrue((self.reports / "storage-and-ui-screen.png").exists())
         self.assertFalse((self.reports / "nearby-room-ui.txt").exists())
+
+    def test_copy_retry_never_repeats_an_instrumentation_suite(self):
+        calls = self.root / "calls.jsonl"
+        result = self.run_driver(FAKE_PULL_FAILURES="1", FAKE_CALLS=str(calls))
+        self.assertEqual(0, result.returncode, result.stderr)
+        trace = [json.loads(line) for line in calls.read_text().splitlines()]
+        tests = [command for command in trace if "instrument" in command]
+        self.assertEqual(len(self.env["FAKE_COUNTS"].split(",")), len(tests))
+        copies = [command for command in trace if "pull" in command]
+        self.assertEqual(copies[0], copies[1])
+        self.assertIn("status=7", (self.reports / "proof-pull-room-workspace.png-1.txt").read_text())
+        self.assertIn("status=0", (self.reports / "proof-pull-room-workspace.png-2.txt").read_text())
+
+    def test_unavailable_required_copy_stops_before_later_suites(self):
+        result = self.run_driver(FAKE_PULL_FAILURES="3")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("Required proof copy failed after three attempts", result.stderr)
+        self.assertTrue((self.reports / "room-workspace.txt").exists())
+        self.assertFalse((self.reports / "room-countdown-journey.txt").exists())
 
     def test_assertion_failure_with_successful_adb_refuses(self):
         result = self.run_driver("failure")

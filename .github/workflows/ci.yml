@@ -60,6 +60,7 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 scripts/check-recovery-runner.py
           python3 scripts/check-sharing-restart-runner.py
+          python3 scripts/test-pull-recovery-proof.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
