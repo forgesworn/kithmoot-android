@@ -2,20 +2,23 @@ package dev.forgesworn.kithmoot.protocol
 
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.test.*
 
 class RekeySizingTest {
     private fun key(seed: Int) = ByteArray(32).apply { this[31] = seed.toByte() }
     private val root = key(1)
     private val authority = Schnorr.publicKeyHex(root)
     private val room = deriveRoom(key(2)).roomId
+    private fun assertFails(block: () -> Unit) = assertThrows(IllegalArgumentException::class.java) { block() }
 
     @Test fun nip44PredictionMatchesActualFramingAcrossPaddingEdgesAndUtf8() {
         val lengths = listOf(1, 2, 31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256, 257,
             511, 512, 513, 1023, 1024, 1025, 65534, 65535)
-        for (length in lengths) assertEquals(Nip44.encrypt("a".repeat(length), key(3), key(4)).length,
-            Nip44.encodedLength(length), "plaintext bytes=$length")
+        for (length in lengths) assertEquals("plaintext bytes=$length",
+            Nip44.encrypt("a".repeat(length), key(3), key(4)).length, Nip44.encodedLength(length))
         val unicode = "é🧭英国"
         assertEquals(Nip44.encrypt(unicode, key(3), key(4)).length,
             Nip44.encodedLength(unicode.toByteArray(Charsets.UTF_8).size))
