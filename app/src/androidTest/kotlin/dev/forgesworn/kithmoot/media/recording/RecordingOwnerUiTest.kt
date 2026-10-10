@@ -3,6 +3,8 @@ package dev.forgesworn.kithmoot.media.recording
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.SystemClock
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
@@ -14,6 +16,8 @@ import dev.forgesworn.kithmoot.protocol.RecordingView
 import dev.forgesworn.kithmoot.storage.RecoveryUi
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
+import dev.forgesworn.kithmoot.ui.KithMootApp
+import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import org.junit.*
 import org.junit.Assert.*
 
@@ -132,6 +136,43 @@ class RecordingOwnerUiTest {
         assertTrue(draft.sealed.file.canonicalPath.startsWith(app.noBackupFilesDir.canonicalPath + "/"))
         assertEquals(file, app.recordings.export.value)
         assertTrue(file.exists())
+        // A real Add completion must remain pending in each restricted call
+        // view, then navigate exactly once when that same event is allowed.
+        val restricted = mutableStateOf(Triple(true, false, false))
+        var openedChats = 0
+        activity.scenario.onActivity { owner ->
+            owner.setContent { KithMootTheme {
+                val (locked, pip, answering) = restricted.value
+                KithMootApp(model, lockedCallOnly = locked, inPictureInPicture = pip,
+                    callAnswering = answering, onOpenRecordingChat = { room ->
+                        assertEquals(originalRoom, room)
+                        openedChats++
+                        model.openNotificationRoom(room)
+                    })
+            } }
+        }
+        for (mode in listOf(Triple(true, false, false), Triple(false, true, false), Triple(false, false, true))) {
+            activity.scenario.onActivity { restricted.value = mode }
+            SystemClock.sleep(250)
+            activity.scenario.onActivity { model.addRecordingToOriginalChat(file.name) }
+            ui.await("late Add completed in restricted call view") {
+                model.recordingAdded.value != null && !model.recordingExportBusy.value
+            }
+            val pending = requireNotNull(model.recordingAdded.value)
+            val before = openedChats
+            SystemClock.sleep(350)
+            assertEquals("Restricted call must not navigate", before, openedChats)
+            assertEquals("Restricted call must not acknowledge the pending Add", pending, model.recordingAdded.value)
+            assertFalse("Restricted call must not show the recording prompt", ui.hasText("Add to original chat"))
+            activity.scenario.onActivity { restricted.value = Triple(false, false, false) }
+            ui.await("deferred original-chat navigation") { model.recordingAdded.value == null && openedChats == before + 1 }
+            activity.scenario.onActivity { restricted.value = mode }
+            activity.scenario.onActivity { restricted.value = Triple(false, false, false) }
+            SystemClock.sleep(250)
+            assertEquals("Acknowledged Add must not navigate twice", before + 1, openedChats)
+        }
+        assertEquals(3, openedChats)
+        assertEquals("Repeated Add must reuse the same encrypted draft", listOf(draft), app.recordingShareDrafts.list(originalRoom))
         ui.click("Upload recording")
         ui.await("explicit storage setup") { ui.hasText("Recording storage server") }
         assertNull(model.room.value.recordingStorageChoice)

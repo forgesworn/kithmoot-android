@@ -130,8 +130,12 @@ fun KithMootApp(
     var savingRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
     var deferredRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
     val recordingPromptAllowed = !lockedCallOnly && !inPictureInPicture && !callAnswering
-    LaunchedEffect(recordingAdded) {
+    LaunchedEffect(recordingAdded, recordingPromptAllowed) {
         val added = recordingAdded ?: return@LaunchedEffect
+        // Add can finish after the call view becomes restricted. Keep the
+        // pending navigation until that view permits chat, including when the
+        // event itself remains unchanged across unlock or leaving PiP.
+        if (!recordingPromptAllowed) return@LaunchedEffect
         if (recordingExport?.name == added.sourceName) {
             deferredRecordingName = added.sourceName
             if (onOpenRecordingChat != null) onOpenRecordingChat(added.room) else model.openNotificationRoom(added.room)

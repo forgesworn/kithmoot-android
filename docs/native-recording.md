@@ -100,10 +100,24 @@ The HTTPS fixture trust remains test-only, and its services were stopped.
 
 These checks do not establish UI-driven HTTPS transfer, durable Send/outbox
 ownership, live browser/native capture, physical endurance/interruption or
-signed production delivery. Late Add completion while locked, answering a call
-or in picture-in-picture also needs navigation qualification. Hosted run
+signed production delivery. Hosted run
 38082646329 passed all gates on the preceding `a3d6124` cleanup checkpoint;
 the latest Upload source still requires complete hosted qualification.
+
+### Deferred Add navigation
+
+Add may finish after a call becomes locked, answering or displayed in PiP.
+The Compose owner now keeps that completion pending without navigating or
+acknowledging it until chat is allowed. The same event then opens its original
+chat exactly once. Repeated Add reuses the independently encrypted draft.
+
+The [navigation receipt](evidence/native-recording-deferred-add-2026-10-10.json)
+records all 15 local recording checks passing in 39.482 seconds. The real
+Compose app was exercised with each restriction independently, including
+re-entry after acknowledgment and the existing Upload/Discard/Remove journey.
+A preliminary regression check against the preceding APK failed because it
+consumed the pending Add while locked. These checks use Compose restriction
+inputs; physical keyguard and OS PiP transitions remain separate acceptance.
 
 ## Member-rekey recovery release gate
 
