@@ -105,8 +105,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         // Bind only loopback: this test must never expose its synthetic relay.
         it.start(InetAddress.getByName("127.0.0.1"), relayPort)
     }
-    val relays = listOf("ws://127.0.0.1:${server.port}/").also { urls ->
-        check(urls.all { isSafeRoomRelayUrl(it) && isSafeRoomRelayUrl(canonicalRelayUrl(it)) })
+    val relays = listOf(canonicalRelayUrl("ws://127.0.0.1:${server.port}/")).also { urls ->
+        check(urls.all { isSafeRoomRelayUrl(it) && canonicalRelayUrl(it) == it })
     }
     lateinit var model: RoomViewModel
     var savedRoom: SavedRoom? = null
@@ -125,7 +125,10 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     suspend fun opened(): SavedRoom {
         await("native host opens through ViewModel") { model.stage.value == Stage.ROOM && !model.start.value.busy || model.start.value.error != null }
         check(model.start.value.error == null) { "Native host entry refused: ${model.lastRoomEntryDiagnostic}; ${publicStatus()}" }
-        return requireNotNull(app.savedRooms.get(model.room.value.roomId)).also { savedRoom = it }
+        return requireNotNull(app.savedRooms.get(model.room.value.roomId)).also {
+            check(!it.route.internet || it.relays == relays) { "Native lab saved endpoint changed" }
+            savedRoom = it
+        }
     }
 
     private fun publicStatus() = "stage=${model.stage.value} busy=${model.start.value.busy} " +
