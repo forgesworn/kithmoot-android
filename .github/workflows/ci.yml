@@ -192,6 +192,7 @@ jobs:
           script: |
             bash scripts/check-recovery-emulator.sh
             python3 scripts/check-sharing-restart-emulator.py
+            python3 scripts/check-native-host-restart-emulator.py
 
       - name: Keep emulator reports
         if: always()
@@ -201,6 +202,7 @@ jobs:
           path: |
             app/build/reports/recovery-emulator/
             app/build/reports/sharing-restart-emulator/
+            app/build/reports/native-host-restart-emulator/
           if-no-files-found: warn
           retention-days: 7
 

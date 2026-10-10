@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIGKILL active native sharing on a disposable emulator, then require recovery."""
+"""SIGKILL an active owner on a disposable emulator, then require recovery."""
 import os
 from pathlib import Path
 import queue
@@ -14,7 +14,12 @@ RUNNER = APP + ".test/androidx.test.runner.AndroidJUnitRunner"
 CASE = APP + ".ui.RoomSharingRestartTest"
 
 
-def main():
+def main(profile="sharing"):
+    if profile not in ("sharing", "native-host"):
+        raise RuntimeError("Unknown process-restart acceptance profile")
+    case = CASE if profile == "sharing" else APP + ".ui.NativeHostRestartTest"
+    marker = "sharing" if profile == "sharing" else "native_host"
+    deadline_env = "KITHMOOT_SHARING" if profile == "sharing" else "KITHMOOT_NATIVE_HOST"
     serial = os.environ.get("ANDROID_SERIAL", "")
     if not re.fullmatch(r"emulator-[0-9]+", serial):
         raise RuntimeError("Set ANDROID_SERIAL to a disposable emulator")
@@ -25,7 +30,7 @@ def main():
     if os.environ.get("ANDROID_ADB_SERVER_PORT"):
         adb += ["-P", os.environ["ANDROID_ADB_SERVER_PORT"]]
     adb += ["-s", serial]
-    reports = Path(__file__).resolve().parent.parent / "app/build/reports/sharing-restart-emulator"
+    reports = Path(__file__).resolve().parent.parent / "app/build/reports" / (profile + "-restart-emulator")
     reports.mkdir(parents=True, exist_ok=True)
 
     def command(*args, timeout=20):
@@ -35,13 +40,13 @@ def main():
     qemu = command("shell", "getprop", "ro.kernel.qemu")
     if qemu.returncode != 0 or qemu.stdout.strip() != "1":
         raise RuntimeError("Refusing process-kill acceptance on a physical device")
-    prepare_seconds = int(os.environ.get("KITHMOOT_SHARING_PREPARE_SECONDS", "180"))
-    death_seconds = int(os.environ.get("KITHMOOT_SHARING_DEATH_SECONDS", "15"))
+    prepare_seconds = int(os.environ.get(deadline_env + "_PREPARE_SECONDS", "180"))
+    death_seconds = int(os.environ.get(deadline_env + "_DEATH_SECONDS", "15"))
     if not 1 <= prepare_seconds <= 180 or not 1 <= death_seconds <= 15:
         raise RuntimeError("Invalid bounded acceptance deadline")
     process = None
     try:
-        process = subprocess.Popen(adb + ["shell", "am", "instrument", "-w", "-e", "class", CASE + "#a_prepare", RUNNER],
+        process = subprocess.Popen(adb + ["shell", "am", "instrument", "-w", "-e", "class", case + "#a_prepare", RUNNER],
                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
         events = queue.Queue()
 
@@ -60,7 +65,7 @@ def main():
         ready = False
         while not (ready and pid):
             if time.monotonic() >= deadline:
-                raise RuntimeError("Active sharing checkpoint timed out")
+                raise RuntimeError("Active " + profile + " checkpoint timed out")
             try:
                 line = events.get(timeout=0.2)
             except queue.Empty:
@@ -69,12 +74,14 @@ def main():
                 raise RuntimeError("Preparation ended without its active checkpoint")
             # AndroidJUnitRunner can prefix its first status line with the
             # current class name. Accept only that exact known prefix.
-            if line.startswith(CASE + ":"):
-                line = line[len(CASE) + 1:]
-            match = re.fullmatch(r"INSTRUMENTATION_STATUS: sharing_restart_pid=([1-9][0-9]*)", line)
+            if line.startswith(case + ":"):
+                line = line[len(case) + 1:]
+            match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + marker + r"_restart_pid=([1-9][0-9]*)", line)
             if match:
+                if pid is not None and pid != match.group(1):
+                    raise RuntimeError("Conflicting active checkpoint PIDs")
                 pid = match.group(1)
-            if line == "INSTRUMENTATION_STATUS: sharing_restart_checkpoint=ready":
+            if line == "INSTRUMENTATION_STATUS: " + marker + "_restart_checkpoint=ready":
                 ready = True
         alive = command("shell", "pidof", APP)
         if alive.returncode != 0 or alive.stdout.split() != [pid] or process.poll() is not None:
@@ -100,13 +107,23 @@ def main():
         reader.join(timeout=5)
         if reader.is_alive():
             raise RuntimeError("Preparing command did not terminate after SIGKILL")
-        print(f"Observed SIGKILL of active sharing PID {pid}; requiring new-process recovery", flush=True)
-        recovered = command("shell", "am", "instrument", "-w", "-e", "class", CASE + "#b_recover",
+        print(f"Observed SIGKILL of active {profile} PID {pid}; requiring new-process recovery", flush=True)
+        recovered = command("shell", "am", "instrument", "-w", "-e", "class", case + "#b_recover",
                             "-e", "requireRestart", "true", RUNNER, timeout=180)
         (reports / "recover.txt").write_text(recovered.stdout)
         print(recovered.stdout, flush=True)
         if recovered.returncode != 0 or not re.search(r"^OK \(1 tests?\)$", recovered.stdout.replace("\r", ""), re.M):
-            raise RuntimeError("New-process sharing recovery did not pass exactly one case")
+            raise RuntimeError("New-process " + profile + " recovery did not pass exactly one case")
+        recovery_lines = recovered.stdout.replace("\r", "").splitlines()
+        recovery_pids = []
+        for line in recovery_lines:
+            if line.startswith(case + ":"):
+                line = line[len(case) + 1:]
+            match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + marker + r"_recovery_pid=([1-9][0-9]*)", line)
+            if match:
+                recovery_pids.append(match.group(1))
+        if len(recovery_pids) != 1 or recovery_pids[0] == pid:
+            raise RuntimeError("Recovery did not report exactly one different process PID")
     except Exception:
         try:
             (reports / "failure-logcat.txt").write_text(command("logcat", "-d", "-t", "20000").stdout)
@@ -116,9 +133,17 @@ def main():
     finally:
         # No intentional wait may leave the preparing app alive after a failure.
         try:
-            stopped = command("shell", "am", "force-stop", APP)
-            if stopped.returncode != 0:
-                raise RuntimeError("Could not force-stop app during cleanup")
+            try:
+                stopped = command("shell", "am", "force-stop", APP)
+                if stopped.returncode != 0:
+                    raise RuntimeError("Could not force-stop app during cleanup")
+            finally:
+                if profile == "native-host":
+                    # This profile requires an exclusively disposable emulator.
+                    # Attempt key deletion even when force-stop itself fails.
+                    cleared = command("shell", "pm", "clear", APP)
+                    if cleared.returncode != 0 or cleared.stdout.strip() != "Success":
+                        raise RuntimeError("Could not delete native host lab data and keys")
         finally:
             if process is not None and process.poll() is None:
                 process.terminate()
@@ -127,7 +152,7 @@ def main():
                 except subprocess.TimeoutExpired:
                     process.kill(); process.wait(timeout=5)
 
-    print("Active sharing SIGKILL and new-process recovery passed", flush=True)
+    print("Active " + profile + " SIGKILL and new-process recovery passed", flush=True)
 
 
 if __name__ == "__main__":

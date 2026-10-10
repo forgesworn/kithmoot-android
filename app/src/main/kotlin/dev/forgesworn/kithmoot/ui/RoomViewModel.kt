@@ -5038,6 +5038,9 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val live = session
+        // Withdraw the native authority before the screen changes or IO leave
+        // starts; a queued approval/retry must not keep hosting behind Home.
+        nativeKeeperEntry?.close()
         stopRoomSharing()
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.

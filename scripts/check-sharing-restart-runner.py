@@ -9,6 +9,9 @@ FAKE = r'''#!/usr/bin/env python3
 import os,sys,time,json
 from pathlib import Path
 args=sys.argv[1:];mode=os.environ.get('FAKE_MODE','ok')
+native=os.environ.get('FAKE_PROFILE')=='native-host'
+case='dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
+marker='native_host' if native else 'sharing'
 root=Path(os.environ['FAKE_ROOT']);killed=root/'killed'
 with (root/'calls').open('a') as out:out.write(json.dumps(args)+'\n')
 if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(7 if mode=='qemu-failure' else 0)
@@ -25,6 +28,8 @@ if 'kill' in args:
 if 'force-stop' in args:
  if mode=='cleanup-failure':sys.exit(7)
  killed.touch();sys.exit(0)
+if 'clear' in args:
+ print('Success');sys.exit(7 if mode=='clear-failure' else 0)
 if 'logcat' in args:print('fake diagnostics');sys.exit(0)
 if 'instrument' in args:
  if any('#a_prepare' in a for a in args):
@@ -32,25 +37,33 @@ if 'instrument' in args:
   if mode=='checkpoint-timeout':
    while not killed.exists():time.sleep(.01)
    sys.exit(0)
-  prefix='dev.forgesworn.kithmoot.ui.RoomSharingRestartTest:' if mode=='class-prefix' else 'unexpected:' if mode=='invalid-prefix' else ''
-  print(prefix+'INSTRUMENTATION_STATUS: sharing_restart_checkpoint=ready',flush=True)
-  print('INSTRUMENTATION_STATUS: sharing_restart_pid=4242',flush=True)
+  prefix=case+':' if mode=='class-prefix' else 'unexpected:' if mode=='invalid-prefix' else ''
+  if mode=='conflicting-pids':
+   print('INSTRUMENTATION_STATUS: '+marker+'_restart_pid=9999',flush=True)
+  print(prefix+'INSTRUMENTATION_STATUS: '+marker+'_restart_checkpoint=ready',flush=True)
+  print('INSTRUMENTATION_STATUS: '+marker+'_restart_pid=4242',flush=True)
   while not killed.exists():time.sleep(.01)
   print('INSTRUMENTATION_RESULT: shortMsg=Process crashed.',flush=True);sys.exit(0)
+ if mode!='no-recovery-pid':
+  print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid='+('4242' if mode=='same-recovery-pid' else '5252'))
+  if mode=='duplicate-recovery-pid':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid=5252')
  print('OK (2 tests)' if mode=='wrong-count' else 'OK (1 test)')
  sys.exit(7 if mode=='recovery-failure' else 0)
 sys.exit(0)
 '''
 class DriverTest(unittest.TestCase):
+ profile='sharing'
  def run_case(self, mode='ok', serial='emulator-9998'):
   with tempfile.TemporaryDirectory(prefix='kithmoot-sharing-driver-') as folder:
    root=Path(folder);(root/'scripts').mkdir();(root/'sdk/platform-tools').mkdir(parents=True)
-   driver=root/'scripts/check-sharing-restart-emulator.py';shutil.copyfile(Path(__file__).with_name('check-sharing-restart-emulator.py'),driver)
+   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py'):
+    shutil.copyfile(Path(__file__).with_name(name),root/'scripts'/name)
+   driver=root/'scripts'/('check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
    adb=root/'sdk/platform-tools/adb';adb.write_text(FAKE);adb.chmod(0o700)
-   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1')
+   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1')
    result=subprocess.run(['python3',str(driver)],env=env,capture_output=True,text=True,timeout=30)
    calls=(root/'calls').read_text() if (root/'calls').exists() else ''
-   reports=root/'app/build/reports/sharing-restart-emulator'
+   reports=root/'app/build/reports'/(self.profile+'-restart-emulator')
    return result,calls,(reports/'failure-logcat.txt').exists()
  def test_valid_active_kill_and_exact_recovery_pass(self):
   r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr);self.assertIn('"kill", "-9", "4242"',c);self.assertIn('requireRestart',c)
@@ -62,6 +75,14 @@ class DriverTest(unittest.TestCase):
   r,c,d=self.run_case('no-checkpoint');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c);self.assertTrue(d)
  def test_changed_pid_is_never_killed(self):
   r,c,_=self.run_case('changed-pid');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c)
+ def test_conflicting_checkpoint_pids_are_never_killed(self):
+  r,c,_=self.run_case('conflicting-pids');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c)
+ def test_original_pid_cannot_count_as_recovery(self):
+  r,_,_=self.run_case('same-recovery-pid');self.assertEqual(1,r.returncode)
+ def test_missing_recovery_pid_cannot_count_as_recovery(self):
+  r,_,_=self.run_case('no-recovery-pid');self.assertEqual(1,r.returncode)
+ def test_duplicate_recovery_status_cannot_count_as_recovery(self):
+  r,_,_=self.run_case('duplicate-recovery-pid');self.assertEqual(1,r.returncode)
  def test_failed_kill_refuses_recovery(self):
   r,c,_=self.run_case('kill-failure');self.assertEqual(1,r.returncode);self.assertNotIn('#b_recover',c)
  def test_surviving_app_refuses_recovery(self):
@@ -84,4 +105,20 @@ class DriverTest(unittest.TestCase):
   r,c,_=self.run_case(serial='physical-fixture');self.assertEqual(1,r.returncode);self.assertEqual('',c)
  def test_non_qemu_refused_before_instrumentation(self):
   r,c,_=self.run_case('not-qemu');self.assertEqual(1,r.returncode);self.assertNotIn('instrument',c);self.assertNotIn('"kill",',c)
+class NativeHostDriverTest(DriverTest):
+ profile='native-host'
+ def test_native_host_profile_selects_its_own_case(self):
+  r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr)
+  self.assertIn('NativeHostRestartTest#a_prepare',c);self.assertIn('NativeHostRestartTest#b_recover',c)
+  self.assertNotIn('RoomSharingRestartTest',c)
+ def test_native_lab_keys_are_deleted_after_recovery_failure(self):
+  r,c,_=self.run_case('recovery-failure');self.assertEqual(1,r.returncode)
+  self.assertIn('"pm", "clear", "dev.forgesworn.kithmoot"',c)
+ def test_native_failed_key_cleanup_refuses_success(self):
+  r,_,_=self.run_case('clear-failure');self.assertEqual(1,r.returncode)
+  self.assertNotIn('new-process recovery passed',r.stdout)
+ def test_native_key_cleanup_is_attempted_even_when_force_stop_fails(self):
+  r,c,_=self.run_case('cleanup-failure');self.assertEqual(1,r.returncode)
+  self.assertIn('"pm", "clear", "dev.forgesworn.kithmoot"',c)
+
 if __name__=='__main__':unittest.main()
