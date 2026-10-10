@@ -55,9 +55,10 @@ class NativeKeeperControllerTest {
             RoomRoute.MIXED -> HybridRoomTransport(requireNotNull(mesh), requireNotNull(internet)) { test.currentTime / 1000 }
         }
         var live = newSession()
+        var whenHeld: () -> Unit = {}
         fun newSession() = test.session(room, owner, FakeRelay(), authority = binding.authority, transport = transport,
             initialEpoch = vault.get(room.roomId)!!.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) },
-            initialRemoved = vault.get(room.roomId)!!.removed,
+            initialRemoved = vault.get(room.roomId)!!.removed, onEpochBlocked = { whenHeld() },
             epochGate = { event, notice ->
                 if (notice.closed) vault.terminal(room.roomId, notice.epoch - 1, notice, event.id, test.currentTime / 1000)
                 else assertNotNull(vault.follow(room.roomId, notice, event.id, test.currentTime / 1000))
@@ -108,6 +109,151 @@ class NativeKeeperControllerTest {
                 })
             } finally { r.stop() }
         }
+    }
+
+    @Test fun invalidRekeyCommandsLeaveActualPairedChatActiveWithoutSourceOrCourierWrites() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val peerLink = Link(RoomNearbyDiscovery.scope(r.room.roomId))
+        val peerMesh = RoomMeshTransport(RoomNearbyDiscovery.scope(r.room.roomId), peerLink) { currentTime / 1000 }
+        val peer = session(r.room, r.member, FakeRelay(), authority = r.binding.authority, transport = peerMesh)
+        r.link.onOffer = { bytes -> backgroundScope.launch { peerLink.receive?.invoke(bytes, "owner") } }
+        peerLink.onOffer = { bytes -> backgroundScope.launch { r.link.receive?.invoke(bytes, "peer") } }
+        try {
+            r.start(); peer.join(); runCurrent()
+            val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000)
+            r.inject(ask, RekeyLane.NEARBY); runCurrent(); r.controller!!.approve(r.member.participant)
+            val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
+            var holds = 0; r.whenHeld = { holds++ }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential)) }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential, r.member.credential, r.member.credential)) }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential, r.member.credential), destruct = true) }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential), removed = listOf(r.member.participant), scheduled = true) }
+            runCurrent()
+            assertEquals(0, holds); assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
+            assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            r.live.sendChat("Owner after rejected command"); peer.sendChat("Peer after rejected command"); runCurrent()
+            assertEquals(2, r.live.chat.value.size); assertEquals(2, peer.chat.value.size)
+            assertEquals(r.live.chat.value.map { it.body }.toSet(), peer.chat.value.map { it.body }.toSet())
+        } finally { peer.leave(); peerMesh.close(); r.stop() }
+    }
+
+    @Test fun credentialExpiryDuringTheActualHoldResumesOnlyTheUnchangedReceiverAndSource() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val short = PrimaryIdentity.create(r.room.roomId, 1, 0, Fixtures.key(1), Fixtures.key(2))
+        val peerLink = Link(RoomNearbyDiscovery.scope(r.room.roomId))
+        val peerMesh = RoomMeshTransport(RoomNearbyDiscovery.scope(r.room.roomId), peerLink) { currentTime / 1000 }
+        val peer = session(r.room, r.member, FakeRelay(), authority = r.binding.authority, transport = peerMesh)
+        r.link.onOffer = { bytes -> backgroundScope.launch { peerLink.receive?.invoke(bytes, "owner") } }
+        peerLink.onOffer = { bytes -> backgroundScope.launch { r.link.receive?.invoke(bytes, "peer") } }
+        try {
+            r.start(); peer.join(); runCurrent()
+            val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                short.deviceSecretKey, short.credential, 0)
+            r.inject(ask, RekeyLane.NEARBY); runCurrent(); r.controller!!.approve(short.participant)
+            val before = r.sourceStore.bytes!!.clone()
+            r.whenHeld = { advanceTimeBy(2_000) }
+            assertFailsWith<NativeRekeyRefusedException> { r.controller!!.rekey(listOf(r.owner.credential, short.credential)) }
+            runCurrent()
+            assertTrue(before.contentEquals(r.sourceStore.bytes)); assertTrue(r.source.snapshot().pending.isEmpty())
+            assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            assertIs<RoomEpochState.Active>(r.live.epochState.value)
+            assertEquals(0, r.vault.get(r.room.roomId)!!.currentEpoch)
+            r.live.sendChat("Actual unchanged receiver resumed after expiry"); runCurrent()
+            peer.sendChat("Live peer still chats after refused rekey"); runCurrent()
+            assertEquals(2, r.live.chat.value.size); assertEquals(2, peer.chat.value.size)
+            assertEquals(r.live.chat.value.map { it.body }.toSet(), peer.chat.value.map { it.body }.toSet())
+            println("NATIVE_REKEY_PREFLIGHT_MEASUREMENT expired_during_hold=true unchanged_source=true epoch=0 fresh_rows_each=2")
+        } finally { peer.leave(); peerMesh.close(); r.stop() }
+    }
+
+    @Test fun aCompleteOversizedAudienceNeverHoldsActualPairedChatOrSignsAPendingNotice() = runTest {
+        val r = Rig(this, RoomRoute.MIXED)
+        val peerLink = Link(RoomNearbyDiscovery.scope(r.room.roomId))
+        val peerMesh = RoomMeshTransport(RoomNearbyDiscovery.scope(r.room.roomId), peerLink) { currentTime / 1000 }
+        val peer = session(r.room, r.member, FakeRelay(), authority = r.binding.authority, transport = peerMesh)
+        r.link.onOffer = { bytes -> backgroundScope.launch { peerLink.receive?.invoke(bytes, "owner") } }
+        peerLink.onOffer = { bytes -> backgroundScope.launch { r.link.receive?.invoke(bytes, "peer") } }
+        fun key(seed: Int) = ByteArray(32).apply { this[30] = (seed ushr 8).toByte(); this[31] = seed.toByte() }
+        try {
+            r.start(); peer.join(); runCurrent()
+            val presented = mutableListOf(r.member)
+            for (seed in 10..135) presented += PrimaryIdentity.create(r.room.roomId, 10_000, 0, key(seed), key(seed + 256))
+            for (who in presented) {
+                advanceTimeBy(11_000)
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    who.deviceSecretKey, who.credential, currentTime / 1000), RekeyLane.INTERNET)
+                runCurrent(); r.controller!!.approve(who.participant); r.acknowledge(); runCurrent()
+            }
+            val gone = presented.drop(1).take(96).map { it.participant }
+            val eligible = listOf(r.owner.credential) + presented.filter { it.participant !in gone }.map { it.credential }
+            assertEquals(128, r.source.snapshot().members.size); assertEquals(32, eligible.size)
+            val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
+            var held = 0; r.whenHeld = { held++ }
+            assertFails { r.controller!!.rekey(eligible, removed = gone) }; runCurrent()
+            assertEquals(0, held); assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
+            assertEquals(0, r.events(RekeyLane.INTERNET).count { it.kind == KIND_ROOM_REKEY })
+            assertEquals(0, r.events(RekeyLane.NEARBY).count { it.kind == KIND_ROOM_REKEY })
+            assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            r.live.sendChat("Owner after oversized complete audience"); peer.sendChat("Peer after oversized complete audience"); runCurrent()
+            assertEquals(2, r.live.chat.value.size); assertEquals(2, peer.chat.value.size)
+            assertEquals(r.live.chat.value.map { it.body }.toSet(), peer.chat.value.map { it.body }.toSet())
+            println("NATIVE_REKEY_PREFLIGHT_MEASUREMENT oversized_complete_audience=true retained_devices=128 seals=32 removals=96 held=0 fresh_rows_each=2")
+        } finally { peer.leave(); peerMesh.close(); r.stop() }
+    }
+
+    @Test fun foregroundWithdrawalDuringTheHoldCannotResumeAnUncommittedProposal() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
+            r.whenHeld = { r.selected = false }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential)) }; runCurrent()
+            assertEquals(NativeKeeperController.State.Failed, r.controller!!.state.value)
+            assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
+            assertFails { r.live.sendChat("The withdrawn owner remains held") }
+            assertEquals(0, r.events(RekeyLane.NEARBY).count { it.kind == KIND_ROOM_REKEY })
+        } finally { r.stop() }
+    }
+
+    @Test fun aCorruptActualReceiverDuringTheHoldCannotBeResumedByATypedRefusal() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val short = PrimaryIdentity.create(r.room.roomId, 1, 0, Fixtures.key(1), Fixtures.key(2))
+        try {
+            r.start()
+            val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                short.deviceSecretKey, short.credential, 0)
+            r.inject(ask, RekeyLane.NEARBY); runCurrent(); r.controller!!.approve(short.participant)
+            val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
+            r.whenHeld = { advanceTimeBy(2_000); r.receiverStore.bytes = byteArrayOf(0) }
+            assertFails { r.controller!!.rekey(listOf(r.owner.credential, short.credential)) }; runCurrent()
+            assertEquals(NativeKeeperController.State.Failed, r.controller!!.state.value)
+            assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
+            assertEquals(JsonNull, Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject["pending"])
+            assertTrue(r.receiverStore.bytes!!.contentEquals(byteArrayOf(0)))
+            assertFails { r.live.sendChat("A corrupt actual receiver remains held") }
+        } finally { r.stop() }
+    }
+
+    @Test fun refusalAfterAScheduledEpochPreservesTheExactLiveActiveState() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val short = PrimaryIdentity.create(r.room.roomId, 1, 0, Fixtures.key(1), Fixtures.key(2))
+        try {
+            r.start(); r.controller!!.rekey(listOf(r.owner.credential), scheduled = true); runCurrent()
+            val previous = assertIs<RoomEpochState.Active>(r.live.epochState.value)
+            assertTrue(previous.scheduled)
+            val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                short.deviceSecretKey, short.credential, 0)
+            r.inject(ask, RekeyLane.NEARBY); runCurrent(); r.controller!!.approve(short.participant)
+            val before = r.sourceStore.bytes!!.clone()
+            r.whenHeld = { advanceTimeBy(2_000) }
+            assertFailsWith<NativeRekeyRefusedException> { r.controller!!.rekey(listOf(r.owner.credential, short.credential)) }
+            runCurrent()
+            assertEquals(previous, r.live.epochState.value)
+            assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            assertTrue(before.contentEquals(r.sourceStore.bytes))
+            r.live.sendChat("Scheduled epoch metadata survives the refused command"); runCurrent()
+            assertEquals(1, r.live.chat.value.size)
+        } finally { r.stop() }
     }
 
     @Test fun nearbyRequestsUseActualSubscriptionsCachedOriginalAnswersAndPersistedApproval() = runTest {

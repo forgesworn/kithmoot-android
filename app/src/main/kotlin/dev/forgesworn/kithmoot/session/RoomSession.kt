@@ -51,6 +51,8 @@ import dev.forgesworn.kithmoot.epoch.EpochOpening
 import dev.forgesworn.kithmoot.epoch.epochOpening
 import dev.forgesworn.kithmoot.epoch.MemberDeskDecision
 import dev.forgesworn.kithmoot.epoch.MemberEpochDesk
+import dev.forgesworn.kithmoot.epoch.EpochVault
+import dev.forgesworn.kithmoot.epoch.EpochPhase
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
@@ -400,6 +402,7 @@ class RoomSession(
     private var settled = false
     @Volatile private var publicationAllowed = false
     @Volatile private var keeperStartupHeld = false
+    private var keeperTransitionFrom: RoomEpochState.Active? = null
     private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld
 
     /** Set before join and synchronously on foreground-owner withdrawal. */
@@ -499,9 +502,51 @@ class RoomSession(
         epochMutex.withLock {
             require(keeperProfileMatches(stableRoom, root, participant, device))
             if (_epochState.value is RoomEpochState.Closed) return@withLock
+            keeperTransitionFrom = _epochState.value as? RoomEpochState.Active
             blockForRekey()
             _epochState.value = RoomEpochState.Updating(epochKeys().epoch + 1)
         }
+    }
+
+    /** Undo only an unchanged, source-proved pre-signing refusal. The actual
+     * receiver is read under the same epoch barrier as normal adoption; no
+     * source/transport dispatch lock is held by the caller. */
+    internal suspend fun abortKeeperTransition(stableRoom: String, root: String, participant: String, device: String,
+        keys: EpochKeys, removed: List<String>, vault: EpochVault, cause: String?, stillAllowed: () -> Boolean) {
+        epochMutex.withLock {
+            require(stillAllowed() && keeperProfileMatches(stableRoom, root, participant, device))
+            require(settled && joined && _epochState.value == RoomEpochState.Updating(keys.epoch + 1))
+            val previous = requireNotNull(keeperTransitionFrom)
+            require(previous.epoch == keys.epoch && previous.trafficRoom == keys.id)
+            val durable = requireNotNull(vault.get(stableRoom))
+            try {
+                require(durable.stableRoom == stableRoom && durable.authority == root && durable.phase == EpochPhase.ACTIVE &&
+                    durable.pending == null && durable.currentEpoch == keys.epoch && durable.activationCause == cause &&
+                    durable.removed == removed)
+                val durableKeys = deriveEpoch(RoomEpoch(durable.currentEpoch, durable.currentSecret))
+                try { require(durableKeys.id == keys.id && durableKeys.key.contentEquals(keys.key)) }
+                finally { durableKeys.key.fill(0) }
+            } finally { durable.currentSecret.fill(0); durable.pending?.secret?.fill(0) }
+            lock.withStateLock {
+                require(!publicationAllowed && activeEpoch.epoch == keys.epoch && activeEpoch.id == keys.id &&
+                    activeEpoch.key.contentEquals(keys.key) && removedParticipants == removed.toSet())
+            }
+            try {
+                require(stillAllowed())
+                if (transportBlocked) { transport.completeRekey(); transportBlocked = false }
+                require(stillAllowed() && keeperProfileMatches(stableRoom, root, participant, device))
+                _epochState.value = previous
+                onEpochReady(epochKeys())
+                require(stillAllowed())
+                lock.withStateLock { publicationAllowed = true }
+                keeperTransitionFrom = null
+            } catch (error: Exception) {
+                lock.withStateLock { publicationAllowed = false; keeperStartupHeld = true }
+                _epochState.value = RoomEpochState.RecoveryNeeded(keys.epoch + 1, "Native rekey refusal needs verified recovery")
+                throw error
+            }
+        }
+        announceIfPublishing(reply = true)
     }
 
     /** Feed this device's exact original signed source notice through the
@@ -1893,6 +1938,7 @@ class RoomSession(
 
     /** [leftAt]: when each of [crossed], or the epoch being left, was left, where the answer said; otherwise the notice's time. */
     private suspend fun applyEpoch(notice: RekeyNotice, crossed: List<RoomEpoch> = emptyList(), leftAt: Map<Int, Long> = emptyMap()) {
+        keeperTransitionFrom = null
         val secret = requireNotNull(notice.secret)
         val next = deriveEpoch(RoomEpoch(notice.epoch, secret))
         stopTraffic()

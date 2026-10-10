@@ -108,9 +108,15 @@ internal class NativeKeeperController private constructor(private val source: Na
         val gone = removed.toList()
         command {
             source.verifyReceiver(receiver, live)
+            val proposal = source.preflightRekey(frozen, gone, closed, destruct, scheduled)
             val session = requireNotNull(live); val b = source.binding
             session.holdKeeperTransition(b.room, b.authority, b.participant, b.device)
-            source.prepareRekey(frozen, gone, closed, destruct, scheduled)
+            try { source.prepareRekey(proposal) }
+            catch (refused: NativeRekeyRefusedException) {
+                check(selected() && !ledger.persistenceFailed())
+                source.resumeRejectedRekey(proposal, receiver, session)
+                throw refused
+            }
         }
     }
     suspend fun retire() = command { source.verifyReceiver(receiver, live); source.prepareRetirement() }

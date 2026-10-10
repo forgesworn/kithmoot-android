@@ -70,6 +70,7 @@ internal class NativeKeeperBinding(val room: String, val authority: String, val 
 
 internal enum class KeeperPhase { ACTIVE, RETIRED, CLOSED }
 internal class NativeKeeperMigrationRequiredException : IllegalStateException("Native authority journal needs explicit migration")
+internal class NativeRekeyRefusedException(cause: Exception) : IllegalStateException("Native rekey refused before signing", cause)
 internal class KeeperMaterial(val base: ByteArray, val signer: ByteArray, val bearer: ByteArray, val welcome: NostrEvent) {
     fun wipe() { base.fill(0); signer.fill(0); bearer.fill(0) }
 }
@@ -85,6 +86,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val pending: List<NostrEvent>, val nearbyBytes: Int, val internetBytes: Int, val suspended: Boolean,
         val epochCause: String?)
     data class Handoff(val event: NostrEvent, val lane: RekeyLane, val attempt: Int, val pending: Boolean)
+    /** A constructed or foreign handle has no authority: only the source's
+     * retained instance can be consumed, once, at its exact revision. */
+    class RekeyProposal internal constructor()
+    private data class RekeyPlan(val handle: RekeyProposal, val revision: Long, val epoch: Int, val phase: KeeperPhase,
+        val credentials: List<NostrEvent>, val removed: List<String>, val closed: Boolean,
+        val destruct: Boolean, val scheduled: Boolean)
+    private data class RekeyAudience(val gone: List<String>, val members: List<String>, val devices: List<String>)
     private data class Cached(val request: NostrEvent, val answer: NostrEvent, val epoch: Int, val offers: Int,
         val lane: RekeyLane, val handed: Boolean = false)
     private data class Spend(val at: Long, val lane: RekeyLane?, val bytes: Int, val fresh: Boolean)
@@ -108,6 +116,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private var selected: (() -> Boolean)? = null
     private var bound = false
     private var end: Long? = null
+    private var proposal: RekeyPlan? = null
+    private var rejectedProposal: RekeyPlan? = null
     @Volatile private var closed = false
     @Volatile private var failed = false
 
@@ -363,11 +373,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             data.devices.any { it.device == request.device && it.participant == request.participant && !it.removed }
     }
 
-    /** Signing is inside the same serialized transaction as challenge answers.
-     * Nothing is returned until the exact event and next secret are committed. */
-    fun prepareRekey(credentials: List<NostrEvent>, removed: List<String> = emptyList(),
-        closed: Boolean = false, destruct: Boolean = false, scheduled: Boolean = false): List<NostrEvent> = lock.withLock {
-        writable(); val at = time()
+    private fun checkedRekey(credentials: List<NostrEvent>, removed: List<String>, closed: Boolean,
+        destruct: Boolean, scheduled: Boolean, at: Long): RekeyAudience {
         require(data.epoch < MAX_EPOCH && credentials.size <= 32 && (!destruct || closed))
         require(!scheduled || removed.isEmpty() && !closed)
         val gone = keeperMembers(data.removed + removed)
@@ -389,18 +396,95 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             supplied.sorted()
         }
         require(closed || binding.device in devices) { "The authority receiver needs its own successor seal" }
+        require(rekeyEventBytes(binding.room, binding.authority, data.epoch + 1, devices, removed, at,
+            closed = closed, commit = true, members = members, scheduled = scheduled,
+            destruct = closed && (data.destruct || destruct)) <= MAX_EVENT_BYTES) { "Rekey event exceeds source bound" }
+        if (closed) require(retirementBytes(at, true, data.destruct || destruct) <= MAX_EVENT_BYTES)
+        return RekeyAudience(gone, members, devices)
+    }
+
+    /** No write, hold, entropy or signature. The compatibility caller list
+     * must match the complete source-qualified audience. */
+    fun preflightRekey(credentials: List<NostrEvent>, removed: List<String> = emptyList(),
+        closed: Boolean = false, destruct: Boolean = false, scheduled: Boolean = false): RekeyProposal = lock.withLock {
+        writable(); val at = time(); require(credentials.size <= 32)
+        val frozen = if (closed) emptyList() else credentials.map { requireNotNull(retainedCredential(it)) }
+        val gone = removed.toList()
+        checkedRekey(frozen, gone, closed, destruct, scheduled, at)
+        val plan = RekeyPlan(RekeyProposal(), data.revision, data.epoch, data.phase, frozen, gone, closed, destruct, scheduled)
+        proposal = plan; rejectedProposal = null; plan.handle
+    }
+
+    /** Controls obtain their audience from the independent source, never
+     * from the online roster or the expiring request cache. */
+    fun preflightMembers(removed: List<String> = emptyList(), closed: Boolean = false,
+        destruct: Boolean = false, scheduled: Boolean = false): RekeyProposal = lock.withLock {
+        val gone = keeperMembers(data.removed + removed)
+        preflightRekey(if (closed) emptyList() else data.devices.filter {
+            !it.removed && it.participant in data.members && it.participant !in gone
+        }.map { keeperEvent(it.credential) }, removed, closed, destruct, scheduled)
+    }
+
+    /** Signing follows all fresh checks under the same lock. A typed refusal
+     * can only originate before successor entropy/signature/persistence. */
+    fun prepareRekey(handle: RekeyProposal): List<NostrEvent> = lock.withLock {
+        val plan = proposal
+        require(plan != null && plan.handle === handle) { "Unissued or foreign rekey proposal" }
+        proposal = null; rejectedProposal = null
+        val at: Long
+        val audience: RekeyAudience
+        try {
+            writable(); at = time()
+            require(plan.revision == data.revision && plan.epoch == data.epoch && plan.phase == data.phase) { "Stale rekey proposal" }
+            audience = checkedRekey(plan.credentials, plan.removed, plan.closed, plan.destruct, plan.scheduled, at)
+        } catch (error: Exception) {
+            rejectedProposal = plan
+            throw NativeRekeyRefusedException(error)
+        }
         val nextSecret = Entropy.bytes(32)
         try {
             val next = RoomEpoch(data.epoch + 1, nextSecret)
             val event = encodeRekeyEvent(binding.room, material.signer, deriveEpoch(RoomEpoch(data.epoch, data.secret)), next,
-                devices, removed, at, closed = closed, commit = true, members = members, scheduled = scheduled, destruct = closed && (data.destruct || destruct))
+                audience.devices, plan.removed, at, closed = plan.closed, commit = true, members = audience.members,
+                scheduled = plan.scheduled, destruct = plan.closed && (data.destruct || plan.destruct))
             require(keeperBytes(event) <= MAX_EVENT_BYTES)
-            val target = if (closed) KeeperPhase.CLOSED else data.phase
-            val events = if (closed) listOf(retirement(at, true, data.destruct || destruct), event) else listOf(event)
-            val pending = Pending(events, next.epoch, nextSecret.clone(), gone, members, target, at, data.destruct || destruct)
+            val target = if (plan.closed) KeeperPhase.CLOSED else data.phase
+            val events = if (plan.closed) listOf(retirement(at, true, data.destruct || plan.destruct), event) else listOf(event)
+            val pending = Pending(events, next.epoch, nextSecret.clone(), audience.gone, audience.members, target, at, data.destruct || plan.destruct)
             save(data.copy(phase = target, high = at, pending = pending))
             events.map(::keeperEvent)
         } finally { nextSecret.fill(0) }
+    }
+
+    /** Existing non-controller owners also get unsigned preflight. */
+    fun prepareRekey(credentials: List<NostrEvent>, removed: List<String> = emptyList(),
+        closed: Boolean = false, destruct: Boolean = false, scheduled: Boolean = false): List<NostrEvent> =
+        prepareRekey(preflightRekey(credentials, removed, closed, destruct, scheduled))
+
+    private fun canResumeRejected(handle: RekeyProposal): Boolean {
+        if (!lock.tryLock()) return false
+        try {
+            val plan = rejectedProposal ?: return false
+            return plan.handle === handle && !closed && !failed && allowed() && data.pending == null &&
+                data.revision == plan.revision && data.epoch == plan.epoch && data.phase == plan.phase &&
+                data.phase != KeeperPhase.CLOSED && !ended(time())
+        } catch (_: Exception) { return false }
+        finally { lock.unlock() }
+    }
+
+    /** The selected controller may undo only its proved pre-signing refusal.
+     * Source locks are never held while waiting for the live epoch barrier. */
+    suspend fun resumeRejectedRekey(handle: RekeyProposal, vault: EpochVault, session: RoomSession) {
+        val expected = lock.withLock {
+            check(canResumeRejected(handle)); data.copy(secret = data.secret.clone())
+        }
+        val keys = deriveEpoch(RoomEpoch(expected.epoch, expected.secret))
+        try {
+            session.abortKeeperTransition(binding.room, binding.authority, binding.participant, binding.device,
+                keys, expected.removed, vault, expected.epochCause) { canResumeRejected(handle) }
+            verifyReceiver(vault, session)
+            lock.withLock { check(canResumeRejected(handle)); rejectedProposal = null }
+        } finally { expected.secret.fill(0); keys.key.fill(0) }
     }
 
     fun prepareRetirement(): NostrEvent = lock.withLock {
@@ -509,11 +593,20 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         }
     }
 
-    private fun retirement(at: Long, ended: Boolean, destruct: Boolean): NostrEvent = Events.sign(material.signer,
-        KIND_INVITATION_RETIREMENT, at, buildList {
-            add(listOf("d", deriveInvitationId(invitationUnlocked())))
-            ends()?.let { add(listOf("expiration", it.toString())) }
-        }, buildJsonObject { put("v", 1); if (ended) put("ended", true); if (destruct) put("destruct", true) }.toString())
+    private fun retirementTags(id: String) = buildList {
+        add(listOf("d", id)); ends()?.let { add(listOf("expiration", it.toString())) }
+    }
+    private fun retirementBody(ended: Boolean, destruct: Boolean) = buildJsonObject {
+        put("v", 1); if (ended) put("ended", true); if (destruct) put("destruct", true)
+    }.toString()
+    private fun retirementBytes(at: Long, ended: Boolean, destruct: Boolean) = keeperBytes(NostrEvent(
+        KIND_INVITATION_RETIREMENT, at, retirementTags("0".repeat(64)), retirementBody(ended, destruct),
+        binding.authority, "0".repeat(64), "0".repeat(128)))
+    private fun retirement(at: Long, ended: Boolean, destruct: Boolean): NostrEvent {
+        val invitation = invitationUnlocked()
+        val id = try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
+        return Events.sign(material.signer, KIND_INVITATION_RETIREMENT, at, retirementTags(id), retirementBody(ended, destruct))
+    }
     private fun ends() = end
     private fun ended(at: Long) = ends()?.let { at >= it } == true
     private fun allowed() = runCatching { selected?.invoke() == true }.getOrDefault(false)
@@ -555,6 +648,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (!closed) { closed = true; selected = null; wipe(); synchronized(ownerGate(binding.owner)) { owners.remove(binding.owner, lease) } }
     }
     private fun wipe() {
+        proposal = null; rejectedProposal = null
         if (::material.isInitialized) material.wipe()
         if (::data.isInitialized) { data.secret.fill(0); data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0) }
     }
