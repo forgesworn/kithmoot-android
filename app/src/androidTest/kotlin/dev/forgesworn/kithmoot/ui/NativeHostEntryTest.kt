@@ -84,6 +84,11 @@ class NativeHostEntryTest {
                 f.model.room.value.nativeHosting?.let { it.status == NativeHostingStatus.READY && it.epoch == 1 } == true &&
                     peer.epochKeys().epoch == 1 && !f.model.room.value.nativeHostingBusy
             }
+            if (!route.internet) {
+                assertFalse(f.model.room.value.work.ready)
+                assertFalse(f.model.room.value.work.historyComplete)
+                assertNotNull(f.model.room.value.work.error)
+            }
             val original = (f.phoneEvents + f.relayWrites).filter { it.kind == KIND_ROOM_REKEY }.distinctBy { it.id }.single()
             assertEquals(original.id, f.source(saved).getValue("epochCause").jsonPrimitive.content)
             assertEquals(original.id, f.app.roomEpochs.get(saved.id)!!.activationCause)

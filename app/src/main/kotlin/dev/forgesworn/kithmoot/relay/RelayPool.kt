@@ -40,6 +40,10 @@ class PublicationUnconfirmedException : IllegalStateException("Publication was o
  * A generic transport error cannot establish that nothing left the device. */
 class PublicationNotOfferedException(message: String = "Publication was rejected before dispatch") : IllegalStateException(message)
 
+/** Explicit absence of complete retained history, distinct from a failed
+ * supported query or a corrupt local journal. Never means empty history. */
+class StoredHistoryUnavailableException : UnsupportedOperationException("This transport cannot verify retained history")
+
 /**
  * What a room needs from the outside world: somewhere to put events, and a way
  * to be told about them.
@@ -79,7 +83,7 @@ interface RoomTransport {
 
     /** Fails if complete retained history cannot be established. */
     suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
-        throw UnsupportedOperationException("This transport cannot verify retained history")
+        throw StoredHistoryUnavailableException()
 
     /** Best effort: whatever the answering relays hold. Never for admission, credentials,
      *  rosters or any decision where a missing event would count as proof. */
