@@ -43,3 +43,16 @@ executed. Eleven runner fault checks pass in 60.692 s; shell syntax and diff
 checks pass. The first compile caught a missing NativeHostingStatus import and
 ran no JVM checks; the corrected fresh run supplies this result. Full hosted
 Gradle/lint/APK/installed acceptance remains a separate requirement.
+
+Exact 54d9a81 hosted verification and both signing jobs pass, but recovery fails
+one of eleven host cases at cold pending retirement reopen. Startup remained
+held, so RoomViewModel's ordinary monitor claim correctly failed publication.
+Design mesh-kit 1e8e05f precedes the correction: only a verified RETIRED source
+with nonempty retirement-only pending originals can release current-epoch startup.
+Rekey/closure holds, pending/public sharing withdrawal and exact accounting stay.
+The JVM reopen regression now replaces its live session, holds startup and joins,
+then requires monitor claim and chat while the original is still pending.
+Fresh changed controller/test compilation and 89 JVM checks/five classes pass
+in 9.462 s, using validated unchanged 54 production/UI/Android-test sources.
+Input/dependency hashes are unchanged. The failed rendered case remains unchanged
+and must pass at the corrected head's own hosted qualification before merge.

@@ -682,6 +682,10 @@ class NativeKeeperControllerTest {
             assertEquals(expected, unavailable)
             assertContentEquals(before, r.sourceStore.bytes)
             first.stop()
+            r.live.leave()
+            r.live = r.newSession()
+            r.live.holdKeeperStartup()
+            r.live.join()
             r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
             r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
             r.controller = NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
@@ -689,6 +693,11 @@ class NativeKeeperControllerTest {
             runCurrent(); val next = r.controller!!
             assertNotEquals(expected.ownerGeneration, next.hosting.value.ownerGeneration)
             assertEquals(original, r.source.snapshot().pending.single())
+            assertEquals(RoomEpochState.Active(0, r.room.roomId), r.live.epochState.value)
+            r.live.claim(Roles.MONITOR)
+            r.live.sendChat("Current approved epoch opens while its retirement notice remains pending")
+            assertEquals(listOf(original.id), next.hosting.value.pendingOriginals)
+            assertFalse(next.hosting.value.canShareInvitation)
             assertFails { next.retryObservedPending(expected) }
             assertContentEquals(before, r.sourceStore.bytes)
             val current = next.hosting.value
