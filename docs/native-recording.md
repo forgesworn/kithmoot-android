@@ -203,6 +203,46 @@ delivery that may have arrived, rather than describing both as waiting.
 These JVM reconstructions do not qualify Android process death or the whole
 recording owner journey through rekey; those acceptance gates remain open.
 
+## Signed stop recovery candidate
+
+The [stop-journal receipt](evidence/native-recording-stop-journal-2026-10-10.json)
+records the full local CI command passing with 417 protocol and 2,033 app tests,
+both lints and debug/release packaging. Final debug/instrumentation APKs passed
+all 15 recording checks (38.356 seconds), both HTTPS Upload/Send checks
+(9.112 seconds), and the forced restart's prepare, verify and cleanup stages.
+
+Before publishing recording details or On, the native authority now retains
+an already signed Off notice in the application's Keystore-wrapped,
+backup-excluded `kithmoot.recording-stops.v1` journal. It holds only room/device
+identifiers and signed Off metadata. Capture can disappear with the process
+without losing the notice. A reopened owner exposes Retry stop notice even
+without an On replay, and re-envelops the same Off signature using the current
+room epoch and device credentials. It needs no authority secret for that retry.
+Starting a new recording still requires the authority secret and a successful
+journal write. Failed startup/publication keeps the stop pending; a verified
+newer recording retires the old notice without publishing it. Forget fences
+an old owner before a late write or guarded dispatch. The Record control stays
+disabled while stop confirmation is pending.
+
+A replay or local echo of the matching Off does not clear the journal: it may
+precede a failed publication. Cleanup requires explicit transport confirmation
+of the retained stop. Expired device credentials cannot publish or complete
+that stop; its signed metadata remains available after credential renewal.
+
+The dedicated emulator driver checks a different process ID, encrypted storage
+at rest, restoration of the exact signature, rejection under the old epoch's
+channel/key and acceptance under the new fixture epoch. Its transport is a
+synthetic acknowledgement fixture, not a real peer. Actual saved-room reopening
+and the retry banner through process death still need UI qualification.
+
+Quiet rooms are an additional open gate: `QuietTransport` has no guarded
+publication implementation. Its existing `publishConfirmed` means local
+queue retention, not relay delivery. Recording On must not authorise capture
+merely because it is queued for a later cadence slot. Implement delivery-aware
+recording notices and prepared recording Send through the quiet transport;
+preserve the cadence instead of bypassing it. This candidate is not qualified
+for quiet-room recording or sharing.
+
 ## Member-rekey recovery release gate
 
 Hosted run 38078615048 failed the member-removal case while the controller

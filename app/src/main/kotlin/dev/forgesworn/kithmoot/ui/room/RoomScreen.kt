@@ -565,7 +565,8 @@ fun RoomScreen(
                 if (state.onCall && state.meetingModerator && !lockedCallOnly && !inPictureInPicture) {
                     TextButton(
                         onClick = { if (state.nativeRecording) onStopRecording() else confirmRecording = true },
-                        enabled = !state.nativeRecordingBusy && (state.nativeRecording || state.recording == dev.forgesworn.kithmoot.protocol.RecordingView.Off),
+                        enabled = !state.nativeRecordingBusy && (state.nativeRecording ||
+                            (!state.recordingStopPending && state.recording == dev.forgesworn.kithmoot.protocol.RecordingView.Off)),
                     ) { Text(when {
                         state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Preparing recording…"
                         state.nativeRecording -> "Stop recording"

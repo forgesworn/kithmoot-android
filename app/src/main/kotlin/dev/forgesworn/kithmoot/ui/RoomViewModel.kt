@@ -4682,7 +4682,8 @@ class RoomViewModel @JvmOverloads constructor(
                     onMeetingNews={ news -> if (session === live) onMeetingNews(news) },
                     // The room's own key, only on the device that made it: the
                     // one device that may run its calls as meetings.
-                    authoritySecretKey=epochAuthorityHost?.inviterSecretKey)
+                    authoritySecretKey=epochAuthorityHost?.inviterSecretKey,
+                    recordingStops=recordingApplication.recordingStops)
                 roomWork=work
                 scope.launch { work.recordingStopPending.collect { pending ->
                     _room.update { if (roomWork === work) it.copy(recordingStopPending = pending != null) else it }

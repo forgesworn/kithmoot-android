@@ -1,0 +1,125 @@
+{
+  "production_ready": false,
+  "base_commit": "a55fffb61a85731482fad86cf5cbc66f96fc6d0b",
+  "scope": "Signed Off retention before On, explicit confirmation cleanup, guarded dispatch and encrypted application journal restoration through actual Android process death. The stop transport is a synthetic acknowledgement fixture; no physical-device, complete saved-room retry UI or quiet-room claim.",
+  "source_sha256": {
+    ".github/workflows/ci.yml": "aa973e49ebd878f0618045da74444f42b8c8857ab6bab759db3b7ea2b82bd25f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/KithMootApplication.kt": "945ff489c2446774793fa70432eb00e0c4faffa612aa61212492f9269701b1f6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingStopJournal.kt": "3d473103f9929c4ebb1e35b825ab7bf764abf7b69ade9a14c3390eae401538f9",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "d241de682c93dde487f86dcd4e49c0444ad602a65c27a779974f01b5735e0923",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "51c0da09a9ccd1a769717484edf273c4e595b4e3fcccbfc6bbbf17a1a3211120",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "990cf0fbacce1887ff33a38cff15b22700062a227686fdacd898f8bd7f3f4fab",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RecordingStopJournalTest.kt": "caee917440eac8875105ca5c469dd2abaad6c172c1f2cbb5484481f8d7c06b74",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RoomWorkRecordingTest.kt": "264f1bba048550fe176b37e8af91a9b4465de6eee162df104ffa5e7061db631a",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingStopRestartAndroidTest.kt": "a4b1532b06f6bd78e005e0c89a7db392ae7d9fb069fa43e31d52c1a14a9a838e",
+    "scripts/check-recording-stop-restart-emulator.sh": "d75372214fd294a51fe0d2cc5c903638de8e645dd0cec7c1bf50dacbc9f8dd0d"
+  },
+  "jvm": {
+    "app": {
+      "tests": 2033,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "local_full_ci": {
+    "passed": true,
+    "elapsed": "10m 5s",
+    "log_sha256": "dc34dd2c4d657160c85aa9e493f976260b712f50eedb08eea529e68569198080",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease",
+      ":app:assembleDebugAndroidTest"
+    ]
+  },
+  "runtime": {
+    "physical": false,
+    "serial": "emulator-5586",
+    "reports": {
+      "recording": {
+        "tests": 15,
+        "failures": 0,
+        "elapsed_seconds": 38.356,
+        "report_sha256": "8413e4aaeded757af9d227990087157348f16238e84d96f7472bc631c2ce3e16"
+      },
+      "https": {
+        "tests": 2,
+        "failures": 0,
+        "elapsed_seconds": 9.112,
+        "report_sha256": "4ad3187e015894b67a0b48e3ea09d895d15d9adafdab1c780d4a83bca36ff579"
+      },
+      "forced_restart": {
+        "prepare": {
+          "tests": 1,
+          "failures": 0,
+          "elapsed_seconds": 0.122,
+          "report_sha256": "521c87d563d485f1c0ab8f65193e2c11c66d170a31f777c99e7a8d60720cc8d0"
+        },
+        "verify": {
+          "tests": 1,
+          "failures": 0,
+          "elapsed_seconds": 0.113,
+          "report_sha256": "eee6a430a895a072e1cf8a5425bdda0cda895c69c12747fc6805fb87b271fdc7"
+        },
+        "cleanup": {
+          "tests": 1,
+          "failures": 0,
+          "elapsed_seconds": 0.065,
+          "report_sha256": "47ff63f9774fdf523b12a949b86ad2554bba3ea84d9cccd5aab0d20b3dd53a22"
+        }
+      }
+    }
+  },
+  "proved": [
+    "Off signature is retained before either recording startup notice is offered",
+    "Failed persistence offers no recording notice",
+    "Closed and newly constructed owners restore the exact signed Off without replaying On",
+    "Forced-stop driver verifies a changed Android PID and restores from real Keystore-wrapped application storage",
+    "Retained stop is re-enveloped under a newer fixture epoch with current device credentials and no authority secret supplied to RoomWork",
+    "Exact matching Off replay cannot erase retry ownership before explicit publication confirmation",
+    "Expired device credentials cannot publish or complete a retained stop",
+    "Verified newer recording retires the old stop without publication",
+    "Forget fences an old owner at storage and transport dispatch; a newly opened owner may record after explicit rejoin",
+    "Record control stays disabled while stop confirmation is pending",
+    "Forced restart driver is included in hosted recovery CI with retained reports"
+  ],
+  "earlier_fixture_failures": {
+    "catalogue_request_counted_as_recording_offer": "2e488bec312b2d5fac31a96cec6e6a1e55dbd9db46295831ceb4e1e2b3a6fe0b",
+    "junit_argument_order_compile": "532487afb010802bbd326c3a3bbb90d716843aa99fce5c422d7755c464709bd0",
+    "test_transport_missing_guarded_dispatch": "94cd8732311f5054aa3abbd8f2039be8ef8d1e3e650d20d1dffb835a0a9c5e44"
+  },
+  "remaining": [
+    "Hosted CI on the pushed stop-journal head",
+    "Actual saved-room reopen and Retry stop notice UI through process death",
+    "Delivery-aware notices and prepared recording Send through QuietTransport while preserving cadence",
+    "Live browser/native video capture",
+    "Independent recipient fetch/play through a real private node",
+    "Background reliability under load",
+    "Physical 45-minute endurance/interruption and Save-provider acceptance",
+    "Signed production distribution and installed-artifact verification"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "74b82485d4e5d9372957458623552bdb9e91f92920ce7bd7abff2f142c1c5b15"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "5223e2016c17bbe58a92ac7740de3a31e6539bf9fbd6332f77a2b83d03288e5c"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "b6dc78400b56ef56182d96dcaa9dd880a145cccc9813c09de63e1b657a38cde4"
+    }
+  ]
+}

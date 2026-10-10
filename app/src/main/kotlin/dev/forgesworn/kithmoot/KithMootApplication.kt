@@ -43,6 +43,11 @@ class KithMootApplication : Application() {
             EncryptedRoomStorage(this, "kithmoot.recording-uploads.v1"),
         ).apply { recover() }
     }
+    val recordingStops by lazy {
+        dev.forgesworn.kithmoot.session.RecordingStopJournal(
+            EncryptedRoomStorage(this, "kithmoot.recording-stops.v1"),
+        )
+    }
     fun forgetRecordingsForRoom(room: String) {
         var failure: Exception? = null
         try { recordings.forgetRoom(room) } catch (error: Exception) { failure = error }
@@ -51,6 +56,10 @@ class KithMootApplication : Application() {
             if (original == null) failure = error else original.addSuppressed(error)
         }
         try { recordingUploadJournal.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        try { recordingStops.forgetRoom(room) } catch (error: Exception) {
             val original = failure
             if (original == null) failure = error else original.addSuppressed(error)
         }
