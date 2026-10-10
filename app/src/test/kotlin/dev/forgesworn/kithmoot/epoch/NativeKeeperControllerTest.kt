@@ -614,6 +614,7 @@ class NativeKeeperControllerTest {
             assertFalse(retiring.isCompleted, "The transport has not yet accepted the retirement notice")
             assertTrue(controller.unknownParticipants.value.isEmpty(), "Committed retirement must withdraw cards before local offer acceptance")
             assertEquals(RoomEpochState.Active(0, r.room.roomId), r.live.epochState.value)
+            r.live.sendChat("Existing members can chat while retirement delivery is pending")
             r.acknowledge(); runCurrent(); retiring.await()
             assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.RETIRED), controller.state.value)
             assertEquals(1, controller.hosting.value.retirementOriginals.size)

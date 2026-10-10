@@ -23,10 +23,11 @@ notice is reconstructed, signed or given new credit. Earlier schemas still
 require explicit device-registry migration. Public observations report missing
 evidence, and new approvals/cards stop at actual retirement.
 
-Qualification is pending. Six new JVM cases exercise all selected routes,
+Qualification is pending. Seven new JVM cases exercise all selected routes,
 completion/reopen and attempt exhaustion, schema-4 active/pending/missing
 compatibility, foreign/stale/withdrawn proposals, ambiguous completion, strict
-archive corruption and expiry/rollback refusal. The existing closure case adds
+archive corruption and expiry/rollback refusal, and withdrawal of unknown
+approval before pending retirement gains local transport custody. The existing closure case adds
 actual terminal schema-4 pending/completed compatibility. Two emulator cases use
 the actual controller, sessions and encrypted Keystore/AtomicFile stores,
 including an approved offline device, exact original retry and missing-history
