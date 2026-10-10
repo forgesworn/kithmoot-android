@@ -19,14 +19,15 @@ internal class NativeKeeperEntry private constructor(private val source: NativeK
     @Volatile private var closed = false
 
     /** The displayed capability comes from the actual index, checked against
-     * this selected source and observation; never a captured pre-replacement URL. */
+     * this selected source and observation; never a captured pre-replacement URL.
+     * Call on IO: source inspections may briefly hold the exclusive source lock. */
     fun sharingRoom(expected: NativeHostingState): SavedRoom? {
         val owner = controller ?: return null
-        if (closed || !owner.canShareObservedInvitation(expected)) return null
+        if (closed || !owner.canReadObservedInvitation(expected)) return null
         val index = rooms ?: return null
         return index.withNativeIndex(source) { room ->
             room.verifyNativeAuthority(source)
-            room.takeIf { !closed && owner.canShareObservedInvitation(expected) }
+            room.takeIf { !closed && owner.canReadObservedInvitation(expected) }
         }
     }
 

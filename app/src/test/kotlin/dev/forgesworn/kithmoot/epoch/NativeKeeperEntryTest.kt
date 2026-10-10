@@ -8,6 +8,11 @@ import dev.forgesworn.kithmoot.support.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -123,6 +128,80 @@ class NativeKeeperEntryTest {
             previousIndex.fill(0); nextIndex.fill(0); sourceBytes.fill(0)
             println("NATIVE_REPLACEMENT_MEASUREMENT case=source-qualified-displayed-link generation=1 previousObservationRefused=true rolledBackIndexRefused=true indexAndSourceUnchangedOnRefusal=true participantReceipt=false")
         } finally { entry.stop(); live.leave(); mesh.close(); r.base.fill(0); r.invitation.bearer.fill(0) }
+    }
+
+    @Test fun io_invitation_read_waits_for_actual_source_inspection_while_the_tap_guard_refuses_immediately() = runTest {
+        sharingReadUnderInspection(withdraw = false)
+    }
+
+    @Test fun waiting_io_invitation_read_cannot_revive_a_withdrawn_owner() = runTest {
+        sharingReadUnderInspection(withdraw = true)
+    }
+
+    private suspend fun TestScope.sharingReadUnderInspection(withdraw: Boolean) {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val indexStore = Store(); val index = RoomRepository(indexStore).also { it.save(r.saved) }
+        val beforeTime = AtomicReference<(() -> Unit)?>(null)
+        val entry = NativeKeeperEntry.openForRoom(r.saved, r.vault, index,
+            { NativeKeeperJournal.open(r.sourceStore, r.binding) {
+                beforeTime.get()?.invoke(); currentTime / 1000
+            }.also { r.source = it } },
+            { q, initialise -> RoomRekeyLedger(r.queueStore, q, { currentTime }, initialise) })
+        val link = Link(); val mesh = RoomMeshTransport(requireNotNull(r.binding.meshScope), link) { currentTime / 1000 }
+        val live = session(r.room, r.who, FakeRelay(), authority = r.binding.authority, transport = mesh,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED })
+        val threads = Executors.newFixedThreadPool(2)
+        val inspecting = CountDownLatch(1); val release = CountDownLatch(1)
+        var sourceBytes: ByteArray? = null; var indexBytes: ByteArray? = null
+        try {
+            live.holdKeeperStartup(); live.join()
+            val q = RoomRekeyBinding(r.binding.room, r.binding.authority, r.binding.device, r.binding.meshScope, r.relays, r.route)
+            val controller = entry.start(live, NativeKeeperEndpoints(q, mesh, null), backgroundScope,
+                { true }, StandardTestDispatcher(testScheduler))
+            runCurrent()
+            controller.replaceObservedInvitation(controller.hosting.value); runCurrent()
+            val current = controller.hosting.value
+            assertEquals(1, current.invitationGeneration)
+            val expected = assertNotNull(entry.sharingRoom(current))
+            sourceBytes = assertNotNull(r.sourceStore.bytes).clone()
+            indexBytes = assertNotNull(indexStore.bytes).clone()
+            beforeTime.set {
+                inspecting.countDown()
+                check(release.await(30, TimeUnit.SECONDS)) { "Source inspection barrier timed out" }
+            }
+            val inspection = threads.submit<List<String>> { r.source!!.unknownParticipants() }
+            assertTrue(inspecting.await(5, TimeUnit.SECONDS))
+            // The source is occupied by its real locked read. A foreground tap
+            // must fail now; it must never acquire the blocking IO read guard.
+            assertFalse(controller.canShareObservedInvitation(current))
+            val reading = CountDownLatch(1)
+            val sharing = threads.submit<SavedRoom?> { reading.countDown(); entry.sharingRoom(current) }
+            assertTrue(reading.await(5, TimeUnit.SECONDS))
+            assertFailsWith<TimeoutException> { sharing.get(250, TimeUnit.MILLISECONDS) }
+            if (withdraw) entry.close()
+            beforeTime.set(null); release.countDown()
+            assertTrue(inspection.get(5, TimeUnit.SECONDS).isEmpty())
+            val actual = sharing.get(5, TimeUnit.SECONDS)
+            if (withdraw) {
+                assertNull(actual)
+                assertFalse(controller.canShareObservedInvitation(current))
+            } else {
+                assertEquals(expected.joinUrl, assertNotNull(actual).joinUrl)
+                actual.verifyNativeAuthority(r.source!!)
+                assertTrue(controller.canShareObservedInvitation(current))
+            }
+            assertContentEquals(sourceBytes, r.sourceStore.bytes)
+            assertContentEquals(indexBytes, indexStore.bytes)
+            println(if (withdraw) "NATIVE_SHARING_READ generation=1 sourceInspectionHeld=true ioWaited=true ownerWithdrawnWhileWaiting=true sharingRefused=true sourceAndIndexUnchanged=true"
+                else "NATIVE_SHARING_READ generation=1 sourceInspectionHeld=true tapRefusedImmediately=true ioWaited=true exactCurrentIndex=true sourceAndIndexUnchanged=true")
+        } finally {
+            beforeTime.set(null); release.countDown()
+            try { threads.shutdownNow(); assertTrue(threads.awaitTermination(5, TimeUnit.SECONDS)) }
+            finally {
+                sourceBytes?.fill(0); indexBytes?.fill(0)
+                entry.stop(); live.leave(); mesh.close(); r.base.fill(0); r.invitation.bearer.fill(0)
+            }
+        }
     }
 
     @Test fun actualHeldJoinPublishesNoOrdinaryEventsUntilSourceReceiverSessionAgreementInEveryMode() = runTest {

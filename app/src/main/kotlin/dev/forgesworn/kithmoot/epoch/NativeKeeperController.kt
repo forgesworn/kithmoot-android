@@ -199,14 +199,21 @@ internal class NativeKeeperController private constructor(private val source: Na
             throw refused
         }
     }
-    fun canShareObservedInvitation(expected: NativeHostingState): Boolean = selected() &&
+    private fun matchesObservedInvitation(expected: NativeHostingState): Boolean = selected() &&
         expected.canShareInvitation && expected.binding == mutableHosting.value.binding &&
         expected.ownerGeneration == mutableHosting.value.ownerGeneration &&
         mutableHosting.value.canShareInvitation && expected.revision == mutableHosting.value.revision &&
         expected.epoch == mutableHosting.value.epoch &&
         expected.invitationGeneration == mutableHosting.value.invitationGeneration &&
-        expected.replacementGeneration == null &&
+        expected.replacementGeneration == null
+
+    /** Foreground tap guard: source lock contention must refuse immediately. */
+    fun canShareObservedInvitation(expected: NativeHostingState): Boolean = matchesObservedInvitation(expected) &&
         source.canShareInvitation(requireNotNull(expected.revision), requireNotNull(expected.epoch))
+
+    /** IO reader only; keeps every owner/observation predicate of the tap guard. */
+    fun canReadObservedInvitation(expected: NativeHostingState): Boolean = matchesObservedInvitation(expected) &&
+        source.canReadObservedInvitation(requireNotNull(expected.revision), requireNotNull(expected.epoch))
 
     suspend fun retireObservedInvitation(expected: NativeHostingState) = command {
         source.verifyReceiver(receiver, live)

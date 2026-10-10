@@ -242,6 +242,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         catch (_: Exception) { return false }
         finally { lock.unlock() }
     }
+    /** IO reader only. Wait for an in-flight source inspection before applying
+     * the same observation guard; a busy lock is not a durable denial. */
+    fun canReadObservedInvitation(revision: Long, epoch: Int): Boolean = lock.withLock {
+        try { allowed() && invitationAvailable(revision, epoch) }
+        catch (_: Exception) { false }
+    }
     /** Only a fresh IO reader holding this source's exclusive unbound lease.
      * This reads the actual source, never promotes a SavedRoom hint. */
     fun canReadStoredInvitation(): Boolean = lock.withLock {
