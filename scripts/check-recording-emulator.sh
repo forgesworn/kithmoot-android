@@ -10,7 +10,7 @@ esac
 adb_bin="$ANDROID_HOME/platform-tools/adb"
 classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest,dev.forgesworn.kithmoot.media.recording.NativeVideoSinkTest,dev.forgesworn.kithmoot.media.recording.RecordingVideoSceneTest,dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest,dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest,dev.forgesworn.kithmoot.media.recording.RecordingUploadJournalAndroidTest'
 case "${1:-full}" in
-  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=16 ;;
+  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=17 ;;
   local-capture) expected=15 ;;
   *) echo 'Choose full or local-capture; local-capture excludes live browser interop.' >&2; exit 2 ;;
 esac

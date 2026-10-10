@@ -10,6 +10,7 @@ import android.webkit.WebViewClient
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.media.recording.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.*
@@ -32,6 +33,7 @@ class BrowserCallInteropTest {
     @Test fun browserAndNativeExchangeMediaThroughTurn() = exchange(true, true)
 
     @Test fun nativeRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true)
+    @Test fun nativeVideoRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true, captureVideo = true)
 
     /**
      * Bug 2 regression (call-media-2026-09-26 handover, section "Bug 2"): a
@@ -217,7 +219,7 @@ class BrowserCallInteropTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false) {
+    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false) {
         assertTrue(android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -232,6 +234,7 @@ class BrowserCallInteropTest {
         val incoming = Channel<JsonObject>(Channel.UNLIMITED)
         val scheduler = Executors.newSingleThreadScheduledExecutor()
         val recording = AtomicReference<dev.forgesworn.kithmoot.media.recording.CallAudioCapture?>(null)
+        val recordingScene = AtomicReference<RecordingVideoScene?>(null)
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
         lateinit var view: WebView
         lateinit var link: PeerLink
@@ -273,17 +276,8 @@ class BrowserCallInteropTest {
             enableImplicitRollback = false
         }
         val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
-        data class VideoProbe(val label: String, val group: Int, val frames: AtomicInteger, val sink: VideoSink)
-        val videoProbes = java.util.concurrent.ConcurrentHashMap<VideoTrack, VideoProbe>()
-        val videoGroups = mutableMapOf<Long, Int>()
-        fun observeTrack(track: MediaStreamTrack, label: String) {
+        fun observeTrack(track: MediaStreamTrack) {
             received[track.id()] = track
-            if (track is VideoTrack) {
-                val group = synchronized(videoGroups) { videoGroups.getOrPut(track.nativeVideoTrack) { videoGroups.size + 1 } }
-                val frames = AtomicInteger()
-                val probe = VideoProbe(label, group, frames, VideoSink { frames.incrementAndGet() })
-                if (videoProbes.putIfAbsent(track, probe) == null) track.addSink(probe.sink)
-            }
         }
         val observer = object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) = Unit
@@ -301,14 +295,20 @@ class BrowserCallInteropTest {
             override fun onRenegotiationNeeded() {
                 if (ready) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
             }
-            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let { observeTrack(it, "add") } }
+            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let(::observeTrack) }
             override fun onTrack(transceiver: RtpTransceiver?) {
-                transceiver?.receiver?.track()?.let { observeTrack(it, "track") }
+                transceiver?.receiver?.track()?.let(::observeTrack)
             }
         }
         val pc = requireNotNull(factory.createPeerConnection(configuration, observer))
         val videoSource = factory.createVideoSource(false)
         val video = factory.createVideoTrack("synthetic-native-camera", videoSource)
+        val localEndpoint = RecordingEndpointKey("01".repeat(32), (if (nativeLow) "11" else "22").repeat(32))
+        val remoteEndpoint = RecordingEndpointKey("02".repeat(32), (if (nativeLow) "22" else "11").repeat(32))
+        val recordingPlan = RecordingVideoPlan(RecordingOrigin("33".repeat(32), "44".repeat(16), "Synthetic live call"),
+            RecordingVideoLayout.GALLERY, listOf(
+                RecordingVideoEndpoint(localEndpoint, "Synthetic native", 2, true, true, false),
+                RecordingVideoEndpoint(remoteEndpoint, "Synthetic browser", 2, true, true, false)))
         val audioSource = factory.createAudioSource(MediaConstraints())
         val audio = factory.createAudioTrack("synthetic-native-audio", audioSource)
         val routing = CallAudioRouting(context)
@@ -320,6 +320,10 @@ class BrowserCallInteropTest {
                 recording.get()?.setInputs(bindings.filter { it.receiving }.mapNotNull { it.track as? org.webrtc.AudioTrack }.associateWith { 1.0 }, local = true)
                 val binding = bindings.firstOrNull { it.receiving && it.track is VideoTrack }
                 val track = binding?.track as? VideoTrack
+                recordingScene.get()?.setPlan(recordingPlan, buildMap {
+                    put(RecordingVideoKey(localEndpoint, RecordingVideoRole.CAMERA), video)
+                    track?.let { put(RecordingVideoKey(remoteEndpoint, RecordingVideoRole.CAMERA), it) }
+                })
                 if (monitoredVideo !== track) {
                     monitoredVideo?.removeSink(videoSink)
                     monitoredVideo = track
@@ -412,16 +416,19 @@ class BrowserCallInteropTest {
                 "videoSource=${videoSource.state()}; videoEnabled=${video.enabled()}; remoteEnabled=${monitoredVideo?.enabled()}; remoteReceiving=${monitoredVideo?.shouldReceive()}; " +
                 "receivers=${received.values.map { it.kind() }}; cameraBound=${receivedCamera.get().isNotEmpty()}", nativeVideo.get() >= 10)
             assertTrue("Browser decoded native video: ${browserVideo.get()}", browserVideo.get() >= 10)
-            android.util.Log.i("KithMootRecordingTest", "Video callback probes=${videoProbes.values.map { "${it.label}/${it.group}:${it.frames.get()}" }} " +
-                "bound=${synchronized(videoGroups) { monitoredVideo?.let { videoGroups[it.nativeVideoTrack] } }} " +
-                "boundFrames=${nativeVideo.get()} encoded=${nativeEncodedVideo.get()} browserFrames=${browserVideo.get()}")
+            android.util.Log.i("KithMootRecordingTest", "Production bindings: boundFrames=${nativeVideo.get()} encoded=${nativeEncodedVideo.get()} browserFrames=${browserVideo.get()}")
             assertTrue("Native received audio packets: ${nativeAudio.get()}", nativeAudio.get() > 10)
             assertTrue("Browser received native audio packets: ${browserAudio.get()}", browserAudio.get() > 10)
             assertTrue("Native decoded audible synthetic browser tone: ${nativeEnergy.get()}", nativeEnergy.get() > 0)
             // Recording starts on an established call, after native engine
             // initialisation, exactly as the eventual in-call control will.
             recordingDirectory?.let { directory ->
-                val capture = dev.forgesworn.kithmoot.media.recording.CallAudioCapture(java.io.File(directory, "call.wav"))
+                val capture = if (captureVideo) {
+                    val scene = RecordingVideoScene(recordingPlan)
+                    CallAudioCapture(java.io.File(directory, "call.mp4"), output = {
+                        ComposedAvRecordingFile(it, egl.eglBaseContext, scene)
+                    }).also { recordingScene.set(scene) }
+                } else CallAudioCapture(java.io.File(directory, "call.wav"))
                 capture.setInputs(remoteTracksFor("synthetic-browser", pc, received.values.toList())
                     .filter { it.receiving }.mapNotNull { it.track as? org.webrtc.AudioTrack }.associateWith { 1.0 }, local = true)
                 recording.set(capture)
@@ -443,22 +450,52 @@ class BrowserCallInteropTest {
                 SystemClock.sleep(1200)
                 val capture = requireNotNull(recording.getAndSet(null))
                 val file = capture.finish()
-                val wav = java.nio.ByteBuffer.wrap(file.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                assertEquals("48 kHz export", 48_000, wav.getInt(24))
-                val frames = (wav.capacity() - 44) / 2
+                val decodedAudio = ArrayList<Short>()
+                if (captureVideo) AvRecordingTest().decode(file, android.media.MediaFormat.MIMETYPE_AUDIO_AAC, expectedDurationUs = null) { codec, index, info ->
+                    val samples = requireNotNull(codec.getOutputBuffer(index)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    samples.position(info.offset); samples.limit(info.offset + info.size)
+                    while (samples.remaining() >= 2) decodedAudio += samples.short
+                } else {
+                    val wav = java.nio.ByteBuffer.wrap(file.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    assertEquals("48 kHz export", 48_000, wav.getInt(24))
+                    for (offset in 44 until wav.capacity() step 2) decodedAudio += wav.getShort(offset)
+                }
+                val frames = decodedAudio.size
                 assertTrue("At least one second was captured", frames >= 48_000)
                 val start = frames - 48_000
                 for (frequency in listOf(440, 660)) {
                     var sine = 0.0; var cosine = 0.0
                     for (frame in 0 until 48_000) {
-                        val sample = wav.getShort(44 + (start + frame) * 2).toDouble()
+                        val sample = decodedAudio[start + frame].toDouble()
                         val phase = frame * 2 * Math.PI * frequency / 48_000
                         sine += sample * kotlin.math.sin(phase); cosine += sample * kotlin.math.cos(phase)
                     }
                     val amplitude = 2 * kotlin.math.hypot(sine, cosine) / 48_000
                     assertTrue("Export includes the ${frequency} Hz ${if (frequency == 440) "remote" else "local"} tone: $amplitude", amplitude > 600)
                 }
-                val sealed = dev.forgesworn.kithmoot.session.sealFile(file, java.io.File(recordingDirectory, "call.enc"), "call.wav", "audio/wav")
+                if (captureVideo) {
+                    val luma = mutableListOf<Pair<Int, Int>>()
+                    AvRecordingTest().decode(file, android.media.MediaFormat.MIMETYPE_VIDEO_AVC, expectedDurationUs = null) { codec, index, info ->
+                        if (info.size > 0) requireNotNull(codec.getOutputImage(index)).use { image ->
+                            val plane = image.planes[0]
+                            fun centre(endpoint: RecordingEndpointKey): Int {
+                                val slot = recordingPlan.slots.single { it.endpoint?.key == endpoint }
+                                val x = slot.bounds.x + slot.bounds.width / 2
+                                val y = slot.bounds.y + slot.videoHeight / 2
+                                return plane.buffer.get(plane.buffer.position() + y * plane.rowStride + x * plane.pixelStride).toInt() and 255
+                            }
+                            luma += centre(localEndpoint) to centre(remoteEndpoint)
+                        }
+                    }
+                    assertTrue("At least one second of gallery video decoded: ${luma.size}", luma.size >= 15)
+                    val settled = luma.takeLast(15)
+                    assertTrue("Native camera appears in export: $settled", settled.all { it.first in 140..180 })
+                    assertTrue("Browser camera appears in export: $settled", settled.all { it.second in 60..140 })
+                    assertTrue("Live browser picture changes in export", settled.maxOf { it.second } - settled.minOf { it.second } >= 8)
+                    android.util.Log.i("KithMootRecordingTest", "Live gallery export: audioSamples=$frames videoFrames=${luma.size} bytes=${file.length()}")
+                }
+                val sealed = dev.forgesworn.kithmoot.session.sealFile(file, java.io.File(recordingDirectory, "call.enc"), file.name,
+                    if (captureVideo) "video/mp4" else "audio/wav")
                 val opened = dev.forgesworn.kithmoot.session.openFileAttachment(sealed.file, java.io.File(recordingDirectory, "opened.wav"),
                     dev.forgesworn.kithmoot.session.ChatAttachment("https://interop.invalid/file", sealed.hash, sealed.key))
                 assertArrayEquals(file.readBytes(), opened.file.readBytes())
@@ -468,11 +505,11 @@ class BrowserCallInteropTest {
             assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, manager.communicationDevice?.type)
         } finally {
             recording.getAndSet(null)?.discard()
+            recordingScene.getAndSet(null)?.dispose()
             ready = false; scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
             videoSource.capturerObserver.onCapturerStopped()
             instrumentation.runOnMainSync { view.destroy() }
             monitoredVideo?.removeSink(videoSink)
-            videoProbes.forEach { (track, probe) -> runCatching { track.removeSink(probe.sink) } }
             scope.cancel(); link.close(); video.dispose(); videoSource.dispose(); audio.dispose(); audioSource.dispose(); factory.dispose()
             audioModule?.release(); recordingDirectory?.deleteRecursively()
             routing.close(); egl.release()

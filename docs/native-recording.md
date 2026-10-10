@@ -203,6 +203,34 @@ delivery that may have arrived, rather than describing both as waiting.
 These JVM reconstructions do not qualify Android process death or the whole
 recording owner journey through rekey; those acceptance gates remain open.
 
+## Live browser/native adapter export qualification
+
+The [11 October live-gallery receipt](evidence/native-recording-live-gallery-2026-10-11.json)
+records six browser/native interop checks passing without the early diagnostic
+sinks previously attached to `onAddTrack`/`onTrack`: polite and impolite
+negotiation, TURN, answering-only receiving bindings, mixed-audio export and
+gallery video export. Native and Chromium exchanged frames, including camera
+replacement. The production binding helper selects the recording inputs.
+The gallery MP4 decoded both source pictures, changing browser frames and both
+440/660 Hz tones, then survived an identical encrypted round trip.
+
+The first gallery pass decoded 72 video frames and 229,376 audio samples from
+415,501 bytes. The full recording driver's subsequent pass decoded 73 frames
+and 232,448 samples from 447,629 bytes. All 17 recording checks passed in
+51.301 seconds; the six interop checks passed in 39.751 seconds. Instrumentation
+build and debug lint passed. The main APK is byte-identical to the preceding
+full-CI stop-journal receipt. The shared decoder retains its exact two-second
+default assertion for synthetic clock tests; live files use their finite
+container duration instead.
+
+These are synthetic source pictures/tones over actual WebRTC and the actual
+browser Peer. Endpoint permissions and recording capabilities are explicitly
+supplied fixtures; signed-room UI capture, real camera/screen inputs and live
+lip-sync are not qualified here. Earlier zero-frame and loaded background
+failures remain preserved with no established root cause. This establishes
+the adapter path on the current unloaded emulator, not physical/endurance or
+production readiness. The full driver now includes both live export checks.
+
 ## Signed stop recovery candidate
 
 The [stop-journal receipt](evidence/native-recording-stop-journal-2026-10-10.json)

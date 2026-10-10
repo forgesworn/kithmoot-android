@@ -106,7 +106,8 @@ class AvRecordingTest {
     private fun fixtureDirectory() = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
         "synthetic-av-${System.nanoTime()}").also { check(it.mkdirs()) }
 
-    private fun decode(file: File, mime: String, accept: (MediaCodec, Int, MediaCodec.BufferInfo) -> Unit) {
+    internal fun decode(file: File, mime: String, expectedDurationUs: Long? = 2_000_000,
+        accept: (MediaCodec, Int, MediaCodec.BufferInfo) -> Unit) {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
@@ -114,7 +115,9 @@ class AvRecordingTest {
             assertEquals("Exactly one audio and one video track", 2, extractor.trackCount)
             val track = (0 until extractor.trackCount).single { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) == mime }
             val format = extractor.getTrackFormat(track)
-            assertTrue("Original two-second duration for $mime: $format", abs(format.getLong(MediaFormat.KEY_DURATION) - 2_000_000) < 1000)
+            val duration = format.getLong(MediaFormat.KEY_DURATION)
+            if (expectedDurationUs != null) assertTrue("Expected duration for $mime: $format", abs(duration - expectedDurationUs) < 1000)
+            else assertTrue("Live recording duration for $mime", duration >= 1_000_000)
             if (mime == MediaFormat.MIMETYPE_VIDEO_AVC) {
                 assertEquals(1280, format.getInteger(MediaFormat.KEY_WIDTH))
                 assertEquals(720, format.getInteger(MediaFormat.KEY_HEIGHT))
