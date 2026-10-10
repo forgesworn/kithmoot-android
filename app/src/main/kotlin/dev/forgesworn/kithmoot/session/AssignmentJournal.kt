@@ -11,22 +11,28 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
+import java.util.concurrent.atomic.AtomicBoolean
 
-/** Each replacement must be atomic and report failures. Values contain only encrypted records. */
-interface AssignmentStorage {
+/** Reading an origin journal never grants permission to replace it. */
+fun interface AssignmentSource {
     suspend fun load(): String?
+}
+/** Each replacement must be atomic and report failures. Values contain only encrypted records. */
+interface AssignmentStorage : AssignmentSource {
     suspend fun save(encrypted: String)
 }
 data class AssignmentSnapshot(val assignments: List<SharedAssignment> = emptyList(), val ready: Boolean = false,
-    val pendingHistory: Int = 0, val pendingSends: Int = 0, val error: String? = null)
+    val pendingHistory: Int = 0, val pendingSends: Int = 0, val error: String? = null,
+    /** Bounded readers never establish complete retained history. */
+    val historyComplete: Boolean = false)
 
 /** Durable canonical history and exact retry, independent of the 500-line chat window. */
 class AssignmentJournal(
     private val roomId: String,
     private val roomKey: ByteArray,
-    private val identity: RoomIdentity,
+    private val identity: RoomIdentity?,
     private val transport: RoomTransport,
-    private val storage: AssignmentStorage,
+    private val storage: AssignmentSource,
     private val scope: CoroutineScope,
     private val policy: RoomPolicy? = null,
     private val proof: KindredProof? = null,
@@ -35,7 +41,21 @@ class AssignmentJournal(
     initialTrafficRoomKey: ByteArray = roomKey,
     /** A conference room's end, applied to every assignment envelope this device publishes. */
     private val ends: Long? = null,
+    /** Workspace navigation observes an already admitted room without a signer,
+     * credential or writable storage. Signed actions stay in the origin. */
+    private val readOnly: Boolean = false,
+    private val readerParticipant: String? = null,
+    private val historyLimit: Int = 128,
+    private val historySince: Long? = null,
 ) {
+    init {
+        require(roomId.matches(Regex("[0-9a-f]{64}")) && roomKey.size == 32)
+        require(historyLimit in 1..512 && (historySince == null || historySince >= 0))
+        if (readOnly) {
+            require(identity == null && storage !is AssignmentStorage) { "A workspace reader has no signer or writable storage" }
+            require(readerParticipant?.matches(Regex("[0-9a-f]{64}")) == true)
+        } else require(identity != null && storage is AssignmentStorage) { "An assignment writer requires identity and writable storage" }
+    }
     private data class Pending(val inner: NostrEvent, val outer: NostrEvent)
     private val mutex=Mutex()
     private val historyMutex=Mutex()
@@ -45,6 +65,7 @@ class AssignmentJournal(
     private val mutable=MutableStateFlow(AssignmentSnapshot())
     val state: StateFlow<AssignmentSnapshot> = mutable.asStateFlow()
     private var collector: Job?=null
+    @Volatile private var readerQuery: Deferred<List<NostrEvent>>?=null
     private var opened=false
     @Volatile private var closed=false
     @Volatile private var trafficRoomId=initialTrafficRoomId
@@ -52,8 +73,11 @@ class AssignmentJournal(
     private var loaded=false
     private var failure:String?=null
     private fun refresh() {
+        if (readOnly && closed) { mutable.value=AssignmentSnapshot(); return }
         val projected=projectAssignments(events.values.toList(),roomId)
-        mutable.value=AssignmentSnapshot(projected.assignments,loaded&&!closed&&failure==null&&projected.pending.isEmpty(),projected.pending.size,outbox.size,failure)
+        val ready=loaded&&!closed&&failure==null&&projected.pending.isEmpty()
+        mutable.value=AssignmentSnapshot(projected.assignments,ready,projected.pending.size,outbox.size,failure,
+            historyComplete=!readOnly&&ready)
     }
     private fun decode(event:NostrEvent):NostrEvent? {
         val id=trafficRoomId;val key=trafficRoomKey
@@ -61,19 +85,22 @@ class AssignmentJournal(
     }
     private fun live() { check(!closed) { "This assignment room has closed" } }
     private suspend fun persist(nextEvents:Map<String,NostrEvent>,nextOutbox:Map<String,Pending>) {
+        check(!readOnly) { "Workspace activity cannot write assignment history" }
         check(nextEvents.size<=20_000&&nextOutbox.size<=100) { "Assignment history is full" }
         val value=buildJsonObject {
             put("v",1)
             put("events",JsonArray(nextEvents.values.map { JsonPrimitive(Nip44.encrypt(it.toCompactJson(),roomKey)) }))
             put("outbox",JsonArray(nextOutbox.values.map { pending -> JsonPrimitive(Nip44.encrypt(buildJsonObject {put("inner",pending.inner.toJson());put("outer",pending.outer.toJson())}.toString(),roomKey)) }))
         }
-        storage.save(value.toString())
+        (storage as AssignmentStorage).save(value.toString())
     }
     suspend fun open() {
         check(!opened&&!closed) { "Assignment journal already opened or closed" };opened=true
         try {
             mutex.withLock {
-                storage.load()?.let { stored ->
+                val stored=storage.load()
+                live()
+                stored?.let { stored ->
                     val cache=Json.parseToJsonElement(stored).jsonObject
                     check(cache["v"]==JsonPrimitive(1)&&cache.keys.all{it in setOf("v","events","outbox")}) { "Invalid assignment cache" }
                     val saved=cache.getValue("events").jsonArray;val pending=cache.getValue("outbox").jsonArray
@@ -86,7 +113,7 @@ class AssignmentJournal(
                         val value=Json.parseToJsonElement(Nip44.decrypt(item.jsonPrimitive.content,roomKey)).jsonObject
                         val inner=NostrEvent.fromJson(value.getValue("inner"));val outer=NostrEvent.fromJson(value.getValue("outer"))
                         val p=assignmentPayload(inner,roomId)
-                        check(p!=null&&inner.pubkey==identity.participant) { "Assignment outbox failed authentication" }
+                        check(p!=null&&inner.pubkey==(identity?.participant ?: readerParticipant)) { "Assignment outbox failed authentication" }
                         // An old/expired envelope is retained for inspection, never silently re-signed.
                         check(outbox.put(p.request,Pending(inner,outer))==null) { "Duplicate assignment outbox request" }
                     }
@@ -96,7 +123,7 @@ class AssignmentJournal(
             cacheLoaded=true
             refreshHistory()
         } catch(error:Exception) {
-            mutex.withLock {failure="Assignment history could not be verified";refresh()}
+            mutex.withLock {if(readOnly) {events.clear();outbox.clear()};failure="Assignment history could not be verified";refresh()}
             collector?.cancel();throw error
         }
     }
@@ -108,21 +135,34 @@ class AssignmentJournal(
         try {
             val id=trafficRoomId;val key=trafficRoomKey
             val address=deriveChatChannel(id,key,ASSIGNMENT_CHANNEL)
-            val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id))))
+            val filters=listOf(Filter(kinds=listOf(KIND_CHAT),tags=mapOf("#d" to listOf(address.id)),
+                limit=if(readOnly) historyLimit else null,
+                since=if(readOnly) historySince ?: (now()-86_400).coerceAtLeast(0) else null))
+            val replayed=AtomicBoolean(false)
+            var historical=0
             collector=scope.launch(start=CoroutineStart.UNDISPATCHED) {
-                try { transport.subscribe(filters).collect { outer ->
+                try {
+                    val incoming=if(readOnly) transport.subscribeReplayed(filters) { replayed.set(true) } else transport.subscribe(filters)
+                    incoming.collect { outer ->
+                    if(readOnly && !replayed.get() && ++historical>historyLimit) return@collect
                     val inner=decode(outer)?:return@collect
                     mutex.withLock {
-                        live();if(inner.id !in events) {val candidate=events+ (inner.id to inner);persist(candidate,outbox);events[inner.id]=inner;refresh()}
+                        live();if(inner.id !in events) {val candidate=events+ (inner.id to inner);if(!readOnly) persist(candidate,outbox);events[inner.id]=inner;refresh()}
                     }
                 }} catch (cancelled:CancellationException) { throw cancelled }
                 catch (_:Exception) { mutex.withLock {failure="Assignment history could not be saved or read";refresh()} }
             }
-            val history=transport.queryStored(filters)
+            val history=if(readOnly) {
+                val query=scope.async(start=CoroutineStart.LAZY) { transport.queryAvailable(filters).take(historyLimit) }
+                readerQuery=query
+                if(closed) query.cancel()
+                query.start()
+                try { query.await() } finally { if(readerQuery===query) readerQuery=null }
+            } else transport.queryStored(filters)
             mutex.withLock {
                 live();val candidate=LinkedHashMap(events)
                 history.mapNotNull(::decode).forEach { candidate[it.id]=it }
-                persist(candidate,outbox);events.clear();events.putAll(candidate);loaded=true;failure=null;refresh()
+                if(!readOnly) persist(candidate,outbox);events.clear();events.putAll(candidate);loaded=true;failure=null;refresh()
             }
         } catch(error:Exception) {
             mutex.withLock{failure="Assignment history could not be verified";refresh()}
@@ -130,6 +170,8 @@ class AssignmentJournal(
         }
     }
     suspend fun submit(assignment:String?,operation:JsonObject,request:String,expectedHead:String?):SharedAssignment {
+        check(!readOnly) { "Workspace activity cannot submit assignment updates" }
+        val identity=checkNotNull(identity)
         val pending=mutex.withLock {
             live();check(state.value.ready) { state.value.error?:"Wait for assignment history to load" }
             val signer=(identity as? PrimaryIdentity)?.signer?:error("This device cannot sign assignment updates")
@@ -173,6 +215,7 @@ class AssignmentJournal(
         return state.value.assignments.first{it.id==id}
     }
     suspend fun retry() {
+        check(!readOnly) { "Workspace activity cannot retry assignment updates" }
         val pending=mutex.withLock { outbox.values.toList() }
         for(value in pending) {val p=assignmentPayload(value.inner,roomId)!!;submit(if(p.operation.assignmentText("op")=="create") null else p.assignment,p.operation,p.request,p.previous)}
     }
@@ -185,5 +228,11 @@ class AssignmentJournal(
         refreshHistory()
     }
     /** Stop disclosure immediately. An interrupted send remains encrypted for explicit reconciliation. */
-    fun close() {closed=true;collector?.cancel();mutable.value=mutable.value.copy(ready=false)}
+    fun close() {
+        closed=true;collector?.cancel();readerQuery?.cancel()
+        mutable.value=if(readOnly) AssignmentSnapshot() else mutable.value.copy(ready=false,historyComplete=false)
+        if(readOnly) scope.launch(start=CoroutineStart.UNDISPATCHED) {
+            mutex.withLock {events.clear();outbox.clear();refresh()}
+        }
+    }
 }
