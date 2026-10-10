@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery, feat/native-retirement-restart]
   pull_request:
     branches: [main]
 
@@ -196,6 +196,10 @@ jobs:
             python3 scripts/check-native-host-restart-emulator.py
             python3 scripts/check-native-rekey-restart-emulator.py before-handoff
             python3 scripts/check-native-rekey-restart-emulator.py after-handoff
+            python3 scripts/check-native-retirement-restart-emulator.py pending-original
+            python3 scripts/check-native-retirement-restart-emulator.py reserved-before-offer
+            python3 scripts/check-native-retirement-restart-emulator.py offered-before-archive
+            python3 scripts/check-native-retirement-restart-emulator.py archive-before-hint
 
       - name: Keep emulator reports
         if: always()
@@ -208,6 +212,7 @@ jobs:
             app/build/reports/native-host-restart-emulator/
             app/build/reports/native-rekey-before-restart-emulator/
             app/build/reports/native-rekey-after-restart-emulator/
+            app/build/reports/native-retirement-*-restart-emulator/
           if-no-files-found: warn
           retention-days: 7
 

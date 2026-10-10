@@ -182,9 +182,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         participantSecretKey = ByteArray(32).apply { this[31] = if (guest) 3 else 1 },
         deviceSecretKey = ByteArray(32).apply { this[31] = if (guest) 4 else 2 })
 
-    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false,
-        who: RoomIdentity = identity(saved, at, guest)): RoomSession {
-        val transport = RoomMeshTransport(RoomNearbyDiscovery.scope(saved.id), object : RoomMeshLink {
+    private fun memberTransport(saved: SavedRoom): RoomMeshTransport {
+        return RoomMeshTransport(RoomNearbyDiscovery.scope(saved.id), object : RoomMeshLink {
             override fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable {
                 listeners += receive; return AutoCloseable { listeners -= receive }
             }
@@ -195,6 +194,33 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             override fun reachable() = phone != null
             override fun close() = Unit
         }).also { mesh += it }
+    }
+
+    /** Existing qualified device recovery, without fresh invitation admission. */
+    suspend fun rejoinApproved(saved: SavedRoom, at: Long,
+        vault: dev.forgesworn.kithmoot.epoch.EpochVault): RoomSession {
+        val secret = saved.secret
+        val stored = requireNotNull(vault.get(saved.id))
+        try {
+            val derived = deriveRoom(secret)
+            val initial = deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
+            val session = RoomSession(derived, identity(saved, at), memberTransport(saved), scope,
+                authority = saved.authority, initialEpoch = initial, initialRemoved = stored.removed,
+                requireFreshEpoch = true, expectedEpoch = stored.currentEpoch,
+                epochGate = { event, notice ->
+                    check(!notice.closed)
+                    requireNotNull(vault.follow(saved.id, notice, event.id, System.currentTimeMillis() / 1000))
+                    EpochGateResult.COMMITTED
+                }, timing = SessionTiming(announceJitterMs = 0))
+            peers += session
+            session.join()
+            return session
+        } finally { secret.fill(0); stored.currentSecret.fill(0); stored.pending?.secret?.fill(0) }
+    }
+
+    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false,
+        who: RoomIdentity = identity(saved, at, guest)): RoomSession {
+        val transport = memberTransport(saved)
         val secret = saved.secret
         try {
             val derived = deriveRoom(secret)
@@ -252,9 +278,18 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     fun source(saved: SavedRoom): JsonObject {
         val b = requireNotNull(saved.nativeAuthority)
         val alias = "kithmoot.keeper-authority." + Digests.sha256(b.owner.toByteArray(Charsets.UTF_8)).toHex()
+        return committed(alias, NativeKeeperJournal.MAX_FILE_BYTES)
+    }
+    fun courier(saved: SavedRoom): JsonObject {
+        val b = requireNotNull(saved.nativeAuthority)
+        val q = RoomRekeyBinding(b.room, b.authority, b.device, b.meshScope, b.relays, b.route)
+        val alias = "kithmoot.keeper-rekeys." + Digests.sha256(q.owner.toByteArray(Charsets.UTF_8)).toHex()
+        return committed(alias, RoomRekeyLedger.MAX_FILE_BYTES)
+    }
+    private fun committed(alias: String, maxBytes: Int): JsonObject {
         val sealed = File(app.noBackupFilesDir, "$alias.vault").inputStream().use {
-            check(it.channel.size() <= NativeKeeperJournal.MAX_FILE_BYTES + 64)
-            it.readBytes().also { bytes -> check(bytes.size <= NativeKeeperJournal.MAX_FILE_BYTES + 64) }
+            check(it.channel.size() <= maxBytes + 64)
+            it.readBytes().also { bytes -> check(bytes.size <= maxBytes + 64) }
         }
         try {
             val bytes = RoomCipher(key = { create ->

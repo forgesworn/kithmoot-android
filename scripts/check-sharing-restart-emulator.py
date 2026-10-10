@@ -20,6 +20,9 @@ def main(profile="sharing"):
         "native-host": (APP + ".ui.NativeHostRestartTest", "native_host", "KITHMOOT_NATIVE_HOST", None),
         "native-rekey-before": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "before-handoff"),
         "native-rekey-after": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "after-handoff"),
+        **{"native-retirement-" + mode: (APP + ".epoch.NativeRetirementRestartTest",
+            "native_retirement", "KITHMOOT_NATIVE_RETIREMENT", mode) for mode in
+            ("pending-original", "reserved-before-offer", "offered-before-archive", "archive-before-hint")},
     }
     if profile not in profiles:
         raise RuntimeError("Unknown process-restart acceptance profile")
@@ -146,26 +149,41 @@ def main(profile="sharing"):
             print("Could not capture failure logcat", file=sys.stderr)
         raise
     finally:
+        primary = sys.exc_info()[1]
+        cleanup_errors = []
         # No intentional wait may leave the preparing app alive after a failure.
         try:
+            stopped = command("shell", "am", "force-stop", APP)
+            if stopped.returncode != 0:
+                raise RuntimeError("Could not force-stop app during cleanup")
+        except Exception as error:
+            cleanup_errors.append(error)
+        if profile.startswith("native-"):
+            # Attempt key deletion even when force-stop itself fails.
             try:
-                stopped = command("shell", "am", "force-stop", APP)
-                if stopped.returncode != 0:
-                    raise RuntimeError("Could not force-stop app during cleanup")
-            finally:
-                if profile.startswith("native-"):
-                    # This profile requires an exclusively disposable emulator.
-                    # Attempt key deletion even when force-stop itself fails.
-                    cleared = command("shell", "pm", "clear", APP)
-                    if cleared.returncode != 0 or cleared.stdout.strip() != "Success":
-                        raise RuntimeError("Could not delete native host lab data and keys")
-        finally:
+                cleared = command("shell", "pm", "clear", APP)
+                if cleared.returncode != 0 or cleared.stdout.strip() != "Success":
+                    raise RuntimeError("Could not delete native host lab data and keys")
+            except Exception as error:
+                cleanup_errors.append(error)
+        try:
             if process is not None and process.poll() is None:
                 process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     process.kill(); process.wait(timeout=5)
+        except Exception as error:
+            cleanup_errors.append(error)
+        if cleanup_errors:
+            if primary is not None:
+                for error in cleanup_errors:
+                    primary.add_note("Secondary cleanup failure: " + str(error))
+            else:
+                first = cleanup_errors[0]
+                for error in cleanup_errors[1:]:
+                    first.add_note("Secondary cleanup failure: " + str(error))
+                raise first
 
     print("Active " + profile + " SIGKILL and new-process recovery passed", flush=True)
 
