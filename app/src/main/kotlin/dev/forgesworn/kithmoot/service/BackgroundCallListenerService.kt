@@ -202,6 +202,9 @@ class BackgroundCallListenerService : Service() {
                 runCatching { application.selfDestructor.sendHeadsUps(skip = ActiveRoomRegistry::isOpen) }
                 runCatching { application.selfDestructor.runDue(skip = ActiveRoomRegistry::isOpen) }
                 launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(applicationContext).retry() } }
+                launch { runCatching { application.recordingUploadJournal.retry { origin, hash, auth ->
+                    dev.forgesworn.kithmoot.session.deleteUploadedMedia(origin, hash, auth)
+                } } }
                 delay(RECONCILE_INTERVAL_MS)
             }
             stopAll()

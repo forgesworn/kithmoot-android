@@ -37,10 +37,20 @@ class KithMootApplication : Application() {
             EncryptedRoomStorage(this, "kithmoot.recording-drafts.v1"),
         ).apply { recover() }
     }
+    /** Storage-only identities renew exact-file cleanup after room keys go. */
+    val recordingUploadJournal by lazy {
+        dev.forgesworn.kithmoot.media.recording.RecordingUploadJournal(
+            EncryptedRoomStorage(this, "kithmoot.recording-uploads.v1"),
+        ).apply { recover() }
+    }
     fun forgetRecordingsForRoom(room: String) {
         var failure: Exception? = null
         try { recordings.forgetRoom(room) } catch (error: Exception) { failure = error }
         try { recordingShareDrafts.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        try { recordingUploadJournal.forgetRoom(room) } catch (error: Exception) {
             val original = failure
             if (original == null) failure = error else original.addSuppressed(error)
         }

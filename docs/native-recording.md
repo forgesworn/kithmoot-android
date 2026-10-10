@@ -40,18 +40,34 @@ Explicit Remove then deletes that draft. All 14 emulator checks passed in
 it does not qualify a live call, system Save provider, physical device, Upload,
 Send, or behaviour under concurrent build load.
 
-### Storage authorisation work still required
+### Storage authorisation and cleanup
 
-The next sharing implementation should use a separate storage identity for each
-explicitly chosen HTTPS origin. The private node can authorise its public key
-with the existing `--allow-pubkey` policy. It must not reuse a room/device key or
-the file's encryption recovery key. This lets the cleanup owner create fresh
-five-minute DELETE requests after Forget without retaining room credentials.
-The device-encrypted cleanup journal must retain only the storage identity and
-exact origin/hash cleanup records after removing room references. Node
-authorisation, upload failure, restart, Forget and eventual deletion still need
-end-to-end verification. This is a proposed implementation path, not completed
-storage support; local recording and Save require no node authorisation.
+`RecordingUploadJournal` creates a separate storage identity for each explicitly
+chosen HTTPS origin. The private node can authorise its public key with the
+existing `--allow-pubkey` policy. It does not receive a room/device key or a
+file recovery key. Its application owner uses device-encrypted storage and
+retains exact origin/hash cleanup records after Forget removes room references.
+Each cleanup retry signs a fresh five-minute DELETE; upload authorisation is
+also capped by the original room deadline. Cleanup is registered before a PUT,
+waits for an active upload to finish, and recovers interrupted PUTs as possible
+remote copies. Upload retry cannot overlap deletion of the same origin/hash.
+Failed network requests remain journalled. The existing foreground/background
+cleanup loops call this owner, separately from the legacy image cleanup ledger.
+
+A synthetic real-node check verified upload with an explicitly allowlisted
+storage identity, Forget without retaining the room reference, journal
+restoration, expired DELETE refusal, fresh DELETE success and HEAD 404.
+This fixture used a private test journal and injected clock; it does not prove
+Android Keystore restart persistence, physical elapsed-time retention or the
+sender UI. Choosing/authorising a storage node and explicit Upload/Send remain
+unwired. Local recording and Save require no node authorisation.
+
+The [storage journal receipt](evidence/native-recording-upload-journal-2026-10-10.json)
+binds these results to the final native class bundle, source and APKs: six JVM
+tests, the synthetic real-node sequence (PUT 201, expired DELETE 401, fresh
+DELETE 200, HEAD 404), and all 14 recording emulator checks in 36.292 seconds.
+The test node and HTTPS proxy were stopped afterwards. Android Keystore
+restart acceptance and the actual sender Upload/Send journey remain separate.
 
 ## Member-rekey recovery release gate
 
@@ -438,11 +454,12 @@ verification; Android production trust is unchanged. No real recording/key or
 public node was used. The fixture's backend upload uses Expect: 100-continue to
 forward early refusals cleanly; this is not an Android transport change.
 
-The remaining deletion gap is distinct from this immediate owner-delete check:
+The earlier deletion gap was distinct from this immediate owner-delete check:
 the existing media ledger stores a long-lived signed delete event, whereas the
 private node enforces a five-minute event lifetime. Durable cleanup after room
-expiry or a later network recovery therefore remains open and must be resolved
-before relying on recording sharing retention.
+expiry or a later network recovery could not rely on that ledger. The separate
+recording storage journal described above now renews deletion using storage-only
+identities; the recording sender UI must use it before offering upload bytes.
 
 The subsequent actual Gradle-built app classes passed the same private-node
 transfer with no header rewrite. The wrong-key check requires

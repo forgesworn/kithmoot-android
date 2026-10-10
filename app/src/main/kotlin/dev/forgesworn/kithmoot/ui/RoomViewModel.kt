@@ -1468,6 +1468,9 @@ class RoomViewModel @JvmOverloads constructor(
             while (true) {
                 runCatching { runDueDestructs() }
                 launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).retry() } }
+                launch { runCatching { recordingApplication.recordingUploadJournal.retry { origin, hash, auth ->
+                    dev.forgesworn.kithmoot.session.deleteUploadedMedia(origin, hash, auth)
+                } } }
                 runCatching { sendDestructHeadsUps(epochSeconds()) }
                 runCatching { destructTombstones.list(epochSeconds()) }.getOrNull()?.let { rows ->
                     if (rows != _start.value.destructTombstones) _start.update { it.copy(destructTombstones = rows) }
@@ -5990,7 +5993,7 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val draft = recordingApplication.recordingShareDrafts.selected(id, room)
-                if (draft.storageOrigin != null) dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = draft.sealed.hash)
+                draft.storageOrigin?.let { recordingApplication.recordingUploadJournal.discard(it, draft.sealed.hash) }
                 recordingApplication.recordingShareDrafts.remove(id, room)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { if (_room.value.roomId == room) note("Recording draft could not be removed: ${failure.message ?: "storage unavailable"}") }
