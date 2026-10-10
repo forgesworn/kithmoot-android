@@ -4,7 +4,7 @@
   "debugAppUnitTests": 1933,
   "releaseAppUnitTests": 1933,
   "hostQueueUnitTests": 14,
-  "renderedHostQueueTests": 4,
+  "renderedHostQueueTests": 5,
   "lintDebugPassed": true,
   "lintReleasePassed": true,
   "bothAssembliesPassed": true,
@@ -15,5 +15,9 @@
   "initialInstrumentRun": "Old APK installed by adb incremental install; corrected using --no-incremental and full installed-byte comparison.",
   "physicalDeviceAcceptance": false,
   "nativeHostCreationAndGuestFullG17Acceptance": false,
-  "sourceHashesFile": "source-hashes.json"
+  "sourceHashesFile": "source-hashes.json",
+  "fullRoomDraftPreservationTestPassed": true,
+  "renderedHostQueueTestSeconds": 19.801,
+  "hostedRecoveryCurrentHeadPassed": false,
+  "hostedRecoveryFailure": "FreshNearbyEntryTest expected exactly three radio retries in a mixed radio/relay race; hosted observed two. Admission cases were not reached."
 }

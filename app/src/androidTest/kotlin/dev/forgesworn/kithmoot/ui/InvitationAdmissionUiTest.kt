@@ -13,6 +13,8 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.session.AdmissionDecisionPhase
 import dev.forgesworn.kithmoot.session.PendingInvitationAdmission
 import dev.forgesworn.kithmoot.ui.room.InvitationAdmissionPanel
+import dev.forgesworn.kithmoot.ui.room.RoomScreen
+import dev.forgesworn.kithmoot.ui.room.ChatPane
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import org.junit.Rule
 import org.junit.Test
@@ -80,5 +82,33 @@ class InvitationAdmissionUiTest {
         compose.onNodeWithText("Dismiss").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Retry grant").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(listOf(false, true), answers) }
+    }
+
+    @Test fun theRealRoomShowsTheQueueAndPreservesAnUnsentDraftWhileDecisionsChangeIt() {
+        val first = row("a"); val second = row("b")
+        var state by mutableStateOf(RoomState(roomId = "01".repeat(32), selfParticipant = "02".repeat(32),
+            name = "Workshop", joinUrl = "https://example.test/j/#room", invitationAdmissions = listOf(first, second)))
+        val answers = mutableListOf<Pair<String, Boolean>>()
+        compose.setContent {
+            KithMootTheme {
+                Box(Modifier.requiredSize(360.dp, 720.dp)) {
+                    RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
+                        chat = { ChatPane(emptyList(), state.selfParticipant, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false) },
+                        onAnswerInvitationAdmission = { id, yes ->
+                            answers += id to yes
+                            state = state.copy(invitationAdmissions = state.invitationAdmissions.filterNot { it.requestId == id })
+                        })
+                }
+            }
+        }
+        compose.onNodeWithText("Waiting to join (2)").assertIsDisplayed()
+        compose.onNodeWithText("Say something").assertIsDisplayed().performTextInput("Keep my unfinished note")
+        compose.onAllNodesWithText("Let in")[0].performScrollTo().performClick()
+        compose.onNodeWithText("Waiting to join (1)").assertIsDisplayed()
+        compose.onNodeWithText("Keep my unfinished note").assertExists()
+        compose.onAllNodesWithText("Dismiss")[0].performScrollTo().performClick()
+        compose.onNodeWithText("Waiting to join (1)").assertDoesNotExist()
+        compose.onNodeWithText("Keep my unfinished note").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(listOf(first.requestId to true, second.requestId to false), answers) }
     }
 }

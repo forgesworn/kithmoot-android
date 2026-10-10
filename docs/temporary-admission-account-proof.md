@@ -28,6 +28,8 @@ confirmation; an unconfirmed grant offers an immutable retry. Rotation, retireme
 epoch changes, room departure and cancelled dispatch prevent stale grants.
 Only a confirmed relay acceptance clears the card; it does not claim the guest joined.
 The queue scrolls within the room and keeps 48 dp actions reachable at large text sizes.
+Five emulator UI cases include the full RoomScreen and retain an unsent chat draft
+while same-name requests are individually admitted and dismissed.
 
 Dismiss is deliberately local. The existing protocol has no decline event, so it
 cannot notify a guest of a refusal. Explicit declines require a compatible protocol
