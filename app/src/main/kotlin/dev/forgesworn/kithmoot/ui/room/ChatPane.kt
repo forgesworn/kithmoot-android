@@ -327,7 +327,9 @@ fun ChatPane(
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
                                     TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
-                                        Text("Open attachment: ${attachment.name ?: "Image"}")
+                                        Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
+                                            "Show recording: ${attachment.name ?: "Recording"}"
+                                        else "Open attachment: ${attachment.name ?: "Image"}")
                                     }
                                 }
                                 if (!r.retracted) message.artwork.forEach { reference ->

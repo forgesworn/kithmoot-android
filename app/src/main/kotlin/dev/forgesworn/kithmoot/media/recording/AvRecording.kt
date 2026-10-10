@@ -191,7 +191,8 @@ class AvRecordingFile(
                 val time = reader.sampleTime
                 check(time >= last[next] && time <= durationUs) { "Invalid recording sample timestamp" }
                 last[next] = time
-                sampleInfo.set(0, count, time, reader.sampleFlags and MediaCodec.BUFFER_FLAG_KEY_FRAME)
+                val flags = if (reader.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                sampleInfo.set(0, count, time, flags)
                 output.writeSampleData(tracks[next], buffer, sampleInfo)
                 reader.advance()
             }

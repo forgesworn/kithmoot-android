@@ -1,0 +1,40 @@
+{
+  "production_ready": false,
+  "scope": "Cross-format recipient viewer debug and instrumentation build; no final full CI or release claim",
+  "build_successful": true,
+  "build_elapsed": "3m 26s",
+  "focused_jvm": {
+    "tests": 3,
+    "failures": 0
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingAttachmentRequest.kt": "7e1588e806286fbe425fb59a2eb5b65d7728f580f51d0ef4f342cdbfc896c096",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RecordingAttachmentViewer.kt": "6d2cfc9ea7ee1a2f1643b421ff119b554528e14480bc58e9f3f6b4471e57a288",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "6b3dbd0fad5d98dd087620a4e53e0aa0a2f8bde63ab13a88d3f2aea1b0bfe34d",
+    "app/src/androidTest/assets/recording/README.md": "76bed0daf5802dc3785bce8b65b78e6f44f96e6707ddccac22a41d5bcddedf9d",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.ogg.enc": "7f57d675e815c185b3519d7d6a518f8f9a9e9f83ed926f6baedf084622ba0729",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.ogg.json": "3b49f5bb8d087f7cde5ee4e695ff3c9184e94877d6882e9195b33c91fac83dee",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.webm.enc": "bc8d62ef6401df54ffb9ea2d564fd91f6f67779e859feb5951abb0a2f6e7df03",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.webm.json": "ae281254bdc8fe9f193fa52527e3fd21ae8871e85b26583706c80bba7e217b0e",
+    "app/src/androidTest/assets/recording/synthetic-browser-video.webm.enc": "f0abaab6d5105cb4bb194f1a1751f1a0731eccb49b2f246194a34618e52540dc",
+    "app/src/androidTest/assets/recording/synthetic-browser-video.webm.json": "f0c2de4b376135b2d36b3df44469421acd0207e3d3754a7c0d37ba4bd723f3f8"
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "4f4b9bb83ee36104289ede333d65ce8f3ebdbd82613a3ebf19c707dbad7a67ae"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "903eaceb2e596bd3d17e88422bf9908eb7446b6c7b1a8098cc861bf4da31b4c6"
+    }
+  ],
+  "runtime": {
+    "qualified": false,
+    "tests": 14,
+    "failures": 1,
+    "report": "app/build/reports/native-recording-cross-format/instrumentation.txt",
+    "report_sha256": "d0bc6c2b0cdf6d3fadd4ababcced0fd0e164162a5a0dca4bde1ddf6e7c7b0975",
+    "failure": "Ogg clock/Pause assertion used separate UI snapshots. Same immutable APK single-test rerun passed. Await combined visible state and decoded video screen assertion added; awaiting qualification."
+  }
+}

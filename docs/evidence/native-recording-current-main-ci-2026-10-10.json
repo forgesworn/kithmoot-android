@@ -1,0 +1,19 @@
+{
+  "captured_at_utc": "2026-10-10T17:52:42.939358+00:00",
+  "production_ready": false,
+  "source_commit": "1bee1e8",
+  "full_ci_passed": false,
+  "failure": "lintDebug WrongConstant: remux passed extractor flags as codec flags",
+  "jvm": {
+    "protocol": {
+      "tests": 401,
+      "failures": 0,
+      "errors": 0
+    },
+    "app": {
+      "tests": 1960,
+      "failures": 0,
+      "errors": 0
+    }
+  }
+}

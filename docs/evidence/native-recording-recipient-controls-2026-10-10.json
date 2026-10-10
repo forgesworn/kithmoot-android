@@ -1,0 +1,51 @@
+{
+  "production_ready": false,
+  "build_successful": true,
+  "build_elapsed": "2m 14s",
+  "scope": "Debug viewer controls placed above media; dialog controls and insets corrected. Release/lint from prior candidate do not cover this layout change.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RecordingAttachmentViewer.kt": "285543d9b49d2ec54d4b8e6802373f4cb8a9db40685a6019f0ff554ed49db430",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "103092352efee73ebe1e18a3f7dd7108ea3283b3d4f630bb8c591b47a02cf02b"
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "cc67ff2974e5db0cead2d822769c42c96c9236541aad6dff9476a4f0778228a5",
+      "snapshot": "/tmp/kithmoot-recording-viewer-controls-qualified/cc67ff2974e5db0cead2d822769c42c96c9236541aad6dff9476a4f0778228a5.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "5764e6f75b9ae5a6facb3bcc2fef8366b72bb6d465dc8adb4ca4e74e97fbef7d",
+      "snapshot": "/tmp/kithmoot-recording-viewer-controls-qualified/5764e6f75b9ae5a6facb3bcc2fef8366b72bb6d465dc8adb4ca4e74e97fbef7d.apk"
+    }
+  ],
+  "runtime": {
+    "tests": 11,
+    "failures": 0,
+    "live_browser_included": false,
+    "physical": false,
+    "report": "app/build/reports/native-recording-viewer-controls/instrumentation.txt",
+    "report_sha256": "e7ffe43b6c8b77afe8d5dc20d847a2c776e437d270ca257dd52a42a181f61279"
+  },
+  "recipient": {
+    "synthetic_response": true,
+    "actual_viewer_controls": true,
+    "native_aac_playback_advances": true,
+    "fetch_only_after_show": true,
+    "play_explicit": true,
+    "background_pauses": true,
+    "return_remains_paused": true,
+    "close_removes_plaintext": true,
+    "real_room_delivery": false,
+    "desktop_webm_ogg_playback": false
+  },
+  "open": [
+    "Desktop/PWA WebM/Ogg and parameterised MIME playback",
+    "Sender Add/Upload/Send controls",
+    "Durable private-node deletion authorisation",
+    "Live browser/native video",
+    "Latest-layout release and lint plus final full CI",
+    "Physical endurance/interruption qualification",
+    "Signed production delivery"
+  ]
+}

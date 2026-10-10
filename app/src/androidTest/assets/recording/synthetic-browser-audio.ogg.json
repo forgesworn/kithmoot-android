@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "name": "synthetic-browser-audio.ogg",
+  "type": "audio/ogg;codecs=opus",
+  "url": "https://synthetic.example/7f57d675e815c185b3519d7d6a518f8f9a9e9f83ed926f6baedf084622ba0729",
+  "sha256": "7f57d675e815c185b3519d7d6a518f8f9a9e9f83ed926f6baedf084622ba0729",
+  "key": "eda0d05014f289b49b79bf7aa61b902b9cc563f8da1eac9d0e133daa497fcd91",
+  "size": 65608,
+  "sourceSha256": "f33adf95c129fd4aadb6ea374b1a90c0836a8b336cac3809499f1a16f70676e7"
+}

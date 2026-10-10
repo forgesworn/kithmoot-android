@@ -79,7 +79,16 @@ class RecordingOwnerUiTest {
         assertEquals("gallery", model.room.value.recordingCapture?.capture)
         SystemClock.sleep(600)
         activity.scenario.moveToState(Lifecycle.State.CREATED)
-        ui.await("hidden app pauses original video capture") { model.room.value.nativeRecordingPaused && !model.room.value.nativeRecordingBusy }
+        try {
+            ui.await("hidden app pauses original video capture") {
+                model.room.value.nativeRecordingPaused && !model.room.value.nativeRecordingBusy
+            }
+        } catch (failure: AssertionError) {
+            val state = model.room.value
+            throw AssertionError("Background recording state: active=${state.nativeRecording}, " +
+                "paused=${state.nativeRecordingPaused}, busy=${state.nativeRecordingBusy}, " +
+                "onCall=${state.onCall}, notice=${state.notice}", failure)
+        }
         SystemClock.sleep(1200)
         activity.scenario.moveToState(Lifecycle.State.RESUMED)
         ui.await("returned recording remains paused") { ui.hasText("Resume recording") }

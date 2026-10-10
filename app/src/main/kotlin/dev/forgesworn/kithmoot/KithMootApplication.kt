@@ -30,6 +30,14 @@ class KithMootApplication : Application() {
         dev.forgesworn.kithmoot.media.recording.LocalRecordingStore(java.io.File(noBackupFilesDir, "recordings"))
             .apply { recover() }
     }
+    /** A new process removes abandoned private playback files before its first
+     * viewer opens. This lazy owner is shared by all activities in the process. */
+    val recordingPlaybackCache by lazy {
+        java.io.File(cacheDir, "recording-playback").apply {
+            check(!exists() || deleteRecursively()) { "Private playback cleanup failed" }
+            check(mkdirs()) { "Private playback storage is unavailable" }
+        }
+    }
     /** Finalising an explicit local recording outlives room/Activity teardown. */
     val recordingExports = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     /** Where signer intents wait for their answer, so an activity recreated meanwhile does not lose it. */

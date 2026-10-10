@@ -392,3 +392,106 @@ transfer with no header rewrite. The wrong-key check requires
 streaming-transfer JVM tests passed, and debug app/instrumentation APKs rebuilt
 successfully. This qualification covers the network primitives and authorisation
 corrections, rather than the still-missing app sharing/player journey.
+
+## Recipient playback candidate
+
+The recipient's recording attachment now offers Show. It opens a dedicated
+viewer whose download uses private bounded files rather than the image viewer's
+32 MiB memory buffer. The reader authenticates the complete encrypted envelope
+and uses its authenticated MIME type before preparing a native player. Play is
+explicit, backgrounding pauses playback and returning does not resume it. Close
+cancels only this viewer's calls, rejects late decrypted results and removes its
+private directory. A new process clears abandoned playback directories before
+opening its first viewer. No external app receives a file or recovery key.
+
+Three preliminary JVM checks passed for a 34 MiB synthetic recording, Close
+during a response and an image disguised as a recording in the message hint.
+The actual Gradle build, lint and recipient playback UI qualification are still
+running. The new emulator suite includes the recipient viewer check: eleven
+local checks, or twelve when including the unresolved live browser/native test.
+The recipient widget fixture uses a synthetic encrypted response and native AAC
+playback. It does not qualify real-room delivery, a real private-network node,
+physical hardware or the still-missing sender Add/Upload/Send controls.
+
+The merged current-main baseline passed 401 protocol and 1,960 app JVM tests,
+then stopped at a remux lint error. The sync-frame flag is now explicitly mapped
+from MediaExtractor's enum to MediaCodec's enum; both lint variants and app
+variants are being rebuilt alongside this viewer candidate.
+
+The first recipient-widget APK failed its Pause-control visibility check after
+playback advanced to one second. Screenshots showed the controls clipped below
+the dialog's visible area. The next candidate places playback controls above the
+media area, bounds the title and handles system insets explicitly. Its debug app
+and instrumentation APKs built successfully, and all eleven local emulator
+checks passed. The [recipient-controls receipt](evidence/native-recording-recipient-controls-2026-10-10.json)
+records explicit Show/fetch, explicit Play, native AAC playback progress,
+background pause, return remaining paused and private plaintext removal on Close.
+The earlier debug/release lint and variant results apply to the earlier layout;
+the corrected layout still needs the final full CI run. No physical or real-room
+recipient journey is claimed by this widget fixture.
+
+Cross-platform recipient playback remains open: the reference PWA's
+`app/src/call-recorder.ts` prefers WebM/Opus or Ogg/Opus and includes codec
+parameters in MIME types. This candidate's whitelist covers native MP4/WAV only.
+The reader/player must accept the reference recorder's authenticated formats,
+including recordings with no finite duration metadata, before that gate closes.
+
+
+The cross-format recipient candidate now normalises codec parameters for viewer
+selection while retaining authenticated metadata. It accepts WebM/Opus,
+VP8/Opus video and Ogg/Opus alongside native MP4/WAV. A missing declared media
+duration no longer prevents preparation: elapsed time remains visible and
+seeking is offered when the native player supplies a finite duration.
+
+Four actual viewer instrumentation cases passed on the isolated Android 35
+emulator, including independent Wildbloom-encrypted files produced by the real
+PWA CallRecorder. Browser video additionally required the generated coloured
+frames to appear in an Android screenshot. Show fetched once, Play was explicit,
+background paused, return remained paused and Close removed private plaintext.
+The [cross-format receipt](evidence/native-recording-cross-format-controls-2026-10-10.json)
+retains the earlier Ogg assertion failure, concurrent-run interruptions and
+fresh-emulator startup failure. These synthetic widget cases do not prove
+real-room delivery, live browser/native recording, physical playback or release
+readiness. The full fourteen-case suite and latest-source full CI remain running.
+
+The fixture generator is `scripts/make-recording-playback-fixtures.mjs`. Its
+assets are instrumentation-only silence/canvas colours with disposable
+synthetic recovery keys. Ogg is a lossless remux of the browser's Opus stream,
+not a Firefox recording. Independent ffmpeg decoding reported an Opus packet
+warning in browser output; the actual Android player cases nevertheless passed.
+
+
+The subsequent complete fourteen-case run on the separate emulator finished at
+13/14: all four recipient playback cases passed, but RecordingOwnerUiTest timed
+out waiting for background capture to be both paused and idle. Background
+pause under this run is unqualified; its cause is under investigation using a
+single-case rerun of the identical APK. This failure is retained in the receipt
+and supersedes any inference that the complete latest suite is green. JVM gates
+passed at 401 protocol and 1,963 app tests; latest-source lint/release qualification
+is still running.
+
+
+Full local CI for the recipient implementation completed successfully in
+18m 58s: 401 protocol tests, 1,963 app tests, debug/release lint and debug/release
+APK assembly. The [full-CI receipt](evidence/native-recording-recipient-full-ci-2026-10-10.json)
+binds results to source and APK hashes; it proves neither hosted CI nor a signed
+production shipment. The reproducible owner background-pause failure remains
+open. A diagnostic-only owner instrumentation change was applied after this
+build, preserving all production source and the original pause assertion.
+
+
+The diagnostic-only owner APK passed the unchanged background pause/resume
+and original export assertions in 26.509s after the concurrent build completed,
+using the same production app APK. The [diagnostic receipt](evidence/native-recording-owner-diagnostic-2026-10-10.json)
+records that pass. Resource pressure is a possible factor, not an established
+root cause; the earlier full-run and isolated background-state failures remain
+in the evidence. A complete run without a concurrent build is underway.
+
+
+The full settled fourteen-case suite passed in 43.439s on the same isolated
+emulator with no concurrent Gradle build. This includes the unchanged owner
+pause/resume assertions and all four recipient playback cases. The full-CI and
+settled-runtime receipts prove this checkpoint's local gates; earlier failures
+under load remain recorded and require investigation. Sender Add/Upload/Send,
+durable node cleanup, stop-notice recovery, live-call video, hosted CI, physical
+endurance/interruption and signed production delivery remain open.
