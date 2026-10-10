@@ -117,10 +117,20 @@ class NativeHostEntryTest {
             val archive = recovered.getValue("retirements").jsonArray.single().jsonObject
             assertEquals(original, NostrEvent.fromJson(archive.getValue("event")))
             assertEquals(1, archive.getValue("attempts").jsonObject.values.sumOf { it.jsonPrimitive.int })
-            val nearbySpend = recovered.getValue("spends").jsonArray.filter {
+            val beforeSpends = spend.jsonArray
+            val afterSpends = recovered.getValue("spends").jsonArray
+            val retainedCounts = afterSpends.groupingBy { it }.eachCount()
+            assertTrue("Recovery must preserve all earlier spending with its multiplicity",
+                beforeSpends.groupingBy { it }.eachCount().all { (record, count) ->
+                    (retainedCounts[record] ?: 0) >= count
+                })
+            val nearbySpendBefore = beforeSpends.filter {
                 it.jsonObject.getValue("lane") == JsonPrimitive("NEARBY")
             }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
-            assertEquals(original.toCompactJson().toByteArray(Charsets.UTF_8).size, nearbySpend)
+            val nearbySpend = afterSpends.filter {
+                it.jsonObject.getValue("lane") == JsonPrimitive("NEARBY")
+            }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
+            assertEquals(original.toCompactJson().toByteArray(Charsets.UTF_8).size, nearbySpend - nearbySpendBefore)
             assertEquals(listOf(original), f.phoneEvents.filter { it.kind == KIND_INVITATION_RETIREMENT })
             assertTrue(f.model.room.value.joinUrl.isEmpty())
             compose.onNodeWithText("Recover saved update").assertDoesNotExist()
