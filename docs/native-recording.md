@@ -119,6 +119,14 @@ A preliminary regression check against the preceding APK failed because it
 consumed the pending Add while locked. These checks use Compose restriction
 inputs; physical keyguard and OS PiP transitions remain separate acceptance.
 
+The subsequent [admission integration receipt](evidence/native-recording-admission-integration-2026-10-10.json)
+covers `3fd3b0fc`, which includes main's `44857b84` admission-authentication
+changes: 417 protocol tests, 2,010 app unit tests, debug/instrumentation builds,
+15 recording emulator checks (42.659 seconds) and six admission UI checks
+(6.184 seconds) all passed. This local command did not run Android lint or
+the release build. Hosted run 38086034518 was still in progress at the receipt
+snapshot; complete hosted and production qualification remain open.
+
 ## Member-rekey recovery release gate
 
 Hosted run 38078615048 failed the member-removal case while the controller
