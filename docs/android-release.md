@@ -1,5 +1,22 @@
 <!-- Room opening follow-up: rekey replay completion from every configured read relay releases the existing 1.5-second settling wait only after the ordered collector checks the replayed events. Silent/unsupported transports keep the previous timeout. Opening labels use the in-memory home summary rather than validating the vault on the UI thread. Focused RelayPoolTest, LeftEpochTest and RoomSessionTest passed after recompiling the interface-dependent fixtures. -->
 
+## 0.6.78 (101): prevent repeated taps from submitting the same draft
+
+Send claims the composer immediately while the draft is signed and retained.
+Rapid repeat taps cannot create separate encrypted messages for that draft.
+For durable rooms it becomes available again as soon as the message is safely
+kept on this phone; the next draft can queue while relay confirmation waits.
+A retention failure keeps the draft and releases Send. Completing an older
+publication cannot release the guard belonging to a newer submission.
+Intentional repeated text remains possible as a new draft.
+
+The real view-model regression uses a disposable emulator, encrypted outbox
+and loopback relay with acknowledgements withheld. Four taps retain one draft;
+a different draft queues before confirmation. Empty submission and intentional
+repeated text remain usable. Version 64 and 77 share the previous unguarded
+retention path. Public signed APK and physical acceptance require separate
+release proof; this section does not claim shipment.
+
 ## 0.6.77 (100): Inbox and work across retained rooms
 
 Inbox and All work open from home and the room header. They show canonical

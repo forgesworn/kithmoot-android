@@ -6657,18 +6657,24 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val durable = !_room.value.anonymous && !_room.value.quiet
-        // A durable message queues behind any already kept; the others go one at a time as before.
-        if (!durable) {
-            if (_room.value.chatSending) return
-            _room.update { it.copy(chatSending = true, chatSendError = null) }
-        } else _room.update { it.copy(chatSendError = null) }
+        // Claim the composer before launching: repeated taps must not sign the
+        // same draft while it is still being retained. Durable messages release
+        // it once kept locally, so the next draft need not wait for a relay.
+        if (_room.value.chatSending) return
+        _room.update { it.copy(chatSending = true, chatSendError = null) }
         scope.launch(Dispatchers.IO) {
+            var composerReleased = false
             try {
                 val retainedOnMain: suspend () -> Unit = {
                     withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update {
                         it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments },
                             chatArtwork = it.chatArtwork.filterNot { staged -> artwork.any { submitted -> staged === submitted } })
-                    }; onRetained() } }
+                    }; onRetained()
+                        if (durable) {
+                            composerReleased = true
+                            _room.update { it.copy(chatSending = false) }
+                        }
+                    } }
                 }
                 val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, artwork, retainedOnMain)
                     else live.sendChatConfirmed(text, reaction, attachments, artwork).also { if (it) retainedOnMain() }
@@ -6684,7 +6690,8 @@ class RoomViewModel @JvmOverloads constructor(
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } finally {
-                if (!durable && session === live) _room.update { it.copy(chatSending = false) }
+                // A completed older publication must not unlock a newer draft.
+                if (!composerReleased && session === live) _room.update { it.copy(chatSending = false) }
                 if (durable && session === live) scheduleBackoff(live)
             }
         }
