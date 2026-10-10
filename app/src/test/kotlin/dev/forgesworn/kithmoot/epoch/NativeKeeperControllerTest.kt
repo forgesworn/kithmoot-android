@@ -17,9 +17,10 @@ import kotlin.test.*
 class NativeKeeperControllerTest {
     private class Store : RoomStorage {
         var bytes: ByteArray? = null; var fail = false
+        var writes = 0
         var onWrite: () -> Unit = {}
         override fun read() = bytes?.clone()
-        override fun write(value: ByteArray) { if (fail) error("Disk unavailable"); onWrite(); bytes = value.clone() }
+        override fun write(value: ByteArray) { if (fail) error("Disk unavailable"); onWrite(); bytes = value.clone(); writes += 1 }
         override fun reset() = error("Do not reset retry or authority debt")
     }
 
@@ -112,10 +113,12 @@ class NativeKeeperControllerTest {
         }
         var live = newSession()
         var whenHeld: () -> Unit = {}
+        var beforeFollowing: suspend () -> Unit = {}
         fun newSession() = test.session(room, owner, FakeRelay(), authority = binding.authority, transport = transport,
             initialEpoch = vault.get(room.roomId)!!.let { deriveEpoch(RoomEpoch(it.currentEpoch, it.currentSecret)) },
             initialRemoved = vault.get(room.roomId)!!.removed, onEpochBlocked = { whenHeld() },
             epochGate = { event, notice ->
+                beforeFollowing()
                 if (notice.closed) vault.terminal(room.roomId, notice.epoch - 1, notice, event.id, test.currentTime / 1000)
                 else assertNotNull(vault.follow(room.roomId, notice, event.id, test.currentTime / 1000))
                 EpochGateResult.COMMITTED
@@ -152,6 +155,63 @@ class NativeKeeperControllerTest {
         suspend fun stop() {
             controller?.stop() ?: run { source.close(); ledger.close() }
             live.leave(); mesh?.close(); internet?.stop(); secret.fill(0); invitation.bearer.fill(0)
+        }
+    }
+
+    @Test fun pending_recovery_does_not_hold_a_second_epoch_after_an_echo_wins_the_receiver_mutex() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = Rig(this, route)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var receiverGateEntries = 0
+            try {
+                r.start()
+                r.live.holdKeeperTransition(r.room.roomId, r.binding.authority, r.owner.participant, r.owner.devicePubkey)
+                val original = r.source.prepareRekey(listOf(r.owner.credential)).single()
+                val writesBefore = r.receiverStore.writes
+                r.beforeFollowing = { receiverGateEntries += 1; entered.complete(Unit); release.await() }
+                r.inject(original, if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET)
+                runCurrent()
+                assertTrue(entered.isCompleted)
+                assertEquals(0, r.live.epochKeys().epoch)
+                assertEquals(RoomEpochState.Updating(1), r.live.epochState.value)
+                r.controller!!.retry()
+                runCurrent()
+                assertIs<NativeKeeperController.State.Pending>(r.controller!!.state.value)
+                assertEquals(listOf(original), r.source.snapshot().pending)
+                release.complete(Unit)
+                runCurrent()
+                println("NATIVE_KEEPER_ECHO_STATE route=" + route.stored + " state=" + r.controller!!.state.value +
+                    " receiverEpoch=" + r.live.epochKeys().epoch + " diagnostic=" + r.controller!!.failureDiagnostic)
+                assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                assertIs<RoomEpochState.Active>(r.live.epochState.value)
+                assertEquals(1, r.live.epochKeys().epoch)
+                assertEquals(original.id, r.vault.get(r.room.roomId)!!.activationCause)
+                assertEquals(original.id, r.source.snapshot().epochCause)
+                assertTrue(r.source.snapshot().pending.isEmpty())
+                assertEquals(1, receiverGateEntries)
+                assertEquals(2, r.receiverStore.writes - writesBefore, "The receiver retains pending then commits the exact original")
+                val retained = r.ledger.status()
+                assertEquals(original.id, retained.entries.single().event.id)
+                val bytes = original.toJson().toString().toByteArray(Charsets.UTF_8).size
+                assertEquals(bytes * retained.entries.single().nearby.attempts, retained.nearbyBytes)
+                assertEquals(bytes * retained.entries.single().internet.attempts, retained.internetBytes)
+                assertEquals(0, r.events(if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET)
+                    .count { it.kind == KIND_ROOM_REKEY && it.id != original.id })
+                r.live.sendChat("Fresh traffic after the exact echoed original")
+                runCurrent()
+                println("NATIVE_KEEPER_ECHO_MEASUREMENT " + buildJsonObject {
+                    put("route", route.stored); put("noticeId", original.id)
+                    put("receiverCause", r.vault.get(r.room.roomId)!!.activationCause)
+                    put("sourceEpoch", r.source.snapshot().epoch); put("receiverEpoch", r.live.epochKeys().epoch)
+                    put("nearbyAttempts", retained.entries.single().nearby.attempts)
+                    put("internetAttempts", retained.entries.single().internet.attempts)
+                    put("nearbyBytes", retained.nearbyBytes); put("internetBytes", retained.internetBytes)
+                    put("receiverGateEntries", receiverGateEntries); put("receiverWrites", r.receiverStore.writes - writesBefore)
+                    put("echoGatePaused", true); put("exactOriginal", true); put("freshChat", true)
+                    put("processDeath", false); put("participantReceipt", false)
+                })
+            } finally { release.complete(Unit); r.beforeFollowing = {}; r.stop() }
         }
     }
 
