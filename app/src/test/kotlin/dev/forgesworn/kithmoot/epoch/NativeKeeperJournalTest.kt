@@ -84,6 +84,8 @@ class NativeKeeperJournalTest {
             assertContentEquals(r.secret, body.secret); assertEquals(r.ends, body.endsAt); assertTrue(body.destruct)
             val renewedOwner = PrimaryIdentity.create(r.room.roomId, r.at + 3600, r.at,
                 participantSecretKey = Fixtures.key(5), deviceSecretKey = Fixtures.key(6))
+            assertNotNull(source.answerEpoch(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                renewedOwner.deviceSecretKey, renewedOwner.credential, r.at), RekeyLane.INTERNET))
             source.prepareRekey(listOf(renewedOwner.credential)); assertFalse(source.canHandoff(fresh)); assertNull(source.reserveWelcome())
         }
         r.open().use { source -> source.select(); assertNull(source.reserveWelcome()) }
@@ -264,6 +266,7 @@ class NativeKeeperJournalTest {
         r.create().use { journal ->
             journal.select()
             assertFails { journal.prepareRekey(r.credentials()) }
+            assertNotNull(journal.answerEpoch(r.epochRequest(), RekeyLane.NEARBY))
             journal.approve(r.member.participant)
             assertFails { journal.prepareRekey(listOf(r.member.credential)) }
             assertFails { journal.prepareRekey(r.credentials(), removed = listOf(r.owner.participant)) }
@@ -333,6 +336,7 @@ class NativeKeeperJournalTest {
             r.create().use { journal ->
                 journal.select(); assertFails { journal.bind { true } }
                 val send = assertNotNull(journal.answer(r.request(), RekeyLane.NEARBY))
+                assertNotNull(journal.answerEpoch(r.epochRequest(), RekeyLane.NEARBY))
                 val entered = CountDownLatch(1); val release = CountDownLatch(1)
                 r.store.beforeWrite = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
                 val write = executor.submit { journal.approve(r.member.participant) }
@@ -542,7 +546,10 @@ class NativeKeeperJournalTest {
         val peer = session(room, member, relay, authority = binding.authority, epochGate = { _, _ -> EpochGateResult.COMMITTED })
         var journal = NativeKeeperJournal.create(store, binding, creation, owner.credential) { currentTime / 1000 }
         try {
-            receiver.join(); peer.join(); runCurrent(); journal.select(); journal.approve(member.participant)
+            receiver.join(); peer.join(); runCurrent(); journal.select()
+            assertNotNull(journal.answerEpoch(encodeEpochRequest(room.roomId, binding.authority, room.roomKey,
+                member.deviceSecretKey, member.credential, currentTime / 1000), RekeyLane.INTERNET))
+            journal.approve(member.participant)
             val challenge = encodeLivePersistentRequest(LivePersistentContext(invitation, room.roomId), Fixtures.key(31), 0)
             assertNotNull(journal.answer(challenge, RekeyLane.INTERNET))
             val original = journal.prepareRekey(listOf(owner.credential, member.credential)).single()
@@ -584,6 +591,28 @@ class NativeKeeperJournalTest {
                 put("internetDebtPreserved", before.internetBytes == journal.snapshot().internetBytes - answer.event.toCompactJson().toByteArray(Charsets.UTF_8).size - epochAnswer.event.toCompactJson().toByteArray(Charsets.UTF_8).size)
                 put("freshRowsEach", peer.chat.value.size); put("processDeath", false)
             })
+            // A real committed removal leaves the old binding as a tombstone,
+            // and an independently signed new participant cannot remap it.
+            val removal = journal.prepareRekey(listOf(owner.credential), removed = listOf(member.participant)).single()
+            val removing = assertNotNull(journal.reservePending(removal.id, RekeyLane.INTERNET))
+            relay.publish(removing.event); runCurrent(); journal.offered(removing)
+            assertTrue(journal.completePending(vault, receiver)); assertEquals(2, journal.epoch().epoch)
+            assertFalse(journal.canHandoff(epochAnswer))
+            journal.close(); journal = NativeKeeperJournal.open(store, binding) { currentTime / 1000 }; journal.select()
+            val devices = Json.parseToJsonElement(store.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("devices").jsonArray
+            val tombstone = devices.single { it.jsonObject.getValue("device").jsonPrimitive.content == member.devicePubkey }.jsonObject
+            assertEquals(member.participant, tombstone.getValue("participant").jsonPrimitive.content)
+            assertTrue(tombstone.getValue("removed").jsonPrimitive.boolean)
+            val trying = encodeEpochRequest(room.roomId, binding.authority, room.roomKey, member.deviceSecretKey, member.credential, 0)
+            val rejection = assertNotNull(journal.answerEpoch(trying, RekeyLane.INTERNET))
+            assertEquals(EpochGrant.Refused("removed"), decodeEpochGrant(rejection.event, room.roomId, binding.authority,
+                member.deviceSecretKey, trying.id, 0))
+            val remapped = createDeviceCredential(Fixtures.key(13), member.devicePubkey, room.roomId, 10_000, 0)
+            val attempt = encodeEpochRequest(room.roomId, binding.authority, room.roomKey, member.deviceSecretKey, remapped, 0)
+            assertNotNull(journal.answerEpoch(attempt, RekeyLane.INTERNET))
+            val beforeRemap = store.bytes!!.clone()
+            assertFails { journal.approve(remapped.pubkey) }; assertTrue(beforeRemap.contentEquals(store.bytes))
+            assertTrue(journal.snapshot().pending.isEmpty()); assertFalse(journal.persistenceFailed())
         } finally { journal.close(); receiver.leave(); peer.leave(); secret.fill(0) }
     }
 
@@ -601,7 +630,10 @@ class NativeKeeperJournalTest {
         val peer = session(room, member, relay, authority = binding.authority, epochGate = { _, _ -> EpochGateResult.COMMITTED })
         var journal = NativeKeeperJournal.create(store, binding, creation, owner.credential) { 0 }
         try {
-            keeper.join(); peer.join(); runCurrent(); journal.select(); journal.approve(member.participant)
+            keeper.join(); peer.join(); runCurrent(); journal.select()
+            assertNotNull(journal.answerEpoch(encodeEpochRequest(room.roomId, binding.authority, room.roomKey,
+                member.deviceSecretKey, member.credential, 0), RekeyLane.INTERNET))
+            journal.approve(member.participant)
             val original = journal.prepareRekey(listOf(owner.credential, member.credential)).single()
             val send = assertNotNull(journal.reservePending(original.id, RekeyLane.INTERNET))
             relay.publish(original); runCurrent(); journal.offered(send)

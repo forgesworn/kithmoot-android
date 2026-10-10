@@ -224,7 +224,12 @@ class NativeKeeperControllerTest {
         r.link.onOffer = { bytes -> backgroundScope.launch { peerLink.receive?.invoke(bytes, "fixture-owner") } }
         peerLink.onOffer = { bytes -> backgroundScope.launch { r.link.receive?.invoke(bytes, "fixture-peer") } }
         try {
-            r.start(); peer.join(); runCurrent(); r.controller!!.approve(r.member.participant)
+            r.start(); peer.join(); runCurrent()
+            val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000)
+            r.inject(ask, RekeyLane.NEARBY); runCurrent()
+            assertEquals(listOf(r.member.participant), r.source.unknownParticipants())
+            r.controller!!.approve(r.member.participant)
             r.link.up = false
             r.controller!!.rekey(listOf(r.owner.credential, r.member.credential)); runCurrent()
             val original = r.ledger.status().entries.single().event
