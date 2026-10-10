@@ -78,7 +78,18 @@ internal fun ArtworkTray(
     fun closeSearch() { query = ""; searchOpen = false; focus.clearFocus(); keyboard?.hide() }
     BackHandler { if (searchOpen) closeSearch() else onClose() }
     DisposableEffect(Unit) { onDispose { onSearchChanged(false) } }
-    LaunchedEffect(searchOpen, compactSearch) { onSearchChanged(searchOpen); if (searchOpen) { searchFocus.requestFocus(); keyboard?.show() } }
+    LaunchedEffect(searchOpen, compactSearch) {
+        onSearchChanged(searchOpen)
+        if (searchOpen) {
+            searchFocus.requestFocus()
+            keyboard?.show()
+        } else {
+            // Apply the tray's focus state after composition, as well as in the
+            // opener's click handler, so the draft cannot retain its keyboard.
+            focus.clearFocus()
+            keyboard?.hide()
+        }
+    }
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 2.dp) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
