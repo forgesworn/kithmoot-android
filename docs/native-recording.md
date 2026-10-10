@@ -263,13 +263,29 @@ channel/key and acceptance under the new fixture epoch. Its transport is a
 synthetic acknowledgement fixture, not a real peer. Actual saved-room reopening
 and the retry banner through process death still need UI qualification.
 
-Quiet rooms are an additional open gate: `QuietTransport` has no guarded
-publication implementation. Its existing `publishConfirmed` means local
-queue retention, not relay delivery. Recording On must not authorise capture
-merely because it is queued for a later cadence slot. Implement delivery-aware
-recording notices and prepared recording Send through the quiet transport;
-preserve the cadence instead of bypassing it. This candidate is not qualified
-for quiet-room recording or sharing.
+Quiet rooms remain an open product gate. Ordinary `publishConfirmed` continues
+to mean local queue retention, not relay delivery. The separate guarded path
+waits for the underlying transport to confirm the exact event's gift wrap at
+its scheduled slot. It fences secure-update generations and rechecks the
+caller's ownership at dispatch. Guarded requests retain their queue position
+but are excluded from the saved queue and box handoff: recording drafts and
+the signed-stop journal already own their recovery. Cancellation, timeout,
+stop and rekey remove the temporary request, so restarting cannot replay an
+old recording On without its owner being checked again.
+
+Before dispatch, the transport persists spent counters and an occupied-slot
+marker. Restart honours that marker even when the receipt was unknown; an
+unconfirmed offer must not be replaced with a different wrap in the same slot.
+Rekey preserves the occupied slot too. Refused retries reuse the saved counter
+state without another storage write on each timer wake.
+A late receipt for an exact-event retry completes the currently valid owner
+of that same event. An ordinary queue owner's completion cannot silently
+consume a newer guarded request. Tests cover both ownership races.
+Recording On still must not authorise capture merely because it is queued.
+The caller's existing short confirmation timeout, waiting/cancellation UI,
+recording heartbeat timing, cadence wrapper and delegated box delivery need
+integration and qualification. This candidate is not qualified for quiet-room
+recording or sharing.
 
 The slot driver now requests durable publication confirmation through every
 underlying transport, including hybrid wrappers; it no longer substitutes a
@@ -278,8 +294,8 @@ the exact wrap and inner event for retry. After acceptance, the smaller queue
 is saved before the event is removed or the slot advances; a failed storage
 write therefore retries the same accepted wrap without spending another
 counter. Dedicated tests cover all three cases. This fixes slot delivery and
-retry ownership, but does not change the queue-retention meaning of ordinary
-`publishConfirmed` or implement guarded recording publication.
+retry ownership, without changing the queue-retention meaning of ordinary
+`publishConfirmed`.
 
 ## Member-rekey recovery release gate
 

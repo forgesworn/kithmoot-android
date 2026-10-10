@@ -224,13 +224,21 @@ class QuietTransportTest {
     fun `a failed durable removal preserves the accepted wrap for exact retry`() = runTest {
         val relay = FakeRelay()
         var storageLocked = false
-        val a = quiet(relay, ada, onState = { if (storageLocked) error("storage locked") })
+        val delegate = relay.transport()
+        var failAfterReceipt = true
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by delegate {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+                delegate.publishConfirmed(event, timeoutMs).also { if (failAfterReceipt) storageLocked = true }
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            onState = { if (storageLocked) error("storage locked") })
         val message = chat(ada, "persist the receipt before removal")
         a.publish(message)
-        storageLocked = true
         assertFailsWith<IllegalStateException> { a.tick() }
         assertEquals(listOf(message.id), a.queuedEvents().map { it.id })
         val accepted = relay.published.single()
+        failAfterReceipt = false
         storageLocked = false
         a.tick()
         assertEquals(0, a.pending)

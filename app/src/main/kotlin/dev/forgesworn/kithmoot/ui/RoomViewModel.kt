@@ -8339,6 +8339,7 @@ internal fun quietStateToJson(state: QuietTransport.QuietState): JsonObject = bu
     put("queued", buildJsonArray { for (e in state.queued) add(e.toJson()) })
     put("boxPending", buildJsonArray { for (id in state.boxPending.sorted()) add(JsonPrimitive(id)) })
     state.keyFingerprint?.let { put("keyFingerprint", it) }
+    if (state.offeredThroughSlot >= 0) put("offeredThroughSlot", state.offeredThroughSlot)
 }
 
 internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = runCatching {
@@ -8356,5 +8357,7 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
     require(boxPending.all { it.matches(Regex("[0-9a-f]{64}")) && it in retainedIds })
     val keyFingerprint = json["keyFingerprint"]?.jsonPrimitive?.content
     require(keyFingerprint == null || keyFingerprint.matches(Regex("[0-9a-f]{64}")))
-    QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint)
+    val offeredThroughSlot = json["offeredThroughSlot"]?.jsonPrimitive?.also { require(!it.isString) }?.long ?: -1L
+    require(offeredThroughSlot >= -1)
+    QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint, offeredThroughSlot)
 }.getOrNull()
