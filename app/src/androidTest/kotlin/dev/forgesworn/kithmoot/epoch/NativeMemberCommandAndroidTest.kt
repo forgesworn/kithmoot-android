@@ -14,6 +14,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.security.KeyStore
+import javax.crypto.SecretKey
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Actual selected controller, sessions and Keystore/AtomicFile vaults.
@@ -173,6 +174,18 @@ class NativeMemberCommandAndroidTest {
             }
         }
 
+        /** Diagnose only already-captured committed bytes, without invoking
+         * AtomicFile recovery or another courier owner. No plaintext is logged. */
+        fun courierDocument(sealed: ByteArray): JsonObject {
+            val alias = "kithmoot.keeper-rekeys." + Digests.sha256(queueBinding.owner.toByteArray()).toHex()
+            val bytes = RoomCipher(key = { create ->
+                check(!create)
+                requireNotNull(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(alias, null)) as SecretKey
+            }).decrypt(sealed)
+            try { return Json.parseToJsonElement(bytes.decodeToString()).jsonObject }
+            finally { bytes.fill(0) }
+        }
+
         suspend fun close() {
             selected = false
             try { controller?.stop() ?: run {
@@ -279,7 +292,24 @@ class NativeMemberCommandAndroidTest {
                 try { r.retryRetirement(r.hosting(), original.id) } catch (_: IllegalArgumentException) { refused = true }
                 assertTrue("A missing legacy original cannot be recreated", refused)
                 assertTrue(before.contentEquals(r.ciphertext(true)))
-                assertTrue(courier.contentEquals(r.ciphertext(false)))
+                val afterCourier = r.ciphertext(false)
+                try {
+                    if (!courier.contentEquals(afterCourier)) {
+                        val earlier = r.courierDocument(courier)
+                        val later = r.courierDocument(afterCourier)
+                        val fields = listOf("v", "pin", "high", "expired", "entries", "spends")
+                        val changed = fields.filter { earlier[it] != later[it] }
+                        println("NATIVE_RETIREMENT_COURIER_DIAGNOSTIC fields=${changed.joinToString(",")} " +
+                            "equal-except-high=${JsonObject(earlier - "high") == JsonObject(later - "high")} " +
+                            "high-increased=${later.getValue("high").jsonPrimitive.long > earlier.getValue("high").jsonPrimitive.long} " +
+                            "entries=${earlier.getValue("entries").jsonArray.size}->${later.getValue("entries").jsonArray.size} " +
+                            "spends=${earlier.getValue("spends").jsonArray.size}->${later.getValue("spends").jsonArray.size}")
+                        assertTrue("Courier ciphertext changed; fields=${changed.joinToString(",")}; " +
+                            "equal-except-high=${JsonObject(earlier - "high") == JsonObject(later - "high")}",
+                            courier.contentEquals(afterCourier))
+                    }
+                    assertTrue(courier.contentEquals(afterCourier))
+                } finally { afterCourier.fill(0) }
             } finally { before.fill(0); courier.fill(0) }
             r.live.sendChat("Host with missing old notice"); r.peer.sendChat("Approved member with missing old notice")
             await("paired chat with missing old notice") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }

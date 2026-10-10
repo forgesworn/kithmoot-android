@@ -34,6 +34,30 @@ class RoomRekeyLedgerTest {
         Events.sign(signer, KIND_ROOM_REKEY, at, tags, content, aux)
     private fun RoomRekeyLedger.select() = bind { true }
 
+    @Test fun emptyCourierMaintenancePersistsOnlyTheMonotoneClockWithoutCreatingCredit() {
+        val store = Store(); val b = binding(); var at = 1_000_000L
+        RoomRekeyLedger(store, b, { at }, true).use { box ->
+            box.select()
+            val before = Json.parseToJsonElement(store.bytes!!.decodeToString()).jsonObject
+            var writes = 0; store.beforeWrite = { writes++ }
+            at++
+            val current = box.status()
+            val after = Json.parseToJsonElement(store.bytes!!.decodeToString()).jsonObject
+            assertEquals(1, writes)
+            assertNotEquals(before, after)
+            assertEquals(JsonObject(before - "high"), JsonObject(after - "high"))
+            assertEquals(at, current.high)
+            assertTrue(current.entries.isEmpty())
+            assertEquals(0, current.nearbyBytes); assertEquals(0, current.internetBytes)
+        }
+        at--
+        RoomRekeyLedger(store, b, { at }).use { reopened ->
+            assertEquals(at + 1, reopened.status().high)
+            assertTrue(reopened.status().entries.isEmpty())
+            assertEquals(0, reopened.status().nearbyBytes); assertEquals(0, reopened.status().internetBytes)
+        }
+    }
+
     @Test fun missingCorruptPolicyMismatchAndCompetingOwnersCannotCreateFreshCredit() {
         val store = Store(); val b = binding()
         assertFails { RoomRekeyLedger(store, b, { 1_000_000 }) }
