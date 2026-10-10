@@ -147,8 +147,8 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         participantSecretKey = ByteArray(32).apply { this[31] = if (guest) 3 else 1 },
         deviceSecretKey = ByteArray(32).apply { this[31] = if (guest) 4 else 2 })
 
-    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false): RoomSession {
-        val who = identity(saved, at, guest)
+    suspend fun join(saved: SavedRoom, at: Long, guest: Boolean = false,
+        who: RoomIdentity = identity(saved, at, guest)): RoomSession {
         val transport = RoomMeshTransport(RoomNearbyDiscovery.scope(saved.id), object : RoomMeshLink {
             override fun subscribe(receive: (ByteArray, String) -> Unit): AutoCloseable {
                 listeners += receive; return AutoCloseable { listeners -= receive }

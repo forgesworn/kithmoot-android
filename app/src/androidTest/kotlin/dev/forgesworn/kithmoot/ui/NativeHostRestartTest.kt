@@ -7,7 +7,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.relay.RoomRoute
+import dev.forgesworn.kithmoot.session.SecondaryIdentity
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
@@ -27,6 +29,17 @@ class NativeHostRestartTest {
         if (spend["lane"]?.jsonPrimitive?.content == "INTERNET") spend.getValue("bytes").jsonPrimitive.int else 0
     }
     private fun bytes(event: NostrEvent) = event.toJson().toString().toByteArray(Charsets.UTF_8).size
+    private fun deviceBindings(source: JsonObject) = JsonArray(source.getValue("devices").jsonArray.map { raw ->
+        val device = raw.jsonObject
+        buildJsonObject {
+            put("participant", device.getValue("participant")); put("device", device.getValue("device"))
+            put("credential", device.getValue("credential").jsonObject.getValue("id"))
+            put("verifiedAt", device.getValue("verifiedAt")); put("removed", device.getValue("removed"))
+        }
+    })
+    private fun identities(devices: JsonArray) = JsonArray(devices.map { raw ->
+        JsonObject(raw.jsonObject.filterKeys { it in setOf("participant", "device", "removed") })
+    })
 
     @Test fun a_prepare(): Unit = runBlocking {
         val f = NativeHostFixture()
@@ -53,6 +66,18 @@ class NativeHostRestartTest {
                 peer.chat.value.count { it.body == "host before active kill" } == 1 &&
                     f.model.room.value.chat.count { it.body == "member before active kill" } == 1
             }
+            // A second qualified device of the approved peer goes offline
+            // before death. Its binding must outlive the request/online roster.
+            val offlineKey = ByteArray(32).apply { this[31] = 5 }
+            val offlineCredential = who.enrol(Schnorr.publicKeyHex(offlineKey), saved.id, at + 3600, at)
+            val offlineIdentity = requireNotNull(SecondaryIdentity.adopt(offlineCredential, offlineKey, saved.id, at))
+            try {
+                val offline = withTimeout(30_000) { f.join(saved, at, who = offlineIdentity) }
+                offline.leave()
+            } finally { offlineKey.fill(0) }
+            NativeHostFixture.await("all three qualified devices are durable without another participant approval") {
+                deviceBindings(f.source(saved)).size == 3 && f.model.room.value.letInAsks.isEmpty()
+            }
             NativeHostFixture.await("original welcome has a durable ambiguous handoff") {
                 f.source(saved)["welcomeDelivery"] != JsonNull && f.relayWrites.any { it.kind == 1463 }
             }
@@ -75,6 +100,7 @@ class NativeHostRestartTest {
                 put("route", saved.route.stored); put("relays", JsonArray(saved.relays.map(::JsonPrimitive)))
                 put("welcome", original.toJson()); put("peerCreatedAt", at); put("peer", who.participant)
                 put("attempts", attempts(source)); put("debt", debt(source)); put("high", source.getValue("high"))
+                put("devices", deviceBindings(source))
             }
             val checkpointBytes = expected.toString().toByteArray(Charsets.UTF_8)
             try { checkpoint.write(checkpointBytes) } finally { checkpointBytes.fill(0) }
@@ -102,7 +128,7 @@ class NativeHostRestartTest {
         val expected = try { Json.parseToJsonElement(checkpointBytes.toString(Charsets.UTF_8)).jsonObject }
             finally { checkpointBytes.fill(0) }
         require(expected.keys == setOf("pid", "port", "room", "pin", "participant", "device", "route", "relays",
-            "welcome", "peerCreatedAt", "peer", "attempts", "debt", "high"))
+            "welcome", "peerCreatedAt", "peer", "attempts", "debt", "high", "devices"))
         assertNotEquals(expected.getValue("pid").jsonPrimitive.int, Process.myPid())
         val f = NativeHostFixture(relayPort = expected.getValue("port").jsonPrimitive.int)
         try {
@@ -116,6 +142,8 @@ class NativeHostRestartTest {
             assertEquals(f.relays, saved.relays)
             val original = NostrEvent.fromJson(expected.getValue("welcome"))
             val held = f.source(saved) // No application owner, routes or source reconstruction yet.
+            assertEquals(expected.getValue("devices"), deviceBindings(held))
+            assertEquals(3, deviceBindings(held).size)
             assertEquals(original, welcome(held))
             assertEquals(original, NostrEvent.fromJson(held.getValue("welcome")))
             assertEquals(saved.nativeAuthority!!.pin, held.getValue("pin").jsonPrimitive.content)
@@ -139,6 +167,10 @@ class NativeHostRestartTest {
             }
             assertEquals(listOf(original), f.relayWrites.filter { it.id == original.id }.distinct())
             val after = f.source(saved)
+            // Reopening may qualify a fresh owner credential. It must preserve
+            // every binding/tombstone; the pre-open read above proves exact
+            // frozen qualification survived process death before any refresh.
+            assertEquals(identities(expected.getValue("devices").jsonArray), identities(deviceBindings(after)))
             assertEquals(original, welcome(after))
             assertTrue(attempts(after) > deathAttempts)
             assertEquals(bytes(original) * attempts(after), debt(after))
@@ -170,6 +202,8 @@ class NativeHostRestartTest {
                 putString("native_host_recovery_attempts_after_reopen", attempts(after).toString())
                 putString("native_host_recovery_debt_at_death", debt(held).toString())
                 putString("native_host_recovery_debt_after_reopen", debt(after).toString())
+                putString("native_host_recovery_devices_at_death", deviceBindings(held).size.toString())
+                putString("native_host_recovery_devices_after_reopen", deviceBindings(after).size.toString())
             })
         } finally { try { f.close() } finally { checkpoint.reset() } }
         assertNull(checkpoint.read())
