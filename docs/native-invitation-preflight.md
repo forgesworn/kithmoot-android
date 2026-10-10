@@ -16,6 +16,9 @@ Native creation canonicalises the full relay policy, checks the timestamp and
 decodeable safe-integer end, and measures the envelope against the source's
 event bound before either minting source runs. The existing factory delegates
 through that same policy gate to its real invitation/base entropy sources.
+The gate is private: application code cannot supply existing signing/base
+material. Refusal and wiping tests observe it through reflection and assert
+that it stays private, without introducing another authority-creation API.
 Failure after minting wipes the retained host buffers and any candidate base
 buffer. These checks will also supply the unsigned welcome layout needed by
 replacement's complete pending/completed file-capacity checks; those transaction
@@ -53,7 +56,7 @@ firmware change, public relay publication or M4 settings-reader operation is
 authorised or performed by these changes.
 
 Local validation freshly compiles both changed production files and four JVM
-test files against immutable compiled dependencies. The final **181 checks/ten
+test files against immutable compiled dependencies. The initial **181 checks/ten
 classes** pass in **88.275 s** total (**13.541 s** JUnit), with all 64 checked
 source hashes and read-only dependency hashes unchanged. All **59** actual signed
 envelopes equal the unsigned count; the largest measured supported envelope is
@@ -63,3 +66,12 @@ construction, whose source copies before checking its range. Invalid stored
 predecessors preserve retained bytes and release the failed authority owner.
 This is local qualification only; hosted Gradle/lint/APK/installed acceptance
 for this changed head is still required.
+
+Final review found that the initial minting observation seam was internal and
+could accept supplied signing/base material from application callers. Making
+it private passes the same **181 checks** and **59** envelope comparisons in
+**46.966 s** total (**6.926 s** JUnit), with all 65 checked source and read-only
+dependency hashes unchanged. That pass precedes the explicit private-modifier
+assertion and this documentation update; their verification is recorded
+separately in the mesh-kit-private lab receipt for the correction's own head.
+The earlier head's CI result cannot qualify the changed correction.

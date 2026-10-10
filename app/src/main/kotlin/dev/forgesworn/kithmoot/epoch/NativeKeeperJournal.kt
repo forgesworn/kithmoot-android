@@ -42,9 +42,9 @@ internal class NativeKeeperCreation private constructor(private val secret: Byte
             freshChecked(now, roomRelays, ends, destruct,
                 { createRoomInvitation(persistent = true) }, { Entropy.bytes(32) })
 
-        /** Production uses the real minting sources above. Keeping them behind
-         * this policy gate also lets refusal tests observe whether minting ran. */
-        internal fun freshChecked(now: Long, roomRelays: List<String>?, ends: Long?, destruct: Boolean,
+        /** Only fresh() can supply minting sources. No application caller may
+         * import existing signing/base material through this private gate. */
+        private fun freshChecked(now: Long, roomRelays: List<String>?, ends: Long?, destruct: Boolean,
             createHost: () -> RoomInvitationHost, createSecret: () -> ByteArray): NativeKeeperCreation {
             require(now in 0..KEEPER_MAX_TIME)
             // Signed invitation URLs have a different canonical root-path form

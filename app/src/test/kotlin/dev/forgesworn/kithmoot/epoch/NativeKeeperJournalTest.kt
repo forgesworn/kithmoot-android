@@ -9,6 +9,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
 import org.junit.Test
+import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -52,6 +53,20 @@ class NativeKeeperJournalTest {
     }
     private fun NativeKeeperJournal.select() = bind { true }
 
+    /** Observe the private minting boundary without adding an application API
+     * that could reconstruct authority from supplied signing/base material. */
+    private fun observedCreation(now: Long, relays: List<String>?, ends: Long?, destruct: Boolean,
+        createHost: () -> RoomInvitationHost, createSecret: () -> ByteArray): NativeKeeperCreation {
+        val method = NativeKeeperCreation.Companion.javaClass.declaredMethods.single {
+            it.name == "freshChecked" && it.parameterCount == 6
+        }
+        assertTrue(java.lang.reflect.Modifier.isPrivate(method.modifiers))
+        method.isAccessible = true
+        return try { method.invoke(NativeKeeperCreation.Companion, now, relays, ends, destruct,
+            createHost, createSecret) as NativeKeeperCreation }
+        catch (error: InvocationTargetException) { throw error.targetException }
+    }
+
     @Test fun invalidCreationPoliciesRefuseBeforeEitherMintingSourceRuns() {
         data class Policy(val at: Long = 1000, val ends: Long? = null, val relays: List<String>? = null)
         val policies = listOf(Policy(at = -1), Policy(at = Long.MAX_VALUE),
@@ -62,7 +77,7 @@ class NativeKeeperJournalTest {
         for (policy in policies) {
             var hosts = 0; var secrets = 0
             assertFailsWith<IllegalArgumentException> {
-                NativeKeeperCreation.freshChecked(policy.at, policy.relays, policy.ends, true,
+                observedCreation(policy.at, policy.relays, policy.ends, true,
                     { hosts++; error("Host minting must not run") },
                     { secrets++; error("Secret entropy must not run") })
             }
@@ -74,7 +89,7 @@ class NativeKeeperJournalTest {
         var hosts = 0; var secrets = 0
         val host = createRoomInvitation(persistent = true)
         val secret = Fixtures.key(41)
-        NativeKeeperCreation.freshChecked(1000, listOf("WSS://FIXTURE.invalid", "wss://fixture.invalid/"), 1100, true,
+        observedCreation(1000, listOf("WSS://FIXTURE.invalid", "wss://fixture.invalid/"), 1100, true,
             { hosts++; host }, { secrets++; secret }).use { creation ->
             assertEquals(1, hosts); assertEquals(1, secrets)
             val invitation = creation.invitation()
@@ -99,7 +114,7 @@ class NativeKeeperJournalTest {
             val host = createRoomInvitation(persistent = true)
             val invalid = ByteArray(31) { 7 }
             assertFails {
-                NativeKeeperCreation.freshChecked(1000, null, null, false, { host }, {
+                observedCreation(1000, null, null, false, { host }, {
                     if (fail) error("Base entropy failed") else invalid
                 })
             }
