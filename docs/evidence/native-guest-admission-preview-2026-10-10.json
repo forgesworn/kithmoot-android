@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-10",
+  "branch": "feat/native-guest-admission-preview",
+  "foundationCommit": "fe9f5ffb2ecf9eacb24c890b07ebce85c811bd58",
+  "scope": "Explicit temporary-room guest preview, local device checks and guarded entry",
+  "implemented": true,
+  "publiclyShipped": false,
+  "physicalAcceptance": false,
+  "qualification": {
+    "protocol": {
+      "tests": 417,
+      "files": 68,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debugUnits": {
+      "tests": 1949,
+      "files": 224,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "releaseUnits": {
+      "tests": 1949,
+      "files": 224,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "finalDebugBuild": true,
+    "finalReleaseBuild": true,
+    "finalDebugLint": true,
+    "finalReleaseLint": true,
+    "emulator": {
+      "serial": "emulator-5584",
+      "tests": 24,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 69.147,
+      "entryViewModelCases": 4,
+      "previewUiCases": 8,
+      "existingAdmissionCases": 6,
+      "nearbyEntryCases": 6,
+      "actualWebSockets": "loopback MockWebServer",
+      "hostReplies": "signed synthetic host",
+      "localDeviceInputs": "fakes",
+      "fontScale": 1.6,
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "wholeRequestAndCloseBoundsCheckedAgainstPhysicalDisplay": true,
+      "installedBytes": {
+        "serial": "emulator-5584",
+        "debugOnly": true,
+        "version": "0.6.80",
+        "versionCode": 103,
+        "resignedWithExistingM1DebugKey": true,
+        "packages": [
+          {
+            "package": "dev.forgesworn.kithmoot",
+            "bytes": 117387825,
+            "sha256": "52e7bccbd380eef05a8b1a7e2aa91533f162e78a626b5dd7d6d611f6ebfd7470",
+            "exactInstalledBytes": true
+          },
+          {
+            "package": "dev.forgesworn.kithmoot.test",
+            "bytes": 5016614,
+            "sha256": "53073a6b057bbd9fe9b138e2fd5b694c9b04051f70a80fd2e9bf017af4cf7c82",
+            "exactInstalledBytes": true
+          }
+        ]
+      }
+    }
+  },
+  "checks": [
+    "Opening a new temporary invitation does not contact its relay or publish admission",
+    "Repeated request taps produce one immutable signed request",
+    "Waiting follows a real relay acknowledgement",
+    "Cancellation closes the request collector and ignores a late grant",
+    "Only authenticated matching refusal ends the current request",
+    "Retry retains the name and requires another deliberate request",
+    "Signed admission opens one saved room and leaving returns home",
+    "Local device checks stop before request, late permissions cannot restart inputs",
+    "An existing call keeps its inputs out of the preview"
+  ],
+  "remainingAcceptance": [
+    "Physical camera and microphone capture and permission refusal",
+    "Physical keyboard, background and lifecycle checks",
+    "Cross-client host and guest acceptance with unfamiliar users",
+    "Offline and background hosts, expired links and anonymous creation",
+    "Full G17 acceptance and native call recording remain open"
+  ]
+}
