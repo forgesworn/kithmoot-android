@@ -86,7 +86,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require("host" !in json) { "Legacy hosting requires explicit authority transfer" }
         val binding = source.binding
         val state = source.snapshot()
-        require(state.suspended && state.phase == KeeperPhase.ACTIVE && state.epoch == 0 && state.pending.isEmpty() && state.cause == null)
+        require(state.suspended && state.phase == KeeperPhase.ACTIVE && state.epoch == 0 && state.pending.isEmpty() && state.cause == null &&
+            state.invitationGeneration == 0 && state.replacement == null)
         require(!retired && !movedOn && !anonymous && !secondary)
         val payload = requireNotNull(invitation).invitation
         val sourceInvitation = source.invitation()
@@ -110,15 +111,22 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     /** Checks the actual independent source after open; saved fields cannot recreate it. */
     internal fun verifyNativeAuthority(source: NativeKeeperJournal) {
         require(source.binding.pin == requireNotNull(nativeAuthority).pin)
+        val before = source.snapshot()
+        require(NativeKeeperReference.generation(json.getValue("nativeAuthority")) == before.invitationGeneration) {
+            "Saved invitation generation does not match the native source"
+        }
         val payload = requireNotNull(invitation).invitation
-        val sourceInvitation = source.invitation()
         try {
-            require(payload == sourceInvitation) { "Saved invitation does not match the native source" }
-            val welcome = requireNotNull(decodePersistentInvitation(source.welcome(), payload))
-            val savedSecret = secret
-            try { require(welcome.secret.contentEquals(savedSecret)) }
-            finally { welcome.secret.fill(0); savedSecret.fill(0) }
-        } finally { sourceInvitation.bearer.fill(0) }
+            val sourceInvitation = source.invitation()
+            try {
+                require(payload == sourceInvitation) { "Saved invitation does not match the native source" }
+                val welcome = requireNotNull(decodePersistentInvitation(source.welcome(), payload))
+                val savedSecret = secret
+                try { require(welcome.secret.contentEquals(savedSecret)) }
+                finally { welcome.secret.fill(0); savedSecret.fill(0) }
+            } finally { sourceInvitation.bearer.fill(0) }
+        } finally { payload.bearer.fill(0) }
+        require(source.snapshot() == before) { "Source changed during reference verification" }
     }
     /**
      * The highest epoch this device has been told the room is at - by the

@@ -24,7 +24,8 @@ internal fun nativeHostingLine(hosting: NativeHostingState): String = when (host
         else -> "Hosting · epoch ${hosting.epoch}"
     }
     NativeHostingStatus.RECOVERING -> if (hosting.lifecycle == NativeHostingLifecycle.CLOSED)
-        "Room closure pending" else "Hosting update pending"
+        "Room closure pending" else if (hosting.replacementGeneration != null)
+        "Invitation replacement pending · existing members can chat" else "Hosting update pending"
     NativeHostingStatus.SUSPENDED -> "Hosting paused"
     NativeHostingStatus.FAILED -> "Hosting unavailable · reopen to inspect"
     NativeHostingStatus.CLOSED -> "Room closed"
@@ -36,10 +37,12 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
     onRemoveMember: ((NativeHostingState, String) -> Unit)? = null,
     onRetireInvitation: ((NativeHostingState) -> Unit)? = null,
     onResendRetirement: ((NativeHostingState, String) -> Unit)? = null,
-    onRecoverPending: ((NativeHostingState) -> Unit)? = null) {
+    onRecoverPending: ((NativeHostingState) -> Unit)? = null,
+    onReplaceInvitation: ((NativeHostingState) -> Unit)? = null) {
     var confirmation by remember(hosting.binding.pin) { mutableStateOf<NativeMemberConfirmation?>(null) }
     var invitationConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeInvitationConfirmation?>(null) }
     var recoveryConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeHostingState?>(null) }
+    var replacementConfirmation by remember(hosting.binding.pin) { mutableStateOf<NativeHostingState?>(null) }
     val enabled = hosting.canChangeMembers && !busy
     Column {
         Text(nativeHostingLine(hosting), style = MaterialTheme.typography.titleSmall)
@@ -66,6 +69,12 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             TextButton(onClick = { invitationConfirmation = NativeInvitationConfirmation(hosting, null) },
                 enabled = hosting.canRetireInvitation && !busy) { Text("Retire invitation") }
         }
+        if (onReplaceInvitation != null && hosting.lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED)) {
+            TextButton(onClick = { replacementConfirmation = hosting },
+                enabled = hosting.canReplaceInvitation && !busy, modifier = Modifier.testTag("native-replace-invitation")) {
+                Text("Replace invitation")
+            }
+        }
         if (onResendRetirement != null) hosting.retirementOriginals.forEachIndexed { index, id ->
             TextButton(onClick = { invitationConfirmation = NativeInvitationConfirmation(hosting, id) },
                 enabled = hosting.canResendRetirement && !busy, modifier = Modifier.testTag("native-resend-$id")) {
@@ -84,10 +93,31 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             }
         }
     }
+    replacementConfirmation?.let { expected ->
+        val current = !busy && expected.canReplaceInvitation && hosting.canReplaceInvitation &&
+            expected.binding == hosting.binding && expected.ownerGeneration == hosting.ownerGeneration &&
+            expected.revision == hosting.revision && expected.epoch == hosting.epoch &&
+            expected.lifecycle == hosting.lifecycle && expected.invitationGeneration == hosting.invitationGeneration &&
+            expected.replacementGeneration == hosting.replacementGeneration
+        AlertDialog(onDismissRequest = { replacementConfirmation = null },
+            title = { Text("Replace this invitation?") },
+            text = { Column {
+                Text("Stop admitting new people with the old link or nearby code and save a new invitation. Existing approved members keep chatting. The new invitation stays unavailable until the saved update completes; this does not confirm delivery to members.")
+                if (!current && !busy) Text("Room hosting changed. Close this confirmation and try again.")
+            } },
+            confirmButton = { TextButton(enabled = current, modifier = Modifier.testTag("native-confirm-replacement"), onClick = {
+                replacementConfirmation = null
+                onReplaceInvitation?.invoke(expected)
+            }) { Text("Replace link") } },
+            dismissButton = { TextButton(onClick = { replacementConfirmation = null }) { Text("Cancel") } },
+        )
+    }
     recoveryConfirmation?.let { expected ->
         val current = !busy && hosting.canRetry && expected.canRetry && expected.binding == hosting.binding &&
             expected.ownerGeneration == hosting.ownerGeneration && expected.revision == hosting.revision &&
             expected.epoch == hosting.epoch && expected.lifecycle == hosting.lifecycle &&
+            expected.invitationGeneration == hosting.invitationGeneration &&
+            expected.replacementGeneration == hosting.replacementGeneration &&
             expected.pendingOriginals == hosting.pendingOriginals
         AlertDialog(onDismissRequest = { recoveryConfirmation = null },
             title = { Text("Recover this saved update?") },
@@ -108,6 +138,8 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             request.expected.ownerGeneration == hosting.ownerGeneration &&
             request.expected.revision == hosting.revision && request.expected.epoch == hosting.epoch &&
             request.expected.lifecycle == hosting.lifecycle &&
+            request.expected.invitationGeneration == hosting.invitationGeneration &&
+            request.expected.replacementGeneration == hosting.replacementGeneration &&
             if (retiring) hosting.canRetireInvitation else hosting.canResendRetirement && request.original in hosting.retirementOriginals
         AlertDialog(onDismissRequest = { invitationConfirmation = null },
             title = { Text(if (retiring) "Retire this invitation?" else "Resend this invitation notice?") },
@@ -128,7 +160,9 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
         val current = enabled && request.expected.binding == hosting.binding &&
             request.expected.ownerGeneration == hosting.ownerGeneration &&
             request.expected.revision == hosting.revision && request.expected.epoch == hosting.epoch &&
-            request.expected.lifecycle == hosting.lifecycle
+            request.expected.lifecycle == hosting.lifecycle &&
+            request.expected.invitationGeneration == hosting.invitationGeneration &&
+            request.expected.replacementGeneration == hosting.replacementGeneration
         AlertDialog(onDismissRequest = { confirmation = null },
             title = { Text(if (request.participant == null) "Change the room key?" else "Remove this member?") },
             text = { Column {

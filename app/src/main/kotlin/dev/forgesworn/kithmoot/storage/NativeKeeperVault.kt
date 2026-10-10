@@ -22,6 +22,17 @@ internal class NativeKeeperVault private constructor(context: Context, private v
         try { savedRoom?.verifyNativeAuthority(source); return source }
         catch (error: Exception) { source.close(); throw error }
     }
+    /** Foreground entry alone can inspect an exact retained pending split.
+     * The entry still opens receiver/courier and actual index before routes. */
+    fun openForEntry(): NativeKeeperJournal {
+        val source = NativeKeeperJournal.open(storage, binding)
+        try {
+            val current = requireNotNull(savedRoom)
+            if (source.snapshot().replacement == null) current.verifyNativeAuthority(source)
+            else source.requirePendingIndex(current)
+            return source
+        } catch (error: Exception) { source.close(); throw error }
+    }
     fun forget() = NativeKeeperJournal.withInactiveOwner(binding.owner) { storage.reset() }
 
     companion object {

@@ -4,6 +4,8 @@ import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.session.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.storage.RoomRepository
+import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
@@ -125,6 +127,114 @@ class NativeKeeperJournalTest {
     }
 
     private fun keeperTestBytes(event: NostrEvent) = event.toCompactJson().toByteArray(Charsets.UTF_8).size
+
+    private fun replacementIndex(r: Rig, source: NativeKeeperJournal): RoomRepository {
+        val rooms = RoomRepository(Store())
+        rooms.save(SavedRoom.create(r.secret, r.owner, encodeInvitationUrl("https://fixture.invalid/join", r.invitation, r.binding.relays),
+            r.binding.relays, "Replacement fixture", r.at, ends = r.ends, host = null, authority = r.binding.authority, route = r.route)
+            .withNativeAuthority(source))
+        val q = RoomRekeyBinding(r.binding.room, r.binding.authority, r.binding.device, r.binding.meshScope, r.binding.relays, r.route)
+        RoomRekeyLedger(Store(), q, { r.at * 1000 }, true).use { source.recordCourierCreated(it) }
+        source.select()
+        return rooms
+    }
+
+    private fun observedReplacement(source: NativeKeeperJournal, proposal: NativeKeeperJournal.ReplacementProposal,
+        current: SavedRoom, onMint: () -> Unit) {
+        val method = NativeKeeperJournal::class.java.declaredMethods.single {
+            it.name == "prepareReplacementChecked" && it.parameterCount == 5
+        }
+        assertTrue(java.lang.reflect.Modifier.isPrivate(method.modifiers))
+        method.isAccessible = true
+        val bearer: () -> ByteArray = { onMint(); error("Refusal must precede bearer entropy") }
+        val welcome: (RoomInvitation, RoomAdmission, Long) -> NostrEvent = { _, _, _ -> onMint(); error("Refusal must precede welcome signing") }
+        val notice: (Long) -> NostrEvent = { onMint(); error("Refusal must precede notice signing") }
+        try { method.invoke(source, proposal, current, bearer, welcome, notice) }
+        catch (error: InvocationTargetException) { throw error.targetException }
+    }
+
+    @Test fun replacement_private_gate_refuses_foreign_stale_expired_and_changed_index_before_any_minting_or_write() {
+        for (fault in listOf("foreign", "stale", "expired", "index")) {
+            val r = Rig(RoomRoute.NEARBY, ends = 2000)
+            r.create().use { source ->
+                val rooms = replacementIndex(r, source)
+                val proposal = source.preflightReplacement(rooms)
+                val saved = rooms.get(r.binding.room)!!
+                when (fault) {
+                    "stale" -> assertNotNull(source.answer(r.request(), RekeyLane.NEARBY))
+                    "expired" -> r.at = 2000
+                }
+                val candidate = if (fault == "index") SavedRoom.decode(JsonObject(saved.json +
+                    ("joinUrl" to JsonPrimitive(saved.joinUrl.replace("https://fixture.invalid", "https://other.invalid"))))) else saved
+                val handle = if (fault == "foreign") NativeKeeperJournal.ReplacementProposal() else proposal
+                val bytes = r.store.bytes!!.clone(); var minting = 0; var writes = 0
+                r.store.beforeWrite = { writes++ }
+                assertFails { observedReplacement(source, handle, candidate) { minting++ } }
+                assertEquals(0, minting); assertEquals(0, writes)
+                assertContentEquals(bytes, r.store.bytes)
+                println("NATIVE_REPLACEMENT_REFUSAL fault=$fault entropyAndSigningCalls=0 writes=0 retainedBytesUnchanged=true")
+            }
+        }
+    }
+
+    @Test fun replacement_unsigned_preflight_preserves_source_and_one_use_handle_then_ambiguous_prepare_reopens_the_same_originals() {
+        val r = Rig(RoomRoute.NEARBY)
+        val rooms: RoomRepository
+        r.create().use { source ->
+            rooms = replacementIndex(r, source)
+            val before = r.store.bytes!!.clone()
+            var writes = 0; r.store.beforeWrite = { writes++ }
+            val proposal = source.preflightReplacement(rooms)
+            assertEquals(0, writes); assertContentEquals(before, r.store.bytes)
+            r.store.ambiguous = true
+            assertFails { source.prepareReplacement(proposal, rooms) }
+            assertTrue(source.persistenceFailed())
+            assertFails { source.invitation() }
+            assertEquals(1, writes)
+        }
+        r.store.ambiguous = false; r.store.beforeWrite = null
+        val retained = r.store.bytes!!.clone()
+        val pending = Json.parseToJsonElement(retained.toString(Charsets.UTF_8)).jsonObject.getValue("replacement")
+        r.open().use { source ->
+            assertContentEquals(retained, r.store.bytes)
+            assertEquals(0, source.snapshot().invitationGeneration)
+            assertEquals(1, source.snapshot().replacement!!.proposedGeneration)
+            assertFalse(source.canReadStoredInvitation())
+            source.requirePendingIndex(rooms.get(r.binding.room)!!)
+        }
+        assertEquals(pending, Json.parseToJsonElement(r.store.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("replacement"))
+        println("NATIVE_REPLACEMENT_MEASUREMENT case=ambiguous-prepare-return generation=0 proposedGeneration=1 exactOriginalsReopened=true preflightWrites=0 ownerWithdrawn=true participantReceipt=false")
+    }
+
+    @Test fun strict_pending_generation_reader_refuses_conflicting_material_maps_reference_and_stage_without_writing() {
+        val r = Rig(RoomRoute.NEARBY)
+        r.create().use { source ->
+            val rooms = replacementIndex(r, source)
+            source.prepareReplacement(source.preflightReplacement(rooms), rooms)
+        }
+        val original = r.store.bytes!!.clone()
+        val root = Json.parseToJsonElement(original.toString(Charsets.UTF_8)).jsonObject
+        val held = root.getValue("replacement").jsonObject
+        val proposed = held.getValue("proposed").jsonObject
+        val active = root.getValue("activeInvitation").jsonObject
+        val faults = listOf(
+            JsonObject(root + ("activeInvitation" to JsonObject(active + ("generation" to JsonPrimitive(1))))),
+            JsonObject(root + ("invitationHistory" to JsonArray(listOf(buildJsonObject { put("invitation", active); put("retirement", "11".repeat(32)) })))),
+            JsonObject(root + ("replacement" to JsonObject(held + ("proposed" to JsonObject(proposed + ("bearer" to active.getValue("bearer"))))))),
+            JsonObject(root + ("replacement" to JsonObject(held + ("proposed" to JsonObject(proposed + ("generation" to JsonPrimitive(2))))))),
+            JsonObject(root + ("replacement" to JsonObject(held + ("stage" to JsonPrimitive("INDEX_VERIFIED"))))),
+            JsonObject(root + ("replacement" to JsonObject(held + ("offered" to buildJsonObject { put("NEARBY:${"11".repeat(32)}", 1) })))),
+            JsonObject(root + ("replacement" to JsonObject(held + ("proposedReference" to held.getValue("previousReference"))))),
+            JsonObject(root + ("unexpected" to JsonPrimitive(true))),
+        )
+        for ((index, fault) in faults.withIndex()) {
+            r.store.bytes = fault.toString().toByteArray(Charsets.UTF_8)
+            val malformed = r.store.bytes!!.clone(); var writes = 0; r.store.beforeWrite = { writes++ }
+            assertFails { r.open() }; assertEquals(0, writes); assertContentEquals(malformed, r.store.bytes)
+            r.store.bytes = original.clone(); r.open().use { assertContentEquals(original, r.store.bytes) }
+            println("NATIVE_REPLACEMENT_REFUSAL fault=pending-schema-$index writes=0 retainedBytesUnchanged=true failedOwnerReleased=true")
+        }
+    }
 
     @Test fun committedInvitationAndWelcomeDeliveryKeepTheLegacyBytesAcrossColdReopen() {
         val r = Rig(RoomRoute.INTERNET)

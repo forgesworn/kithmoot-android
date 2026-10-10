@@ -27,16 +27,19 @@ data class NativeHostingState(
     val pendingOriginals: List<String> = emptyList(),
     val retirementOriginals: List<String> = emptyList(),
     val missingRetirementSlots: Int = 0,
+    val invitationGeneration: Int? = null,
+    val replacementGeneration: Int? = null,
 ) {
     val canRetry: Boolean get() = status == NativeHostingStatus.RECOVERING &&
         lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
         epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isNotEmpty()
     val canChangeMembers: Boolean get() = status == NativeHostingStatus.READY &&
         lifecycle in setOf(NativeHostingLifecycle.ACTIVE, NativeHostingLifecycle.RETIRED) &&
-        epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isEmpty()
+        epoch != null && revision != null && ownerGeneration != null && pendingOriginals.isEmpty() && replacementGeneration == null
     val canShareInvitation: Boolean get() = canChangeMembers && lifecycle == NativeHostingLifecycle.ACTIVE
     val canRetireInvitation: Boolean get() = canShareInvitation
-    val canResendRetirement: Boolean get() = canChangeMembers && lifecycle == NativeHostingLifecycle.RETIRED &&
+    val canReplaceInvitation: Boolean get() = canChangeMembers && invitationGeneration != null && missingRetirementSlots == 0
+    val canResendRetirement: Boolean get() = canChangeMembers &&
         retirementOriginals.isNotEmpty()
     fun paused() = copy(status = if (status == NativeHostingStatus.FAILED) status else NativeHostingStatus.SUSPENDED)
 

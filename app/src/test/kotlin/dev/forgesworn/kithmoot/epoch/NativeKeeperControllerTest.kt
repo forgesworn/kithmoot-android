@@ -4,6 +4,8 @@ import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.*
 import dev.forgesworn.kithmoot.session.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.storage.RoomRepository
+import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.support.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
@@ -122,10 +124,21 @@ class NativeKeeperControllerTest {
         var ledger = RoomRekeyLedger(queueStore, queueBinding, { test.currentTime }, true)
         var selected = true
         var controller: NativeKeeperController? = null
+        val indexStore = Store()
+        val index = RoomRepository(indexStore)
+        var replacementIndexEnabled = false
+        fun enableReplacement() {
+            source.recordCourierCreated(ledger)
+            index.save(SavedRoom.create(secret, owner, encodeInvitationUrl("https://fixture.invalid/join", invitation, binding.relays),
+                binding.relays, "Generation fixture", 0, host = null, authority = binding.authority, route = route).withNativeAuthority(source))
+            replacementIndexEnabled = true
+        }
         suspend fun start(parent: CoroutineScope = test.backgroundScope) {
             internet?.start(); test.runCurrent(); sockets.openAll(); test.runCurrent()
             live.join(); test.runCurrent()
-            controller = NativeKeeperController.start(source, vault, live, ledger, NativeKeeperEndpoints(queueBinding, mesh, internet),
+            controller = if (replacementIndexEnabled) NativeKeeperController.startForRoom(source, vault, live, ledger,
+                NativeKeeperEndpoints(queueBinding, mesh, internet), parent, { selected }, index, StandardTestDispatcher(test.testScheduler))
+            else NativeKeeperController.start(source, vault, live, ledger, NativeKeeperEndpoints(queueBinding, mesh, internet),
                 parent, { selected }, StandardTestDispatcher(test.testScheduler))
             test.runCurrent()
         }
@@ -139,6 +152,208 @@ class NativeKeeperControllerTest {
         suspend fun stop() {
             controller?.stop() ?: run { source.close(); ledger.close() }
             live.leave(); mesh?.close(); internet?.stop(); secret.fill(0); invitation.bearer.fill(0)
+        }
+    }
+
+    @Test fun two_real_replacements_reopen_the_oldest_cache_and_resend_its_notice_without_changing_chat_epoch() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            val originalRequest = encodeLivePersistentRequest(LivePersistentContext(r.invitation, r.room.roomId), Fixtures.key(31), currentTime / 1000)
+            val originalAnswer = assertNotNull(r.source.answer(originalRequest, RekeyLane.NEARBY))
+            r.controller!!.retry(); runCurrent()
+            val originalEpoch = r.source.epoch()
+            val stale = r.controller!!.hosting.value
+            repeat(2) {
+                r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+                assertEquals(it + 1, r.source.snapshot().invitationGeneration)
+                assertNull(r.source.snapshot().replacement)
+                assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            }
+            assertFalse(r.source.canHandoff(originalAnswer))
+            assertFalse(r.source.canHandoff(originalAnswer.copy(invitationGeneration = null)))
+            val before = r.sourceStore.bytes!!.clone()
+            assertNull(r.source.answer(originalRequest, RekeyLane.NEARBY, 0))
+            assertFailsWith<IllegalArgumentException> { r.controller!!.replaceObservedInvitation(stale) }
+            assertContentEquals(before, r.sourceStore.bytes)
+            r.live.sendChat("Same approved traffic after two invitation generations"); runCurrent()
+            val current = r.source.epoch()
+            try { assertEquals(originalEpoch.epoch, current.epoch); assertContentEquals(originalEpoch.secret, current.secret) }
+            finally { current.secret.fill(0); originalEpoch.secret.fill(0) }
+            r.controller!!.stop(); r.controller = null; r.live.leave()
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime }, false)
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            assertTrue(r.source.canReadStoredInvitation())
+            val restored = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+            assertEquals(6, restored.getValue("v").jsonPrimitive.int)
+            assertEquals(listOf(0, 1), restored.getValue("invitationHistory").jsonArray.map {
+                it.jsonObject.getValue("invitation").jsonObject.getValue("generation").jsonPrimitive.int })
+            val cached = restored.getValue("answers").jsonArray.single().jsonObject
+            assertEquals(originalAnswer.event.id, cached.getValue("answer").jsonObject.getValue("id").jsonPrimitive.content)
+            assertEquals(0, cached.getValue("generation").jsonPrimitive.int)
+            r.live = r.newSession(); r.start()
+            val newest = r.source.welcome().id
+            val oldNotice = r.source.snapshot().retirementOriginals.first()
+            val debt = r.source.snapshot().nearbyBytes
+            r.controller!!.retryObservedRetirement(r.controller!!.hosting.value, oldNotice); runCurrent()
+            assertEquals(newest, r.source.welcome().id)
+            assertEquals(2, r.source.snapshot().invitationGeneration)
+            assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+            assertTrue(r.source.snapshot().nearbyBytes > debt)
+            assertTrue(r.sockets.opened.isEmpty())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=two-generations-cold-oldest-cache generation=2 history=2 oldestCacheRetained=true trafficEpoch=0 historicalNoticeResent=true internetRequests=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun unavailable_lane_keeps_one_original_and_chat_epoch_then_recovers_with_current_index_metadata() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start(); r.link.up = false
+            r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            val pending = assertNotNull(r.source.snapshot().replacement)
+            assertEquals(0, r.source.snapshot().invitationGeneration)
+            assertIs<NativeKeeperController.State.Pending>(r.controller!!.state.value)
+            assertFalse(r.controller!!.canShareObservedInvitation(r.controller!!.hosting.value))
+            assertFalse(r.source.canReadStoredInvitation())
+            assertTrue(r.link.events().none { it.kind == KIND_GROUP_INVITATION || it.id == pending.retirement })
+            r.index.update(r.binding.room) { SavedRoom.decode(JsonObject(it.json + mapOf(
+                "name" to JsonPrimitive("Concurrent local name"), "pinned" to JsonPrimitive(true), "project" to JsonPrimitive("Current workspace")))) }
+            r.link.up = true
+            r.controller!!.retryObservedPending(r.controller!!.hosting.value); runCurrent()
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertEquals(pending.welcome, r.source.welcome().id)
+            assertEquals(listOf(pending.retirement), r.source.snapshot().retirementOriginals)
+            val actual = assertNotNull(r.index.get(r.binding.room))
+            assertEquals("Concurrent local name", actual.name); assertTrue(actual.pinned); assertEquals("Current workspace", actual.project)
+            actual.verifyNativeAuthority(r.source)
+            assertEquals(0, r.source.snapshot().epoch)
+            assertTrue(r.sockets.opened.isEmpty())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=unavailable-original-recovery generation=1 originalWelcomeRetained=true currentMetadataPreserved=true trafficEpoch=0 internetRequests=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun pending_write_failure_withdraws_the_owner_and_reopen_keeps_the_same_retained_originals() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            var wrote = false
+            r.sourceStore.onWrite = {
+                if (wrote) error("Lost next commit return")
+                wrote = true
+            }
+            assertFails { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+            runCurrent()
+            assertEquals(NativeKeeperController.State.Failed, r.controller!!.state.value)
+            r.controller!!.stop(); r.controller = null
+            r.sourceStore.onWrite = {}
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            val retained = assertNotNull(r.source.snapshot().replacement)
+            assertEquals(0, r.source.snapshot().invitationGeneration)
+            assertEquals(1, retained.proposedGeneration)
+            assertFalse(r.source.canReadStoredInvitation())
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=failed-next-write-reopen generation=0 proposedGeneration=1 originalRetained=true ownerWithdrawn=true participantReceipt=false")
+        } finally { r.sourceStore.onWrite = {}; r.stop() }
+    }
+
+    @Test fun fifteen_generations_keep_all_notices_refuse_sixteenth_and_preserve_the_terminal_archive_slot() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            repeat(15) { generation ->
+                advanceTimeBy(61_000); runCurrent()
+                r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+                assertEquals(generation + 1, r.source.snapshot().invitationGeneration)
+                assertEquals(generation + 1, r.source.snapshot().retirementOriginals.size)
+                assertEquals(0, r.source.snapshot().epoch)
+            }
+            val retained = r.sourceStore.bytes!!.clone()
+            val old = r.source.snapshot().retirementOriginals.toList()
+            assertFails { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+            assertContentEquals(retained, r.sourceStore.bytes)
+            r.controller!!.rekeyMembers(closed = true); runCurrent()
+            assertIs<NativeKeeperController.State.Closed>(r.controller!!.state.value)
+            assertEquals(16, r.source.snapshot().retirementOriginals.size)
+            assertEquals(old, r.source.snapshot().retirementOriginals.take(15))
+            assertEquals(15, r.source.snapshot().invitationGeneration)
+            r.controller!!.stop(); r.controller = null
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            assertEquals(KeeperPhase.CLOSED, r.source.snapshot().phase)
+            assertEquals(16, r.source.snapshot().retirementOriginals.size)
+            assertFalse(r.source.canReadStoredInvitation())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=full-history-terminal-reservation generations=15 retainedNotices=16 sixteenthReplacementRefused=true terminalColdReopen=true participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun retired_generation_reuses_the_exact_notice_without_automatic_resend_or_traffic_key_change() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            r.controller!!.retireObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            val notice = r.source.snapshot().retirementOriginals.single()
+            val archived = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("retirements")
+            val offered = r.events(RekeyLane.NEARBY).count { it.id == notice }
+            val secret = r.source.epoch()
+            r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+            assertEquals(listOf(notice), r.source.snapshot().retirementOriginals)
+            assertEquals(archived, Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("retirements"))
+            assertEquals(offered, r.events(RekeyLane.NEARBY).count { it.id == notice })
+            val after = r.source.epoch()
+            try { assertContentEquals(secret.secret, after.secret) } finally { secret.secret.fill(0); after.secret.fill(0) }
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=already-retired-original-reuse generation=1 exactArchiveAndAttemptsRetained=true automaticNoticeResends=0 trafficEpoch=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun every_mode_installs_real_next_invitation_filters_and_grants_base_welcome_at_the_unchanged_current_epoch() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = Rig(this, route)
+            try {
+                r.enableReplacement(); r.start(); r.acknowledge(); runCurrent()
+                r.controller!!.rekeyMembers(); runCurrent(); r.acknowledge(); runCurrent()
+                assertEquals(1, r.source.snapshot().epoch)
+                val epoch = r.source.epoch()
+                val sourceBefore = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                val oldRequest = encodeLivePersistentRequest(LivePersistentContext(r.invitation, r.room.roomId), Fixtures.key(31), currentTime / 1000)
+                val replacement = async { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                runCurrent()
+                repeat(4) { r.acknowledge(); runCurrent() }
+                assertTrue(replacement.isCompleted, "Actual selected lanes did not acknowledge the exact originals")
+                replacement.await()
+                assertEquals(1, r.source.snapshot().invitationGeneration)
+                assertEquals(1, r.source.snapshot().epoch)
+                assertNull(r.source.snapshot().replacement)
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                val sourceAfter = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                for (key in listOf("base", "signer", "epoch", "secret", "epochCause", "devices", "members", "removed"))
+                    assertEquals(sourceBefore.getValue(key), sourceAfter.getValue(key), "Replacement changed $key")
+                val current = r.source.epoch()
+                try { assertContentEquals(epoch.secret, current.secret) } finally { epoch.secret.fill(0); current.secret.fill(0) }
+                val next = r.source.invitation()
+                try {
+                    val requestKey = Fixtures.key(32)
+                    val context = LivePersistentContext(next, r.room.roomId)
+                    val request = encodeLivePersistentRequest(context, requestKey, currentTime / 1000)
+                    val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                    r.inject(request, lane); runCurrent(); r.acknowledge(); runCurrent()
+                    val grant = r.events(lane).last { it.kind == KIND_INVITATION_GRANT }
+                    val admission = assertNotNull(decodeLivePersistentAnswer(grant, context, request, requestKey, currentTime / 1000))
+                    try {
+                        assertContentEquals(r.secret, admission.admission.secret)
+                        assertEquals(0, admission.admission.epoch); assertEquals(1L, admission.epochHint)
+                    } finally { admission.admission.secret.fill(0); requestKey.fill(0) }
+                    val before = r.sourceStore.bytes!!.clone()
+                    r.inject(oldRequest, lane); runCurrent()
+                    assertContentEquals(before, r.sourceStore.bytes)
+                    if (!route.internet) assertTrue(r.sockets.opened.isEmpty())
+                    if (!route.nearby) assertTrue(r.link.offered.isEmpty())
+                    println("NATIVE_REPLACEMENT_MEASUREMENT case=selected-mode-current-epoch route=${route.stored} generation=1 trafficEpoch=1 actualNewFilterAnswered=true baseWelcomeAndCurrentEpochHint=true oldInvitationRequestRefused=true participantReceipt=false")
+                } finally { next.bearer.fill(0) }
+            } finally { r.stop() }
         }
     }
 

@@ -79,6 +79,7 @@ run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEn
 run_tests nearby-room-entry 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomEntryTest
 run_tests fresh-nearby-entry 6 -e class dev.forgesworn.kithmoot.ui.FreshNearbyEntryTest
 run_tests native-host-entry 11 -e class dev.forgesworn.kithmoot.ui.NativeHostEntryTest
+run_tests native-invitation-replacement 3 -e class dev.forgesworn.kithmoot.ui.NativeInvitationReplacementTest
 run_tests native-member-commands 5 -e class dev.forgesworn.kithmoot.epoch.NativeMemberCommandAndroidTest
 run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.NativeRetirementStoreRefusalTest
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest

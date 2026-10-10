@@ -351,6 +351,7 @@ internal fun ComposeContentTestRule.showNativeHost(f: NativeHostFixture) = setCo
             onChangeNativeRoomKey = f.model::changeNativeRoomKey,
             onRemoveNativeRoomMember = f.model::removeNativeRoomMember,
             onRetireNativeInvitation = f.model::retireNativeInvitation,
+            onReplaceNativeInvitation = f.model::replaceNativeInvitation,
             onResendNativeRetirement = f.model::resendNativeRetirement,
             onRecoverNativePending = f.model::recoverNativePendingUpdate,
             onCanShareInvitation = f.model::canShareRoomInvitation)

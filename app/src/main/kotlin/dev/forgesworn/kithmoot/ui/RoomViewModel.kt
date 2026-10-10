@@ -2699,12 +2699,17 @@ class RoomViewModel @JvmOverloads constructor(
      *  storage, handed straight to the share intent, and never kept in
      *  [StartState] or logged (design-home-rooms.md section 10). */
     suspend fun inviteLinkFor(id: String): String? = withContext(Dispatchers.IO) {
-        val saved = savedRooms.get(id) ?: return@withContext null
+        var saved = savedRooms.get(id) ?: return@withContext null
         val summary = saved.summary()
         if (!summary.canShareInvite) return@withContext null
         if (saved.nativeAuthority != null) {
             if (nativeKeeperEntry?.binding?.pin == saved.nativeAuthority?.pin) {
-                if (!canShareRoomInvitation(_room.value.nativeHosting)) return@withContext null
+                val expected = _room.value.nativeHosting ?: return@withContext null
+                if (!canShareRoomInvitation(expected)) return@withContext null
+                saved = try { nativeKeeperEntry?.sharingRoom(expected) ?: return@withContext null }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { return@withContext null }
+                if (!canShareRoomInvitation(expected)) return@withContext null
             } else {
                 val available = runCatching {
                     NativeKeeperVault.forSavedRoom(getApplication(), saved).open().use { it.canReadStoredInvitation() }
@@ -4151,16 +4156,17 @@ class RoomViewModel @JvmOverloads constructor(
             // rekey; pin the one its link names, as a fresh join would.
             .withInvitationAuthority()
             .withEpochHint(expectedEpoch)
-        val record = preparedRecord
+        var record = preparedRecord
         val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
         closeSession(keepEntry = true)
         oldSessionJob?.join()
         closingKeeper?.join(); closingKeeper = null
         closingNearby?.awaitClosed(); closingNearby = null
-        val nativeEntry = if (record.nativeAuthority == null) null else NativeKeeperEntry.open(record, roomEpochs,
-            { NativeKeeperVault.forSavedRoom(getApplication(), record).open() },
+        val nativeEntry = if (record.nativeAuthority == null) null else NativeKeeperEntry.openForRoom(record, roomEpochs, savedRooms,
+            { NativeKeeperVault.forSavedRoom(getApplication(), record).openForEntry() },
             { binding, initialise -> RoomRekeyVault(getApplication(), binding).open(initialise) })
         nativeKeeperEntry = nativeEntry
+        if (nativeEntry != null) record = requireNotNull(savedRooms.get(record.id)).opened(record.openedAt).keepingCredential(who)
         if (freshNearby == null) savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
@@ -4557,11 +4563,20 @@ class RoomViewModel @JvmOverloads constructor(
                 nativeKeeperController === controller && appVisible
             scope.launch {
                 controller.hosting.collect { hosting ->
+                    val share = if (attached() && hosting.canShareInvitation) withContext(Dispatchers.IO) {
+                        try { nativeEntry.sharingRoom(hosting) }
+                        catch (cancel: CancellationException) { throw cancel }
+                        catch (_: Exception) { null }
+                    } else null
+                    if (share != null && attached() && controller.hosting.value == hosting) {
+                        savedRoom = share
+                        _start.update { it.copy(savedRooms = savedRooms.list()) }
+                    }
                     _room.update { state ->
-                        if (attached() && state.roomId == record.id && state.nativeHosting?.binding?.pin == hosting.binding.pin)
+                        if (attached() && controller.hosting.value == hosting && state.roomId == record.id &&
+                            state.nativeHosting?.binding?.pin == hosting.binding.pin)
                             state.copy(nativeHosting = hosting,
-                                joinUrl = if (hosting.canShareInvitation && !record.retired)
-                                    selectedWebApp.roomLink(record.joinUrl) else "",
+                                joinUrl = share?.let { selectedWebApp.roomLink(it.joinUrl) }.orEmpty(),
                                 letInAsks = if (hosting.canShareInvitation) controller.unknownParticipants.value
                                     .map { p -> LetInAsk(p, letInLabel(p)) } else emptyList()) else state
                     }
@@ -7237,6 +7252,13 @@ class RoomViewModel @JvmOverloads constructor(
         "Invitation retired. Existing members can still chat."
     }
 
+    fun replaceNativeInvitation(expected: NativeHostingState) = runNativeCommand(expected,
+        { it.canReplaceInvitation }) {
+        it.replaceObservedInvitation(expected)
+        if (it.hosting.value.canShareInvitation) "Invitation replaced. Existing approved members can still chat."
+        else "Invitation replacement is saved and pending. Existing approved members can still chat."
+    }
+
     fun resendNativeRetirement(expected: NativeHostingState, id: String) = runNativeCommand(expected,
         { it.canResendRetirement && id in it.retirementOriginals }) {
         it.retryObservedRetirement(expected, id)
@@ -7267,6 +7289,8 @@ class RoomViewModel @JvmOverloads constructor(
                 if (!attached() || state.roomId != expected.binding.room || current == null ||
                     current.binding != expected.binding || current.revision != expected.revision ||
                     current.epoch != expected.epoch || current.lifecycle != expected.lifecycle ||
+                    current.invitationGeneration != expected.invitationGeneration ||
+                    current.replacementGeneration != expected.replacementGeneration ||
                     current.pendingOriginals != expected.pendingOriginals ||
                     current.ownerGeneration != expected.ownerGeneration || !allowed(current) || !allowed(expected)) {
                     _room.update { if (attached() && it.roomId == expected.binding.room)

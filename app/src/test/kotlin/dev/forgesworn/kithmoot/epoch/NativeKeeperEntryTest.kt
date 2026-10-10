@@ -86,6 +86,45 @@ class NativeKeeperEntryTest {
         }
     }
 
+    @Test fun displayed_invitation_uses_the_actual_completed_generation_and_refuses_a_rolled_back_index() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val indexStore = Store(); val index = RoomRepository(indexStore).also { it.save(r.saved) }
+        val entry = NativeKeeperEntry.openForRoom(r.saved, r.vault, index,
+            { NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }.also { r.source = it } },
+            { q, initialise -> RoomRekeyLedger(r.queueStore, q, { currentTime }, initialise) })
+        val link = Link(); val mesh = RoomMeshTransport(requireNotNull(r.binding.meshScope), link) { currentTime / 1000 }
+        val live = session(r.room, r.who, FakeRelay(), authority = r.binding.authority, transport = mesh,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED })
+        try {
+            live.holdKeeperStartup(); live.join()
+            val q = RoomRekeyBinding(r.binding.room, r.binding.authority, r.binding.device, r.binding.meshScope, r.relays, r.route)
+            val controller = entry.start(live, NativeKeeperEndpoints(q, mesh, null), backgroundScope, { true }, StandardTestDispatcher(testScheduler))
+            runCurrent()
+            val old = controller.hosting.value
+            assertEquals(r.saved.joinUrl, assertNotNull(entry.sharingRoom(old)).joinUrl)
+            val previousIndex = assertNotNull(indexStore.bytes).clone()
+            controller.replaceObservedInvitation(old); runCurrent()
+            val current = controller.hosting.value
+            assertEquals(1, current.invitationGeneration)
+            assertNull(entry.sharingRoom(old))
+            val share = assertNotNull(entry.sharingRoom(current))
+            assertNotEquals(r.saved.joinUrl, share.joinUrl)
+            assertEquals(index.get(r.binding.room)!!.joinUrl, share.joinUrl)
+            share.verifyNativeAuthority(r.source!!)
+            val nextIndex = assertNotNull(indexStore.bytes).clone()
+            val sourceBytes = assertNotNull(r.sourceStore.bytes).clone()
+            indexStore.bytes = previousIndex.clone()
+            assertFailsWith<IllegalArgumentException> { entry.sharingRoom(current) }
+            assertContentEquals(sourceBytes, r.sourceStore.bytes)
+            assertContentEquals(previousIndex, indexStore.bytes)
+            indexStore.bytes = nextIndex.clone()
+            assertEquals(share.joinUrl, assertNotNull(entry.sharingRoom(current)).joinUrl)
+            entry.close(); assertNull(entry.sharingRoom(current))
+            previousIndex.fill(0); nextIndex.fill(0); sourceBytes.fill(0)
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=source-qualified-displayed-link generation=1 previousObservationRefused=true rolledBackIndexRefused=true indexAndSourceUnchangedOnRefusal=true participantReceipt=false")
+        } finally { entry.stop(); live.leave(); mesh.close(); r.base.fill(0); r.invitation.bearer.fill(0) }
+    }
+
     @Test fun actualHeldJoinPublishesNoOrdinaryEventsUntilSourceReceiverSessionAgreementInEveryMode() = runTest {
         for (route in RoomRoute.entries) {
             val r = Rig(this, route); val entry = r.entry()

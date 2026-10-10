@@ -157,6 +157,7 @@ fun RoomScreen(
     onResendNativeRetirement: ((NativeHostingState, String) -> Unit)? = null,
     onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
     onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
+    onReplaceNativeInvitation: ((NativeHostingState) -> Unit)? = null,
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -328,7 +329,7 @@ fun RoomScreen(
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
                     onChangeNativeRoomKey, onRemoveNativeRoomMember, onRetireNativeInvitation, onResendNativeRetirement,
-                    onRecoverNativePending) }
+                    onRecoverNativePending, onReplaceNativeInvitation) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }

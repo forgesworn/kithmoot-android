@@ -7,6 +7,9 @@ import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.session.RoomEpochState
 import dev.forgesworn.kithmoot.session.RoomSession
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.storage.SavedRoom
+import dev.forgesworn.kithmoot.storage.NativeKeeperReference
+import dev.forgesworn.kithmoot.storage.RoomRepository
 import kotlinx.serialization.json.*
 import java.util.Base64
 import java.util.Collections
@@ -107,20 +110,28 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val revision: Long, val removed: List<String>, val members: List<String>, val cause: String?,
         val pending: List<NostrEvent>, val nearbyBytes: Int, val internetBytes: Int, val suspended: Boolean,
         val epochCause: String?, val retirementOriginals: List<String> = emptyList(), val missingRetirementSlots: Int = 0,
-        val deviceCount: Int = 0)
+        val deviceCount: Int = 0, val invitationGeneration: Int = 0,
+        val replacement: ReplacementStatus? = null)
     data class Handoff(val event: NostrEvent, val lane: RekeyLane, val attempt: Int, val pending: Boolean,
-        val archived: Boolean = false)
+        val archived: Boolean = false, val invitationGeneration: Int? = null, val replacement: Boolean = false)
+    enum class ReplacementStage { ORIGINALS_RETAINED, NOTICE_ARCHIVED, INDEX_VERIFIED }
+    data class ReplacementStatus(val previousGeneration: Int, val proposedGeneration: Int,
+        val previousInvitation: String, val proposedInvitation: String, val retirement: String,
+        val welcome: String, val stage: ReplacementStage)
     /** A constructed or foreign handle has no authority: only the source's
      * retained instance can be consumed, once, at its exact revision. */
     class RekeyProposal internal constructor()
     class RetirementProposal internal constructor()
+    class ReplacementProposal internal constructor()
+    private data class ReplacementPlan(val handle: ReplacementProposal, val revision: Long,
+        val epoch: Int, val phase: KeeperPhase, val generation: Int, val reference: JsonObject, val joinUrl: String)
     private data class RetirementPlan(val handle: RetirementProposal, val revision: Long, val epoch: Int, val phase: KeeperPhase)
     private data class RekeyPlan(val handle: RekeyProposal, val revision: Long, val epoch: Int, val phase: KeeperPhase,
         val credentials: List<NostrEvent>, val removed: List<String>, val closed: Boolean,
         val destruct: Boolean, val scheduled: Boolean)
     private data class RekeyAudience(val gone: List<String>, val members: List<String>, val devices: List<String>)
     private data class Cached(val request: NostrEvent, val answer: NostrEvent, val epoch: Int, val offers: Int,
-        val lane: RekeyLane, val handed: Boolean = false)
+        val lane: RekeyLane, val handed: Boolean = false, val generation: Int = 0)
     private data class Spend(val at: Long, val lane: RekeyLane?, val bytes: Int, val fresh: Boolean)
     private data class Pending(val events: List<NostrEvent>, val epoch: Int, val secret: ByteArray,
         val removed: List<String>, val members: List<String>, val phase: KeeperPhase, val at: Long,
@@ -130,7 +141,14 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     /** One invitation truth, with its delivery counters in the same commit.
      * Schema 4/5 still represent exactly their original generation zero. */
     private data class InvitationState(val bearer: ByteArray, val welcome: NostrEvent,
-        val delivery: WelcomeDelivery? = null)
+        val delivery: WelcomeDelivery? = null, val generation: Int = 0)
+    private data class InvitationHistory(val invitation: InvitationState, val retirement: String)
+    private data class Replacement(val proposed: InvitationState, val previousReference: JsonObject,
+        val previousJoinUrl: String, val proposedReference: JsonObject, val proposedJoinUrl: String,
+        val retirement: NostrEvent, val alreadyArchived: Boolean,
+        val stage: ReplacementStage = ReplacementStage.ORIGINALS_RETAINED,
+        val attempts: Map<String, Int> = emptyMap(), val offered: Map<String, Int> = emptyMap(),
+        val welcomeNextAt: Long = 0)
     private data class Device(val participant: String, val device: String, val credential: NostrEvent,
         val verifiedAt: Long, val removed: Boolean = false)
     private data class Retirement(val event: NostrEvent, val invitation: String, val epoch: Int,
@@ -141,7 +159,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null,
         val courierReady: Boolean = false,
         val devices: List<Device> = emptyList(), val retirements: List<Retirement> = emptyList(),
-        val legacyRetirementSlots: Int = 0)
+        val legacyRetirementSlots: Int = 0, val schema: Int = 5,
+        val history: List<InvitationHistory> = emptyList(), val replacement: Replacement? = null)
     private val lock = ReentrantLock()
     private val lease = Any()
     private lateinit var material: KeeperMaterial
@@ -155,6 +174,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private var proposal: RekeyPlan? = null
     private var rejectedProposal: RekeyPlan? = null
     private var retirementProposal: RetirementPlan? = null
+    private var replacementProposal: ReplacementPlan? = null
     @Volatile private var closed = false
     @Volatile private var failed = false
 
@@ -210,7 +230,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         Snapshot(data.phase, data.epoch, deriveEpoch(RoomEpoch(data.epoch, data.secret)).id, data.high, data.revision,
             data.removed.toList(), data.members.toList(), data.cause, data.pending?.events?.map(::keeperEvent).orEmpty(),
             debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause,
-            data.retirements.map { it.event.id }, data.legacyRetirementSlots, data.devices.size)
+            data.retirements.map { it.event.id }, data.legacyRetirementSlots, data.devices.size,
+            data.invitation.generation, data.replacement?.let { r -> ReplacementStatus(data.invitation.generation,
+                r.proposed.generation, invitationId(), invitationId(r.proposed), r.retirement.id,
+                r.proposed.welcome.id, r.stage) })
     }
     /** UI callback guard: no signing, storage IO, reservation or waiting. */
     fun canShareInvitation(revision: Long, epoch: Int): Boolean {
@@ -226,7 +249,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         catch (_: Exception) { false }
     }
     private fun invitationAvailable(revision: Long, epoch: Int): Boolean = !closed && !failed &&
-        data.courierReady && data.phase == KeeperPhase.ACTIVE && data.pending == null &&
+        data.courierReady && data.phase == KeeperPhase.ACTIVE && data.pending == null && data.replacement == null &&
         data.revision == revision && data.epoch == epoch && !ended(time())
 
     fun persistenceFailed() = failed
@@ -251,7 +274,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     /** Original Internet welcome only. Debt and backoff commit before any offer. */
     fun reserveWelcome(): Handoff? = lock.withLock {
         usable(); val at = time()
-        if (!allowed() || !binding.route.internet || data.phase != KeeperPhase.ACTIVE || data.pending != null || ended(at)) return@withLock null
+        if (!allowed() || !binding.route.internet || data.phase != KeeperPhase.ACTIVE || data.pending != null || data.replacement != null || ended(at)) return@withLock null
         var kept = data.invitation.delivery
         if (kept == null || at - kept.event.createdAt >= WELCOME_REFRESH_SECONDS) {
             val event = if (kept == null && at - data.invitation.welcome.createdAt < WELCOME_REFRESH_SECONDS) keeperEvent(data.invitation.welcome)
@@ -271,14 +294,14 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         val next = kept.copy(attempts = kept.attempts + 1,
             nextAt = at + minOf(300L, 5L * (1L shl minOf(6, kept.attempts))))
         if (!reserve(at, RekeyLane.INTERNET, keeperBytes(next.event), false, data.copy(invitation = data.invitation.copy(delivery = next)))) return@withLock null
-        Handoff(keeperEvent(next.event), RekeyLane.INTERNET, next.attempts, false)
+        Handoff(keeperEvent(next.event), RekeyLane.INTERNET, next.attempts, false, invitationGeneration = data.invitation.generation)
     }
 
     /** Only verified retained requests can become an approval card. No incoming pubkey guess. */
     fun unknownParticipants(): List<String> = lock.withLock {
         usable(); val at = time(); val baseKey = deriveRoom(material.base).roomKey
         try {
-            if (data.phase != KeeperPhase.ACTIVE) return@withLock emptyList()
+            if (data.phase != KeeperPhase.ACTIVE || data.replacement != null) return@withLock emptyList()
             data.answers.filter { it.epoch == data.epoch && it.request.kind == KIND_EPOCH_REQUEST && requestDeadline(it.request) > at }
                 .mapNotNull { decodeEpochRequest(it.request, binding.room, material.signer, baseKey, at)?.participant }
                 .filter { it !in data.members && it !in data.removed }.distinct().sorted()
@@ -292,8 +315,9 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             usable(); time(); check(data.pending == null) { "Original source transition still needs recovery" }
             data.copy(secret = data.secret.clone(), terminalPredecessor = data.terminalPredecessor?.let { RoomEpoch(it.epoch, it.secret) })
         }
+        var inspected: StoredRoomEpoch? = null
         try {
-            val receiver = requireNotNull(vault.get(binding.room))
+            val receiver = requireNotNull(vault.get(binding.room)).also { inspected = it }
             require(receiver.stableRoom == binding.room && receiver.authority == binding.authority &&
                 receiver.pending == null && receiver.removed == expected.removed)
             if (expected.phase == KeeperPhase.CLOSED) {
@@ -316,7 +340,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 usable(); time(); require(data.revision == expected.revision && data.pending == null) { "Source changed during receiver verification" }
                 expected.phase
             }
-        } finally { expected.secret.fill(0); expected.terminalPredecessor?.secret?.fill(0) }
+        } finally {
+            inspected?.currentSecret?.fill(0); inspected?.pending?.secret?.fill(0)
+            expected.secret.fill(0); expected.terminalPredecessor?.secret?.fill(0)
+        }
     }
 
     fun approve(participant: String) = lock.withLock {
@@ -361,7 +388,11 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
 
     /** A prepared answer is local durable reservation, never delivery. Replays
      * keep the same signature/expiry. Epoch changes cannot re-sign old requests. */
-    fun answer(requestEvent: NostrEvent, lane: RekeyLane): Handoff? = lock.withLock {
+    fun answer(requestEvent: NostrEvent, lane: RekeyLane): Handoff? = answer(requestEvent, lane, null)
+    fun answer(requestEvent: NostrEvent, lane: RekeyLane, generation: Int?): Handoff? = lock.withLock {
+        usable()
+        if (data.replacement != null || generation != null && generation != data.invitation.generation ||
+            requestEvent.tagValue("d") != invitationId()) return@withLock null
         reserveAnswer(requestEvent, lane, KIND_INVITATION_REQUEST) { at ->
             decodeLivePersistentRequest(requestEvent, LivePersistentContext(invitationUnlocked(), binding.room), at)
                 ?: return@reserveAnswer null
@@ -403,19 +434,22 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (keeperBytes(requestEvent) > 4096 || !reserve(at, null, 0, false)) return null
         val kept = data.answers.filter { requestDeadline(it.request) > at }
         val previous = kept.firstOrNull { it.request.id == requestEvent.id }
+        if (previous?.request?.kind == KIND_INVITATION_REQUEST && previous.generation != data.invitation.generation) return null
         if (previous != null && !epochAnswerAllowed(previous, at)) return null
         if (previous != null && (previous.request != requestEvent || previous.epoch != data.epoch || previous.offers >= 3 ||
                 answerDeadline(previous) <= at)) return null
         if (previous == null && (kept.size >= MAX_ANSWERS ||
                 data.spends.count { it.fresh && at - it.at <= 60 } >= 16)) return null
         val answer = previous?.answer ?: freshAnswer(at) ?: return null
-        val cached = Cached(keeperEvent(requestEvent), keeperEvent(answer), data.epoch, (previous?.offers ?: 0) + 1, lane)
+        val cached = Cached(keeperEvent(requestEvent), keeperEvent(answer), data.epoch, (previous?.offers ?: 0) + 1, lane,
+            generation = if (kind == KIND_INVITATION_REQUEST) data.invitation.generation else 0)
         if (requestDeadline(requestEvent) <= at || answerDeadline(cached) <= at) return null
         val next = data.copy(answers = kept.filter { it.request.id != requestEvent.id } + cached)
         if (!reserve(at, lane, keeperBytes(answer), false, next)) return null
-        return Handoff(keeperEvent(answer), lane, cached.offers, false)
+        return Handoff(keeperEvent(answer), lane, cached.offers, false,
+            invitationGeneration = cached.generation.takeIf { kind == KIND_INVITATION_REQUEST })
     }
-    private fun answerPhase(kind: Int) = if (kind == KIND_INVITATION_REQUEST) data.phase == KeeperPhase.ACTIVE
+    private fun answerPhase(kind: Int) = if (kind == KIND_INVITATION_REQUEST) data.phase == KeeperPhase.ACTIVE && data.replacement == null
         else kind == KIND_EPOCH_REQUEST && data.phase != KeeperPhase.CLOSED
     private fun requestDeadline(event: NostrEvent): Long = if (event.kind == KIND_INVITATION_REQUEST)
         event.tagValue("expiration")!!.toLong() else minOf(event.createdAt + EPOCH_MAX_AGE_SECONDS,
@@ -591,12 +625,251 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     fun prepareRetirement(): NostrEvent = prepareRetirement(preflightRetirement())
 
+    /** Issued against the actual index under its monitor. No entropy, signing,
+     * write, receiver hold or dispatch is part of this policy/capacity check. */
+    fun preflightReplacement(rooms: RoomRepository): ReplacementProposal = rooms.withNativeIndex(this) { current -> lock.withLock {
+        writable(); current.verifyNativeAuthority(this)
+        val at = time(); checkedReplacement(current.json.getValue("nativeAuthority").jsonObject, current.joinUrl, at)
+        ReplacementPlan(ReplacementProposal(), data.revision, data.epoch, data.phase, data.invitation.generation,
+            current.json.getValue("nativeAuthority").jsonObject, current.joinUrl).also { replacementProposal = it }.handle
+    } }
+
+    fun prepareReplacement(handle: ReplacementProposal, rooms: RoomRepository): ReplacementStatus =
+        rooms.withNativeIndex(this) { current -> prepareReplacementChecked(handle, current,
+            { Entropy.bytes(32) }, { invitation, policy, at -> encodePersistentInvitation(
+                RoomInvitationHost(invitation, material.signer), material.base, at,
+                ends = policy.endsAt, relays = policy.relays, destruct = policy.destruct) },
+            { at -> retirement(at, false, false) }) }
+
+    /** Private so an application caller cannot inject existing invitation material. */
+    private fun prepareReplacementChecked(handle: ReplacementProposal, current: SavedRoom, createBearer: () -> ByteArray,
+        makeWelcome: (RoomInvitation, RoomAdmission, Long) -> NostrEvent, makeRetirement: (Long) -> NostrEvent): ReplacementStatus = lock.withLock {
+        val plan = replacementProposal
+        require(plan != null && plan.handle === handle) { "Unissued or foreign replacement proposal" }
+        replacementProposal = null
+        writable(); val at = time()
+        require(plan.revision == data.revision && plan.epoch == data.epoch && plan.phase == data.phase &&
+            plan.generation == data.invitation.generation && current.json["nativeAuthority"] == plan.reference && current.joinUrl == plan.joinUrl) {
+            "Stale replacement proposal"
+        }
+        current.verifyNativeAuthority(this)
+        checkedReplacement(plan.reference, plan.joinUrl, at)
+        val policy = welcomePolicy(data.invitation)
+        var bearer: ByteArray? = null
+        try {
+            val nextBearer = createBearer().also { bearer = it }
+            require(nextBearer.size == 32 && (data.history.map { it.invitation } + data.invitation).none { it.bearer.contentEquals(nextBearer) })
+            val invitation = RoomInvitation(nextBearer, binding.authority, true)
+            val proposed = InvitationState(nextBearer, makeWelcome(invitation, policy, at), generation = data.invitation.generation + 1)
+            val notice = if (data.phase == KeeperPhase.RETIRED) currentRetirement().event else makeRetirement(at)
+            require(proposed.welcome.createdAt == at && keeperBytes(proposed.welcome) <= MAX_EVENT_BYTES && keeperBytes(notice) <= MAX_EVENT_BYTES)
+            val decoded = requireNotNull(decodePersistentInvitation(proposed.welcome, invitation))
+            try { require(decoded.secret.contentEquals(material.base) && decoded.endsAt == policy.endsAt &&
+                decoded.relays == policy.relays && decoded.destruct == policy.destruct) }
+            finally { decoded.secret.fill(0) }
+            val old = invitationOf(data.invitation)
+            try { require(decodeInvitationRetirement(notice, old) && notice.content == retirementBody(false, false) &&
+                notice.tags == retirementTags(invitationId()) && (data.phase == KeeperPhase.RETIRED || notice.createdAt == at)) }
+            finally { old.bearer.fill(0) }
+            val payload = requireNotNull(decodeInvitationUrl(plan.joinUrl))
+            val url = try { encodeInvitationUrl(plan.joinUrl.substringBefore('#'), invitation, payload.relays, payload.policy) }
+                finally { payload.invitation.bearer.fill(0) }
+            val r = Replacement(proposed, plan.reference, plan.joinUrl,
+                NativeKeeperReference.encode(binding, invitationId(proposed), proposed.generation), url, keeperEvent(notice),
+                data.phase == KeeperPhase.RETIRED)
+            val spent = data.spends.filter { at - it.at <= window(it.lane) }
+            val count = if (r.alreadyArchived) 1 else 2
+            save(data.copy(schema = 6, high = at, replacement = r,
+                spends = spent + List(count) { Spend(at, null, 0, true) }))
+            requireNotNull(snapshot().replacement)
+        } finally {
+            policy.secret.fill(0)
+            bearer?.let { candidate -> if (invitationBuffers(data).none { it === candidate }) candidate.fill(0) }
+        }
+    }
+
+    private fun currentRetirement() = data.retirements.single { it.invitation == invitationId() &&
+        it.event.content == retirementBody(false, false) }
+
+    private fun checkedReplacement(reference: JsonObject, url: String, at: Long) {
+        require(data.schema in setOf(5, 6) && data.legacyRetirementSlots == 0 && data.courierReady &&
+            data.invitation.generation < MAX_RETIREMENTS - 1 && data.history.size == data.invitation.generation)
+        validateReferenceLink(reference, url, data.invitation)
+        val alreadyArchived = data.phase == KeeperPhase.RETIRED
+        val notice = if (alreadyArchived) currentRetirement().event else {
+            retirementCapacity(terminal = false); retirementLayout(at, false, false)
+        }
+        val count = if (alreadyArchived) 1 else 2
+        val spent = data.spends.filter { at - it.at <= window(it.lane) }
+        require(spent.size + count <= MAX_SPENDS && spent.count { it.fresh && at - it.at <= 60 } + count <= 16) {
+            "Replacement exceeds source signing/spending budget"
+        }
+        val policy = welcomePolicy(data.invitation)
+        try {
+            val id = "1".repeat(64)
+            val tags = withRoomExpiration(listOf(listOf("d", id)), policy.endsAt)
+            val shell = NostrEvent(KIND_GROUP_INVITATION, at, tags, "", binding.authority, id, "0".repeat(128))
+            val size = persistentInvitationEventBytes(at, policy.endsAt, policy.relays, policy.destruct)
+            require(size <= MAX_EVENT_BYTES && keeperBytes(notice) <= MAX_EVENT_BYTES)
+            val welcome = shell.copy(content = "A".repeat(size - keeperBytes(shell)))
+            val proposed = InvitationState(ByteArray(32), welcome, generation = data.invitation.generation + 1)
+            val payload = requireNotNull(decodeInvitationUrl(url))
+            val nextUrl = try { encodeInvitationUrl(url.substringBefore('#'), RoomInvitation(proposed.bearer, binding.authority, true), payload.relays, payload.policy) }
+                finally { payload.invitation.bearer.fill(0) }
+            val maps = buildMap<String, Int> {
+                if (!alreadyArchived) RekeyLane.entries.filter(binding::permits).forEach { put("${it.name}:${notice.id}", 8) }
+                if (binding.route.internet) put("INTERNET:${welcome.id}", 8)
+            }
+            val r = Replacement(proposed, reference, url, NativeKeeperReference.encode(binding, id, proposed.generation),
+                nextUrl, notice, alreadyArchived, attempts = maps, offered = maps, welcomeNextAt = KEEPER_MAX_TIME)
+            // Include a full bounded spend array, all retained history/caches,
+            // complete per-original maps and maximum-width counters in BOTH files.
+            val maximalSpends = data.spends + List(MAX_SPENDS - data.spends.size) {
+                Spend(KEEPER_MAX_TIME, if (binding.route.internet) RekeyLane.INTERNET else RekeyLane.NEARBY, MAX_EVENT_BYTES, false)
+            }
+            val pending = data.copy(schema = 6, high = KEEPER_MAX_TIME, revision = KEEPER_MAX_TIME,
+                replacement = r, spends = maximalSpends)
+            replacementFits(pending)
+            replacementFits(replacementCompleted(pending.copy(retirements = if (alreadyArchived) data.retirements else
+                data.retirements + Retirement(notice, invitationId(), data.epoch,
+                    maps.filterKeys { it.substringAfter(':') == notice.id }, maps.filterKeys { it.substringAfter(':') == notice.id }))))
+        } finally { policy.secret.fill(0) }
+    }
+    private fun replacementFits(record: Record) {
+        val bytes = encode(record).toString().toByteArray(Charsets.UTF_8)
+        try { require(bytes.size <= MAX_FILE_BYTES) { "Replacement exceeds source file bound" } }
+        finally { bytes.fill(0) }
+    }
+    private fun replacementCompleted(record: Record): Record {
+        val r = requireNotNull(record.replacement)
+        val key = "INTERNET:${r.proposed.welcome.id}"
+        val delivery = r.attempts[key]?.let { WelcomeDelivery(keeperEvent(r.proposed.welcome), it,
+            r.welcomeNextAt, r.offered[key] != null) }
+        return record.copy(invitation = r.proposed.copy(delivery = delivery), phase = KeeperPhase.ACTIVE,
+            history = record.history + InvitationHistory(record.invitation, r.retirement.id),
+            replacement = null, cause = r.proposed.welcome.id, at = r.proposed.welcome.createdAt)
+    }
+
+    fun replacementOriginals(): List<NostrEvent> = lock.withLock {
+        usable(); val r = data.replacement ?: return@withLock emptyList()
+        (if (r.alreadyArchived) emptyList() else listOf(r.retirement)) + if (binding.route.internet) listOf(r.proposed.welcome) else emptyList()
+    }.map(::keeperEvent)
+
+    fun reserveReplacement(id: String, lane: RekeyLane): Handoff? = lock.withLock {
+        usable(); val at = time(); val r = data.replacement ?: return@withLock null
+        if (!allowed() || !binding.permits(lane) || ended(at) || r.stage == ReplacementStage.INDEX_VERIFIED) return@withLock null
+        val event = when {
+            id == r.retirement.id && !r.alreadyArchived && r.stage == ReplacementStage.ORIGINALS_RETAINED -> r.retirement
+            id == r.proposed.welcome.id && lane == RekeyLane.INTERNET && binding.route.internet && r.welcomeNextAt <= at -> r.proposed.welcome
+            else -> return@withLock null
+        }
+        if (r.offered.keys.any { it.substringAfter(':') == id }) return@withLock null
+        val key = "${lane.name}:$id"; val count = (r.attempts[key] ?: 0) + 1
+        if (count > 8) return@withLock null
+        val nextAt = if (event.kind == KIND_GROUP_INVITATION) at + minOf(300L, 5L * (1L shl minOf(6, count - 1))) else r.welcomeNextAt
+        val next = r.copy(attempts = r.attempts + (key to count), welcomeNextAt = nextAt)
+        if (!reserve(at, lane, keeperBytes(event), false, data.copy(replacement = next))) return@withLock null
+        Handoff(keeperEvent(event), lane, count, false, invitationGeneration = r.proposed.generation, replacement = true)
+    }
+    private fun canHandoffReplacement(h: Handoff): Boolean {
+        val r = data.replacement ?: return false
+        val key = "${h.lane.name}:${h.event.id}"
+        return !h.pending && !h.archived && h.invitationGeneration == r.proposed.generation && r.stage != ReplacementStage.INDEX_VERIFIED &&
+            r.attempts[key] == h.attempt && r.offered[key] != h.attempt &&
+            (h.event == r.retirement && !r.alreadyArchived && r.stage == ReplacementStage.ORIGINALS_RETAINED ||
+                h.event == r.proposed.welcome && h.lane == RekeyLane.INTERNET)
+    }
+    private fun replacementCustody(r: Replacement) = (r.alreadyArchived || r.offered.keys.any { it.substringAfter(':') == r.retirement.id }) &&
+        (!binding.route.internet || r.offered.keys.any { it.substringAfter(':') == r.proposed.welcome.id })
+    fun replacementReadyForIndex(): Boolean = lock.withLock {
+        usable(); data.replacement?.let { replacementCustody(it) && it.stage != ReplacementStage.ORIGINALS_RETAINED } == true
+    }
+
+    fun archiveReplacementNotice(): Boolean = lock.withLock {
+        usable(); check(allowed()); val r = data.replacement ?: return@withLock false
+        if (r.stage != ReplacementStage.ORIGINALS_RETAINED) return@withLock true
+        if (!r.alreadyArchived && r.offered.keys.none { it.substringAfter(':') == r.retirement.id }) return@withLock false
+        val kept = if (r.alreadyArchived) data.retirements else data.retirements + Retirement(keeperEvent(r.retirement),
+            invitationId(), data.epoch, r.attempts.filterKeys { it.substringAfter(':') == r.retirement.id },
+            r.offered.filterKeys { it.substringAfter(':') == r.retirement.id })
+        save(data.copy(high = time(), at = maxOf(data.at, r.retirement.createdAt), retirements = kept,
+            replacement = r.copy(stage = ReplacementStage.NOTICE_ARCHIVED))); true
+    }
+
+    /** Called only under the actual repository monitor. No whole stale room is
+     * used as the write value; all unrelated current metadata is retained. */
+    internal fun replacementIndexValue(current: SavedRoom): SavedRoom = lock.withLock {
+        usable(); val r = requireNotNull(data.replacement); require(replacementCustody(r) && r.stage != ReplacementStage.ORIGINALS_RETAINED)
+        require(!ended(time()) && (!bound || allowed()))
+        requireIndexIdentity(current)
+        if (current.json["nativeAuthority"] == r.proposedReference && current.joinUrl == r.proposedJoinUrl) return@withLock current
+        require(current.json["nativeAuthority"] == r.previousReference && current.joinUrl == r.previousJoinUrl) { "Index conflicts with pending invitation" }
+        SavedRoom.decode(JsonObject(current.json + mapOf("nativeAuthority" to r.proposedReference,
+            "joinUrl" to JsonPrimitive(r.proposedJoinUrl), "retired" to JsonPrimitive(false))))
+    }
+    internal fun requireReplacementIndex(current: SavedRoom) = lock.withLock {
+        usable(); val r = requireNotNull(data.replacement); require(replacementCustody(r)); requireIndexIdentity(current)
+        require(current.json["nativeAuthority"] == r.proposedReference && current.joinUrl == r.proposedJoinUrl)
+    }
+    private fun requireIndexIdentity(current: SavedRoom) {
+        require(current.id == binding.room && current.nativeAuthority?.pin == binding.pin && current.authority == binding.authority &&
+            current.participant == binding.participant && current.devicePubkey == binding.device && current.route == binding.route &&
+            (if (current.route.internet) current.relays.map(::canonicalRelayUrl).sorted() else emptyList()) == binding.relays &&
+            !current.movedOn && !current.anonymous && !current.secondary && "host" !in current.json)
+    }
+    internal fun requirePendingIndex(current: SavedRoom) = lock.withLock {
+        usable(); val r = requireNotNull(data.replacement); requireIndexIdentity(current)
+        require(current.json["nativeAuthority"] == r.previousReference && current.joinUrl == r.previousJoinUrl ||
+            current.json["nativeAuthority"] == r.proposedReference && current.joinUrl == r.proposedJoinUrl) {
+            "Index conflicts with retained invitation replacement"
+        }
+    }
+    fun reconcileReplacementIndex(rooms: RoomRepository, receiver: EpochVault, ledger: RoomRekeyLedger) {
+        verifyReplacementStores(receiver, ledger)
+        rooms.installNativeReplacement(this)
+        rooms.withNativeIndex(this) { current -> lock.withLock {
+            requireReplacementIndex(current); val r = requireNotNull(data.replacement)
+            require(!bound || allowed())
+            if (r.stage != ReplacementStage.INDEX_VERIFIED)
+                save(data.copy(high = time(), replacement = r.copy(stage = ReplacementStage.INDEX_VERIFIED)))
+        } }
+    }
+    private fun verifyReplacementStores(receiver: EpochVault, ledger: RoomRekeyLedger) {
+        val expected = lock.withLock { usable(); require(data.replacement != null && data.courierReady); data.copy(secret = data.secret.clone()) }
+        var inspected: StoredRoomEpoch? = null
+        try {
+            val actual = requireNotNull(receiver.get(binding.room)).also { inspected = it }
+            require(actual.stableRoom == binding.room && actual.authority == binding.authority && actual.phase == EpochPhase.ACTIVE &&
+                actual.pending == null && actual.currentEpoch == expected.epoch && actual.currentSecret.contentEquals(expected.secret) &&
+                actual.removed == expected.removed && actual.activationCause == expected.epochCause)
+            val q = ledger.binding
+            require(q.room == binding.room && q.authority == binding.authority && q.device == binding.device &&
+                q.route == binding.route && q.meshScope == binding.meshScope && q.relays == binding.relays)
+            ledger.status() // Actual opened durable courier; a corrupt/missing marked file never supplies it.
+            lock.withLock { usable(); require(data.revision == expected.revision && !ended(time())) }
+        } finally {
+            inspected?.currentSecret?.fill(0); inspected?.pending?.secret?.fill(0)
+            expected.secret.fill(0)
+        }
+    }
+    internal fun verifyPendingReplacementStores(receiver: EpochVault, ledger: RoomRekeyLedger) = verifyReplacementStores(receiver, ledger)
+    fun completeReplacement(rooms: RoomRepository, receiver: EpochVault, live: RoomSession, controller: NativeKeeperController) {
+        verifyReceiver(receiver, live)
+        rooms.withNativeIndex(this) { current -> lock.withLock {
+            requireReplacementIndex(current); val r = requireNotNull(data.replacement)
+            check(allowed() && r.stage == ReplacementStage.INDEX_VERIFIED &&
+                controller.ownsInvitationInstallation(this, r.proposed.generation, invitationId(r.proposed)))
+            save(replacementCompleted(data).copy(high = time()))
+        } }
+    }
+
     /** Explicit retry only; completion/reopen never gives a new attempt budget. */
     fun reserveRetirement(id: String, lane: RekeyLane): Handoff? = lock.withLock {
         usable(); val at = time()
-        if (!allowed() || data.pending != null || !binding.permits(lane) || ended(at) ||
-            data.phase == KeeperPhase.ACTIVE || data.phase == KeeperPhase.CLOSED && data.destruct) return@withLock null
+        if (!allowed() || data.pending != null || data.replacement != null || !binding.permits(lane) || ended(at) ||
+            data.phase == KeeperPhase.CLOSED && data.destruct) return@withLock null
         val kept = data.retirements.singleOrNull { it.event.id == id } ?: return@withLock null
+        if (data.phase == KeeperPhase.ACTIVE && data.history.none { it.retirement == id }) return@withLock null
         if (kept.event.tagValue("expiration")?.let { it.toLong() <= at } == true) return@withLock null
         val key = "${lane.name}:$id"; val attempt = (kept.attempts[key] ?: 0) + 1
         if (attempt > 8) return@withLock null
@@ -628,16 +901,19 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (!lock.tryLock()) return false
         try {
             if (closed || failed || !allowed() || !binding.permits(handoff.lane)) return false
+            if (handoff.invitationGeneration != null && handoff.invitationGeneration != data.invitation.generation && !handoff.replacement) return false
             val at = runCatching { clock() }.getOrNull() ?: return false
             if (at < data.high) return false
             if (ended(at) || handoff.event.tagValue("expiration")?.let { (it.toLongOrNull() ?: return false) <= at } == true) return false
-            if (handoff.archived) return !handoff.pending && data.pending == null &&
-                data.phase != KeeperPhase.ACTIVE && !(data.phase == KeeperPhase.CLOSED && data.destruct) &&
+            if (handoff.replacement) return canHandoffReplacement(handoff)
+            if (handoff.archived) return !handoff.pending && data.pending == null && data.replacement == null &&
+                !(data.phase == KeeperPhase.CLOSED && data.destruct) &&
                 data.retirements.any { kept ->
                     val key = "${handoff.lane.name}:${handoff.event.id}"
-                    kept.event == handoff.event && kept.attempts[key] == handoff.attempt && kept.offered[key] != handoff.attempt
+                    (data.phase != KeeperPhase.ACTIVE || data.history.any { it.retirement == kept.event.id }) &&
+                        kept.event == handoff.event && kept.attempts[key] == handoff.attempt && kept.offered[key] != handoff.attempt
                 }
-            if (handoff.event.kind == KIND_GROUP_INVITATION) return data.phase == KeeperPhase.ACTIVE && data.pending == null &&
+            if (handoff.event.kind == KIND_GROUP_INVITATION) return data.phase == KeeperPhase.ACTIVE && data.pending == null && data.replacement == null &&
                 handoff.lane == RekeyLane.INTERNET && data.invitation.delivery?.let {
                     it.event == handoff.event && it.attempts == handoff.attempt && !it.accepted && at - it.event.createdAt < WELCOME_REFRESH_SECONDS
                 } == true
@@ -646,11 +922,19 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 p.offered["${handoff.lane.name}:${handoff.event.id}"] != handoff.attempt } == true
             else data.pending == null && data.answers.any {
                 answerPhase(it.request.kind) && answerDeadline(it) > at && it.answer == handoff.event &&
+                    (it.request.kind != KIND_INVITATION_REQUEST || it.generation == data.invitation.generation) &&
                     it.epoch == data.epoch && it.offers == handoff.attempt && it.lane == handoff.lane && !it.handed && epochAnswerAllowed(it, at) }
         } finally { lock.unlock() }
     }
     fun offered(handoff: Handoff) = lock.withLock {
         usable()
+        if (!canHandoff(handoff)) return@withLock
+        if (handoff.replacement) {
+            val r = requireNotNull(data.replacement)
+            val key = "${handoff.lane.name}:${handoff.event.id}"
+            save(data.copy(high = time(), replacement = r.copy(offered = r.offered + (key to handoff.attempt))))
+            return@withLock
+        }
         if (handoff.archived) {
             if (!canHandoff(handoff)) return@withLock
             val kept = data.retirements.single { it.event == handoff.event }
@@ -728,8 +1012,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun retirementBytes(at: Long, ended: Boolean, destruct: Boolean) = keeperBytes(NostrEvent(
         KIND_INVITATION_RETIREMENT, at, retirementTags("0".repeat(64)), retirementBody(ended, destruct),
         binding.authority, "0".repeat(64), "0".repeat(128)))
-    private fun invitationId(): String {
-        val invitation = invitationUnlocked()
+    private fun invitationId(active: InvitationState = data.invitation): String {
+        val invitation = invitationOf(active)
         return try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
     }
     private fun retirementLayout(at: Long, ended: Boolean, destruct: Boolean) = NostrEvent(
@@ -778,7 +1062,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun clock() = now().also { require(it in 0..KEEPER_MAX_TIME) }
     private fun time() = clock().also { require(it >= data.high) { "Keeper clock moved backwards" } }
     private fun usable() { check(!closed && !failed) { "Keeper is closed or persistence failed" } }
-    private fun writable() { usable(); check(allowed() && data.pending == null && data.phase != KeeperPhase.CLOSED && !ended(time())) }
+    private fun writable() { usable(); check(allowed() && data.pending == null && data.replacement == null && data.phase != KeeperPhase.CLOSED && !ended(time())) }
     private fun debt(lane: RekeyLane, at: Long) = data.spends.filter { it.lane == lane && at - it.at <= window(lane) }.sumOf { it.bytes }
     private fun reserve(at: Long, lane: RekeyLane?, bytes: Int, fresh: Boolean, next: Record = data): Boolean {
         val spent = data.spends.filter { at - it.at <= window(it.lane) }
@@ -797,11 +1081,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             bytes = encode(committed).toString().toByteArray(Charsets.UTF_8)
             require(bytes.size <= MAX_FILE_BYTES); storage.write(bytes)
             val old = data; data = committed
+            invitationBuffers(old).filter { oldBuffer -> invitationBuffers(committed).none { it === oldBuffer } }.forEach { it.fill(0) }
             if (old.secret !== committed.secret) old.secret.fill(0)
             if (old.pending?.secret !== committed.pending?.secret) old.pending?.secret?.fill(0)
             if (old.terminalPredecessor !== committed.terminalPredecessor) old.terminalPredecessor?.secret?.fill(0)
         } catch (error: Exception) {
             failed = true; selected = null
+            invitationBuffers(committed).filter { nextBuffer -> invitationBuffers(data).none { it === nextBuffer } }.forEach { it.fill(0) }
             if (committed.secret !== data.secret) committed.secret.fill(0)
             if (committed.pending?.secret !== data.pending?.secret) committed.pending?.secret?.fill(0)
             if (committed.terminalPredecessor !== data.terminalPredecessor) committed.terminalPredecessor?.secret?.fill(0)
@@ -813,18 +1099,152 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (!closed) { closed = true; selected = null; wipe(); synchronized(ownerGate(binding.owner)) { owners.remove(binding.owner, lease) } }
     }
     private fun wipe() {
-        proposal = null; rejectedProposal = null; retirementProposal = null
+        proposal = null; rejectedProposal = null; retirementProposal = null; replacementProposal = null
         if (::material.isInitialized) material.wipe()
         if (::data.isInitialized) {
-            data.invitation.bearer.fill(0); data.secret.fill(0)
+            invitationBuffers(data).forEach { it.fill(0) }; data.secret.fill(0)
             data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0)
         }
         decodedBuffers.forEach { it.fill(0) }; decodedBuffers.clear()
     }
+    private fun invitationBuffers(record: Record) = listOf(record.invitation.bearer) +
+        record.history.map { it.invitation.bearer } + listOfNotNull(record.replacement?.proposed?.bearer)
+
+    private fun encodeInvitationState(active: InvitationState) = buildJsonObject {
+        put("generation", active.generation); put("bearer", active.bearer.toHex()); put("welcome", active.welcome.toJson())
+        put("delivery", active.delivery?.let { d -> buildJsonObject {
+            put("event", d.event.toJson()); put("attempts", d.attempts); put("nextAt", d.nextAt); put("accepted", d.accepted)
+        } } ?: JsonNull)
+    }
+    private fun encodeReplacement(r: Replacement) = buildJsonObject {
+        put("proposed", encodeInvitationState(r.proposed)); put("previousReference", r.previousReference)
+        put("previousJoinUrl", r.previousJoinUrl); put("proposedReference", r.proposedReference); put("proposedJoinUrl", r.proposedJoinUrl)
+        put("retirement", r.retirement.toJson()); put("alreadyArchived", r.alreadyArchived); put("stage", r.stage.name)
+        put("attempts", counters(r.attempts)); put("offered", counters(r.offered)); put("welcomeNextAt", r.welcomeNextAt)
+    }
+    private fun counters(values: Map<String, Int>) = buildJsonObject { values.toSortedMap().forEach { (key, value) -> put(key, value) } }
+    private fun decodedSecret(obj: JsonObject, name: String) = secret(obj, name).also { decodedBuffers.add(it) }
+    private fun decodeInvitationState(obj: JsonObject): InvitationState {
+        require(obj.keys == setOf("generation", "bearer", "welcome", "delivery"))
+        val generation = integer(obj, "generation"); require(generation in 0 until MAX_RETIREMENTS)
+        val bearer = decodedSecret(obj, "bearer")
+        val welcome = event(obj.getValue("welcome"))
+        val delivery = obj.getValue("delivery").takeUnless { it == JsonNull }?.jsonObject?.let { d ->
+            require(d.keys == setOf("event", "attempts", "nextAt", "accepted"))
+            WelcomeDelivery(event(d.getValue("event")), integer(d, "attempts"), long(d, "nextAt"), boolean(d, "accepted"))
+        }
+        return InvitationState(bearer, welcome, delivery, generation)
+    }
+    private fun decodeReplacement(obj: JsonObject): Replacement {
+        require(obj.keys == setOf("proposed", "previousReference", "previousJoinUrl", "proposedReference", "proposedJoinUrl",
+            "retirement", "alreadyArchived", "stage", "attempts", "offered", "welcomeNextAt"))
+        fun counts(name: String) = obj.getValue(name).jsonObject.mapValues { (_, value) -> value.jsonPrimitive.also { require(!it.isString) }.int }
+        return Replacement(decodeInvitationState(obj.getValue("proposed").jsonObject), obj.getValue("previousReference").jsonObject,
+            text(obj, "previousJoinUrl"), obj.getValue("proposedReference").jsonObject, text(obj, "proposedJoinUrl"),
+            event(obj.getValue("retirement")), boolean(obj, "alreadyArchived"), ReplacementStage.valueOf(text(obj, "stage")),
+            counts("attempts"), counts("offered"), long(obj, "welcomeNextAt"))
+    }
+    private fun retainedInvitation(generation: Int): InvitationState = if (generation == data.invitation.generation) data.invitation
+        else requireNotNull(data.history.singleOrNull { it.invitation.generation == generation }).invitation
+    private fun welcomePolicy(active: InvitationState): RoomAdmission {
+        val invitation = invitationOf(active)
+        return try { requireNotNull(decodePersistentInvitation(active.welcome, invitation)) }
+        finally { invitation.bearer.fill(0) }
+    }
+    private fun validateInvitation(active: InvitationState, policy: RoomAdmission) {
+        val body = welcomePolicy(active)
+        try {
+            require(body.secret.contentEquals(material.base) && body.endsAt == policy.endsAt &&
+                body.relays == policy.relays && body.destruct == policy.destruct && active.welcome.createdAt <= data.high)
+            active.delivery?.let { d ->
+                require(binding.route.internet && d.attempts in 1..8 && d.nextAt in 0..data.high + 300 &&
+                    d.event.createdAt in active.welcome.createdAt..data.high)
+                val invitation = invitationOf(active)
+                val delivered = try { requireNotNull(decodePersistentInvitation(d.event, invitation)) }
+                    finally { invitation.bearer.fill(0) }
+                try { require(delivered.secret.contentEquals(material.base) && delivered.endsAt == body.endsAt &&
+                    delivered.relays == body.relays && delivered.destruct == body.destruct) }
+                finally { delivered.secret.fill(0) }
+            }
+        } finally { body.secret.fill(0) }
+    }
+    private fun validateGenerations() {
+        require(data.schema == 6 && data.legacyRetirementSlots == 0 && data.courierReady &&
+            (data.invitation.generation > 0 || data.replacement != null))
+        val all = data.history.map { it.invitation } + data.invitation
+        require(all.map { it.generation } == (0..data.invitation.generation).toList())
+        require(all.map { it.bearer.toHex() }.distinct().size == all.size &&
+            all.map(::invitationId).distinct().size == all.size && all.map { it.welcome.id }.distinct().size == all.size)
+        require(all.zipWithNext().all { (a, b) -> a.welcome.createdAt <= b.welcome.createdAt })
+        require(data.history.map { it.retirement }.distinct().size == data.history.size)
+        val policy = welcomePolicy(data.invitation)
+        try {
+            all.forEach { validateInvitation(it, policy) }
+            data.history.forEach { h ->
+                val retirement = data.retirements.single { it.event.id == h.retirement }
+                require(retirement.invitation == invitationId(h.invitation) && retirement.event.content == retirementBody(false, false) &&
+                    retirement.event.createdAt <= retainedInvitation(h.invitation.generation + 1).welcome.createdAt)
+            }
+            data.replacement?.let { r ->
+                require(data.pending == null && data.phase != KeeperPhase.CLOSED && r.proposed.generation == data.invitation.generation + 1)
+                require(r.proposed.delivery == null && r.proposed.welcome.createdAt >= data.invitation.welcome.createdAt)
+                require(all.none { it.bearer.contentEquals(r.proposed.bearer) || invitationId(it) == invitationId(r.proposed) || it.welcome.id == r.proposed.welcome.id })
+                validateInvitation(r.proposed, policy)
+                validateReferenceLink(r.previousReference, r.previousJoinUrl, data.invitation)
+                require(r.proposedReference == NativeKeeperReference.encode(binding, invitationId(r.proposed), r.proposed.generation))
+                validateReferenceLink(r.proposedReference, r.proposedJoinUrl, r.proposed)
+                val old = requireNotNull(decodeInvitationUrl(r.previousJoinUrl))
+                try {
+                    require(r.proposedJoinUrl == encodeInvitationUrl(r.previousJoinUrl.substringBefore('#'),
+                        RoomInvitation(r.proposed.bearer, binding.authority, true), old.relays, old.policy))
+                } finally { old.invitation.bearer.fill(0) }
+                val oldInvitation = invitationOf(data.invitation)
+                try { require(decodeInvitationRetirement(r.retirement, oldInvitation)) }
+                finally { oldInvitation.bearer.fill(0) }
+                require(r.retirement.content == retirementBody(false, false) && r.retirement.tags == retirementTags(invitationId()) &&
+                    r.retirement.createdAt in data.invitation.welcome.createdAt..r.proposed.welcome.createdAt)
+                require(r.alreadyArchived || r.retirement.createdAt == r.proposed.welcome.createdAt)
+                val archived = data.retirements.singleOrNull { it.event.id == r.retirement.id }
+                require((archived != null) == (r.alreadyArchived || r.stage != ReplacementStage.ORIGINALS_RETAINED))
+                if (r.alreadyArchived) require(data.phase == KeeperPhase.RETIRED && r.attempts.keys.none { it.substringAfter(':') == r.retirement.id })
+                if (archived != null) require(archived.event == r.retirement)
+                require(r.attempts.size <= 3 && r.welcomeNextAt in 0..data.high + 300)
+                r.attempts.forEach { (key, count) ->
+                    val lane = RekeyLane.valueOf(key.substringBefore(':')); val id = key.substringAfter(':')
+                    require(binding.permits(lane) && count in 1..8 && key == "${lane.name}:$id" &&
+                        (id == r.proposed.welcome.id && lane == RekeyLane.INTERNET || id == r.retirement.id && !r.alreadyArchived))
+                }
+                require(r.offered.all { (key, count) -> count in 1..(r.attempts[key] ?: 0) })
+                if (r.stage != ReplacementStage.ORIGINALS_RETAINED && !r.alreadyArchived) {
+                    require(r.offered.keys.any { it.substringAfter(':') == r.retirement.id })
+                    require(archived?.attempts == r.attempts.filterKeys { it.substringAfter(':') == r.retirement.id } &&
+                        archived.offered == r.offered.filterKeys { it.substringAfter(':') == r.retirement.id })
+                }
+                if (r.stage == ReplacementStage.INDEX_VERIFIED) require(replacementCustody(r))
+            }
+        } finally { policy.secret.fill(0) }
+        require(data.retirements.all { it.invitation == invitationId() || data.history.any { h -> h.retirement == it.event.id } })
+    }
+    private fun validateReferenceLink(reference: JsonObject, url: String, active: InvitationState) {
+        require(NativeKeeperReference.decode(reference).pin == binding.pin && NativeKeeperReference.generation(reference) == active.generation)
+        val version = integer(reference, "v")
+        require(reference == NativeKeeperReference.encode(binding, invitationId(active), active.generation.takeIf { version == 2 }))
+        val payload = requireNotNull(decodeInvitationUrl(url))
+        try { require(payload.invitation == RoomInvitation(active.bearer, binding.authority, true)) }
+        finally { payload.invitation.bearer.fill(0) }
+    }
 
     private fun encode(record: Record): JsonObject = buildJsonObject {
-        put("v", 5); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
-        put("bearer", record.invitation.bearer.toHex()); put("welcome", record.invitation.welcome.toJson())
+        put("v", maxOf(5, record.schema)); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
+        if (record.schema == 6) {
+            put("activeInvitation", encodeInvitationState(record.invitation))
+            put("invitationHistory", buildJsonArray { record.history.forEach { kept -> add(buildJsonObject {
+                put("invitation", encodeInvitationState(kept.invitation)); put("retirement", kept.retirement)
+            }) } })
+            put("replacement", record.replacement?.let(::encodeReplacement) ?: JsonNull)
+        } else {
+            put("bearer", record.invitation.bearer.toHex()); put("welcome", record.invitation.welcome.toJson())
+        }
         put("epoch", record.epoch); put("secret", record.secret.toHex()); put("phase", record.phase.name)
         put("removed", strings(record.removed)); put("members", strings(record.members)); put("at", record.at)
         put("high", record.high); put("revision", record.revision); put("destruct", record.destruct)
@@ -841,7 +1261,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             put("participant", it.participant); put("device", it.device); put("credential", it.credential.toJson())
             put("verifiedAt", it.verifiedAt); put("removed", it.removed)
         }) } })
-        put("welcomeDelivery", record.invitation.delivery?.let { delivery -> buildJsonObject {
+        if (record.schema != 6) put("welcomeDelivery", record.invitation.delivery?.let { delivery -> buildJsonObject {
             put("event", delivery.event.toJson()); put("attempts", delivery.attempts)
             put("nextAt", delivery.nextAt); put("accepted", delivery.accepted)
         } } ?: JsonNull)
@@ -851,6 +1271,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         put("answers", buildJsonArray { record.answers.forEach { add(buildJsonObject {
             put("request", it.request.toJson()); put("answer", it.answer.toJson()); put("epoch", it.epoch); put("offers", it.offers)
             put("lane", it.lane.name); put("handed", it.handed)
+            if (record.schema == 6) put("generation", it.generation)
         }) } })
         put("spends", buildJsonArray { record.spends.forEach { add(buildJsonObject {
             put("at", it.at); put("lane", it.lane?.name?.let(::JsonPrimitive) ?: JsonNull); put("bytes", it.bytes); put("fresh", it.fresh)
@@ -867,15 +1288,27 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         require(bytes.size <= MAX_FILE_BYTES)
         val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
         val version = integer(root, "v")
-        if (version !in 4..5) throw NativeKeeperMigrationRequiredException()
+        if (version !in 4..6) throw NativeKeeperMigrationRequiredException()
         val fields = setOf("v", "pin", "base", "signer", "bearer", "welcome", "epoch", "secret", "phase", "removed",
             "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending", "courierReady", "welcomeDelivery", "devices")
-        require(root.keys == fields + if (version == 5) setOf("retirements", "legacyRetirementSlots") else emptySet())
+        val expectedFields = if (version == 6) fields - setOf("bearer", "welcome", "welcomeDelivery") +
+            setOf("retirements", "legacyRetirementSlots", "activeInvitation", "invitationHistory", "replacement")
+            else fields + if (version == 5) setOf("retirements", "legacyRetirementSlots") else emptySet()
+        require(root.keys == expectedFields)
         require(text(root, "pin") == binding.pin)
         fun decodedSecret(obj: JsonObject, name: String) = secret(obj, name).also { decodedBuffers.add(it) }
         material = KeeperMaterial(decodedSecret(root, "base"), decodedSecret(root, "signer"))
-        val bearer = decodedSecret(root, "bearer")
-        val active = InvitationState(bearer, event(root.getValue("welcome")))
+        val active = if (version == 6) decodeInvitationState(root.getValue("activeInvitation").jsonObject)
+            else InvitationState(decodedSecret(root, "bearer"), event(root.getValue("welcome")))
+        val history = if (version == 6) root.getValue("invitationHistory").jsonArray.also {
+            require(it.size < MAX_RETIREMENTS)
+        }.map { raw ->
+            val obj = raw.jsonObject; require(obj.keys == setOf("invitation", "retirement"))
+            InvitationHistory(decodeInvitationState(obj.getValue("invitation").jsonObject),
+                text(obj, "retirement").also { require(keeperHex(it)) })
+        } else emptyList()
+        val replacement = if (version == 6) root.getValue("replacement").takeUnless { it == JsonNull }
+            ?.jsonObject?.let(::decodeReplacement) else null
         require(deriveRoom(material.base).roomId == binding.room && Schnorr.publicKeyHex(material.signer) == binding.authority)
         val invitation = invitationOf(active)
         val welcome = try { requireNotNull(decodePersistentInvitation(active.welcome, invitation)) }
@@ -917,9 +1350,10 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         }
         val destruct = boolean(root, "destruct"); require(!welcome.destruct || destruct)
         val answers = root.getValue("answers").jsonArray.also { require(it.size <= MAX_ANSWERS) }.map { raw ->
-            val obj = raw.jsonObject; require(obj.keys == setOf("request", "answer", "epoch", "offers", "lane", "handed"))
+            val obj = raw.jsonObject; require(obj.keys == setOf("request", "answer", "epoch", "offers", "lane", "handed") +
+                if (version == 6) setOf("generation") else emptySet())
             Cached(event(obj.getValue("request")), event(obj.getValue("answer")), integer(obj, "epoch"), integer(obj, "offers"),
-                RekeyLane.valueOf(text(obj, "lane")), boolean(obj, "handed"))
+                RekeyLane.valueOf(text(obj, "lane")), boolean(obj, "handed"), if (version == 6) integer(obj, "generation") else 0)
         }
         val spends = root.getValue("spends").jsonArray.also { require(it.size <= MAX_SPENDS) }.map { raw ->
             val obj = raw.jsonObject; require(obj.keys == setOf("at", "lane", "bytes", "fresh"))
@@ -939,7 +1373,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         }
         require(if (phase == KeeperPhase.CLOSED && pending == null) predecessor != null && predecessor.epoch == epoch - 1 && cause == epochCause else predecessor == null)
         val courierReady = boolean(root, "courierReady")
-        val delivery = root.getValue("welcomeDelivery").takeUnless { it == JsonNull }?.jsonObject?.let { obj ->
+        val delivery = if (version == 6) active.delivery else root.getValue("welcomeDelivery").takeUnless { it == JsonNull }?.jsonObject?.let { obj ->
             require(binding.route.internet && obj.keys == setOf("event", "attempts", "nextAt", "accepted"))
             val value = WelcomeDelivery(event(obj.getValue("event")), integer(obj, "attempts"), long(obj, "nextAt"), boolean(obj, "accepted"))
             require(value.attempts in 1..8 && value.nextAt in 0..high + 300 && value.event.createdAt in active.welcome.createdAt..high)
@@ -962,7 +1396,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             }
             Retirement(event(obj.getValue("event")), text(obj, "invitation"), integer(obj, "epoch"), counters("attempts"), counters("offered"))
         }
-        val legacySlots = if (version == 5) integer(root, "legacyRetirementSlots") else when (phase) {
+        val legacySlots = if (version >= 5) integer(root, "legacyRetirementSlots") else when (phase) {
             KeeperPhase.ACTIVE -> 0
             KeeperPhase.RETIRED -> if (pending?.events?.any { it.kind == KIND_INVITATION_RETIREMENT } == true) 0 else 1
             KeeperPhase.CLOSED -> if (pending != null) 1 else 2
@@ -972,10 +1406,15 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         require(retirements.size + legacySlots + pendingRetirements <= MAX_RETIREMENTS)
         data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause,
             active.copy(delivery = delivery), answers, spends, pending,
-            epochCause, predecessor, courierReady, devices, retirements, legacySlots)
+            epochCause, predecessor, courierReady, devices, retirements, legacySlots, version, history, replacement)
         require(retirements.map { it.event.id }.distinct().size == retirements.size)
         require(retirements.none { kept -> pending?.events?.any { it.id == kept.event.id } == true })
-        require(phase != KeeperPhase.ACTIVE || retirements.isEmpty() && legacySlots == 0)
+        require(phase != KeeperPhase.ACTIVE || legacySlots == 0 && retirements.none {
+            it.invitation == invitationId() && data.replacement?.let { r ->
+                r.stage != ReplacementStage.ORIGINALS_RETAINED && r.retirement == it.event
+            } != true
+        })
+        if (version == 6) validateGenerations()
         require(phase == KeeperPhase.CLOSED || legacySlots <= 1)
         retirements.forEach(::validateRetirement)
         if (phase != KeeperPhase.ACTIVE) require(retirements.isNotEmpty() || legacySlots > 0 || pendingRetirements > 0)
@@ -988,18 +1427,20 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     private fun validateRetirement(kept: Retirement) {
         val value = kept.event
-        val invitation = invitationUnlocked()
+        val active = (data.history.map { it.invitation } + data.invitation).single { invitationId(it) == kept.invitation }
+        val invitation = invitationOf(active)
         try {
             require(value.kind == KIND_INVITATION_RETIREMENT && value.pubkey == binding.authority &&
                 kept.invitation == deriveInvitationId(invitation) && decodeInvitationRetirement(value, invitation))
-            require(value.createdAt in data.invitation.welcome.createdAt..data.at && kept.epoch in 0..data.epoch)
+            require(value.createdAt in active.welcome.createdAt..data.at && kept.epoch in 0..data.epoch)
             require(value.tags == retirementTags(kept.invitation))
             val body = Json.parseToJsonElement(value.content).jsonObject
             val terminal = body["ended"] == JsonPrimitive(true)
             val destructive = body["destruct"] == JsonPrimitive(true)
             require(value.content == retirementBody(terminal, destructive) && (!destructive || terminal && data.destruct))
-            require(!terminal || data.phase == KeeperPhase.CLOSED && kept.epoch == data.epoch)
-            require(data.phase != KeeperPhase.ACTIVE)
+            require(!terminal || active.generation == data.invitation.generation && data.phase == KeeperPhase.CLOSED && kept.epoch == data.epoch)
+            require(data.phase != KeeperPhase.ACTIVE || data.history.any { it.retirement == value.id } ||
+                data.replacement?.let { it.stage != ReplacementStage.ORIGINALS_RETAINED && it.retirement == value } == true)
         } finally { invitation.bearer.fill(0) }
         require(kept.attempts.size <= 2 && kept.offered.isNotEmpty())
         kept.attempts.forEach { (key, attempt) ->
@@ -1011,18 +1452,21 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun validateAnswer(c: Cached) {
         require(c.epoch in 0..data.epoch && c.offers in 1..3 && binding.permits(c.lane))
         require(c.request.createdAt <= data.high + 5 && c.answer.createdAt <= data.high && requestDeadline(c.request) > c.answer.createdAt)
-        if (c.request.kind == KIND_EPOCH_REQUEST) { validateEpochAnswer(c); return }
+        if (c.request.kind == KIND_EPOCH_REQUEST) { require(c.generation == 0); validateEpochAnswer(c); return }
         require(c.request.kind == KIND_INVITATION_REQUEST)
-        val request = requireNotNull(decodeLivePersistentRequest(c.request, LivePersistentContext(invitationUnlocked(), binding.room), c.answer.createdAt))
+        val active = retainedInvitation(c.generation)
+        val invitation = invitationOf(active)
+        val request = try { requireNotNull(decodeLivePersistentRequest(c.request, LivePersistentContext(invitation, binding.room), c.answer.createdAt)) }
+            finally { invitation.bearer.fill(0) }
         require(c.answer.kind == KIND_INVITATION_GRANT && c.answer.pubkey == binding.authority && Events.verify(c.answer))
-        require(c.answer.tags == listOf(listOf("d", deriveInvitationId(invitationUnlocked())), listOf("p", request.requester),
+        require(c.answer.tags == listOf(listOf("d", invitationId(active)), listOf("p", request.requester),
             listOf("expiration", minOf(request.expiresAt, c.answer.createdAt + 30).toString())))
         val key = Nip44.conversationKey(material.signer, request.requester.hexToBytes())
         val body = try { Nip44.decrypt(c.answer.content, key) } finally { key.fill(0) }
         val expected = buildJsonObject {
             put("v", 1); put("profile", "persistent-live"); put("request", request.requestId); put("room", binding.room); put("epoch", c.epoch)
             put("invitation", buildJsonObject {
-                val w = data.invitation.welcome
+                val w = active.welcome
                 put("id", w.id); put("pubkey", w.pubkey); put("created_at", w.createdAt); put("kind", w.kind)
                 put("tags", JsonArray(w.tags.map { strings(it) })); put("content", w.content); put("sig", w.sig)
             })
