@@ -46,10 +46,11 @@ class QuietCadenceTimerTest {
         val relay = FakeRelay()
         val attempts = mutableListOf<NostrEvent>()
         val inner = object : RoomTransport by relay.transport() {
-            override fun publish(event: NostrEvent) {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
                 attempts += event
-                if (attempts.size == 1) error("temporarily unavailable")
+                if (attempts.size == 1) return false
                 relay.publish(event)
+                return true
             }
         }
         val q = QuietTransport(inner, room.roomKey, ada.participant, listOf(ada.participant),

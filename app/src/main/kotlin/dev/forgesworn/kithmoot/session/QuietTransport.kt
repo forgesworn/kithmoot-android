@@ -356,13 +356,21 @@ class QuietTransport(
             }
             val built = current?.takeIf { it.first == slot } ?: buildForSlot(slot).also { current = it }
             val taken = try {
-                if (inner is RelayPool) inner.publishConfirmed(built.second) else { inner.publish(built.second); true }
+                inner.publishConfirmed(built.second)
             } catch (_: Exception) { false }
             if (!taken) return
+            // Receipt and durable removal are separate gates. Keep the exact
+            // wrap and queued event if saving the smaller queue fails, so a
+            // retry cannot lose the message or consume another counter.
+            synchronized(queue) {
+                if (built.third != null && queue.firstOrNull()?.id == built.third!!.id) {
+                    val retained = queue.drop(1)
+                    onState(QuietState(keys.exportUsed(), retained, boxPending.toSet(), keyFingerprint))
+                    queue.removeFirst()
+                }
+            }
             lastSlot = slot
-            synchronized(queue) { if (built.third != null && queue.firstOrNull()?.id == built.third!!.id) queue.removeFirst() }
             current = null
-            if (built.third != null) onState(state())
         } finally {
             lock.unlock()
         }

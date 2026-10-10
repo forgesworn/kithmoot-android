@@ -271,6 +271,16 @@ recording notices and prepared recording Send through the quiet transport;
 preserve the cadence instead of bypassing it. This candidate is not qualified
 for quiet-room recording or sharing.
 
+The slot driver now requests durable publication confirmation through every
+underlying transport, including hybrid wrappers; it no longer substitutes a
+fire-and-forget call for a receipt. Refusal or unsupported confirmation keeps
+the exact wrap and inner event for retry. After acceptance, the smaller queue
+is saved before the event is removed or the slot advances; a failed storage
+write therefore retries the same accepted wrap without spending another
+counter. Dedicated tests cover all three cases. This fixes slot delivery and
+retry ownership, but does not change the queue-retention meaning of ordinary
+`publishConfirmed` or implement guarded recording publication.
+
 ## Member-rekey recovery release gate
 
 Hosted run 38078615048 failed the member-removal case while the controller
