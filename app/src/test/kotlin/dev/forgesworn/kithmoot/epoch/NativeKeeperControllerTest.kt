@@ -598,6 +598,28 @@ class NativeKeeperControllerTest {
         } finally { r.stop() }
     }
 
+    @Test fun pendingRetirementWithdrawsUnknownApprovalBeforeTheTransportAcceptsItsNotice() = runTest {
+        val r = Rig(this, RoomRoute.INTERNET)
+        try {
+            r.start(); r.acknowledge(); runCurrent()
+            val controller = assertNotNull(r.controller)
+            val request = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000)
+            r.inject(request, RekeyLane.INTERNET); runCurrent(); r.acknowledge(); runCurrent()
+            assertEquals(listOf(r.member.participant), controller.unknownParticipants.value)
+            val retiring = backgroundScope.async { controller.retire() }
+            runCurrent()
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertTrue(controller.state.value is NativeKeeperController.State.Pending)
+            assertFalse(retiring.isCompleted, "The transport has not yet accepted the retirement notice")
+            assertTrue(controller.unknownParticipants.value.isEmpty(), "Committed retirement must withdraw cards before local offer acceptance")
+            assertEquals(RoomEpochState.Active(0, r.room.roomId), r.live.epochState.value)
+            r.acknowledge(); runCurrent(); retiring.await()
+            assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.RETIRED), controller.state.value)
+            assertEquals(1, controller.hosting.value.retirementOriginals.size)
+        } finally { r.stop() }
+    }
+
     @Test fun closureRetirementLeavesViaTheGuardedControlPathAndNoNewAuthorityOperationCanRun() = runTest {
         val r = Rig(this, RoomRoute.NEARBY)
         try {
