@@ -115,6 +115,31 @@ fun KithMootApp(
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
+    val recordingExport by model.recordingExport.collectAsState()
+    val recordingExportBusy by model.recordingExportBusy.collectAsState()
+    val recordingDetails = recordingExport?.let { runCatching { model.recordingExportDetails(it) }.getOrNull() }
+    val recordingFormat = recordingDetails?.format ?: dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO
+    var savingRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
+    val saveRecording = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(recordingFormat.mime)) { uri ->
+        val original = savingRecordingName
+        savingRecordingName = null
+        if (uri != null && original != null) model.saveRecording(original, uri)
+    }
+    if (recordingExport != null && !model.chatOnly && !lockedCallOnly && !inPictureInPicture && !callAnswering) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Recording ready") },
+            text = { Text("Your recording is retained privately on this device. Save a copy to a location you choose, or discard it. Saved copies remain until you remove them. Nothing has been uploaded or shared." +
+                if (recordingDetails?.discardAt != null) " Unsaved copies follow the original room's self-destruct settings." else "") },
+            confirmButton = {
+                TextButton(enabled = !recordingExportBusy && recordingDetails != null, onClick = {
+                    savingRecordingName = recordingExport?.name
+                    saveRecording.launch("KithMoot-call-${java.time.LocalDate.now()}.${recordingFormat.extension}")
+                }) { Text(if (recordingExportBusy) "Saving…" else "Save") }
+            },
+            dismissButton = { TextButton(enabled = !recordingExportBusy, onClick = model::discardRecordingExport) { Text("Discard") } },
+        )
+    }
     val workspaceSnapshot by accountModel.workspace.collectAsState()
     val workspaceAccountState by accountModel.start.collectAsState()
     val workspaceOrigin by model.workspaceOrigin.collectAsState()
@@ -798,8 +823,8 @@ fun KithMootApp(
                                 PermissionAsk(
                                     permission = Manifest.permission.CAMERA,
                                     title = "Camera",
-                                    why = "So the room can see you. Nothing is recorded and " +
-                                        "the video does not pass through a server.",
+                                    why = "So the room can see you. A notice tells you when KithMoot is recording " +
+                                        "the call. Other participants may also record with another app.",
                                     refused = "No camera, so your tile stays a placeholder.",
                                     onGranted = model::toggleCamera,
                                 ),
@@ -840,6 +865,11 @@ fun KithMootApp(
                     onSetMeetingMode = model::setMeetingMode,
                     onSetSpeaker = model::setSpeaker,
                     onAnswerRecordingConsent = model::answerRecordingConsent,
+                    onStartAudioRecording = model::startNativeAudioRecording,
+                    onStartVideoRecording = model::startNativeVideoRecording,
+                    onStopRecording = model::stopNativeRecording,
+                    onToggleRecordingPause = model::toggleNativeRecordingPause,
+                    onRetryRecordingStop = model::retryRecordingStop,
                     onRotateInvitation = model::rotateInvitation,
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,

@@ -1,0 +1,77 @@
+{
+  "captured_at_utc": "2026-10-10T15:50:14.321926+00:00",
+  "production_ready": false,
+  "scope": "Synthetic encoder/compositor decoded playback, texture alignment correction and focused local-store JVM checks; not physical or app-owned call recording",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoScene.kt": "e598ee24181d0a3de0ebcbb3400348084dc8f82ed7b729f4735545791faaed7a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStore.kt": "30d32e21b24b943fa38002be053f4105de73b68a05f7ded673e76b5730c585e2",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "c58ba13d0540343307dfc0a1f0a3cab35aefce329ac45e22a0fe90957cea3fc1",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "664243c05d13be5043dc2c8ecddb81ea11213e6aebcef893b299ee248b40ca94",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/service/RoomSelfDestructor.kt": "e588a795f0bc681ee481788045dbde9bef68f854a749db0e8b22047d2ba8a67b",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoSceneTest.kt": "db67286d96519215301614d69996e95f3ed0b4c74c8724815ce2e1fc7783f218",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "835d2f15b1bebbc6a132bd4c960cc552274d1261db9d42c5efdb155ce88729f3",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStoreTest.kt": "eede706765ddc10d26af3ab3fa6f80bc0f373c91988193fb44dcf24d73801ec4"
+  },
+  "apk_artifacts": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "64afe3e3d7a9ffb815c831fd986bb589263d0041e33b5597664b0e2ce7360d46",
+      "local_snapshot": "/tmp/kithmoot-recording-retention-alignment-qualified/64afe3e3d7a9ffb815c831fd986bb589263d0041e33b5597664b0e2ce7360d46.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "bc48220f61e73a8db551b0c114d3988dcacba64bf7bc5963964ebfaf00186ba2",
+      "local_snapshot": "/tmp/kithmoot-recording-retention-alignment-qualified/bc48220f61e73a8db551b0c114d3988dcacba64bf7bc5963964ebfaf00186ba2.apk"
+    }
+  ],
+  "focused_jvm": {
+    "tests": 27,
+    "failures": 0,
+    "store_tests": 9
+  },
+  "runtime": {
+    "tests": 8,
+    "failures": 0,
+    "report": "app/build/reports/native-recording-retention-alignment/instrumentation.txt",
+    "report_sha256": "2753c4918382e55dbf9a6bbb2dfd0d87f1a6cf020929b629707fc0aa149be75e",
+    "diagnostic_live_video_sinks_present": true,
+    "production_representative_live_call_gate_closed": false
+  },
+  "compositor": {
+    "gallery_decoded_pixel_checks": true,
+    "unavailable_screen_with_selected_camera_overlay_decoded_pixel_checks": true,
+    "texture_unpack_alignment": 1,
+    "separate_yuv_and_rgb_drawers": true,
+    "gallery_movie": "/tmp/kithmoot-recording-alignment-qualified.mp4",
+    "gallery_movie_sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+    "both_track_duration_seconds": 2,
+    "video_frames": 30,
+    "video_size": [
+      1280,
+      720
+    ]
+  },
+  "device": {
+    "serial": "emulator-5584",
+    "sdk": 35,
+    "gpu": "host",
+    "physical": false
+  },
+  "live_diagnostic": {
+    "same_native_track_group": true,
+    "add_frames": 17,
+    "track_frames": 17,
+    "bound_frames": 17,
+    "native_encoded_frames": 30,
+    "browser_frames": 11
+  },
+  "open": [
+    "Remove diagnostic sink dependency from live-call gate",
+    "Native video controls and app-owned source integration",
+    "Explicit encrypted private-node sharing and playback",
+    "Owner lifecycle and retention runtime acceptance",
+    "Merge current main and full CI",
+    "Physical 45-minute and interruption acceptance",
+    "Signed production delivery"
+  ]
+}

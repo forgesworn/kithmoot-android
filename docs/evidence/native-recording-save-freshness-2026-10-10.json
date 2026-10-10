@@ -1,0 +1,45 @@
+{
+  "captured_at_utc": "2026-10-10T17:33:25.264279+00:00",
+  "production_ready": false,
+  "scope": "Full protocol/app JVM suites and debug app/instrumentation compilation before authorisation lifetime fix",
+  "jvm": {
+    "protocol": {
+      "tests": 401,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 1924,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "build_successful": true,
+  "elapsed": "4m 37s",
+  "runtime_run": true,
+  "new_changes": [
+    "Save callback retains originally selected export identity",
+    "Capture requires fresh signed RecordingView.On"
+  ],
+  "log_sha256": "d98da316b5e7b35a6cd8138b9d565fe43dd059edf1656fa5422fc84840341f5d",
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "015262073f443e3574ebbf84e435169b4e3d0676f01e65e43ce898bf80eac33e",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "928eed7c152cf9862eda49a57eef9cba18ae82b73247c81a6d6fceae206d442c"
+  },
+  "selected_source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "67b582c162be90da5feda6408b9d24fff231fbe7c960432c66543ea3ee8daa53",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "298714fe169f82f34a488607d691d8df405f06d1ab0a933bf9a5100f75907215",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStore.kt": "e84ed72892ed175dd6811e806bf862d20807ba857d6dbf4436eb117447fdb8f3",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStoreTest.kt": "d160c342c0f6f928f6993be5cc820dbb812b4f09d70ff1c1e712e09865a6b884"
+  },
+  "runtime": {
+    "tests": 10,
+    "failures": 0,
+    "live_browser_included": false,
+    "report": "app/build/reports/native-recording-save-freshness/instrumentation.txt",
+    "sha256": "f8652353b52ec9ed6c03879b73210eefcaf9d5de686aa3423aa30764356f1933",
+    "physical": false
+  }
+}

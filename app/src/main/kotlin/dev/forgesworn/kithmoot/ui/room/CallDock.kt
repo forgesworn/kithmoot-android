@@ -30,7 +30,8 @@ import dev.forgesworn.kithmoot.ui.RoomState
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit) {
+fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit,
+    onStopRecording: () -> Unit = {}, onToggleRecordingPause: () -> Unit = {}) {
     val others = call.tiles.count { !it.isSelf }
     // Mute keeps the microphone running and says so separately; either way
     // nobody hears this device.
@@ -55,6 +56,10 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                     },
                 ) { Text(if (heard) "Mic on" else "Mic off") }
                 Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to the call") }
+                if (call.nativeRecording) OutlinedButton(onClick = onStopRecording, enabled = !call.nativeRecordingBusy,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("Stop recording") }
+                if (call.nativeRecording) OutlinedButton(onClick = onToggleRecordingPause, enabled = !call.nativeRecordingBusy,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text(if (call.nativeRecordingPaused) "Resume recording" else "Pause recording") }
                 if (call.onCall) OutlinedButton(
                     onClick = onLeave,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),

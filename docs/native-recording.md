@@ -1,0 +1,394 @@
+# Native recording qualification
+
+Android's recording warnings are already part of the room UI. This branch adds
+native audio/video recording controls, capture and local export. The latest
+qualified candidate passed 35 focused JVM tests and all 10 local recording
+emulator checks, including actual gallery selection, signed notices, background
+pause, explicit resume and discard. Live browser/native video, private-node
+sharing UI, physical qualification and signed delivery remain open; this
+implementation does not close G11. Historical results below are scoped to their
+recorded source/APK hashes.
+
+## Capture boundary
+
+`CallAudioCapture` attaches sinks to explicitly supplied remote WebRTC audio
+tracks and accepts a caller-supplied outgoing buffer after microphone mute and
+app-share mixing. The pinned `io.github.webrtc-sdk:android:144.7559.12` binary
+provides `AudioTrack.addSink` and `AudioTrackSink.onData`; a screen recording or
+Android playback-capture workaround is unnecessary for these incoming tracks.
+
+The adapter neither chooses a room nor publishes a notice. Its eventual owner
+must publish the authority-signed recording notice before enabling capture,
+and continuously select only the originating call's authorised inputs. Track
+replacement and revocation drop queued samples. Native sink attachment/removal
+does not hold the callback lock. Disk writes run on a separate worker outside
+that lock. Inputs are bounded to 32 mono/stereo 48 kHz PCM sources, with at most
+two seconds buffered per source. Unsupported formats, queue overruns and file
+limits fail explicitly.
+
+One monotonic recording clock anchors each source; consecutive PCM buffers use
+their sample cadence so callback scheduling jitter cannot accumulate gaps.
+The two-second window tolerates short worker scheduling delays while keeping
+sample storage bounded to 6 MiB for 32 sources. Pause clears pending
+inputs and omits paused time from the exported timeline. The current lossless
+WAV writer is a capture qualification format, capped at 256 MiB including its
+header. It is not the final AAC/H.264 video encoder, nor a physical A/V sync or
+45-minute qualification.
+
+`AacRecordingFile` is the compressed local audio output for the same mixer:
+48 kHz mono AAC-LC at a requested 64 kbit/s in an M4A container. It writes to an
+app-private file on the export worker, timestamps PCM by sample count, omits
+paused time, reserves space for container tables and drains encoder EOS before
+returning a finalised file. Empty/failed exports are removed and existing files
+are never overwritten. Encoder stalls have bounded waits. The room owner supplies
+the same authorised incoming audio tracks and gains as playback, including
+meeting, hold and monitor policy. The engine feeds outgoing PCM after microphone
+mute and app-share mixing. Source revocation updates the active capture. No
+remote storage destination is selected automatically.
+
+The final AAC access unit is held in a bounded 1024-sample buffer and zero-padded
+before EOS, so an encoder cannot silently drop a partial final unit. An empty
+MP4 EOS marker sets the track duration to the original PCM clock using the
+[Android muxer contract](https://developer.android.com/reference/android/media/MediaMuxer#writeSampleData(int,%20java.nio.ByteBuffer,%20android.media.MediaCodec.BufferInfo)).
+The decoder qualification still requires the complete two seconds of samples;
+successful container metadata alone does not establish complete capture.
+
+## Audio/video export candidate
+
+`AvRecordingFile` drives a 1280 by 720, 15 fps H.264 surface encoder from the
+mixed audio's 48 kHz sample count. Its composition callback receives the exact
+export sample position. AAC and H.264 tracks stream to separate private files;
+finalisation remuxes samples in timestamp order through a four-MiB buffer. Both
+tracks receive the same original sample-clock duration. The combined source
+limit remains 256 MiB, with reserved container space. Temporary storage can
+approach twice the source limit during remuxing; this is bounded disk storage,
+not a qualified phone storage or battery result. Existing destinations are
+preserved, and failed, empty or discarded exports remove their private parts.
+
+The backend compiled and both of its instrumentation checks passed on the
+Android 35 host-GPU emulator. It is not wired into the recording controls yet.
+The independent gallery/speaker/selected-screen compositor is a source
+candidate under qualification. Its plan binds the original room and
+call, gates each device by recording capability and meeting permission, and
+keeps unavailable sources as named placeholders. It retains at most three
+scaled frames per input, uses the audio capture clock, and rejects new frames
+while paused or detached. The compositor qualification decodes synthetic
+native red/green cameras to check capability exclusion, permission withdrawal
+and a missing screen with its selected camera still visible. These checks
+do not cover real call ownership or phone lifecycle. The focused JVM run
+passed 22 tests: six layout-plan checks, six audio-capture checks (including
+video-clock revocation during pause, failure and detachment), four local-store
+checks and six recording-stop checks. The decoded gallery test passed:
+capability exclusion, an authorised camera appearing and permission withdrawal
+produced the expected pixels. The synthetic MP4 has 30 H.264 frames and 94 AAC
+packets, with both track durations exactly two seconds. The
+[scoped compositor receipt](evidence/native-recording-scene-2026-10-10.json)
+records the exact source/APKs and saved movie.
+
+Seven of the eight emulator tests completed successfully. The final
+screen-and-camera test stalled in `glCreateShader_enc` waiting for an emulator
+OpenGL RPC. Its stack was preserved and the process deliberately stopped;
+running that test alone with the same installed APK also stalled at shader
+creation. Neither run proves that test passed. The compositor now has separate
+video and overlay drawers: the pinned SDK's `GlGenericDrawer` otherwise deletes
+and recreates its cached shader whenever the shader type changes. That latest
+change awaits a new build and decoded playback, and is not a confirmed fix for
+the driver stall.
+
+The live-call diagnostic sinks received 13 frames from each callback, with both
+callbacks referring to the same native track; the bound sink also received 13
+frames. This rules out choosing a different callback wrapper as the remedy.
+The diagnostic sinks are still present in that receipt's fixture, so this
+does not close the production-representative live-call gate.
+
+The legacy SwiftShader-indirect renderer
+reported unsupported GLES readback and produced an all-black MP4; the identical
+APKs passed visible-frame playback on the host renderer. `AvRecordingTest` decodes the complete two-track file and compares three
+synthetic sound/picture transitions within 80 milliseconds. It also checks
+track duration, all 30 encoded video frames, empty/discarded/over-limit cleanup
+and existing-file preservation. That synthetic encoder test cannot establish
+live-call lip sync, physical video inputs or 45-minute acceptance.
+
+The [10 October encoder receipt](evidence/native-recording-av-2026-10-10.json)
+records the exact APK and encoder/test source hashes. Full playback decoded
+96,256 audio samples and all 30 video frames from a 52,005-byte synthetic MP4.
+The visible transitions preceded their audible counterparts by 6,667, 50,000
+and 6,667 microseconds. Empty/discarded/over-limit cleanup and existing-file
+preservation also passed. The full five-test gate still failed its browser
+video test: native video decoded counters advanced, but the monitored sink
+received no frames. These measurements prove this synthetic encoder pipeline
+only; there were no real room, call, camera, screen or physical-device inputs.
+
+## Wildbloom storage compatibility
+
+`sealFile` and `openFileAttachment` stream the existing FSWNENC2 envelope in
+one-MiB authenticated records. Source files are bounded to 256 MiB and envelopes
+to 260 MiB. Canonical encrypted filename, MIME type, padding, salted HKDF key,
+nonce and AAD match the shared Wildbloom format. No published vector changes.
+The old in-memory image APIs retain their existing limits.
+
+Readers authenticate all records, canonical metadata, size and the message's
+complete ciphertext hash before returning a plaintext file. Partial work stays
+in app-private temporary files and is deleted on failure. Destinations must not
+exist; callers must supply app-private directories and own the files' lifetime.
+
+`uploadFileMedia` streams immutable app-owned ciphertext to an explicitly chosen
+HTTPS Blossom origin, using the existing scoped authorisation and exact
+hash/size/origin receipt checks. Failed uploads retain the sealed local file.
+`fetchFileAttachment` downloads into a bounded private file and authenticates
+before returning plaintext. These APIs initiate no discovery, public NIP-94
+publication, replication, RelaySwarm participation or automatic upload. The
+room's storage consent and explicit Send remain separate owner responsibilities.
+
+## Reproducible checks
+
+Use JDK 21 and the project's Android SDK. Prepare the pinned mesh-radio sources
+if this checkout's generated build inputs are absent:
+
+```sh
+python3 scripts/prepare-mesh-radio.py
+KITHMOOT_RECORDING_INTEROP_DIR="$PWD/app/build/recording-interop" \
+  ./gradlew :app:testDebugUnitTest \
+    --tests '*FileAttachmentTest' --tests '*FileAttachmentUploadTest' \
+    --tests '*PcmRecordingTest' --tests '*CallAudioCaptureTest'
+node scripts/verify-recording-wildbloom.mjs ../wildbloom
+```
+
+The independent Wildbloom reader verifies a mixed 440/660 Hz synthetic WAV and
+a 34 MiB synthetic binary envelope labelled `video/mp4`. That binary tests large
+file interoperability only; it is not a playable video. The generated receipt
+records exact reader/writer source hashes. Recovery keys in these generated
+fixtures belong only to synthetic test material.
+
+`BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall` runs on
+a disposable emulator, refuses physical devices, supplies a synthetic 660 Hz
+outgoing buffer and receives the actual browser's 440 Hz tone over WebRTC. It
+checks both frequencies in the native WAV and authenticates its encrypted
+round-trip. It does not use a real account or room. Prepare the browser test
+assets with `node scripts/prepare-browser-call-interop.mjs` before building the
+instrumentation APK. Source/unit, emulator and physical evidence remain separate.
+
+`AacRecordingTest` sends two synthetic tones through the actual capture mixer,
+pauses for 30 seconds on its injected clock, and decodes the complete M4A with
+Android's media APIs. It checks both tones, compressed size and the two-second
+audio duration, plus empty-export, discard and existing-file preservation.
+Run both capture and compressed export after building the APKs:
+
+```sh
+ANDROID_SERIAL=emulator-PORT ANDROID_HOME=/path/to/sdk \
+  bash scripts/check-recording-emulator.sh
+```
+
+The script requires an explicitly selected disposable emulator and checks the
+instrumentation result itself; a zero `am instrument` exit is not a passed run.
+
+The 2026-10-10 source qualification passed 401 protocol and 1,891 app JVM
+tests. The actual Wildbloom reader passed all three generated envelopes,
+including the filename canonicalisation case and the 34 MiB multi-record file.
+`ffprobe` identified the synthetic WAV as 48 kHz mono `pcm_s16le`, one second.
+These checks establish file/mixer interoperability, not live-call or video
+acceptance. The browser-call instrumentation test must pass independently.
+
+The subsequent native-controls candidate passed 93 selected recording,
+negotiation and track JVM checks and built debug/instrumentation APKs. Both AAC
+instrumentation checks passed on the disposable Android 35 emulator after final
+access-unit padding: 94 packets decoded to 96,256 samples and the container
+retained the original 2,000,000-microsecond duration. The 256 extra decoded
+samples are final-unit padding. The independent browser-call gate remains open:
+the initial fixture was stuck in ICE checking with zero RTP received. After
+restarting the disposable emulator with working DNS and using the app's STUN/TURN
+configuration, ICE connected and both sides received audio (704 native and
+1,003 browser packets at the failed assertion). Both video frame counts remained
+zero, so the fixture still failed before recording began. The next candidate
+starts the synthetic native capturer explicitly and records video packet and
+decoder counters. That run received 875 video packets and reported 327 decoded
+frames, but delivered zero frames to the monitored native sink; the browser
+video counter also remained zero. It still failed before recording began.
+The six stop-notice JVM tests passed, including failed acknowledgement, stopped
+refreshes, explicit retry and rejection of an old retry against a new recorder.
+
+## Work remaining before recording is available
+
+`RoomWork.startRecording` now provides authority-signed capture details followed
+by the running notice, requiring a relay acknowledgement for each before it
+returns. A mutex admits one local start; the version outranks both previous
+notices and any orphan details from a failed start. Five-minute refreshes carry
+both signed records. `stopRecording(id)` confirms a newer off notice only for
+that id, so an old completion cannot stop a newer recording. Closing the owner
+cancels refreshes. The owner detaches capture before stopping the notice and
+reports a failed stop confirmation without implying capture is still running
+locally. A failed stop cancels running-notice refreshes and retains the exact
+recording id for an explicit Retry stop notice action. Retry is available even
+after leaving the call while the original room remains open; a newer signed
+notice clears the pending retry, and an old retry cannot stop a new recorder. The original call exposes an explicit Record audio confirmation and
+Stop action; its dock also exposes Stop. Pause/Resume controls now retain the
+exact capture owner and run outside the UI thread, omit paused time, and keep
+the signed warning visible. Those latest controls await their build and owner
+runtime qualification. Failed encoder finalisation now releases resources on
+the export worker; longer video remuxing has a bounded two-minute completion
+wait rather than the audio-only ten-second limit. Leave, room closure and epoch changes
+detach capture synchronously and finalise on an application-owned worker.
+
+Completed exports are retained in the application's no-backup private
+directory until Save or Discard. Save uses Android's document picker and a
+bounded streaming copy; failed copies retain the private export. Completed
+exports survive process death, while unfinished containers are removed when
+the application first recovers its store. One unresolved export blocks another
+recording. These controls are a source candidate, not runtime or physical
+acceptance evidence.
+
+The latest store candidate persists audio/video format, MIME type, extension,
+the original room/call/name and an optional self-destruct deadline in private
+atomic metadata. Save selects the matching document type. Earlier local M4A
+exports with no origin remain saveable, but no origin is inferred from the
+currently open room. New captures use the exact session and call they began
+on; the owner stops when that call changes.
+
+Room destruction revokes retention under the same store lock as completion,
+including when a video remux finishes afterwards. Unsaved completed exports
+are removed, expired exports are excluded before recovery presents them, and
+Save rechecks availability after the copy so destruction during a document
+provider operation does not leave a late saved copy. Explicit copies saved
+before destruction remain user-owned. Open-room and background self-destruct
+paths both invoke this revocation, even when relay deletion is postponed.
+Storage failures revoke in-process availability and leave cleanup retryable;
+the open call also stops its local capture on a revocation error. The current
+focused JVM run passed all 27 checks: nine store tests, six layout tests, six
+audio-capture tests and six stop-notice tests. Both debug APKs built successfully.
+The owner/runtime gates remain pending; the nine store tests are pure JVM
+filesystem checks rather than physical document-provider acceptance.
+
+The screen-and-camera decoder check reproduced its native `glCreateShader`
+RPC stall after a fresh emulator renderer. Inspection of the pinned SDK's
+I420 uploader showed that it uploads tightly packed planes without setting
+pixel unpack alignment. The selected camera scales to 244 pixels, producing
+122-byte chroma rows, while a new encoder EGL context defaults to four-byte
+alignment. The compositor now explicitly selects one-byte unpack alignment.
+The corrected build passed all eight emulator instrumentation checks, including
+decoded pixels for the previously stalled screen/camera overlay, on the same
+renderer without another reset. The gallery movie independently reports 30
+1280-by-720 H.264 frames and 94 AAC packets, both tracks exactly two seconds.
+The [27 JVM / eight emulator checks receipt](evidence/native-recording-retention-alignment-2026-10-10.json)
+pins the source and immutable APK snapshots. Its live-call fixture still has
+early diagnostic video sinks; that dependency remains unresolved and the
+production-representative live-call gate is open.
+
+The next app-owned candidate passed 32 focused JVM tests and built both debug
+APKs. Its full 11-test emulator run passed nine checks and failed two:
+the browser/native call still produced no observable video frames, even with
+diagnostic sinks, and the real gallery-recording UI did not pause when its
+Activity became hidden. The latter reached confirmed signed capture before
+failing at the lifecycle boundary. The
+[app-owner failure receipt](evidence/native-recording-video-owner-2026-10-10.json)
+preserves those APKs and the failed gates. A subsequent source candidate moves
+visibility notification into Activity callbacks, prevents hidden input refresh
+and queued Resume, gives the recording its own active-speaker hold selection,
+and probes the exact AAC/H.264 encoder formats before offering video. Those
+changes are undergoing a separate build and have not yet closed the runtime
+gates.
+
+That lifecycle/speaker candidate subsequently passed 35 focused JVM tests,
+including the three active-speaker hold/device/permission checks. Its corrected
+test APK passed all nine native codec/compositor checks, including encrypting,
+opening and decoding the generated gallery on Android. The app-owned UI test
+was first blocked at setup by a System UI ANR dialog. After the dialog was
+dismissed, the exact APK reached capture but reported audio after a Gallery
+tap; the test had not confirmed the radio's selected state. The
+[lifecycle/speaker receipt](evidence/native-recording-lifecycle-speaker-2026-10-10.json)
+preserves both failures and explicitly excludes the live browser gate from
+this local-capture run. The next source candidate makes each picker row one
+radio control, reads the current selection at confirmation, checks the selected
+radio before starting the app test, and keeps a raced pause flush outside the
+lifecycle monitor. It is undergoing another build; app-owner acceptance remains
+open.
+
+An actual hash-verified gallery MP4 from the earlier emulator compositor gate
+has now been encrypted with the compiled Android writer, opened independently
+by Wildbloom's reader and fully decoded with host ffmpeg. Both tracks have a
+two-second duration. The
+[playable Wildbloom interop receipt](evidence/native-recording-playable-wildbloom-2026-10-10.json)
+records the movie, ciphertext and compiled writer hashes without recovery keys.
+This proves playable format interoperability for generated test media; private
+HTTPS node upload and recipient app playback remain separate open gates.
+
+- Qualify live call controls, meeting/hold/monitor/mute changes, interruption,
+  expiry, access withdrawal and asynchronous finalisation cleanup end to end.
+- Qualify the stop-notice retry UI and room's conservative unconfirmed warning
+  during relay failure and reconnection.
+- Integrating compressed audio with H.264 encoding, a common audio/video clock and independent gallery,
+  speaker and selected-share compositing from privacy-processed call tracks.
+- Per-device video capability filtering and named unavailable/unsupported inputs.
+- Qualify Local Save/Discard and add explicit encrypted attachment staging, storage consent,
+  Send, incoming video playback and retained-copy wording.
+- Physical 45-minute export/playback, instantaneous lip-sync measurement,
+  memory, heat, battery, storage, Bluetooth/network and lifecycle acceptance.
+
+RelaySwarm remains an optional future ciphertext delivery adapter. Persistent
+Wildbloom-compatible storage supplies availability when the recorder leaves;
+choosing storage does not by itself establish replication or recovery acceptance.
+
+## Latest local controls qualification
+
+The [picker/owner receipt](evidence/native-recording-picker-owner-2026-10-10.json)
+records 35 passing focused JVM tests and ten passing local-capture emulator
+checks. The actual accessible Gallery row is selected before starting capture.
+The app publishes a signed gallery notice, pauses on backgrounding, remains
+paused on return and resumes only after an explicit action. The exported MP4
+has AAC and H.264 tracks of equal duration and retains its original room
+metadata; explicit Discard removes it. Browser/native interop is excluded from
+these ten checks. No physical microphone/camera, system document-provider Save,
+private-node UI or production-release claim follows from this receipt.
+
+Subsequent source changes bind the document-picker callback to the originally
+selected export name, preventing a callback from saving another room's replacement
+recording. They also require a fresh `RecordingView.On` before installation and
+throughout capture, stopping when a signed running notice becomes unconfirmed.
+These changes are under a new JVM/build qualification and are not part of the
+picker/owner receipt.
+
+A loopback HTTPS fixture running the bundled private Wildbloom daemon exposed
+an authorisation lifetime mismatch: `mediaAuthorisation` backdated creation by
+one second, making a requested five-minute lifetime 301 seconds. The node's
+strict 300-second limit correctly refuses it. Native encrypted upload and
+verified download succeed with a 300-second event lifetime; owner deletion is
+still under investigation. This fixture does not prove the app's Add/Upload/Send
+or recipient Show/playback flows, which remain open.
+
+The [Save/freshness receipt](evidence/native-recording-save-freshness-2026-10-10.json)
+now records a successful full JVM run (401 protocol and 1,924 app tests), both
+debug APK builds and ten passing local emulator checks for those ownership and
+freshness changes. These checks exclude the live browser/native call test and
+physical hardware. The authorisation fixes are subsequent source changes.
+
+The private-node's encoding refusals have also been isolated: Android used
+padded standard Base64, while current
+[BUD-11](https://github.com/hzrd149/blossom/blob/master/buds/11.md) requires
+URL-safe Base64 without padding. A fixture-only header correction allowed the
+native streaming upload, hash-verified download, wrong-key rejection and owner
+delete plus HEAD-404 check to pass. The client helper must reproduce that result
+without the override before recording the network primitive as qualified.
+
+The [private-node receipt](evidence/native-recording-private-node-2026-10-10.json)
+now records the corrected Android source passing without any fixture header
+rewrite against both the bundled daemon and a current-node build. The synthetic
+MP4 is uploaded over loopback HTTPS, downloaded into a private file and matched
+to its original plaintext hash. Missing authority and wrong-server authority
+receive 401, a wrong recovery key exposes no plaintext, and owner DELETE succeeds
+with subsequent HEAD 404. Full ffmpeg decoding of the downloaded movie succeeds.
+The test-only TLS terminator uses the fixture certificate and default hostname
+verification; Android production trust is unchanged. No real recording/key or
+public node was used. The fixture's backend upload uses Expect: 100-continue to
+forward early refusals cleanly; this is not an Android transport change.
+
+The remaining deletion gap is distinct from this immediate owner-delete check:
+the existing media ledger stores a long-lived signed delete event, whereas the
+private node enforces a five-minute event lifetime. Durable cleanup after room
+expiry or a later network recovery therefore remains open and must be resolved
+before relying on recording sharing retention.
+
+The subsequent actual Gradle-built app classes passed the same private-node
+transfer with no header rewrite. The wrong-key check requires
+`AEADBadTagException`, and no destination is created. Eight focused media and
+streaming-transfer JVM tests passed, and debug app/instrumentation APKs rebuilt
+successfully. This qualification covers the network primitives and authorisation
+corrections, rather than the still-missing app sharing/player journey.

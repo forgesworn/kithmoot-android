@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -44,6 +45,8 @@ import kotlinx.coroutines.sync.withLock
  * standing up a second copy of the application on top of a live session.
  */
 class MainActivity : ComponentActivity() {
+
+    private val roomModel: RoomViewModel by viewModels()
 
     /** A link that has arrived and not yet been acted on. */
     private val incoming = MutableStateFlow<String?>(null)
@@ -126,7 +129,7 @@ class MainActivity : ComponentActivity() {
             val textSetting = remember(textSize) { TextSizeSetting(textSize) { chosen -> TextSize.save(this, chosen); textSize = chosen } }
             KithMootTheme(textScale = textSize.scale) {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
-                val model: RoomViewModel = viewModel()
+                val model = roomModel
                 model.signerBridge = signerRelay
                 // Beside a call, another room opens in a second, chat-only
                 // instance, so the call's session, engine and notifications
@@ -244,7 +247,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val onScreen by visible.collectAsState()
-                LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
                 // Update checks run only on screen; installing ends the
                 // process, so never while a call is joined or joining.
                 val updates = (application as KithMootApplication).updates
@@ -286,7 +288,8 @@ class MainActivity : ComponentActivity() {
                         visitor,
                         accountModel = model,
                         dock = if (callStage == Stage.ROOM) ({
-                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom, onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave)
+                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom, onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave,
+                                onStopRecording = model::stopNativeRecording, onToggleRecordingPause = model::toggleNativeRecordingPause)
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,
@@ -352,11 +355,15 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         visible.value = true
+        roomModel.setAppVisible(true)
     }
 
     override fun onStop() {
-        super.onStop()
         visible.value = false
+        // Compose can stop processing state as the activity becomes hidden.
+        // Revoke recording/camera inputs directly at the lifecycle boundary.
+        roomModel.setAppVisible(false)
+        super.onStop()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {

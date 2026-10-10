@@ -25,6 +25,13 @@ import dev.forgesworn.kithmoot.epoch.RoomMembers
 private const val VMLS_PREVIEW = "preview"
 
 class KithMootApplication : Application() {
+    /** App-private recordings are excluded from Android cloud/device backup. */
+    val recordings by lazy {
+        dev.forgesworn.kithmoot.media.recording.LocalRecordingStore(java.io.File(noBackupFilesDir, "recordings"))
+            .apply { recover() }
+    }
+    /** Finalising an explicit local recording outlives room/Activity teardown. */
+    val recordingExports = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     /** Where signer intents wait for their answer, so an activity recreated meanwhile does not lose it. */
     val signerRelay = dev.forgesworn.kithmoot.account.SignerRelay()
 

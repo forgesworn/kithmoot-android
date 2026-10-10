@@ -101,6 +101,9 @@ class RoomSelfDestructor internal constructor(
         if (!(saved.destruct && (force || due(saved)))) return Outcome.NotDue
         if (!claimed && !claim(roomId)) return Outcome.Running
         try {
+            // Local unsaved recordings expire immediately, including a
+            // capture still finalising, even when relay cleanup is postponed.
+            requireApp.recordings.forgetRoom(roomId)
             // The background service hands the room over now, rather than at its next look.
             ActiveRoomRegistry.mark(roomId)
             val target = RoomWipeTarget(saved.id, saved.participant, saved.devicePubkey)
