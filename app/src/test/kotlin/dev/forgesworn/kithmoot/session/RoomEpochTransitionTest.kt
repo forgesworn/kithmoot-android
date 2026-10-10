@@ -13,8 +13,13 @@ import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.KIND_CHAT
+import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
 import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import kotlinx.coroutines.flow.Flow
 import kotlin.test.assertFalse
 import kotlinx.coroutines.launch
 import dev.forgesworn.kithmoot.support.FakeRelay
@@ -35,6 +40,70 @@ import kotlin.test.assertTrue
 class RoomEpochTransitionTest {
     private val authoritySecret = Fixtures.key(41)
     private val authority = Schnorr.publicKeyHex(authoritySecret)
+
+    /** Subscribe is synchronous even if collecting its flow is scheduled.
+     * A mesh query registered during the block is permanently suppressed. */
+    private class TrafficSubscriptions(private val relay: FakeRelay) : RoomTransport by relay.transport() {
+        val registered = mutableListOf<Pair<Filter, Boolean>>()
+        override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+            filters.filter { it.kinds?.any { kind -> kind in setOf(KIND_ROSTER, KIND_CHAT, KIND_SIGNAL_WRAP) } == true }
+                .forEach { registered += it to relay.publicationBlocked }
+            return relay.transport().subscribe(filters)
+        }
+    }
+
+    @Test fun `successor traffic subscriptions register only after the verified transport barrier opens`() = runTest {
+        val stable = Fixtures.room(); val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay(); val transport = TrafficSubscriptions(relay)
+        val live = session(stable, identity, relay, authority = authority, transport = transport,
+            epochGate = { _, _ -> EpochGateResult.COMMITTED })
+        try {
+            live.join(); runCurrent(); transport.registered.clear()
+            val next = RoomEpoch(1, ByteArray(32) { 44 })
+            relay.publish(encodeRekeyEvent(stable.roomId, authoritySecret,
+                deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 })), next,
+                listOf(identity.devicePubkey), emptyList(), 1))
+            runCurrent()
+            val successor = deriveEpoch(next)
+            assertEquals(1, live.epochKeys().epoch)
+            assertTrue(transport.registered.any { it.first.kinds?.contains(KIND_CHAT) == true })
+            assertTrue(transport.registered.all { !it.second }, "Successor subscriptions must emit their mesh queries after the barrier")
+            val chat = transport.registered.single { it.first.kinds?.contains(KIND_CHAT) == true }.first
+            val roster = transport.registered.single { it.first.kinds?.contains(KIND_ROSTER) == true }.first
+            assertEquals(successor.id, chat.tags.getValue("#d").first())
+            assertEquals(listOf(successor.id), roster.tags.getValue("#d"))
+            live.sendChat("under the verified queried successor")
+            assertEquals(successor.id, relay.published.last().tagValue("d"))
+        } finally { live.leave() }
+    }
+
+    @Test fun `join settled after a replayed successor opens the barrier before traffic subscriptions`() = runTest {
+        val stable = Fixtures.room(); val identity = Fixtures.primary(stable, 1, 2)
+        val relay = FakeRelay(); val transport = TrafficSubscriptions(relay)
+        val live = session(stable, identity, relay, authority = authority, transport = transport,
+            epochSettleMs = 1_500, epochGate = { _, _ -> EpochGateResult.COMMITTED })
+        try {
+            val joining = launch { live.join() }; runCurrent()
+            val next = RoomEpoch(1, ByteArray(32) { 45 })
+            relay.publish(encodeRekeyEvent(stable.roomId, authoritySecret,
+                deriveEpoch(RoomEpoch(0, ByteArray(32) { 7 })), next,
+                listOf(identity.devicePubkey), emptyList(), 1))
+            runCurrent()
+            assertEquals(1, live.epochKeys().epoch)
+            assertTrue(relay.publicationBlocked)
+            assertTrue(transport.registered.isEmpty())
+            advanceTimeBy(1_500); runCurrent(); joining.join()
+            val successor = deriveEpoch(next)
+            assertTrue(transport.registered.any { it.first.kinds?.contains(KIND_CHAT) == true })
+            assertTrue(transport.registered.all { !it.second })
+            val chat = transport.registered.single { it.first.kinds?.contains(KIND_CHAT) == true }.first
+            val roster = transport.registered.single { it.first.kinds?.contains(KIND_ROSTER) == true }.first
+            assertEquals(successor.id, chat.tags.getValue("#d").first())
+            assertEquals(listOf(successor.id), roster.tags.getValue("#d"))
+            live.sendChat("settled under the verified queried successor")
+            assertEquals(successor.id, relay.published.last().tagValue("d"))
+        } finally { live.leave() }
+    }
 
     @Test fun `a committed retained rekey moves all session traffic before announcing`() = runTest {
         val stable = Fixtures.room()
