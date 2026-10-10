@@ -324,6 +324,16 @@ internal class NativeKeeperController private constructor(private val source: Na
             if (pending.any { source.pendingNeedsOffer(it.id) }) {
                 val remaining = source.snapshot()
                 publishState(State.Pending(remaining.pending.map { it.id }), remaining)
+                // A retirement notice does not change the approved traffic
+                // epoch. Cold foreground chat must not wait for its custody.
+                // Rekey/terminal pending states keep their startup hold.
+                if (remaining.phase == KeeperPhase.RETIRED && remaining.pending.isNotEmpty() &&
+                    remaining.pending.all { it.kind == KIND_INVITATION_RETIREMENT }) {
+                    validateReceiverBeforeRecovery()
+                    source.binding.let {
+                        live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device, ::selected)
+                    }
+                }
                 return
             }
             source.completePending(receiver, requireNotNull(live))
