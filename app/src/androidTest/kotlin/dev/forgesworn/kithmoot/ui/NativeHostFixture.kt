@@ -46,6 +46,9 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     private val existingRoomIds = app.savedRooms.list().map { it.id }.toSet()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val radios = CopyOnWriteArrayList<Radio>()
+    /** Counts route factories even if no BLE subscription/radio is started. */
+    @Volatile var nearbyLinkCreations = 0
+        private set
     val phoneEvents = CopyOnWriteArrayList<NostrEvent>()
     val relayWrites = CopyOnWriteArrayList<NostrEvent>()
     val grants = CopyOnWriteArrayList<NostrEvent>()
@@ -121,6 +124,7 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     fun main(block: () -> Unit) = InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
     fun startModel() = main {
         model = RoomViewModel(app, nearbyLinkFactory = {
+            nearbyLinkCreations += 1
             NativeRoomMeshLink({ receive -> Radio(receive).also { radios += it } }, Dispatchers.Main)
         })
         store.put("native-host", model)

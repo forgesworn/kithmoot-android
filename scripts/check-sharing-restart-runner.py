@@ -9,10 +9,10 @@ FAKE = r'''#!/usr/bin/env python3
 import os,sys,time,json
 from pathlib import Path
 args=sys.argv[1:];mode=os.environ.get('FAKE_MODE','ok')
-profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-');retirement=profile.startswith('native-retirement-');replacement=profile.startswith('native-replacement-');transitioned=rekey or retirement or replacement
+profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-');retirement=profile.startswith('native-retirement-');pending=profile.startswith('native-pending-refusal-');replacement=profile.startswith('native-replacement-') or pending;transitioned=rekey or retirement or replacement
 case='dev.forgesworn.kithmoot.epoch.NativeReplacementRestartTest' if replacement else 'dev.forgesworn.kithmoot.epoch.NativeRetirementRestartTest' if retirement else 'dev.forgesworn.kithmoot.epoch.NativeRekeyRestartTest' if rekey else 'dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
 marker='native_replacement' if replacement else 'native_retirement' if retirement else 'native_rekey' if rekey else 'native_host' if native else 'sharing'
-transition=profile.removeprefix('native-replacement-') if replacement else profile.removeprefix('native-retirement-') if retirement else 'before-handoff' if profile=='native-rekey-before' else 'after-handoff'
+transition=profile.removeprefix('native-pending-refusal-') if pending else profile.removeprefix('native-replacement-') if replacement else profile.removeprefix('native-retirement-') if retirement else 'before-handoff' if profile=='native-rekey-before' else 'after-handoff'
 root=Path(os.environ['FAKE_ROOT']);killed=root/'killed'
 with (root/'calls').open('a') as out:out.write(json.dumps(args)+'\n')
 if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(7 if mode=='qemu-failure' else 0)
@@ -50,13 +50,27 @@ if 'instrument' in args:
   if replacement and mode!='no-checkpoint-bundle':print('INSTRUMENTATION_STATUS_CODE: 2',flush=True)
   while not killed.exists():time.sleep(.01)
   print('INSTRUMENTATION_RESULT: shortMsg=Process crashed.',flush=True);sys.exit(0)
+ if pending:marker='native_pending_refusal'
  if mode!='no-recovery-pid':
   print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid='+('4242' if mode=='same-recovery-pid' else '5252'))
   if mode=='duplicate-recovery-pid':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_pid=5252')
  if transitioned and mode!='no-recovery-mode':
   print('INSTRUMENTATION_STATUS: '+marker+'_recovery_mode='+('wrong-boundary' if mode=='wrong-recovery-mode' else transition))
   if mode=='duplicate-recovery-mode':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_mode='+transition)
- if replacement:
+ if pending:
+  from native_pending_store_refusal import FAULTS,WINDOWS
+  i=WINDOWS.index(transition)
+  rows=[]
+  for target,fault in sorted(FAULTS):
+   row={'window':transition,'stage':'NOTICE_ARCHIVED' if i==3 else 'INDEX_VERIFIED' if i==4 else 'ORIGINALS_RETAINED','target':target,'fault':fault,'originalId':'11'*32,'originalCreatedAt':'100','welcomeId':'22'*32,'welcomeCreatedAt':'100','originalBytes':'426','attempts':'0' if i==0 else '1','offered':'1' if i>=2 else '0','chargedBytes':'0' if i==0 else '426','epoch':'1','devices':'3','sourceGeneration':'0','proposedGeneration':'1','indexGeneration':'1' if i>=3 else '0','newRadios':'0','newSubscriptions':'0','newOffers':'0','relayRequests':'0','filesUnchanged':'true','keysUnchanged':'true','cleanupVerified':'true'}
+   rows.append(row)
+  if mode=='pending-missing-row':rows.pop()
+  if mode=='pending-duplicate-row':rows[-1]=rows[0]
+  if mode=='pending-changed-original':rows[-1]['originalId']='33'*32
+  if mode=='pending-offer':rows[-1]['newOffers']='1'
+  if mode=='pending-unclean':rows[-1]['cleanupVerified']='false'
+  for row in rows:print('NATIVE_PENDING_STORE_REFUSAL '+' '.join(k+'='+v for k,v in row.items()))
+ if replacement and not pending:
   death=0 if transition=='committed-source-before-offer' else 1
   completed=death+(1 if transition in ('committed-source-before-offer','charged-original-before-offer') else 0)
   fields={'original_id':'11'*32,'welcome_id':'22'*32,'original_created_at':'100','welcome_created_at':'100','original_bytes':'426','attempts_at_death':str(death),'attempts_after_completion':str(completed),'debt_at_death':str(426*death),'debt_after_completion':str(426*completed),'devices':'3','same_epoch':'1','invitation_generation':'1','internet_requests':'0','cleanup_verified':'true'}
@@ -74,13 +88,13 @@ class DriverTest(unittest.TestCase):
  def run_case(self, mode='ok', serial='emulator-9998'):
   with tempfile.TemporaryDirectory(prefix='kithmoot-sharing-driver-') as folder:
    root=Path(folder);(root/'scripts').mkdir();(root/'sdk/platform-tools').mkdir(parents=True)
-   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py','check-native-retirement-restart-emulator.py','check-native-replacement-restart-emulator.py'):
+   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py','check-native-retirement-restart-emulator.py','check-native-replacement-restart-emulator.py','check-native-pending-store-refusal-emulator.py','native_pending_store_refusal.py'):
     shutil.copyfile(Path(__file__).with_name(name),root/'scripts'/name)
-   rekey=self.profile.startswith('native-rekey-');retirement=self.profile.startswith('native-retirement-');replacement=self.profile.startswith('native-replacement-')
-   driver=root/'scripts'/('check-native-replacement-restart-emulator.py' if replacement else 'check-native-retirement-restart-emulator.py' if retirement else 'check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
+   rekey=self.profile.startswith('native-rekey-');retirement=self.profile.startswith('native-retirement-');replacement=self.profile.startswith('native-replacement-');pending=self.profile.startswith('native-pending-refusal-')
+   driver=root/'scripts'/('check-native-pending-store-refusal-emulator.py' if pending else 'check-native-replacement-restart-emulator.py' if replacement else 'check-native-retirement-restart-emulator.py' if retirement else 'check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
    adb=root/'sdk/platform-tools/adb';adb.write_text(FAKE);adb.chmod(0o700)
-   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1',KITHMOOT_NATIVE_RETIREMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_RETIREMENT_DEATH_SECONDS='1',KITHMOOT_NATIVE_REPLACEMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REPLACEMENT_DEATH_SECONDS='1')
-   command=['python3',str(driver)]+([self.profile.removeprefix('native-replacement-')] if replacement else [self.profile.removeprefix('native-retirement-')] if retirement else ['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
+   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,PYTHONPATH=str(root/'scripts'),KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1',KITHMOOT_NATIVE_RETIREMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_RETIREMENT_DEATH_SECONDS='1',KITHMOOT_NATIVE_REPLACEMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REPLACEMENT_DEATH_SECONDS='1')
+   command=['python3',str(driver)]+([self.profile.removeprefix('native-pending-refusal-')] if pending else [self.profile.removeprefix('native-replacement-')] if replacement else [self.profile.removeprefix('native-retirement-')] if retirement else ['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
    result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=30)
    calls=(root/'calls').read_text() if (root/'calls').exists() else ''
    reports=root/'app/build/reports'/(self.profile+'-restart-emulator')
@@ -217,5 +231,26 @@ class NativeReplacementIndexDriverTest(NativeReplacementCommittedDriverTest):
  profile='native-replacement-index-committed-before-source-acknowledgement'
 class NativeReplacementReferenceDriverTest(NativeReplacementCommittedDriverTest):
  profile='native-replacement-reference-installed-before-subscription-switch'
+
+
+class PendingStoreRefusalRunnerTest(DriverTest):
+ profile='native-pending-refusal-committed-source-before-offer'
+ def test_all_five_pending_windows_use_original_prepare_and_new_matrix(self):
+  for mode in ('committed-source-before-offer','charged-original-before-offer','offered-before-index','index-committed-before-source-acknowledgement','reference-installed-before-subscription-switch'):
+   with self.subTest(window=mode):
+    self.profile='native-pending-refusal-'+mode
+    r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr)
+    self.assertIn('#a_prepare',c);self.assertIn('#b_refuse_pending_stores',c)
+    self.assertNotIn('#b_recover',c);self.assertIn('"kill", "-9", "4242"',c)
+    self.assertEqual(2,c.count('"transitionMode", "'+mode+'"'))
+ def test_partial_changed_or_unpreserved_matrix_cannot_pass(self):
+  for mode in ('pending-missing-row','pending-duplicate-row','pending-changed-original','pending-offer','pending-unclean'):
+   with self.subTest(fault=mode):
+    r,c,d=self.run_case(mode);self.assertEqual(1,r.returncode);self.assertTrue(d)
+    self.assertIn('"force-stop",',c);self.assertIn('"clear",',c)
+ def test_original_positive_recovery_method_remains_separate(self):
+  self.profile='native-replacement-committed-source-before-offer'
+  r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr)
+  self.assertIn('#b_recover',c);self.assertNotIn('#b_refuse_pending_stores',c)
 
 if __name__=='__main__':unittest.main()

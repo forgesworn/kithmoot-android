@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.epoch
 
+import android.app.Instrumentation
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
@@ -451,6 +452,249 @@ class NativeReplacementRestartTest {
             }
         } }
         InstrumentationRegistry.getInstrumentation().sendStatus(2, requireNotNull(result))
+    }
+
+    /** A second external driver uses a_prepare unchanged, then this fresh-process
+     * matrix. Every row starts from identical real committed ciphertexts. */
+    @Test fun b_refuse_pending_stores(): Unit = runBlocking {
+        val mode = mode()
+        check(InstrumentationRegistry.getArguments().getString("requireRestart") == "true")
+        val f = NativeHostFixture()
+        val checkpoint = EncryptedRoomStorage(f.app, CHECKPOINT, 128 * 1024)
+        val bytes = requireNotNull(checkpoint.read())
+        val expected = try { Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject }
+            finally { bytes.fill(0) }
+        val originals = mutableMapOf<File, ByteArray>()
+        val rows = mutableListOf<String>()
+        var saved: SavedRoom? = null
+        var primary: Throwable? = null
+        try {
+            assertEquals(mode, expected.getValue("mode").jsonPrimitive.content)
+            assertNotEquals(expected.getValue("pid").jsonPrimitive.int, Process.myPid())
+            val room = expected.getValue("room").jsonPrimitive.content
+            val selected = requireNotNull(f.app.savedRooms.get(room)).also { saved = it }
+            // The guarded runner owns a disposable profile. Never restore or
+            // reset a shared receiver containing somebody else's room.
+            assertEquals(listOf(room), f.app.savedRooms.list().map { it.id })
+            val binding = requireNotNull(selected.nativeAuthority)
+            val directory = f.app.noBackupFilesDir
+            val targets = mapOf("SOURCE" to sourceAlias(binding), "RECEIVER" to "kithmoot.epoch.v1",
+                "COURIER" to courierAlias(binding), "INDEX" to "kithmoot.rooms.v1")
+            val limits = mapOf("SOURCE" to NativeKeeperJournal.MAX_FILE_BYTES + 64,
+                "RECEIVER" to 1024 * 1024 + 512, "COURIER" to RoomRekeyLedger.MAX_FILE_BYTES + 64,
+                "INDEX" to 4 * 1024 * 1024 + 64)
+            for ((target, alias) in targets) {
+                val file = File(directory, "$alias.vault")
+                assertTrue(file.isFile)
+                check(file.length() in 1..limits.getValue(target).toLong())
+                assertFalse(File(file.path + ".new").exists()); assertFalse(File(file.path + ".bak").exists())
+            }
+            originals.putAll(ciphertexts(directory))
+            val keys = aliases()
+            val cold = f.source(selected)
+            val index = f.committed("kithmoot.rooms.v1", 4 * 1024 * 1024)
+            val pending = cold.getValue("replacement").jsonObject
+            val notice = original(cold); val welcome = proposedWelcome(cold)
+            val stage = if (mode == MODES[3]) "NOTICE_ARCHIVED" else if (mode == MODES[4]) "INDEX_VERIFIED" else "ORIGINALS_RETAINED"
+            val deathAttempts = if (mode == MODES[0]) 0 else 1
+            val offered = if (mode in MODES.drop(2)) 1 else 0
+            val indexGeneration = if (mode in MODES.drop(3)) 1 else 0
+            assertEquals(expected.getValue("sourceDigest"), JsonPrimitive(digest(cold.toString())))
+            assertEquals(expected.getValue("indexDigest"), JsonPrimitive(digest(index.toString())))
+            assertEquals(expected.getValue("reference"), selected.json.getValue("nativeAuthority"))
+            assertEquals(expected.getValue("invitationDigest"), JsonPrimitive(digest(selected.joinUrl)))
+            assertEquals(expected.getValue("notice"), notice.toJson()); assertEquals(expected.getValue("welcome"), welcome.toJson())
+            assertTrue(Events.verify(notice)); assertTrue(Events.verify(welcome))
+            assertEquals(KIND_INVITATION_RETIREMENT, notice.kind); assertEquals(KIND_GROUP_INVITATION, welcome.kind)
+            assertEquals(stage, pending.getValue("stage").jsonPrimitive.content)
+            assertEquals(0, cold.getValue("activeInvitation").jsonObject.getValue("generation").jsonPrimitive.int)
+            assertEquals(1, pending.getValue("proposed").jsonObject.getValue("generation").jsonPrimitive.int)
+            assertEquals(indexGeneration, NativeKeeperReference.generation(selected.json.getValue("nativeAuthority")))
+            assertEquals(1, cold.getValue("epoch").jsonPrimitive.int)
+            assertEquals(3, cold.getValue("devices").jsonArray.size)
+            assertEquals(expected.getValue("traffic"), traffic(cold))
+            assertEquals(deathAttempts, attempts(cold)); assertEquals(offered, total(pending.getValue("offered")))
+            val debt = nearbyDebt(cold) - expected.getValue("priorNearbyDebt").jsonPrimitive.int
+            assertEquals(eventBytes(notice) * deathAttempts, debt)
+            val cached = cold.getValue("answers").jsonArray.single {
+                it.jsonObject.getValue("request").jsonObject.getValue("id") == expected.getValue("oldRequest").jsonObject.getValue("id")
+            }.jsonObject
+            assertEquals(expected.getValue("oldAnswer"), cached.getValue("answer"))
+            assertTrue(expected.getValue("priorSpends").jsonArray.all { original ->
+                cold.getValue("spends").jsonArray.count { it == original } >= expected.getValue("priorSpends").jsonArray.count { it == original }
+            })
+            assertEquals(expected.getValue("receiver"), receiver(f.app.roomEpochs, room))
+            assertEquals(expected.getValue("peerReceiver"), receiver(EpochVault(EncryptedRoomStorage(f.app, peerAlias(room))), room))
+            val courier = f.courier(selected)
+            assertEquals(expected.getValue("courier"), JsonObject(courier.filterKeys { it != "high" }))
+            assertTrue(courier.getValue("high").jsonPrimitive.long >= expected.getValue("courierHigh").jsonPrimitive.long)
+            val faults = targets.keys.flatMap { target -> listOf(target to "MISSING", target to "CORRUPT") } +
+                listOf("INDEX" to "OWNER_DEVICE", "INDEX" to "ROUTE_PINS", "INDEX" to "INVITATION")
+            for ((target, fault) in faults) {
+                // Every preceding attempt and foreground owner has closed.
+                originals.forEach { (file, value) -> file.writeBytes(value) }
+                assertEquals(keys, aliases())
+                val damagedFile = File(directory, targets.getValue(target) + ".vault")
+                if (fault == "MISSING") assertTrue(damagedFile.delete())
+                else if (fault == "CORRUPT") {
+                    val damaged = originals.getValue(damagedFile).copyOf()
+                    try { damaged[damaged.lastIndex] = (damaged.last().toInt() xor 1).toByte(); damagedFile.writeBytes(damaged) }
+                    finally { damaged.fill(0) }
+                } else {
+                    val hostile = hostileIndex(selected, fault)
+                    // This must pass real SavedRoom validation, then be sealed
+                    // by the real Android store. Ordinary repository save guards
+                    // are never altered to permit this hostile lab input.
+                    SavedRoom.decode(hostile)
+                    val value = JsonObject(index + ("rooms" to JsonArray(listOf(hostile)))).toString().toByteArray(Charsets.UTF_8)
+                    try { EncryptedRoomStorage(f.app, "kithmoot.rooms.v1").write(value) }
+                    finally { value.fill(0) }
+                }
+                val afterFault = ciphertexts(directory)
+                val keysAfterFault = aliases()
+                var foreground: NativeHostFixture? = null
+                var rowFailure: Throwable? = null
+                try {
+                    val rooms = RoomRepository(EncryptedRoomStorage(f.app, "kithmoot.rooms.v1"))
+                    val receiver = EpochVault(RollbackResistantRoomStorage(f.app, "kithmoot.epoch.v1", 1024 * 1024))
+                    var entry: NativeKeeperEntry? = null
+                    var refused = false
+                    try {
+                        entry = NativeKeeperEntry.openForRoom(selected, receiver, rooms,
+                            { NativeKeeperVault.forSavedRoom(f.app, selected).openForEntry() },
+                            { q, initialise ->
+                                assertFalse("Marked pending courier must never initialise", initialise)
+                                RoomRekeyVault(f.app, q).open(initialise)
+                            })
+                    } catch (_: Exception) { refused = true }
+                    finally { entry?.stop() }
+                    assertTrue("Cold pending $mode $target $fault must refuse before routes", refused)
+                    if (target == "INDEX" && fault in setOf("MISSING", "CORRUPT")) {
+                        assertTrue("Actual index read must fail before room selection",
+                            runCatching { requireNotNull(rooms.get(room)) }.isFailure)
+                    } else {
+                        // New ViewModel/fixture per row; never reuse a recovered
+                        // owner, receiver, courier or source between faults.
+                        foreground = NativeHostFixture()
+                        val owner = foreground
+                        owner.startModel()
+                        assertEquals(0, owner.server.requestCount)
+                        owner.main { owner.model.reopenRoom(room) }
+                        NativeHostFixture.await("pending fault refuses foreground before routes") {
+                            !owner.model.start.value.busy && owner.model.start.value.error != null
+                        }
+                        assertEquals(Stage.START, owner.model.stage.value)
+                        assertEquals("Refusal must precede even the route factory", 0, owner.nearbyLinkCreations)
+                        assertTrue(owner.radios.isEmpty()); assertTrue(owner.phoneEvents.isEmpty())
+                        assertTrue(owner.relayWrites.isEmpty()); assertEquals(0, owner.server.requestCount)
+                    }
+                    NativeKeeperJournal.withInactiveOwner(binding.owner) { Unit }
+                    val q = RoomRekeyBinding(binding.room, binding.authority, binding.device, binding.meshScope, binding.relays, binding.route)
+                    RoomRekeyLedger.withInactiveOwner(q.owner) { Unit }
+                    if (target != "SOURCE") assertEquals(cold, f.source(selected))
+                    assertEquals(keysAfterFault, aliases())
+                    assertCiphertexts(afterFault, directory)
+                    rows += "NATIVE_PENDING_STORE_REFUSAL window=$mode stage=$stage target=$target fault=$fault " +
+                        "originalId=${notice.id} originalCreatedAt=${notice.createdAt} welcomeId=${welcome.id} welcomeCreatedAt=${welcome.createdAt} " +
+                        "originalBytes=${eventBytes(notice)} attempts=$deathAttempts offered=$offered chargedBytes=$debt " +
+                        "epoch=1 devices=3 sourceGeneration=0 proposedGeneration=1 indexGeneration=$indexGeneration " +
+                        "newRadios=0 newSubscriptions=0 newOffers=0 relayRequests=0 filesUnchanged=true keysUnchanged=true"
+                } catch (error: Throwable) { rowFailure = error; throw error }
+                finally { cleanup(rowFailure) {
+                    try { foreground?.close(); assertEquals(keysAfterFault, aliases()); assertCiphertexts(afterFault, directory) }
+                    finally { afterFault.values.forEach { it.fill(0) } }
+                } }
+            }
+            assertEquals(11, rows.size)
+        } catch (error: Throwable) { primary = error; throw error }
+        finally { cleanup(primary) {
+            try {
+                originals.forEach { (file, value) -> file.writeBytes(value) }
+                saved?.let { selected ->
+                    val binding = requireNotNull(selected.nativeAuthority)
+                    NativeKeeperVault(f.app, binding).forget()
+                    val q = RoomRekeyBinding(binding.room, binding.authority, binding.device, binding.meshScope, binding.relays, binding.route)
+                    RoomRekeyVault(f.app, q).forget()
+                    f.app.roomEpochs.forget(selected.id); f.app.savedRooms.forget(selected.id)
+                    EncryptedRoomStorage(f.app, peerAlias(selected.id)).reset()
+                    assertNull(f.app.roomEpochs.get(selected.id)); assertNull(f.app.savedRooms.get(selected.id))
+                    assertTrue(f.app.savedRooms.list().isEmpty())
+                    RollbackResistantRoomStorage(f.app, "kithmoot.epoch.v1", 1024 * 1024).reset()
+                    EncryptedRoomStorage(f.app, "kithmoot.epoch-history.v1").reset()
+                    val owned = listOf(sourceAlias(binding), courierAlias(binding), peerAlias(selected.id), CHECKPOINT,
+                        "kithmoot.epoch.v1", "kithmoot.epoch-history.v1")
+                    checkpoint.reset()
+                    assertTrue(aliases().none { key -> owned.any { key == it || key.startsWith("$it.entry.") } })
+                    for (alias in owned) for (suffix in listOf(".vault", ".vault.new", ".vault.bak"))
+                        assertFalse(File(f.app.noBackupFilesDir, alias + suffix).exists())
+                }
+            } finally {
+                try { f.close() } finally { originals.values.forEach { it.fill(0) } }
+            }
+        } }
+        // Numeric rows reach the actual instrument result stream only after
+        // all eleven refusals, closed leases and stage-wide deletion succeed.
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+            putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\n" + rows.joinToString("\n") { "$it cleanupVerified=true" } + "\n")
+            putString("native_pending_refusal_recovery_pid", Process.myPid().toString())
+            putString("native_pending_refusal_recovery_mode", mode)
+        })
+    }
+
+    private fun hostileIndex(saved: SavedRoom, fault: String): JsonObject {
+        val binding = requireNotNull(saved.nativeAuthority)
+        val generation = NativeKeeperReference.generation(saved.json.getValue("nativeAuthority"))
+        return when (fault) {
+            "OWNER_DEVICE" -> {
+                val identity = saved.json.getValue("identity").jsonObject.toMutableMap()
+                val participant = ByteArray(32).apply { this[31] = 9 }
+                val device = ByteArray(32).apply { this[31] = 10 }
+                try {
+                    identity["participantKey"] = JsonPrimitive(participant.toHex()); identity["deviceKey"] = JsonPrimitive(device.toHex())
+                    val changed = NativeKeeperBinding(binding.room, binding.authority, Schnorr.publicKeyHex(participant),
+                        Schnorr.publicKeyHex(device), binding.route, binding.relays)
+                    JsonObject(saved.json + mapOf("identity" to JsonObject(identity), "nativeAuthority" to
+                        NativeKeeperReference.encode(changed, saved.json.getValue("nativeAuthority").jsonObject.getValue("invitation").jsonPrimitive.content, generation)))
+                } finally { participant.fill(0); device.fill(0) }
+            }
+            "ROUTE_PINS" -> {
+                val relays = listOf("wss://pending-refusal.invalid/")
+                val changed = NativeKeeperBinding(binding.room, binding.authority, binding.participant, binding.device, RoomRoute.MIXED, relays)
+                JsonObject(saved.json + mapOf("route" to JsonPrimitive(RoomRoute.MIXED.stored), "relays" to JsonArray(relays.map(::JsonPrimitive)),
+                    "nativeAuthority" to NativeKeeperReference.encode(changed,
+                        saved.json.getValue("nativeAuthority").jsonObject.getValue("invitation").jsonPrimitive.content, generation)))
+            }
+            "INVITATION" -> {
+                val invitation = requireNotNull(saved.invitation).invitation
+                try {
+                    invitation.bearer[0] = (invitation.bearer[0].toInt() xor 1).toByte()
+                    JsonObject(saved.json + mapOf("joinUrl" to JsonPrimitive(encodeInvitationUrl("https://kithmoot.invalid/", invitation, saved.relays)),
+                        "nativeAuthority" to NativeKeeperReference.encode(binding, deriveInvitationId(invitation), generation)))
+                } finally { invitation.bearer.fill(0) }
+            }
+            else -> error("Unknown hostile pending index fault")
+        }
+    }
+
+    private fun aliases() = KeyStore.getInstance("AndroidKeyStore").run { load(null); aliases().toList().toSet() }
+    private fun ciphertexts(directory: File): Map<File, ByteArray> {
+        val result = mutableMapOf<File, ByteArray>()
+        try {
+            for (file in requireNotNull(directory.listFiles())) {
+                check(file.isFile && file.length() <= 32L * 1024 * 1024)
+                check(!file.name.endsWith(".new") && !file.name.endsWith(".bak"))
+                result[file] = file.readBytes()
+            }
+            return result
+        } catch (error: Throwable) { result.values.forEach { it.fill(0) }; throw error }
+    }
+    private fun assertCiphertexts(expected: Map<File, ByteArray>, directory: File) {
+        assertEquals(expected.keys, requireNotNull(directory.listFiles()).toSet())
+        for ((file, value) in expected) {
+            val actual = file.readBytes()
+            try { assertTrue("Cold refusal changed retained ciphertext", value.contentEquals(actual)) }
+            finally { actual.fill(0) }
+        }
     }
 
     companion object {

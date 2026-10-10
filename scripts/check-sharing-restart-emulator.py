@@ -73,6 +73,8 @@ def main(profile="sharing"):
             ("pending-original", "reserved-before-offer", "offered-before-archive", "archive-before-hint")},
         **{"native-replacement-" + mode: (APP + ".epoch.NativeReplacementRestartTest",
             "native_replacement", "KITHMOOT_NATIVE_REPLACEMENT", mode) for mode in REPLACEMENT_MODES},
+        **{"native-pending-refusal-" + mode: (APP + ".epoch.NativeReplacementRestartTest",
+            "native_replacement", "KITHMOOT_NATIVE_REPLACEMENT", mode) for mode in REPLACEMENT_MODES},
     }
     if profile not in profiles:
         raise RuntimeError("Unknown process-restart acceptance profile")
@@ -122,7 +124,8 @@ def main(profile="sharing"):
         pid = None
         ready = False
         reported_mode = None
-        replacement = profile.startswith("native-replacement-")
+        pending_refusal = profile.startswith("native-pending-refusal-")
+        replacement = profile.startswith("native-replacement-") or pending_refusal
         bundle_closed = False
         while not (ready and pid and (mode is None or reported_mode == mode) and (not replacement or bundle_closed)):
             if time.monotonic() >= deadline:
@@ -175,7 +178,8 @@ def main(profile="sharing"):
         if reader.is_alive():
             raise RuntimeError("Preparing command did not terminate after SIGKILL")
         print(f"Observed SIGKILL of active {profile} PID {pid}; requiring new-process recovery", flush=True)
-        recovered = command("shell", "am", "instrument", "-w", "-e", "class", case + "#b_recover",
+        recovery_method = "b_refuse_pending_stores" if pending_refusal else "b_recover"
+        recovered = command("shell", "am", "instrument", "-w", "-e", "class", case + "#" + recovery_method,
                             "-e", "requireRestart", "true", *mode_args, RUNNER, timeout=180)
         (reports / "recover.txt").write_text(recovered.stdout)
         print(recovered.stdout, flush=True)
@@ -184,13 +188,14 @@ def main(profile="sharing"):
         recovery_lines = recovered.stdout.replace("\r", "").splitlines()
         recovery_pids = []
         recovery_modes = []
+        recovery_marker = "native_pending_refusal" if pending_refusal else marker
         for line in recovery_lines:
             if line.startswith(case + ":"):
                 line = line[len(case) + 1:]
-            match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + marker + r"_recovery_pid=([1-9][0-9]*)", line)
+            match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + recovery_marker + r"_recovery_pid=([1-9][0-9]*)", line)
             if match:
                 recovery_pids.append(match.group(1))
-            if mode is not None and line.startswith("INSTRUMENTATION_STATUS: " + marker + "_recovery_mode="):
+            if mode is not None and line.startswith("INSTRUMENTATION_STATUS: " + recovery_marker + "_recovery_mode="):
                 recovery_modes.append(line.split("=", 1)[1])
         if len(recovery_pids) != 1 or recovery_pids[0] == pid:
             raise RuntimeError("Recovery did not report exactly one different process PID")
@@ -198,6 +203,9 @@ def main(profile="sharing"):
             raise RuntimeError("Recovery did not report exactly the requested transition mode")
         if profile.startswith("native-replacement-"):
             replacement_measurement(recovery_lines, mode)
+        if pending_refusal:
+            from native_pending_store_refusal import pending_refusal_measurement
+            pending_refusal_measurement(recovery_lines, mode)
     except Exception:
         try:
             (reports / "failure-logcat.txt").write_text(command("logcat", "-d", "-t", "20000").stdout)
