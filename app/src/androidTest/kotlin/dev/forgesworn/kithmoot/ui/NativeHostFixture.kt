@@ -131,14 +131,31 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         }
     }
 
-    private fun publicStatus() = "stage=${model.stage.value} busy=${model.start.value.busy} " +
-        "host=${model.nativeHostState()} radioOwners=${radios.count { !it.closed }} " +
-        "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
-        "chatError=${model.room.value.chatSendError != null} pending=${model.room.value.pendingChats.size}"
+    private fun publicStatus(): String {
+        val room = model.room.value
+        val hosting = room.nativeHosting
+        val command = when (room.notice) {
+            "Room hosting changed. Open the confirmation again." -> "stale"
+            "Room update could not complete. Inspect the hosting state before trying again." -> "failed"
+            "Room update saved. Hosting state does not confirm delivery to members." -> "saved"
+            else -> "none"
+        }
+        return "stage=${model.stage.value} busy=${model.start.value.busy} " +
+            "host=${model.nativeHostState()} observation=${hosting?.status} epoch=${hosting?.epoch} " +
+            "revision=${hosting?.revision} originals=${hosting?.pendingOriginals?.size} " +
+            "commandBusy=${room.nativeHostingBusy} command=$command radioOwners=${radios.count { !it.closed }} " +
+            "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
+            "chatError=${room.chatSendError != null} pending=${room.pendingChats.size}"
+    }
 
-    suspend fun awaitHost(label: String, predicate: () -> Boolean) {
+    suspend fun awaitHost(label: String, diagnostic: () -> String = { "" }, predicate: () -> Boolean) {
         try { await(label, predicate) }
-        catch (error: AssertionError) { throw AssertionError("$label; ${publicStatus()}", error) }
+        catch (error: AssertionError) {
+            // Only explicit public counters/phases supplied by the fixture;
+            // never stringify an authority/receiver snapshot or event body.
+            val details = runCatching(diagnostic).getOrDefault("public diagnostic unavailable")
+            throw AssertionError("$label; ${publicStatus()}; $details", error)
+        }
     }
 
     /** Fixed synthetic member keys, never the application's root signer. */

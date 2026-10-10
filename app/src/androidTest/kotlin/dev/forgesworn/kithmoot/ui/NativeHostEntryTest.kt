@@ -73,7 +73,13 @@ class NativeHostEntryTest {
             val expected = requireNotNull(f.model.room.value.nativeHosting)
             compose.onNodeWithText("Change room key").performScrollTo().performClick()
             compose.onNodeWithText("Change key").performClick()
-            NativeHostFixture.await("confirmed key control commits source and both live sessions") {
+            f.awaitHost("confirmed key control commits source and both live sessions", diagnostic = {
+                val source = f.source(saved)
+                "sourceEpoch=${source.getValue("epoch").jsonPrimitive.int} " +
+                    "sourceRevision=${source.getValue("revision").jsonPrimitive.long} " +
+                    "peerEpoch=${peer.epochKeys().epoch} peerPhase=${peer.epochState.value::class.simpleName} " +
+                    "rootOriginals=${(f.phoneEvents + f.relayWrites).filter { it.kind == KIND_ROOM_REKEY }.distinctBy { it.id }.size}"
+            }) {
                 f.model.room.value.nativeHosting?.let { it.status == NativeHostingStatus.READY && it.epoch == 1 } == true &&
                     peer.epochKeys().epoch == 1 && !f.model.room.value.nativeHostingBusy
             }
@@ -92,7 +98,7 @@ class NativeHostEntryTest {
             } finally { previous.key.fill(0) }
             f.main { f.model.sendChat("host after confirmed key change") }
             peer.sendChat("member after confirmed key change")
-            NativeHostFixture.await("confirmed successor chat crosses both ways") {
+            f.awaitHost("confirmed successor chat crosses both ways") {
                 peer.chat.value.any { it.body == "host after confirmed key change" } &&
                     f.model.room.value.chat.any { it.body == "member after confirmed key change" }
             }
@@ -117,7 +123,9 @@ class NativeHostEntryTest {
             assertEquals(1, f.source(saved).getValue("epoch").jsonPrimitive.int)
             compose.onNodeWithTag("native-remove-${who.participant}").performScrollTo().performClick()
             compose.onNodeWithText("Remove member").performClick()
-            NativeHostFixture.await("confirmed removal commits source and terminal peer") {
+            f.awaitHost("confirmed removal commits source and terminal peer", diagnostic = {
+                "peerEpoch=${peer.epochKeys().epoch} peerPhase=${peer.epochState.value::class.simpleName}"
+            }) {
                 f.model.room.value.nativeHosting?.let {
                     it.status == NativeHostingStatus.READY && it.epoch == 2 && who.participant in it.removed && who.participant !in it.approved
                 } == true && peer.epochState.value is RoomEpochState.Removed && !f.model.room.value.nativeHostingBusy
