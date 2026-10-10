@@ -29,6 +29,40 @@ class TemporaryRoomAdmissionTest {
         override fun publish(event: NostrEvent) { sent += event; onPublish(event) }
     }
 
+    @Test fun `an authenticated refusal stops retries and wipes the owned request key`() = runTest {
+        val transport = Transport(); val key = ByteArray(32) { 4 }
+        transport.onPublish = { event ->
+            val request = decodeInvitationRequest(event, host.invitation, now)!!
+            transport.incoming.tryEmit(encodeInvitationDecline(host, request.device, request.requestId, now))
+        }
+        assertFailsWith<DeclinedInvitationException> {
+            requestTemporaryRoomAdmission(transport, host.invitation, now = { now }, newRequestKey = { key })
+        }
+        advanceTimeBy(10_000); runCurrent()
+        assertEquals(1, transport.sent.size); assertEquals(0, transport.subscribers)
+        assertTrue(key.all { it == 0.toByte() })
+    }
+
+    @Test fun `invalid refusals cannot interrupt the wait and a later grant still succeeds`() = runTest {
+        val transport = Transport(); val key = ByteArray(32) { 4 }
+        transport.onPublish = { event ->
+            val request = decodeInvitationRequest(event, host.invitation, now)!!
+            if (transport.sent.size == 1) {
+                val valid = encodeInvitationDecline(host, request.device, request.requestId, now)
+                transport.incoming.tryEmit(valid.copy(sig = "00".repeat(64)))
+                transport.incoming.tryEmit(encodeInvitationDecline(host, request.device, "ab".repeat(32), now))
+                transport.incoming.tryEmit(encodeInvitationDecline(host, Schnorr.publicKeyHex(ByteArray(32) { 6 }), request.requestId, now))
+                transport.incoming.tryEmit(encodeInvitationDecline(host, request.device, request.requestId, now - 91))
+            } else transport.incoming.tryEmit(encodeInvitationGrant(host, request.device, request.requestId, roomKey, now))
+        }
+        val result = requestTemporaryRoomAdmission(transport, host.invitation, now = { now }, newRequestKey = { key })!!
+        assertContentEquals(roomKey, result.secret)
+        assertEquals(2, transport.sent.size)
+        assertEquals(1, transport.sent.map { it.id }.distinct().size)
+        assertEquals(0, transport.subscribers)
+        assertTrue(key.all { it == 0.toByte() })
+    }
+
     @Test fun `a matching live signer proves this request and the delegate survives key cleanup`() = runTest {
         val transport = Transport()
         val key = ByteArray(32) { 4 }

@@ -40,9 +40,10 @@ class TemporaryRoomAdmissionDeskTest {
         var epoch: Int? = 0
         var current = true
         var accepted = 0
+        var declined = 0
         var retired = 0
         val desk = TemporaryRoomAdmissionDesk(scope, transport, host, roomSecret, { epoch }, { current },
-            onRetired = { retired++ }, onGrantAccepted = { accepted++ }, now = { clock })
+            onRetired = { retired++ }, onGrantAccepted = { accepted++ }, onDeclineAccepted = { declined++ }, now = { clock })
         val job = desk.start()
         fun request(key: ByteArray = ByteArray(32) { 4 }, name: String = "Rowan",
             account: ByteArray? = null, prove: Boolean = false): NostrEvent {
@@ -181,5 +182,46 @@ class TemporaryRoomAdmissionDeskTest {
         val f = Fixture(backgroundScope)
         repeat(65) { index -> f.transport.incoming.emit(f.request(ByteArray(32) { (index + 1).toByte() })) }
         runCurrent(); assertEquals(64, f.desk.pending.value.size); assertTrue(f.transport.offers.isEmpty())
+    }
+
+    @Test fun `only a confirmed refusal clears its card and never sends a room capability`() = runTest {
+        val f = Fixture(backgroundScope); val request = f.request(); val ack = CompletableDeferred<Boolean>()
+        f.transport.confirm = { ack.await() }
+        f.transport.incoming.emit(request); runCurrent(); repeat(3) { f.desk.decline(request.id) }; runCurrent()
+        assertEquals(1, f.transport.offers.size)
+        assertEquals(AdmissionDecision.DECLINE, f.desk.pending.value.single().decision)
+        assertEquals(0, f.declined); assertEquals(0, f.accepted)
+        val response = f.transport.offers.single()
+        assertNotNull(decodeInvitationDecline(response, f.host.invitation, ByteArray(32) { 4 }, request.id, f.clock))
+        assertNull(decodeRoomAdmissionGrant(response, f.host.invitation, ByteArray(32) { 4 }, request.id, f.clock))
+        ack.complete(true); runCurrent(); assertTrue(f.desk.pending.value.isEmpty()); assertEquals(1, f.declined)
+    }
+
+    @Test fun `uncertain refusal retries identical bytes and cannot change into an admission`() = runTest {
+        val f = Fixture(backgroundScope); val request = f.request(); f.transport.confirmations = false
+        f.transport.incoming.emit(request); runCurrent(); f.desk.decline(request.id); runCurrent()
+        assertEquals(AdmissionDecisionPhase.RETRY, f.desk.pending.value.single().phase)
+        assertEquals(0, f.declined)
+        f.desk.admit(request.id); runCurrent(); assertEquals(1, f.transport.offers.size)
+        f.transport.confirmations = true; f.desk.decline(request.id); runCurrent()
+        assertEquals(2, f.transport.offers.size); assertEquals(f.transport.offers[0], f.transport.offers[1])
+        assertEquals(1, f.declined); assertEquals(0, f.accepted)
+    }
+
+    @Test fun `an uncertain grant cannot later be replaced by a refusal`() = runTest {
+        val f = Fixture(backgroundScope); val request = f.request(); f.transport.confirmations = false
+        f.transport.incoming.emit(request); runCurrent(); f.desk.admit(request.id); runCurrent()
+        f.desk.decline(request.id); runCurrent(); assertEquals(1, f.transport.offers.size)
+        assertEquals(AdmissionDecision.ADMIT, f.desk.pending.value.single().decision)
+    }
+
+    @Test fun `expiry and changed epoch room or transport cannot send a refusal`() = runTest {
+        for (change in listOf<(Fixture) -> Unit>({ it.clock += 90 }, { it.epoch = 1 }, { it.current = false }, { it.transport.generation++ })) {
+            val f = Fixture(backgroundScope); val request = f.request()
+            f.transport.beforeDispatch = { change(f) }
+            f.transport.incoming.emit(request); runCurrent(); f.desk.decline(request.id); runCurrent()
+            assertTrue(f.transport.offers.isEmpty()); assertEquals(0, f.declined)
+            f.job.cancel(); runCurrent()
+        }
     }
 }

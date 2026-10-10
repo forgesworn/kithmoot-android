@@ -3726,6 +3726,9 @@ class RoomViewModel @JvmOverloads constructor(
         } catch (e: GroupInvitationException) {
             _start.update { it.copy(busy = false, error = e.message) }
             return
+        } catch (_: dev.forgesworn.kithmoot.session.DeclinedInvitationException) {
+            _start.update { it.copy(busy = false, opening = null, error = "Your request was declined. Ask someone in the room before trying again.") }
+            return
         } catch (_: RetiredInvitationException) {
             _start.value = _start.value.copy(
                 busy = false,
@@ -3995,6 +3998,9 @@ class RoomViewModel @JvmOverloads constructor(
             onGrantAccepted = {
                 _room.update { it.copy(notice = "A relay accepted the admission grant. The guest can now join.") }
             },
+            onDeclineAccepted = {
+                _room.update { it.copy(notice = "A relay accepted the refusal. The guest can see that their request was declined.") }
+            },
         )
         invitationAdmissionDesk = desk
         val serving = desk.start()
@@ -4014,8 +4020,10 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun answerInvitationAdmission(requestId: String, admit: Boolean) {
         val desk = invitationAdmissionDesk ?: return
-        if (admit) desk.admit(requestId) else desk.dismiss(requestId)
+        if (admit) desk.admit(requestId) else desk.decline(requestId)
     }
+
+    fun dismissInvitationAdmission(requestId: String) { invitationAdmissionDesk?.dismiss(requestId) }
 
     // --- session lifecycle ---------------------------------------------------
 

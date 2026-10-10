@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.session.AdmissionDecisionPhase
+import dev.forgesworn.kithmoot.session.AdmissionDecision
 import dev.forgesworn.kithmoot.session.PendingInvitationAdmission
 import dev.forgesworn.kithmoot.ui.room.InvitationAdmissionPanel
 import dev.forgesworn.kithmoot.ui.room.RoomScreen
@@ -37,7 +38,7 @@ class InvitationAdmissionUiTest {
         compose.onNodeWithText("Let in").assertIsEnabled()
     }
 
-    @Test fun sameNameRequestsKeepIndividualAdmitAndDismissActions() {
+    @Test fun sameNameRequestsKeepIndividualAdmitAndDeclineActions() {
         val answers = mutableListOf<Pair<String, Boolean>>()
         val first = row("a"); val second = row("b")
         compose.setContent {
@@ -49,7 +50,7 @@ class InvitationAdmissionUiTest {
             }
         }
         compose.onAllNodesWithText("Let in")[0].performClick()
-        compose.onAllNodesWithText("Dismiss")[1].performScrollTo().performClick()
+        compose.onAllNodesWithText("Decline")[1].performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(first.requestId to true, second.requestId to false), answers) }
     }
 
@@ -58,12 +59,26 @@ class InvitationAdmissionUiTest {
         var answer: Pair<String, Boolean>? = null
         compose.setContent { KithMootTheme { InvitationAdmissionPanel(request) { id, yes -> answer = id to yes } } }
         compose.onNodeWithText("Let in").assertIsNotEnabled()
-        compose.onNodeWithText("Dismiss").assertIsNotEnabled()
+        compose.onNodeWithText("Decline").assertIsNotEnabled()
         compose.onNodeWithText("Waiting for relay confirmation", substring = true).assertIsDisplayed()
         compose.runOnIdle { request = request.copy(phase = AdmissionDecisionPhase.RETRY, error = "No relay confirmed the grant.") }
         compose.onNodeWithText("No relay confirmed the grant.").assertIsDisplayed()
         compose.onNodeWithText("Retry grant").assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(request.requestId to true, answer) }
+    }
+
+    @Test fun aFailedDeclineRetriesTheRefusalAndDismissalStaysLocal() {
+        val request = row().copy(phase = AdmissionDecisionPhase.RETRY, decision = AdmissionDecision.DECLINE,
+            error = "No relay confirmed the refusal. The guest may still have received it.")
+        val answers = mutableListOf<Boolean>(); var dismissed: String? = null
+        compose.setContent { KithMootTheme {
+            InvitationAdmissionPanel(request, onDismiss = { dismissed = it }) { _, admit -> answers += admit }
+        } }
+        compose.onNodeWithText("Retry decline").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(listOf(false), answers); assertNull(dismissed) }
+        compose.onNodeWithText("Dismiss").performClick()
+        compose.runOnIdle { assertEquals(request.requestId, dismissed); assertEquals(listOf(false), answers) }
+        compose.onNodeWithText("Let in").assertDoesNotExist()
     }
 
     @Test fun bothActionsRemainReachableOnASmallPhoneAtTwiceTheFontSize() {
@@ -74,7 +89,7 @@ class InvitationAdmissionUiTest {
                     Box(Modifier.requiredSize(320.dp, 440.dp)) {
                         Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
                             InvitationAdmissionPanel(row().copy(phase = AdmissionDecisionPhase.RETRY,
-                                error = "No relay confirmed the grant. The guest may still have received it.")) { _, yes -> answers += yes }
+                                error = "No relay confirmed the grant. The guest may still have received it."), onDismiss = { answers += false }) { _, yes -> answers += yes }
                         }
                     }
                 }
@@ -115,7 +130,7 @@ class InvitationAdmissionUiTest {
         compose.onAllNodesWithText("Let in")[0].performScrollTo().performClick()
         compose.onNodeWithText("Waiting to join (1)").assertIsDisplayed()
         compose.onNodeWithText("Keep my unfinished note").assertExists()
-        compose.onAllNodesWithText("Dismiss")[0].performScrollTo().performClick()
+        compose.onAllNodesWithText("Decline")[0].performScrollTo().performClick()
         compose.onNodeWithText("Waiting to join (1)").assertDoesNotExist()
         compose.onNodeWithText("Keep my unfinished note").assertIsDisplayed()
         compose.runOnIdle { assertEquals(listOf(first.requestId to true, second.requestId to false), answers) }

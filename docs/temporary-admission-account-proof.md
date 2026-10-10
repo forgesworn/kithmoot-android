@@ -28,15 +28,31 @@ confirmation; an unconfirmed grant offers an immutable retry. Rotation, retireme
 epoch changes, room departure and cancelled dispatch prevent stale grants.
 Only a confirmed relay acceptance clears the card; it does not claim the guest joined.
 The queue scrolls within the room and keeps 48 dp actions reachable at large text sizes.
-Five emulator UI cases include the full RoomScreen and retain an unsent chat draft
-while same-name requests are individually admitted and dismissed.
+Six emulator UI cases include the full RoomScreen and retain an unsent chat draft
+while same-name requests are individually admitted and declined; failed refusals offer a retry or local dismissal.
 
-Dismiss is deliberately local. The existing protocol has no decline event, so it
-cannot notify a guest of a refusal. Explicit declines require a compatible protocol
-extension in fold-kit first, then matching native support.
+Explicit Decline now mirrors fold-kit 0.12.0 at
+`dc51766b7e6a141d5ba8aa0e5421df86432a7412`. Its encrypted version-3 reply
+uses kind 20467, binds the exact request/device and current responder authority,
+and carries no room secret or new delegation. The shared refusal vectors are
+copied verbatim, SHA-256
+`8e6c63385c41a63166682e61d735aa33d62be1965481db4f1e5e4c9a062db550`.
+Older clients ignore this reply and keep their existing bounded wait.
+
+The host card reports Sending refusal until a relay acknowledges it. Failure
+keeps Retry decline and Dismiss available; retry reuses the exact signed event.
+An uncertain grant cannot turn into a refusal, or the reverse, because a reply
+already received cannot be revoked. Dismiss remains local. A validated refusal
+ends the guest wait with a distinct explanation, stops request retries and wipes
+the temporary key. Forged, malformed, stale and unrelated refusals cannot end it.
+
+The [refusal qualification receipt](evidence/temporary-admission-refusal-2026-10-10.json)
+records final unit results, both lint/build variants and 12 rendered admission
+and nearby recovery cases on an emulator. Installed app and test APKs were
+pulled back and fully byte matched before instrumentation.
 
 This foundation does not complete G17. The guest preview/state/retry journey,
-explicit decline protocol, temporary-room creation controls, cross-client emulator
+temporary-room creation controls, complete browser/native admission journeys,
 journeys, physical external-signers and unfamiliar host/guest acceptance remain
 to be completed.
 No signed APK or public deployment is claimed here.

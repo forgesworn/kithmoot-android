@@ -14,6 +14,7 @@ import kotlin.coroutines.coroutineContext
 enum class AdmissionRequestPhase { SIGNING, WAITING }
 
 class RetiredInvitationException : Exception()
+class DeclinedInvitationException : Exception("Someone in the room declined your request to join.")
 
 /** One deadline covers the account signature and the invitation response.
  * Retirement is collected before asking an external signer; cancelling the
@@ -51,7 +52,10 @@ suspend fun requestTemporaryRoomAdmission(
                     )).mapNotNull { event ->
                         if (decodeInvitationRetirement(event, invitation)) throw RetiredInvitationException()
                         check(stillCurrent()) { "The account changed. Try opening the room again." }
-                        requestId?.let { decodeRoomAdmissionGrant(event, invitation, requesterKey, it, now()) }
+                        requestId?.let {
+                            if (decodeInvitationDecline(event, invitation, requesterKey, it, now()) != null) throw DeclinedInvitationException()
+                            decodeRoomAdmissionGrant(event, invitation, requesterKey, it, now())
+                        }
                     }.first()
                 }
                 val createdAt = now()

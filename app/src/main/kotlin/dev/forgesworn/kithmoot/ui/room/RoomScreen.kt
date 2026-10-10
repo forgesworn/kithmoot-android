@@ -121,6 +121,7 @@ fun RoomScreen(
     onDismissEpochTrouble: () -> Unit = {},
     onAnswerLetIn: (String, Boolean) -> Unit = { _, _ -> },
     onAnswerInvitationAdmission: (String, Boolean) -> Unit = { _, _ -> },
+    onDismissInvitationAdmission: (String) -> Unit = {},
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
     accountMenu: @Composable () -> Unit = {},
@@ -477,7 +478,7 @@ fun RoomScreen(
             Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
                 for (request in state.invitationAdmissions) androidx.compose.runtime.key(request.requestId) {
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        InvitationAdmissionPanel(request, onAnswerInvitationAdmission)
+                        InvitationAdmissionPanel(request, onDismiss = onDismissInvitationAdmission, onAnswer = onAnswerInvitationAdmission)
                     }
                 }
             }

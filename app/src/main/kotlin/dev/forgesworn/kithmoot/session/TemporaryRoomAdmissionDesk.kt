@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 
 enum class AdmissionDecisionPhase { WAITING, SENDING, RETRY }
+enum class AdmissionDecision { ADMIT, DECLINE }
 
 data class PendingInvitationAdmission(
     val requestId: String,
@@ -21,12 +22,13 @@ data class PendingInvitationAdmission(
     val expiresAt: Long,
     val phase: AdmissionDecisionPhase = AdmissionDecisionPhase.WAITING,
     val error: String? = null,
+    val decision: AdmissionDecision = AdmissionDecision.ADMIT,
 )
 
 /** A temporary link never grants a room key merely because its bearer asked.
  * A queued request has a stable event ID, a bounded lifetime and an individual
  * decision. Confirmation means a relay accepted the grant, not that the guest
- * joined. Dismissal is local and sends no fabricated decline event. */
+ * joined. Decline sends an authenticated refusal; dismissal remains local. */
 class TemporaryRoomAdmissionDesk(
     private val scope: CoroutineScope,
     private val transport: RoomTransport,
@@ -36,6 +38,7 @@ class TemporaryRoomAdmissionDesk(
     private val stillCurrent: () -> Boolean,
     private val onRetired: suspend () -> Unit = {},
     private val onGrantAccepted: (String) -> Unit = {},
+    private val onDeclineAccepted: (String) -> Unit = {},
     private val now: () -> Long = { System.currentTimeMillis() / 1_000 },
     private val confirmationTimeoutMs: Long = 15_000,
 ) {
@@ -117,14 +120,18 @@ class TemporaryRoomAdmissionDesk(
         publishRows()
     }
 
-    fun admit(requestId: String) {
+    fun admit(requestId: String) = answer(requestId, AdmissionDecision.ADMIT)
+    fun decline(requestId: String) = answer(requestId, AdmissionDecision.DECLINE)
+
+    private fun answer(requestId: String, decision: AdmissionDecision) {
         val selected = synchronized(lock) {
             val entry = entries[requestId] ?: return
             if (!allowed() || now() >= entry.row.expiresAt) {
                 entries.remove(requestId); publishRows(); return
             }
-            if (entry.row.phase == AdmissionDecisionPhase.SENDING) return
-            entries[requestId] = entry.copy(row = entry.row.copy(phase = AdmissionDecisionPhase.SENDING, error = null))
+            if (entry.row.phase == AdmissionDecisionPhase.SENDING ||
+                entry.grant != null && entry.row.decision != decision) return
+            entries[requestId] = entry.copy(row = entry.row.copy(phase = AdmissionDecisionPhase.SENDING, error = null, decision = decision))
             publishRows()
             entry
         }
@@ -133,7 +140,8 @@ class TemporaryRoomAdmissionDesk(
             try {
                 val grant = selected.grant ?: synchronized(lock) {
                     check(allowed() && now() < selected.row.expiresAt)
-                    encodeInvitationGrant(host, selected.row.device, requestId, secret, now(), epoch = sourceEpoch)
+                    if (decision == AdmissionDecision.DECLINE) encodeInvitationDecline(host, selected.row.device, requestId, now())
+                    else encodeInvitationGrant(host, selected.row.device, requestId, secret, now(), epoch = sourceEpoch)
                 }
                 synchronized(lock) {
                     val entry = entries[requestId] ?: return@launch
@@ -148,10 +156,12 @@ class TemporaryRoomAdmissionDesk(
                     if (!allowed() || now() >= entry.row.expiresAt) entries.remove(requestId)
                     else if (accepted) {
                         entries.remove(requestId)
-                        onGrantAccepted(requestId)
+                        if (decision == AdmissionDecision.DECLINE) onDeclineAccepted(requestId)
+                        else onGrantAccepted(requestId)
                     } else entries[requestId] = entry.copy(row = entry.row.copy(
                         phase = AdmissionDecisionPhase.RETRY,
-                        error = "No relay confirmed the grant. The guest may still have received it; retry sends the same grant."))
+                        error = if (decision == AdmissionDecision.DECLINE) "No relay confirmed the refusal. The guest may still have received it; retry sends the same refusal."
+                            else "No relay confirmed the grant. The guest may still have received it; retry sends the same grant."))
                     publishRows()
                 }
             } catch (cancel: CancellationException) { throw cancel }
@@ -160,7 +170,9 @@ class TemporaryRoomAdmissionDesk(
                     entries[requestId]?.let { entry ->
                         if (!allowed() || now() >= entry.row.expiresAt) entries.remove(requestId)
                         else entries[requestId] = entry.copy(row = entry.row.copy(
-                            phase = AdmissionDecisionPhase.RETRY, error = "The grant was not confirmed. Retry while the guest is waiting."))
+                            phase = AdmissionDecisionPhase.RETRY, error = if (decision == AdmissionDecision.DECLINE)
+                                "The refusal was not confirmed. Retry while the guest is waiting."
+                                else "The grant was not confirmed. Retry while the guest is waiting."))
                     }
                     publishRows()
                 }
