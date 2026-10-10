@@ -598,15 +598,39 @@ class NativeHostEntryTest {
                 !f.model.start.value.busy && f.model.stage.value == Stage.START &&
                     runCatching { NativeKeeperVault.forSavedRoom(f.app, saved).open().use { it.courierReady() } }.getOrDefault(false)
             }
-            original = index.readBytes()
             val sourceBefore = sourceDigest(f.source(saved))
-            index.writeText("broken ciphertext")
             // A failed native creation must survive without an AtomicFile read
             // discarding its only bytes. Only this fixture creates this file.
-            assertFalse(orphanIntent.exists())
-            orphanIntent.writeText("fixture unfinished creation")
+            // Production repository writers share this monitor. Source lease
+            // release alone does not exclude a previously started index write.
+            synchronized(f.app.savedRooms) {
+                original = index.readBytes()
+                index.writeText("broken ciphertext")
+                assertFalse(orphanIntent.exists())
+                orphanIntent.writeText("fixture unfinished creation")
+            }
             f.main { f.model.refreshSavedRooms() }
-            NativeHostFixture.await("corrupt native index is visible") { !f.model.start.value.loadingRooms && f.model.start.value.storageError }
+            try {
+                NativeHostFixture.await("corrupt native index is visible") {
+                    !f.model.start.value.loadingRooms && f.model.start.value.storageError
+                }
+            } catch (error: AssertionError) {
+                val state = f.model.start.value
+                val details = synchronized(f.app.savedRooms) {
+                    fun matches(file: File, expected: String): Boolean = runCatching {
+                        val bytes = file.readBytes()
+                        try { bytes.contentEquals(expected.toByteArray(Charsets.UTF_8)) }
+                        finally { bytes.fill(0) }
+                    }.getOrDefault(false)
+                    "indexStillDamaged=${matches(index, "broken ciphertext")} " +
+                        "unfinishedIntentUnchanged=${matches(orphanIntent, "fixture unfinished creation")} " +
+                        "indexBackup=${File(index.path + ".bak").exists()} " +
+                        "indexNew=${File(index.path + ".new").exists()} " +
+                        "repositoryReadRefused=${runCatching { f.app.savedRooms.list() }.isFailure}"
+                }
+                throw AssertionError("corrupt native index is visible; loading=${state.loadingRooms} " +
+                    "storageError=${state.storageError} hasError=${state.error != null} $details", error)
+            }
             f.main { f.model.resetSavedRooms() }
             NativeHostFixture.await("native state blocks destructive index reset") { !f.model.start.value.busy && f.model.start.value.error != null }
             assertTrue(f.model.start.value.storageError)
@@ -614,8 +638,10 @@ class NativeHostEntryTest {
             assertEquals("fixture unfinished creation", orphanIntent.readText())
             assertEquals(sourceBefore, sourceDigest(f.source(saved)))
             assertNotNull(f.courierStore(saved).read())
-            assertTrue(orphanIntent.delete())
-            index.writeBytes(requireNotNull(original))
+            synchronized(f.app.savedRooms) {
+                assertTrue(orphanIntent.delete())
+                index.writeBytes(requireNotNull(original))
+            }
             f.main { f.model.refreshSavedRooms() }
             NativeHostFixture.await("restored exact index identifies native aliases") { !f.model.start.value.loadingRooms && !f.model.start.value.storageError }
             f.main { f.model.resetSavedRooms() }
@@ -624,10 +650,12 @@ class NativeHostEntryTest {
             }
             assertNull(f.sourceStore(saved).read()); assertNull(f.courierStore(saved).read())
         } finally {
-            orphanIntent.delete()
             // Restore only this fixture's original encrypted index if a failure
             // leaves it unreadable, so actual cleanup can still locate the source.
-            if (original != null && runCatching { f.app.savedRooms.list() }.isFailure) index.writeBytes(original!!)
+            synchronized(f.app.savedRooms) {
+                orphanIntent.delete()
+                if (original != null && runCatching { f.app.savedRooms.list() }.isFailure) index.writeBytes(original!!)
+            }
             try { f.close() } finally { original?.fill(0) }
         }
     }

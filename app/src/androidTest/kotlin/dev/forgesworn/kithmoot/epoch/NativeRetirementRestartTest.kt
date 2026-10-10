@@ -339,6 +339,8 @@ class NativeRetirementRestartTest {
             assertEquals(0, f.server.requestCount)
             InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
                 putString("native_retirement_recovery_pid", Process.myPid().toString()); putString("native_retirement_recovery_mode", mode)
+                putString("native_retirement_recovery_original_id", original.id)
+                putString("native_retirement_recovery_original_created_at", original.createdAt.toString())
                 putString("native_retirement_recovery_attempts_at_death", deathAttempts.toString())
                 putString("native_retirement_recovery_attempts_after_completion", automaticAttempts.toString())
                 putString("native_retirement_recovery_attempts_after_explicit_resend", attemptCount(after).toString())
