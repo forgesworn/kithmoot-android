@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlin.coroutines.coroutineContext
 
-enum class AdmissionRequestPhase { SIGNING, WAITING }
+enum class AdmissionRequestPhase { SIGNING, SENDING, WAITING, RECONNECTING }
 
 class RetiredInvitationException : Exception()
 class DeclinedInvitationException : Exception("Someone in the room declined your request to join.")
@@ -36,6 +36,8 @@ suspend fun requestTemporaryRoomAdmission(
     require(!invitation.persistent) { "A temporary admission requires a temporary invitation" }
     require(timeoutMs > 0 && retryMs > 0)
     val requesterKey = newRequestKey()
+    val operation = currentCoroutineContext().job
+    val generation = transport.publicationGeneration()
     try {
         return withTimeoutOrNull(timeoutMs) {
             coroutineScope {
@@ -70,11 +72,27 @@ suspend fun requestTemporaryRoomAdmission(
                 val request = encodeInvitationRequest(invitation, requesterKey, createdAt,
                     name = name, participant = account, accountProof = proof)
                 requestId = request.id
-                onPhase(AdmissionRequestPhase.WAITING)
+                onPhase(AdmissionRequestPhase.SENDING)
                 val retry = launch {
+                    val dispatch = currentCoroutineContext().job
+                    var acknowledged = false
                     while (isActive) {
                         check(stillCurrent()) { "The account changed. Try opening the room again." }
-                        transport.publish(request)
+                        try {
+                            val accepted = transport.publishConfirmedGuarded(request, generation, {
+                                operation.isActive && dispatch.isActive && stillCurrent() && now() in createdAt until createdAt + 90
+                            }, timeoutMs = minOf(timeoutMs, 10_000))
+                            coroutineContext.ensureActive()
+                            check(stillCurrent()) { "The account changed. Try opening the room again." }
+                            if (accepted && !acknowledged) {
+                                acknowledged = true
+                                onPhase(AdmissionRequestPhase.WAITING)
+                            } else if (!accepted && !acknowledged) onPhase(AdmissionRequestPhase.RECONNECTING)
+                        } catch (failure: Exception) {
+                            coroutineContext.ensureActive()
+                            check(stillCurrent()) { "The account changed. Try opening the room again." }
+                            if (!acknowledged) onPhase(AdmissionRequestPhase.RECONNECTING)
+                        }
                         delay(retryMs)
                     }
                 }

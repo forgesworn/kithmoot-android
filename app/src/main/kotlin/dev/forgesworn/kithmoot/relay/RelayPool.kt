@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -445,6 +447,7 @@ class RelayPool(
 
     private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
         stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false): Boolean = withTimeout(timeoutMs) {
+        val operation = currentCoroutineContext().job
         if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || generation != publicationGeneration() || !stillAllowed())
             throw PublicationNotOfferedException("Room publication is blocked during a secure update")
         if (writeRelays.isEmpty()) throw PublicationNotOfferedException("No write relay is selected")
@@ -463,7 +466,13 @@ class RelayPool(
             publications[event.id] = publication
             // Enqueue under the same lock that begins a rekey. There is no
             // window in which an old event can slip out after that boundary.
-            targets.forEach { it.sendIfOpen(RelayCodec.publishFrame(event)) }
+            val frame = RelayCodec.publishFrame(event)
+            targets.forEach { target ->
+                // Another socket's synchronous callback can cancel the caller
+                // or withdraw authority during fanout. Recheck each real write.
+                if (operation.isActive && rekeyGeneration.value == generation && stillAllowed() &&
+                    (if (keeperControl) started && keeperResetReady else !publicationBlocked)) target.sendIfOpen(frame)
+            }
         }
         try {
             publication.result.await()
