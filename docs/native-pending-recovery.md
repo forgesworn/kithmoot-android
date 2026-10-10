@@ -56,3 +56,15 @@ Fresh changed controller/test compilation and 89 JVM checks/five classes pass
 in 9.462 s, using validated unchanged 54 production/UI/Android-test sources.
 Input/dependency hashes are unchanged. The failed rendered case remains unchanged
 and must pass at the corrected head's own hosted qualification before merge.
+
+Own da236fc CI 38056287857 passes verification and both signing jobs, but its
+recovery group fails the aggregate debt assertion after cold reopen succeeds:
+one notice is 426 bytes, while total source NEARBY spending is 4,075 bytes.
+Design mesh-kit 67b5c77 precedes the test correction. The assertion now conserves
+each prior spend with its multiplicity and requires aggregate NEARBY spending
+to increase by exactly the same original notice's compact UTF-8 size. Exactly
+one permanent retirement attempt and one actual offer remain required. No
+production quota/accounting or timeout changes are made. Fresh changed Android
+instrumentation source compilation passes against validated unchanged production
+and UI sources with input and read-only dependency hashes unchanged; it is not
+locally executed. This changed head requires its own full hosted qualification.
