@@ -71,7 +71,7 @@ class NativeHostEntryTest {
             assertEquals(saved.participant, f.model.room.value.selfParticipant)
             assertEquals(saved.devicePubkey, f.model.room.value.selfDevice)
             f.main { f.model.sendChat("host after return") }
-            NativeHostFixture.await("fresh host traffic resumes after verification") {
+            f.awaitHost("fresh host traffic resumes after verification") {
                 peer.chat.value.count { it.body == "host after return" } == 1
             }
             f.main { f.model.leave() }
@@ -79,7 +79,7 @@ class NativeHostEntryTest {
             f.main { f.model.reopenRoom(saved.id) }; f.opened()
             assertEquals(saved.participant, f.model.room.value.selfParticipant)
             assertEquals(saved.devicePubkey, f.model.room.value.selfDevice)
-            assertEquals(saved.nativeAuthority, f.app.savedRooms.get(saved.id)!!.nativeAuthority)
+            assertEquals(saved.json["nativeAuthority"], f.app.savedRooms.get(saved.id)!!.json["nativeAuthority"])
             assertEquals(welcome, NostrEvent.fromJson(f.source(saved).getValue("welcome")))
             assertTrue(f.model.room.value.letInAsks.isEmpty())
             peer.sendChat("member after reopen")

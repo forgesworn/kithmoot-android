@@ -43,6 +43,7 @@ import javax.crypto.SecretKey
  * authority is created/opened by the actual ViewModel and production stores. */
 internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false) {
     val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
+    private val existingRoomIds = app.savedRooms.list().map { it.id }.toSet()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val radios = CopyOnWriteArrayList<Radio>()
     val phoneEvents = CopyOnWriteArrayList<NostrEvent>()
@@ -120,8 +121,18 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
     }
     suspend fun opened(): SavedRoom {
         await("native host opens through ViewModel") { model.stage.value == Stage.ROOM && !model.start.value.busy || model.start.value.error != null }
-        check(model.start.value.error == null) { model.start.value.error.orEmpty() }
+        check(model.start.value.error == null) { "Native host entry refused: ${model.lastRoomEntryDiagnostic}; ${publicStatus()}" }
         return requireNotNull(app.savedRooms.get(model.room.value.roomId)).also { savedRoom = it }
+    }
+
+    private fun publicStatus() = "stage=${model.stage.value} busy=${model.start.value.busy} " +
+        "host=${model.nativeHostState()} radioOwners=${radios.count { !it.closed }} " +
+        "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
+        "chatError=${model.room.value.chatSendError != null} pending=${model.room.value.pendingChats.size}"
+
+    suspend fun awaitHost(label: String, predicate: () -> Boolean) {
+        try { await(label, predicate) }
+        catch (error: AssertionError) { throw AssertionError("$label; ${publicStatus()}", error) }
     }
 
     /** Fixed synthetic member keys, never the application's root signer. */
@@ -210,14 +221,19 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         try {
             peers.forEach { it.leave() }
             if (::model.isInitialized) {
-                val saved = savedRoom
+                // Entry can fail after the actual source/index commit, before
+                // opened() returns. Still delete only this fixture's new host.
+                val created = app.savedRooms.list().filter { it.id !in existingRoomIds }
+                    .mapNotNull { app.savedRooms.get(it.id) }
+                    .filter { it.nativeAuthority != null && it.name == "Native host lab" }
+                val saved = (listOfNotNull(savedRoom) + created).distinctBy { it.id }
                 main { model.leave() }
                 await("native host paths close before deletion") { !model.start.value.busy && model.stage.value == Stage.START && radios.all { it.closed } }
-                if (saved != null) {
-                    main { model.forgetRoom(saved.id) }
-                    await("native host actual cleanup commits") { !model.start.value.busy && app.savedRooms.get(saved.id) == null }
-                    check(sourceStore(saved).read() == null) { "Native source survived deletion" }
-                    check(courierStore(saved).read() == null) { "Native courier survived deletion" }
+                for (owned in saved) {
+                    main { model.forgetRoom(owned.id) }
+                    await("native host actual cleanup commits") { !model.start.value.busy && app.savedRooms.get(owned.id) == null }
+                    check(sourceStore(owned).read() == null) { "Native source survived deletion" }
+                    check(courierStore(owned).read() == null) { "Native courier survived deletion" }
                 }
             }
         } finally {

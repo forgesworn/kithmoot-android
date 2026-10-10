@@ -818,6 +818,14 @@ internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
     else -> "The room could not be opened. Try again."
 }
 
+/** Bounded code locations only. Exception messages can contain private data. */
+internal fun roomEntryFailureDiagnostic(error: Exception): String =
+    generateSequence<Throwable>(error) { it.cause }.take(4).joinToString(" <- ") { cause ->
+        cause.javaClass.name + cause.stackTrace.take(4).joinToString(prefix = " [", postfix = "]") {
+            "${it.className}.${it.methodName}:${it.lineNumber}"
+        }
+    }
+
 /**
  * Everything the two screens need, and the only thing that owns a session.
  *
@@ -846,6 +854,9 @@ class RoomViewModel @JvmOverloads constructor(
 
     private val _stage = MutableStateFlow(Stage.START)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
+    @Volatile internal var lastRoomEntryDiagnostic: String? = null
+        private set
+    internal fun nativeHostState() = nativeKeeperController?.state?.value
 
     private val _start = MutableStateFlow(
         StartState(
@@ -2924,6 +2935,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** The body of [enter], with the gate already held. */
     private fun runEnter(opening: String, block: suspend () -> Unit) {
+        lastRoomEntryDiagnostic = null
         _start.update { it.copy(busy = true, error = null, opening = opening) }
         entryJob = viewModelScope.launch(Dispatchers.IO) {
             var opened = false
@@ -2935,6 +2947,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
+                lastRoomEntryDiagnostic = roomEntryFailureDiagnostic(e)
                 val oldJob = gate.withLock {
                     sessionScope?.coroutineContext?.get(Job).also { closeSession() }
                         .also { _room.value = RoomState(background = backgrounds.load()); _stage.value = Stage.START }
