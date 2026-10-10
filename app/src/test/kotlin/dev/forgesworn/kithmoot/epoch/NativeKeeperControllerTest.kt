@@ -280,22 +280,27 @@ class NativeKeeperControllerTest {
                 r.room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
             val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
             try {
-                r.start()
+                r.start(); r.acknowledge(); runCurrent()
                 val originals = mutableListOf<String>()
                 for ((key, proof) in listOf(r.member.deviceSecretKey to r.member.credential, offlineKey to credential)) {
                     val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey, key, proof, currentTime / 1000)
-                    originals += ask.id; r.inject(ask, lane); runCurrent()
+                    originals += ask.id; r.inject(ask, lane); runCurrent(); r.acknowledge(); runCurrent()
                     if (proof == r.member.credential) r.controller!!.approve(r.member.participant)
                 }
                 advanceTimeBy((EPOCH_MAX_AGE_SECONDS + 1) * 1000); runCurrent()
                 r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
                     r.owner.deviceSecretKey, r.owner.credential, currentTime / 1000), lane); runCurrent()
+                // Complete actual relay acceptance before capturing a public
+                // confirmation; its pending offered write changes revision.
+                r.acknowledge(); runCurrent()
                 val persisted = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject
                 assertEquals(3, persisted.getValue("devices").jsonArray.size)
                 assertTrue(persisted.getValue("answers").jsonArray.none {
                     it.jsonObject.getValue("request").jsonObject.getValue("id").jsonPrimitive.content in originals
                 })
-                r.controller!!.rekeyObservedMembers(r.controller!!.hosting.value); runCurrent()
+                val confirmation = r.controller!!.hosting.value
+                assertEquals(r.source.snapshot().revision, confirmation.revision)
+                r.controller!!.rekeyObservedMembers(confirmation); runCurrent()
                 assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
                 val original = r.ledger.status().entries.single().event
                 assertTrue(Events.verify(original))
