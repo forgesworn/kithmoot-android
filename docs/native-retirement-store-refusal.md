@@ -56,3 +56,20 @@ before compilation because equivalent relative source paths were compared
 without normalisation; the corrected check validates their canonical paths.
 The corrected head still requires its own four jobs, 140 checks/44 groups,
 all six refusal cases and all eight actual process-kill drivers before merge.
+
+Reporting correction design mesh-kit 5522fd9 precedes a test-only change from
+println to the actual instrumentation stream. The allowlisted matrix row now
+includes its original public event ID/creation time and cleanup confirmation,
+and is emitted only after every assertion and NonCancellable cleanup succeeds.
+No production original, attempt, charge, assertion, timeout or test count changes.
+Equivalent printed measurements are absent from completed ea/e9 job logs;
+their passing assertions and separate process-kill status counters remain valid.
+Current f0's terminal result must be retained before this correction is pushed;
+no manual cancellation or observation-only rerun is used.
+
+Fresh Kotlin 2.0.21 compilation of the changed matrix class passes in 9.894 s
+against validated unchanged production/UI/instrumentation sources, with all 54
+source hashes and read-only dependency hashes unchanged. Instrumentation is not
+locally executed. The reporting head needs its own four hosted jobs, 140 checks
+in 44 groups, exactly six emitted target/fault/original/count/cleanup rows and
+all eight actual process-kill drivers. No predecessor result qualifies it.

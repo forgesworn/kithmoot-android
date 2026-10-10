@@ -1,8 +1,11 @@
 package dev.forgesworn.kithmoot.ui
 
+import android.app.Instrumentation
 import android.os.Build
+import android.os.Bundle
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.epoch.RoomRekeyBinding
@@ -53,6 +56,7 @@ class NativeRetirementStoreRefusalTest {
         var ownedAliases = emptySet<String>()
         var fixtureRoom: String? = null
         var primary: Throwable? = null
+        var measurement: String? = null
         try {
             f.startModel(); compose.showNativeHost(f)
             compose.onNodeWithText("Start nearby chat").performScrollTo().performClick()
@@ -152,10 +156,11 @@ class NativeRetirementStoreRefusalTest {
                     finally { after.fill(0) }
                 }
             }
-            println("NATIVE_RETIREMENT_STORE_REFUSAL target=${target.name} fault=${fault.name} " +
+            measurement = "NATIVE_RETIREMENT_STORE_REFUSAL target=${target.name} fault=${fault.name} " +
                 "sourceEpoch=0 phase=RETIRED attempts=1 chargedBytes=$debt " +
                 "newRadios=0 newOffers=0 relayRequests=0 filesUnchanged=true keysUnchanged=true " +
-                "processDeath=false participantReceipt=false")
+                "processDeath=false participantReceipt=false originalId=${original.id} " +
+                "originalCreatedAt=${original.createdAt}"
         } catch (error: Throwable) {
             primary = error
             throw error
@@ -190,6 +195,12 @@ class NativeRetirementStoreRefusalTest {
                 }
             }
         }
+        // Only a completed assertion/cleanup path reaches this report. println
+        // goes to the app log, not the am instrument result stream used by CI.
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+            putString(Instrumentation.REPORT_KEY_STREAMRESULT,
+                "\n${requireNotNull(measurement)} cleanupVerified=true\n")
+        })
     }
 
     private fun aliases(): Set<String> = KeyStore.getInstance("AndroidKeyStore").run {
