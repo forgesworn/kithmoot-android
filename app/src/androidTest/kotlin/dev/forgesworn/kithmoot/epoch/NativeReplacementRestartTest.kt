@@ -641,10 +641,20 @@ class NativeReplacementRestartTest {
         } }
         // Numeric rows reach the actual instrument result stream only after
         // all eleven refusals, closed leases and stage-wide deletion succeed.
+        // Pretty-mode am instrument emits the stream alone for a combined
+        // bundle. This post-cleanup control measures that on the real runner;
+        // distinct probe fields can never substitute for the required proof.
         InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
-            putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\n" + rows.joinToString("\n") { "$it cleanupVerified=true" } + "\n")
+            putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\nNATIVE_PENDING_REPORT_CONTROL shape=combined\n")
+            putString("native_pending_refusal_probe_pid", Process.myPid().toString())
+            putString("native_pending_refusal_probe_mode", mode)
+        })
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
             putString("native_pending_refusal_recovery_pid", Process.myPid().toString())
             putString("native_pending_refusal_recovery_mode", mode)
+        })
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+            putString(Instrumentation.REPORT_KEY_STREAMRESULT, "\n" + rows.joinToString("\n") { "$it cleanupVerified=true" } + "\n")
         })
     }
 

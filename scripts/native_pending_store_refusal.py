@@ -16,6 +16,21 @@ FIELDS = {
 }
 
 
+def pending_reporting_control(lines):
+    """Require actual pretty-mode combined-bundle omission, after cleanup."""
+    controls = []
+    for line in lines:
+        if line.startswith("dev.forgesworn.kithmoot.epoch.NativeReplacementRestartTest:"):
+            line = line.split(":", 1)[1]
+        if line.startswith("INSTRUMENTATION_STATUS: native_pending_refusal_probe_"):
+            raise RuntimeError("Pending reporting control leaked combined probe metadata")
+        line = line.removeprefix("INSTRUMENTATION_STATUS: stream=")
+        if line.startswith("NATIVE_PENDING_REPORT_CONTROL"):
+            controls.append(line)
+    if controls != ["NATIVE_PENDING_REPORT_CONTROL shape=combined"]:
+        raise RuntimeError("Pending reporting control is missing, duplicated or malformed")
+
+
 def pending_refusal_measurement(lines, mode):
     if mode not in WINDOWS:
         raise RuntimeError("Unknown pending refusal window")

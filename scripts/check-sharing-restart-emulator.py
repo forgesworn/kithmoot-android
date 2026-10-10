@@ -204,7 +204,8 @@ def main(profile="sharing"):
         if profile.startswith("native-replacement-"):
             replacement_measurement(recovery_lines, mode)
         if pending_refusal:
-            from native_pending_store_refusal import pending_refusal_measurement
+            from native_pending_store_refusal import pending_refusal_measurement, pending_reporting_control
+            pending_reporting_control(recovery_lines)
             pending_refusal_measurement(recovery_lines, mode)
     except Exception:
         try:

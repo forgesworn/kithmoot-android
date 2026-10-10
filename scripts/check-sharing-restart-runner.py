@@ -59,6 +59,12 @@ if 'instrument' in args:
   if mode=='duplicate-recovery-mode':print('INSTRUMENTATION_STATUS: '+marker+'_recovery_mode='+transition)
  if pending:
   from native_pending_store_refusal import FAULTS,WINDOWS
+  if mode!='pending-no-report-control':
+   prefix=case+':INSTRUMENTATION_STATUS: stream=' if mode=='pending-control-class-prefix' else ''
+   print(prefix+'NATIVE_PENDING_REPORT_CONTROL shape='+('split' if mode=='pending-wrong-report-control' else 'combined'))
+  if mode=='pending-duplicate-report-control':print('NATIVE_PENDING_REPORT_CONTROL shape=combined')
+  if mode=='pending-leaked-probe-pid':print('INSTRUMENTATION_STATUS: native_pending_refusal_probe_pid=5252')
+  if mode=='pending-leaked-probe-mode':print('INSTRUMENTATION_STATUS: native_pending_refusal_probe_mode='+transition)
   i=WINDOWS.index(transition)
   rows=[]
   for target,fault in sorted(FAULTS):
@@ -235,6 +241,21 @@ class NativeReplacementReferenceDriverTest(NativeReplacementCommittedDriverTest)
 
 class PendingStoreRefusalRunnerTest(DriverTest):
  profile='native-pending-refusal-committed-source-before-offer'
+ def test_post_cleanup_reporting_control_accepts_known_class_stream_prefix(self):
+  r,c,_=self.run_case('pending-control-class-prefix');self.assertEqual(0,r.returncode,r.stderr)
+  self.assertIn('"instrument", "-w",',c);self.assertNotIn('"-r"',c)
+ def test_missing_duplicate_or_wrong_reporting_control_refuses(self):
+  for mode in ('pending-no-report-control','pending-duplicate-report-control','pending-wrong-report-control'):
+   with self.subTest(fault=mode):
+    r,c,d=self.run_case(mode);self.assertEqual(1,r.returncode);self.assertTrue(d)
+    self.assertIn('Pending reporting control',r.stderr)
+    self.assertIn('"force-stop",',c);self.assertIn('"clear",',c)
+ def test_combined_probe_metadata_cannot_leak_into_pretty_output(self):
+  for mode in ('pending-leaked-probe-pid','pending-leaked-probe-mode'):
+   with self.subTest(fault=mode):
+    r,c,d=self.run_case(mode);self.assertEqual(1,r.returncode);self.assertTrue(d)
+    self.assertIn('Pending reporting control',r.stderr)
+    self.assertIn('"force-stop",',c);self.assertIn('"clear",',c)
  def test_all_five_pending_windows_use_original_prepare_and_new_matrix(self):
   for mode in ('committed-source-before-offer','charged-original-before-offer','offered-before-index','index-committed-before-source-acknowledgement','reference-installed-before-subscription-switch'):
    with self.subTest(window=mode):
