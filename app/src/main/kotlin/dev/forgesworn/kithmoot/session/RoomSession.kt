@@ -752,12 +752,14 @@ class RoomSession(
         settled = true
         var resumedTransition = false
         if (_epochState.value is RoomEpochState.Active) {
-            startTrafficJobs()
             resumedTransition = transportBlocked
             if (transportBlocked) {
                 transport.completeRekey()
                 transportBlocked = false
             }
+            // Mesh subscriptions emit their discovery query at registration.
+            // Open the verified epoch barrier before registering that traffic.
+            startTrafficJobs()
             lock.withStateLock { publicationAllowed = true }
         }
         jobs += scope.launch {
@@ -1963,9 +1965,9 @@ class RoomSession(
         _movedOn.value = null
         recompute()
         if (settled && joined) {
-            startTrafficJobs()
             transport.completeRekey()
             transportBlocked = false
+            startTrafficJobs()
             lock.withStateLock { publicationAllowed = true }
             announceIfPublishing(reply = true)
             onEpochReady(next)
