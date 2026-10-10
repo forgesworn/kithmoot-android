@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery, feat/native-retirement-restart, feat/native-retirement-refusal, feat/native-invitation-replacement, feat/native-invitation-generation-storage]
+    branches: [main, feat/native-keeper-journal, feat/native-device-registry, feat/native-rekey-preflight, feat/native-host-controls, feat/native-rekey-interruption, feat/native-host-status, feat/native-member-controls, feat/native-retirement-store, feat/native-invitation-controls, feat/native-pending-recovery, feat/native-retirement-restart, feat/native-retirement-refusal, feat/native-invitation-replacement, feat/native-invitation-generation-storage, feat/native-invitation-replacement-restart]
   pull_request:
     branches: [main]
 
@@ -200,6 +200,11 @@ jobs:
             python3 scripts/check-native-retirement-restart-emulator.py reserved-before-offer
             python3 scripts/check-native-retirement-restart-emulator.py offered-before-archive
             python3 scripts/check-native-retirement-restart-emulator.py archive-before-hint
+            python3 scripts/check-native-replacement-restart-emulator.py committed-source-before-offer
+            python3 scripts/check-native-replacement-restart-emulator.py charged-original-before-offer
+            python3 scripts/check-native-replacement-restart-emulator.py offered-before-index
+            python3 scripts/check-native-replacement-restart-emulator.py index-committed-before-source-acknowledgement
+            python3 scripts/check-native-replacement-restart-emulator.py reference-installed-before-subscription-switch
 
       - name: Keep emulator reports
         if: always()
@@ -213,6 +218,7 @@ jobs:
             app/build/reports/native-rekey-before-restart-emulator/
             app/build/reports/native-rekey-after-restart-emulator/
             app/build/reports/native-retirement-*-restart-emulator/
+            app/build/reports/native-replacement-*-restart-emulator/
           if-no-files-found: warn
           retention-days: 7
 

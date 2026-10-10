@@ -12,6 +12,54 @@ import time
 APP = "dev.forgesworn.kithmoot"
 RUNNER = APP + ".test/androidx.test.runner.AndroidJUnitRunner"
 CASE = APP + ".ui.RoomSharingRestartTest"
+REPLACEMENT_MODES = (
+    "committed-source-before-offer", "charged-original-before-offer", "offered-before-index",
+    "index-committed-before-source-acknowledgement", "reference-installed-before-subscription-switch",
+)
+
+
+def replacement_measurement(lines, mode):
+    """Require the new test's post-cleanup numeric row, never a success summary alone."""
+    prefix = "INSTRUMENTATION_STATUS: native_replacement_recovery_"
+    fields = {}
+    for line in lines:
+        if line.startswith(APP + ".epoch.NativeReplacementRestartTest:"):
+            line = line.split(":", 1)[1]
+        if not line.startswith(prefix):
+            continue
+        name, separator, value = line[len(prefix):].partition("=")
+        if not separator or name in fields:
+            raise RuntimeError("Invalid or duplicate replacement measurement field")
+        fields[name] = value
+    required = {"pid", "mode", "original_id", "original_created_at", "welcome_id", "welcome_created_at",
+                "original_bytes", "attempts_at_death", "attempts_after_completion", "debt_at_death",
+                "debt_after_completion", "devices", "same_epoch", "invitation_generation",
+                "internet_requests", "cleanup_verified"}
+    if fields.keys() != required:
+        raise RuntimeError("Missing or unexpected replacement measurement field")
+    if fields["mode"] != mode or fields["cleanup_verified"] != "true":
+        raise RuntimeError("Replacement measurement mode or checked cleanup is invalid")
+    for name in ("original_id", "welcome_id"):
+        if not re.fullmatch(r"[0-9a-f]{64}", fields[name]):
+            raise RuntimeError("Invalid replacement original identifier")
+    if fields["original_id"] == fields["welcome_id"]:
+        raise RuntimeError("Replacement welcome and retirement must be distinct originals")
+    numeric = required - {"mode", "original_id", "welcome_id", "cleanup_verified"}
+    if any(not re.fullmatch(r"0|[1-9][0-9]*", fields[name]) for name in numeric):
+        raise RuntimeError("Invalid replacement numeric measurement")
+    values = {name: int(fields[name]) for name in numeric}
+    # MAX_EVENT_BYTES belongs to the inspected, unchanged source (16 KiB).
+    if not 1 <= values["original_bytes"] <= 16 * 1024 or values["original_created_at"] != values["welcome_created_at"]:
+        raise RuntimeError("Replacement original size or creation times disagree")
+    expected_death = 0 if mode == REPLACEMENT_MODES[0] else 1
+    expected_completed = expected_death + (1 if mode in REPLACEMENT_MODES[:2] else 0)
+    if (values["attempts_at_death"], values["attempts_after_completion"]) != (expected_death, expected_completed):
+        raise RuntimeError("Replacement original lifetime attempts were lost or multiplied")
+    if values["debt_at_death"] != values["original_bytes"] * expected_death or values["debt_after_completion"] != values["original_bytes"] * expected_completed:
+        raise RuntimeError("Replacement original charged-byte debt was lost or multiplied")
+    if (values["devices"], values["same_epoch"], values["invitation_generation"], values["internet_requests"]) != (3, 1, 1, 0):
+        raise RuntimeError("Replacement changed the qualified audience, epoch, generation or route")
+    return fields
 
 
 def main(profile="sharing"):
@@ -23,6 +71,8 @@ def main(profile="sharing"):
         **{"native-retirement-" + mode: (APP + ".epoch.NativeRetirementRestartTest",
             "native_retirement", "KITHMOOT_NATIVE_RETIREMENT", mode) for mode in
             ("pending-original", "reserved-before-offer", "offered-before-archive", "archive-before-hint")},
+        **{"native-replacement-" + mode: (APP + ".epoch.NativeReplacementRestartTest",
+            "native_replacement", "KITHMOOT_NATIVE_REPLACEMENT", mode) for mode in REPLACEMENT_MODES},
     }
     if profile not in profiles:
         raise RuntimeError("Unknown process-restart acceptance profile")
@@ -72,7 +122,9 @@ def main(profile="sharing"):
         pid = None
         ready = False
         reported_mode = None
-        while not (ready and pid and (mode is None or reported_mode == mode)):
+        replacement = profile.startswith("native-replacement-")
+        bundle_closed = False
+        while not (ready and pid and (mode is None or reported_mode == mode) and (not replacement or bundle_closed)):
             if time.monotonic() >= deadline:
                 raise RuntimeError("Active " + profile + " checkpoint timed out")
             try:
@@ -87,7 +139,7 @@ def main(profile="sharing"):
                 line = line[len(case) + 1:]
             match = re.fullmatch(r"INSTRUMENTATION_STATUS: " + marker + r"_restart_pid=([1-9][0-9]*)", line)
             if match:
-                if pid is not None and pid != match.group(1):
+                if pid is not None and (replacement or pid != match.group(1)):
                     raise RuntimeError("Conflicting active checkpoint PIDs")
                 pid = match.group(1)
             if line == "INSTRUMENTATION_STATUS: " + marker + "_restart_checkpoint=ready":
@@ -96,6 +148,8 @@ def main(profile="sharing"):
                 if reported_mode is not None or line != "INSTRUMENTATION_STATUS: " + marker + "_restart_mode=" + mode:
                     raise RuntimeError("Invalid or duplicate transition checkpoint mode")
                 reported_mode = mode
+            if replacement and line == "INSTRUMENTATION_STATUS_CODE: 2":
+                bundle_closed = True
         alive = command("shell", "pidof", APP)
         if alive.returncode != 0 or alive.stdout.split() != [pid] or process.poll() is not None:
             raise RuntimeError("Checkpoint PID is not the live app process")
@@ -142,6 +196,8 @@ def main(profile="sharing"):
             raise RuntimeError("Recovery did not report exactly one different process PID")
         if mode is not None and recovery_modes != [mode]:
             raise RuntimeError("Recovery did not report exactly the requested transition mode")
+        if profile.startswith("native-replacement-"):
+            replacement_measurement(recovery_lines, mode)
     except Exception:
         try:
             (reports / "failure-logcat.txt").write_text(command("logcat", "-d", "-t", "20000").stdout)

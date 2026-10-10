@@ -144,11 +144,23 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             "Room hosting changed. Open the confirmation again." -> "stale"
             "Room update could not complete. Inspect the hosting state before trying again." -> "failed"
             "Room update saved. Hosting state does not confirm delivery to members." -> "saved"
+            "Invitation replaced. Existing approved members can still chat." -> "replaced"
+            "Invitation replacement is saved and pending. Existing approved members can still chat." -> "replacement-pending"
             else -> "none"
         }
+        val stored = savedRoom?.let { saved -> runCatching {
+            val source = source(saved)
+            val index = requireNotNull(app.savedRooms.get(saved.id))
+            val replacement = source["replacement"] as? JsonObject
+            "sourceGeneration=${source["activeInvitation"]?.jsonObject?.get("generation") ?: 0} " +
+                "indexGeneration=${index.json.getValue("nativeAuthority").jsonObject["generation"] ?: 0} " +
+                "sourceReplacement=${replacement?.get("stage")?.jsonPrimitive?.content ?: "none"}"
+        }.getOrElse { "storedState=${it.javaClass.simpleName}" } } ?: "storedState=unselected"
         return "stage=${model.stage.value} busy=${model.start.value.busy} " +
             "host=${model.nativeHostState()} observation=${hosting?.status} epoch=${hosting?.epoch} " +
             "revision=${hosting?.revision} originals=${hosting?.pendingOriginals?.size} " +
+            "invitationGeneration=${hosting?.invitationGeneration} replacementGeneration=${hosting?.replacementGeneration} " +
+            "share=${room.canShareInvitation} linkPresent=${room.joinUrl.isNotBlank()} movedOn=${room.movedOn} $stored " +
             "commandBusy=${room.nativeHostingBusy} command=$command radioOwners=${radios.count { !it.closed }} " +
             "offers=${phoneEvents.size} relayWrites=${relayWrites.size} " +
             "chatError=${room.chatSendError != null} pending=${room.pendingChats.size} " +
@@ -194,6 +206,13 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
             override fun reachable() = phone != null
             override fun close() = Unit
         }).also { mesh += it }
+    }
+
+    /** Exercise the current byte callback; no controller/source shortcut. */
+    internal fun injectPhone(saved: SavedRoom, event: NostrEvent) {
+        require(Events.verify(event))
+        requireNotNull(phone)(RoomBleEvent.Frame(RoomMeshWire.encode(RoomMeshWire.EVENT,
+            buildJsonObject { put("scope", RoomNearbyDiscovery.scope(saved.id)); put("event", event.toJson()) }), "member"))
     }
 
     /** Existing qualified device recovery, without fresh invitation admission. */
@@ -286,7 +305,7 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         val alias = "kithmoot.keeper-rekeys." + Digests.sha256(q.owner.toByteArray(Charsets.UTF_8)).toHex()
         return committed(alias, RoomRekeyLedger.MAX_FILE_BYTES)
     }
-    private fun committed(alias: String, maxBytes: Int): JsonObject {
+    internal fun committed(alias: String, maxBytes: Int): JsonObject {
         val sealed = File(app.noBackupFilesDir, "$alias.vault").inputStream().use {
             check(it.channel.size() <= maxBytes + 64)
             it.readBytes().also { bytes -> check(bytes.size <= maxBytes + 64) }
