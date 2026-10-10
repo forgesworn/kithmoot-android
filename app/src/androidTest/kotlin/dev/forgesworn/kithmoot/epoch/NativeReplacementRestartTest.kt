@@ -324,6 +324,12 @@ class NativeReplacementRestartTest {
         try {
             // No entry, route, credential refresh or recovery write precedes these cold checks.
             val cold = f.source(saved)
+            val pendingIndex = cold.getValue("replacement").jsonObject
+            val previousInvitationDigest = digest(pendingIndex.getValue("previousJoinUrl").jsonPrimitive.content)
+            val proposedInvitationDigest = digest(pendingIndex.getValue("proposedJoinUrl").jsonPrimitive.content)
+            assertNotEquals(previousInvitationDigest, proposedInvitationDigest)
+            assertEquals(if (mode in MODES.drop(3)) proposedInvitationDigest else previousInvitationDigest,
+                expected.getValue("invitationDigest").jsonPrimitive.content)
             oldInvitation = requireNotNull(decodeInvitationUrl(cold.getValue("replacement").jsonObject
                 .getValue("previousJoinUrl").jsonPrimitive.content)).invitation
             assertEquals(expected.getValue("sourceDigest").jsonPrimitive.content, digest(cold.toString()))
@@ -381,7 +387,8 @@ class NativeReplacementRestartTest {
             assertTrue(f.phoneEvents.none { it.kind == KIND_GROUP_INVITATION })
             val actual = requireNotNull(f.app.savedRooms.get(saved.id))
             assertEquals(expected.getValue("proposedReference"), actual.json.getValue("nativeAuthority"))
-            assertNotEquals(expected.getValue("invitationDigest").jsonPrimitive.content, digest(actual.joinUrl))
+            assertNotEquals(previousInvitationDigest, digest(actual.joinUrl))
+            assertEquals(proposedInvitationDigest, digest(actual.joinUrl))
             assertEquals(digest(actual.joinUrl.substringAfter('#')), digest(f.model.room.value.joinUrl.substringAfter('#')))
             assertEquals(digest(actual.joinUrl.substringAfter('#')), digest(requireNotNull(f.model.inviteLinkFor(saved.id)).substringAfter('#')))
             val beforeOldRequest = f.phoneEvents.count { it.kind == KIND_INVITATION_GRANT }
