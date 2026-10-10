@@ -1,5 +1,22 @@
 # Native invitation retirement storage
 
+## Courier mismatch diagnostics
+
+Exact c4 CI 38046398248 passes verify and both signing jobs but fails recovery
+at the missing-legacy-original courier ciphertext assertion. All six host
+journeys and the completed-retirement encrypted-source reopen case pass; later
+groups and every PID driver are unexecuted. No merge qualification follows.
+
+The unchanged assertion now reports only known changed courier field names,
+equality excluding the clock, monotone-clock movement and queue/spend counts.
+It decrypts only captured committed bytes with the existing Keystore key and
+never invokes live AtomicFile recovery or logs secrets/events/ciphertext.
+Both exact source/courier assertions remain. A separate JVM check measures empty
+ledger clock persistence and checks reopen conserves the high-water clock,
+empty queue and zero debt. This does not prove the cause of the hosted mismatch.
+Design mesh-kit 85b707f precedes these diagnostics; production is unchanged.
+
+
 The schema-4 authority journal discarded the signed retirement and its attempt
 counters when Pending completed. Schema 5 transfers the exact event and its
 per-lane maps to a bounded archive in that same source write. Explicit retries
