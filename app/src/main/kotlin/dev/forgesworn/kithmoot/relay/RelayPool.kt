@@ -620,9 +620,12 @@ class RelayPool(
 
     /** Identical original authority requests may retry after an answer is lost.
      * This bounded exception does not change ordinary room/chat deduplication. */
-    internal fun subscribeKeeperRequests(filters: List<Filter>): Flow<NostrEvent> {
+    internal fun subscribeKeeperRequests(filters: List<Filter>, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
         require(filters.isNotEmpty() && filters.all { it.kinds?.let { kinds -> kinds.isNotEmpty() && kinds.all { k -> k in setOf(20466, 20468) } } == true })
-        return subscribeWithControl({ filters }, null, {}, {}, keeperRequests = true)
+        val frozen = filters.map { filter -> filter.copy(ids = filter.ids?.toList(),
+            authors = filter.authors?.toList(), kinds = filter.kinds?.toList(),
+            tags = filter.tags.mapValues { it.value.toList() }) }
+        return subscribeWithControl({ frozen }, null, {}, {}, keeperRequests = true, onInstalled = onInstalled)
     }
 
     /**
@@ -646,7 +649,7 @@ class RelayPool(
         return subscribeWithControl(filters, only, onEose, onReplayComplete, keeperRequests = false)
     }
     private fun subscribeWithControl(filters: () -> List<Filter>, only: Set<String>?, onEose: (url: String) -> Unit,
-        onReplayComplete: () -> Unit, keeperRequests: Boolean): Flow<NostrEvent> {
+        onReplayComplete: () -> Unit, keeperRequests: Boolean, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
         val id = "km-${nextSubscriptionId.incrementAndGet()}"
         val subscription = PoolSubscription(id, filters, only, onEose, if (keeperRequests) now else null)
         // The REQ goes out only once the collector is attached. Sending it in
@@ -656,7 +659,12 @@ class RelayPool(
         val replayed = mutableSetOf<String>()
         var complete = false
         return subscription.events
-            .onSubscription { open(subscription) }
+            .onSubscription {
+                open(subscription)
+                // Real local registration, outside the pool monitor. This is
+                // not EOSE, connectivity, remote installation or delivery.
+                onInstalled()
+            }
             .transform { item ->
                 item.event?.let { emit(it) }
                 item.eose?.let { replayed += it }

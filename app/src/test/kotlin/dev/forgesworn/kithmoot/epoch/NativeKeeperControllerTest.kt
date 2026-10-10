@@ -20,6 +20,59 @@ class NativeKeeperControllerTest {
         override fun write(value: ByteArray) { if (fail) error("Disk unavailable"); onWrite(); bytes = value.clone() }
         override fun reset() = error("Do not reset retry or authority debt")
     }
+
+    @Test fun actual_keeper_registers_independent_invitation_and_epoch_filters_on_only_selected_lanes() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = Rig(this, route)
+            try {
+                r.start()
+                assertIs<NativeKeeperController.State.Ready>(r.controller!!.state.value)
+                val invitationId = deriveInvitationId(r.invitation)
+                val observed = mutableListOf<JsonObject>()
+                r.link.offered.mapNotNull(RoomMeshWire::decode).filter { it.first == RoomMeshWire.QUERY }.forEach {
+                    it.second.getValue("filters").jsonArray.map { f -> f.jsonObject }
+                        .filter { f -> f["kinds"]?.jsonArray?.any { k -> k.jsonPrimitive.int in setOf(20466,20468) } == true }
+                        .also { filters -> if (filters.isNotEmpty()) {
+                            assertEquals(1, filters.size); observed += filters.single()
+                        } }
+                }
+                val meshFilters = observed.toList(); observed.clear()
+                r.sockets.opened.flatMap { it.sent }.filter { it.startsWith("[\"REQ\"") }.forEach {
+                    val filters = Json.parseToJsonElement(it).jsonArray.drop(2).map { f -> f.jsonObject }
+                        .filter { f -> f["kinds"]?.jsonArray?.any { k -> k.jsonPrimitive.int in setOf(20466,20468) } == true }
+                    if (filters.isNotEmpty()) { assertEquals(1, filters.size); observed += filters.single() }
+                }
+                for ((selected, filters) in listOf(route.nearby to meshFilters, route.internet to observed.toList())) {
+                    assertEquals(if (selected) 2 else 0, filters.size)
+                    if (selected) {
+                        assertEquals(setOf(20466,20468), filters.map { it.getValue("kinds").jsonArray.single().jsonPrimitive.int }.toSet())
+                        assertEquals(setOf(invitationId,r.room.roomId), filters.map { it.getValue("#d").jsonArray.single().jsonPrimitive.content }.toSet())
+                        assertTrue(filters.all { it.getValue("#p").jsonArray.single() == JsonPrimitive(r.binding.authority) })
+                    }
+                }
+            } finally { r.stop() }
+        }
+    }
+
+    @Test fun failed_actual_reader_registration_keeps_the_native_source_unchanged_and_startup_held() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            val original = r.sourceStore.bytes!!.clone()
+            r.link.onOffer = { bytes ->
+                val decoded = RoomMeshWire.decode(bytes)
+                if (decoded?.first == RoomMeshWire.QUERY) {
+                    val filters = decoded.second.getValue("filters").jsonArray
+                    if (filters.size == 1 && filters.single().jsonObject["kinds"]?.jsonArray?.singleOrNull()
+                            ?.jsonPrimitive?.int in setOf(20466,20468)) error("query offer unavailable")
+                }
+            }
+            assertFailsWith<IllegalStateException> { r.start() }
+            runCurrent()
+            assertTrue(original.contentEquals(r.sourceStore.bytes), "Listener registration must not mutate or re-sign the source")
+            assertTrue(r.link.events().none { it.kind in setOf(KIND_INVITATION_GRANT,KIND_EPOCH_GRANT,KIND_ROOM_REKEY,KIND_INVITATION_RETIREMENT) })
+            assertFails { r.live.sendChat("Failed local registration cannot release startup") }
+        } finally { r.link.onOffer = null; r.stop() }
+    }
     private class Link(private val scope: String) : RoomMeshLink {
         var receive: ((ByteArray, String) -> Unit)? = null
         val offered = mutableListOf<ByteArray>()

@@ -195,11 +195,22 @@ class RoomMeshTransport(
      * A received copy still cannot prove participant identity or delivery. */
     fun subscribeInbound(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = true)
 
+    /** The selected keeper can await actual local inbound-reader registration.
+     * No callback on flow construction, remote replay or participant delivery. */
+    internal fun subscribeKeeperRequests(filters: List<Filter>, onInstalled: () -> Unit): Flow<NostrEvent> {
+        require(filters.isNotEmpty() && filters.all { it.kinds?.let { kinds ->
+            kinds.isNotEmpty() && kinds.all { kind -> kind in setOf(20466, 20468) }
+        } == true })
+        val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
+        return subscribeObservations(frozen, inboundOnly = true, onInstalled = onInstalled)
+    }
+
     internal fun hasScope(scope: String): Boolean = meshScope == scope
 
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = subscribeObservations(filters, inboundOnly = false)
 
-    private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean): Flow<NostrEvent> = callbackFlow {
+    private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean,
+        onInstalled: () -> Unit = {}): Flow<NostrEvent> = callbackFlow {
         val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
         // trySend can resume an Unconfined collector inline. Never let room
         // callbacks run while receive/publication holds the transport lock.
@@ -234,6 +245,9 @@ class RoomMeshTransport(
                     put("scope", meshScope); put("filters", JsonArray(frozen.map { it.toJson() }))
                 }))
             }
+            // A callback may resume an owner inline. Never invoke it while
+            // holding the mesh monitor; the finally path owns reader cleanup.
+            onInstalled()
             awaitClose { }
         } finally {
             synchronized(lock) { readers.remove(reader) }

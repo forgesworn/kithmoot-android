@@ -68,8 +68,9 @@ internal class NativeKeeperController private constructor(private val source: Na
             validateReceiverBeforeRecovery()
             check(lifetimeSelected()); verified = true
             courier = RoomRekeyCourier.startAuthority(ledger, endpoints, scope, ::selected, dispatcher)
-            recover()
             subscribe()
+            check(selected() && !routeFailed)
+            recover()
             started.complete(Unit)
             queue.trySend(Work.Retry)
             scope.launch { while (isActive) { delay(5_000); queue.trySend(Work.Retry) } }
@@ -243,7 +244,7 @@ internal class NativeKeeperController private constructor(private val source: Na
         try { done.await() } catch (cancel: CancellationException) { done.cancel(cancel); throw cancel }
     }
 
-    private fun subscribe() {
+    private suspend fun subscribe() {
         val invitation = source.invitation()
         val invitationId = try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
         this.invitationId = invitationId
@@ -251,20 +252,40 @@ internal class NativeKeeperController private constructor(private val source: Na
             Filter(kinds = listOf(KIND_INVITATION_REQUEST), tags = mapOf("#d" to listOf(invitationId), "#p" to listOf(source.binding.authority))),
             Filter(kinds = listOf(KIND_EPOCH_REQUEST), tags = mapOf("#d" to listOf(source.binding.room), "#p" to listOf(source.binding.authority))),
         )
+        val registrations = mutableListOf<CompletableDeferred<Unit>>()
         for (lane in RekeyLane.entries) {
             if (!source.binding.permits(lane)) continue
-            scope.launch {
-                try {
-                    val flow = if (lane == RekeyLane.NEARBY) requireNotNull(endpoints.nearby).subscribeInbound(filters)
-                        else requireNotNull(endpoints.internet).subscribeKeeperRequests(filters)
-                    flow.collect { event ->
-                        if (selected()) queue.trySend(Work.Request(event.copy(tags = event.tags.map { it.toList() }), lane))
+            // Invitation lifetime and current traffic-epoch recovery have
+            // independent listeners. Neither coroutine launch nor remote EOSE
+            // proves these exact filters are registered in the selected route.
+            for (filter in filters) {
+                val installed = CompletableDeferred<Unit>(owner)
+                registrations += installed
+                scope.launch {
+                    try {
+                        val onInstalled = { installed.complete(Unit); Unit }
+                        val flow = if (lane == RekeyLane.NEARBY)
+                            requireNotNull(endpoints.nearby).subscribeKeeperRequests(listOf(filter), onInstalled)
+                        else requireNotNull(endpoints.internet).subscribeKeeperRequests(listOf(filter), onInstalled)
+                        flow.collect { event ->
+                            // A relay can send an event on the wrong subscription.
+                            // Only the exact owned kind/room/root enters this queue.
+                            if (selected() && event.kind == requireNotNull(filter.kinds).single() &&
+                                event.tagValue("d") == filter.tags.getValue("#d").single() &&
+                                event.tagValue("p") == filter.tags.getValue("#p").single())
+                                queue.trySend(Work.Request(event.copy(tags = event.tags.map { it.toList() }), lane))
+                        }
+                        installed.completeExceptionally(IllegalStateException("Keeper listener closed before registration"))
+                        if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
+                    } catch (cancel: CancellationException) { installed.cancel(cancel); throw cancel }
+                    catch (error: Exception) {
+                        installed.completeExceptionally(error)
+                        if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
                     }
-                    if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) }
-                } catch (cancel: CancellationException) { throw cancel }
-                catch (_: Exception) { if (selected()) { routeFailed = true; queue.trySend(Work.RouteFailed) } }
+                }
             }
         }
+        withTimeout(15_000) { registrations.awaitAll() }
     }
     private suspend fun answer(request: Work.Request) {
         if (mutableState.value !is State.Ready || !endpoints.ready(request.lane)) return
