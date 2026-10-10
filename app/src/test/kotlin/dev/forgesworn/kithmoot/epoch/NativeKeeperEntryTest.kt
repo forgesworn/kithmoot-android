@@ -31,8 +31,9 @@ class NativeKeeperEntryTest {
         override suspend fun resetQueued() = Unit
         override fun close() = Unit
     }
-    private class Rig(val test: TestScope, val route: RoomRoute) {
-        val relays = if (route.internet) listOf("wss://fixture.invalid/") else emptyList()
+    private class Rig(val test: TestScope, val route: RoomRoute,
+        selectedRelays: List<String> = listOf(canonicalRelayUrl("wss://fixture.invalid/"))) {
+        val relays = if (route.internet) selectedRelays else emptyList()
         val at = test.currentTime / 1000
         val creation = NativeKeeperCreation.fresh(at, roomRelays = relays.takeIf { route.internet })
         val base = creation.roomSecret(); val invitation = creation.invitation(); val room = deriveRoom(base)
@@ -50,6 +51,39 @@ class NativeKeeperEntryTest {
         fun entry() = NativeKeeperEntry.open(saved, vault,
             { NativeKeeperJournal.open(sourceStore, binding) { test.currentTime / 1000 }.also { source = it } },
             { q, initialise -> initialisations += initialise; RoomRekeyLedger(queueStore, q, { test.currentTime }, initialise) })
+    }
+
+    @Test fun endpointRelayFormsProduceValidSignedWelcomeAndPreserveExactBindingAcrossSourceReopen() = runTest {
+        for (raw in listOf("ws://127.0.0.1:49152/", "wss://Fixture.invalid:443/", "wss://fixture.invalid/path//?z=2&a=1")) {
+            val signed = canonicalRoomRelayUrl(raw)
+            val endpoints = listOf(canonicalRelayUrl(signed))
+            val r = Rig(this, RoomRoute.MIXED, endpoints)
+            val before = requireNotNull(r.sourceStore.bytes).clone()
+            try {
+                NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }.use { source ->
+                    val invitation = source.invitation()
+                    try {
+                        val welcome = assertNotNull(decodePersistentInvitation(source.welcome(), invitation))
+                        try {
+                            assertEquals(listOf(signed), welcome.relays)
+                            assertEquals(endpoints, welcome.relays!!.map(::canonicalRelayUrl))
+                            assertEquals(endpoints, source.binding.relays)
+                            assertEquals(endpoints, r.saved.relays)
+                            r.saved.verifyNativeAuthority(source)
+                        } finally { welcome.secret.fill(0) }
+                    } finally { invitation.bearer.fill(0) }
+                }
+                assertTrue(before.contentEquals(requireNotNull(r.sourceStore.bytes)), "Read-only source reopen changed its original")
+            } finally { before.fill(0); r.base.fill(0); r.invitation.bearer.fill(0) }
+        }
+    }
+
+    @Test fun invalidSignedWelcomeRelayListsRefuseWithoutFilteringOrTruncation() {
+        for (relays in listOf(emptyList(), listOf("ws://unapproved.invalid/"),
+            listOf("wss://user:password@fixture.invalid/"), listOf("wss://fixture.invalid/#fragment"),
+            (1..9).map { "wss://relay$it.invalid/" })) {
+            assertFailsWith<IllegalArgumentException> { NativeKeeperCreation.fresh(0, roomRelays = relays) }
+        }
     }
 
     @Test fun actualHeldJoinPublishesNoOrdinaryEventsUntilSourceReceiverSessionAgreementInEveryMode() = runTest {

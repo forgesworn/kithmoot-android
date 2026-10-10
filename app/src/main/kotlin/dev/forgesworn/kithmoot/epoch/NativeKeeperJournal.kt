@@ -37,10 +37,13 @@ internal class NativeKeeperCreation private constructor(private val secret: Byte
     companion object {
         fun fresh(now: Long, roomRelays: List<String>? = null, ends: Long? = null, destruct: Boolean = false): NativeKeeperCreation {
             require(now in 0..KEEPER_MAX_TIME)
+            // Signed invitation URLs have a different canonical root-path form
+            // from endpoint pins. Validate the complete list before minting keys.
+            val signedRelays = roomRelays?.let(::canonicalRoomRelays)
             val host = createRoomInvitation(persistent = true)
             val secret = Entropy.bytes(32)
             try { return NativeKeeperCreation(secret, host, encodePersistentInvitation(host, secret, now,
-                ends = ends, relays = roomRelays, destruct = destruct), now) }
+                ends = ends, relays = signedRelays, destruct = destruct), now) }
             catch (error: Exception) { secret.fill(0); host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0); throw error }
         }
     }

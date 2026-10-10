@@ -3267,7 +3267,8 @@ class RoomViewModel @JvmOverloads constructor(
                 "Keep KithMoot on screen and finish the call or leave Tor-only mode before starting nearby."
             }
             check(chosen.conferenceLength == ConferenceLength.NEVER) { "Nearby hosting currently needs a room with no fixed end." }
-            val relays = if (route.internet) parseRelays(chosen.relays).map(::canonicalRelayUrl).distinct().sorted() else emptyList()
+            val relays = if (route.internet) parseRelays(chosen.relays)
+                .map(::canonicalRoomRelayUrl).map(::canonicalRelayUrl).distinct().sorted() else emptyList()
             require(!route.internet || relays.size in 1..MAX_INVITATION_RELAYS && relays.all(::isSafeRoomRelayUrl)) {
                 "Choose one to $MAX_INVITATION_RELAYS encrypted room relays."
             }
