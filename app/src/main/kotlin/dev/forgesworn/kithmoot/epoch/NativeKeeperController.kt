@@ -159,6 +159,24 @@ internal class NativeKeeperController private constructor(private val source: Na
         }
     }
     suspend fun retire() = command { source.verifyReceiver(receiver, live); source.prepareRetirement() }
+    /** Explicit selected-owner command. Ordinary recovery never spends an
+     * archived original's remaining lifetime attempts. */
+    suspend fun retryObservedRetirement(expected: NativeHostingState, id: String) = command {
+        source.verifyReceiver(receiver, live)
+        val current = source.snapshot()
+        require(expected.canChangeMembers && expected.binding == mutableHosting.value.binding &&
+            expected.ownerGeneration == mutableHosting.value.ownerGeneration && expected.epoch == current.epoch &&
+            expected.revision == current.revision && expected.lifecycle?.name == current.phase.name &&
+            current.phase == KeeperPhase.RETIRED && current.pending.isEmpty() && id in current.retirementOriginals) {
+            "Room hosting changed. Open the confirmation again."
+        }
+        for (lane in RekeyLane.entries) {
+            if (!source.binding.permits(lane) || !endpoints.ready(lane)) continue
+            val generation = endpoints.generation(lane)
+            val reserved = source.reserveRetirement(id, lane) ?: continue
+            if (offer(reserved, generation, answer = false)) { source.offered(reserved); break }
+        }
+    }
     /** Explicit foreground recovery; no fresh signing or re-admission. */
     suspend fun retry() {
         check(selected()); check(queue.trySend(Work.Retry).isSuccess)
@@ -326,6 +344,8 @@ internal class NativeKeeperController private constructor(private val source: Na
             revision = snapshot.revision,
             approved = NativeHostingState.frozen(snapshot.members), removed = NativeHostingState.frozen(snapshot.removed),
             pendingOriginals = NativeHostingState.frozen(snapshot.pending.map { it.id }),
+            retirementOriginals = NativeHostingState.frozen(snapshot.retirementOriginals),
+            missingRetirementSlots = snapshot.missingRetirementSlots,
         )
         mutableState.value = next
         mutableHosting.value = if (next == State.Failed || lifetimeSelected()) observed else observed.paused()

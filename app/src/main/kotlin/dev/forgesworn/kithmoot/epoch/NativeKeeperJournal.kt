@@ -84,11 +84,15 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     data class Snapshot(val phase: KeeperPhase, val epoch: Int, val epochId: String, val high: Long,
         val revision: Long, val removed: List<String>, val members: List<String>, val cause: String?,
         val pending: List<NostrEvent>, val nearbyBytes: Int, val internetBytes: Int, val suspended: Boolean,
-        val epochCause: String?)
-    data class Handoff(val event: NostrEvent, val lane: RekeyLane, val attempt: Int, val pending: Boolean)
+        val epochCause: String?, val retirementOriginals: List<String> = emptyList(), val missingRetirementSlots: Int = 0,
+        val deviceCount: Int = 0)
+    data class Handoff(val event: NostrEvent, val lane: RekeyLane, val attempt: Int, val pending: Boolean,
+        val archived: Boolean = false)
     /** A constructed or foreign handle has no authority: only the source's
      * retained instance can be consumed, once, at its exact revision. */
     class RekeyProposal internal constructor()
+    class RetirementProposal internal constructor()
+    private data class RetirementPlan(val handle: RetirementProposal, val revision: Long, val epoch: Int, val phase: KeeperPhase)
     private data class RekeyPlan(val handle: RekeyProposal, val revision: Long, val epoch: Int, val phase: KeeperPhase,
         val credentials: List<NostrEvent>, val removed: List<String>, val closed: Boolean,
         val destruct: Boolean, val scheduled: Boolean)
@@ -103,12 +107,15 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private data class WelcomeDelivery(val event: NostrEvent, val attempts: Int = 0, val nextAt: Long = 0, val accepted: Boolean = false)
     private data class Device(val participant: String, val device: String, val credential: NostrEvent,
         val verifiedAt: Long, val removed: Boolean = false)
+    private data class Retirement(val event: NostrEvent, val invitation: String, val epoch: Int,
+        val attempts: Map<String, Int>, val offered: Map<String, Int>)
     private data class Record(val epoch: Int, val secret: ByteArray, val phase: KeeperPhase, val removed: List<String>,
         val members: List<String>, val at: Long, val high: Long, val revision: Long, val destruct: Boolean,
         val cause: String?, val answers: List<Cached> = emptyList(), val spends: List<Spend> = emptyList(), val pending: Pending? = null,
         val epochCause: String? = null, val terminalPredecessor: RoomEpoch? = null,
         val courierReady: Boolean = false, val welcomeDelivery: WelcomeDelivery? = null,
-        val devices: List<Device> = emptyList())
+        val devices: List<Device> = emptyList(), val retirements: List<Retirement> = emptyList(),
+        val legacyRetirementSlots: Int = 0)
     private val lock = ReentrantLock()
     private val lease = Any()
     private lateinit var material: KeeperMaterial
@@ -118,6 +125,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private var end: Long? = null
     private var proposal: RekeyPlan? = null
     private var rejectedProposal: RekeyPlan? = null
+    private var retirementProposal: RetirementPlan? = null
     @Volatile private var closed = false
     @Volatile private var failed = false
 
@@ -164,7 +172,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         usable()
         Snapshot(data.phase, data.epoch, deriveEpoch(RoomEpoch(data.epoch, data.secret)).id, data.high, data.revision,
             data.removed.toList(), data.members.toList(), data.cause, data.pending?.events?.map(::keeperEvent).orEmpty(),
-            debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause)
+            debt(RekeyLane.NEARBY, data.high), debt(RekeyLane.INTERNET, data.high), !allowed(), data.epochCause,
+            data.retirements.map { it.event.id }, data.legacyRetirementSlots, data.devices.size)
     }
     fun persistenceFailed() = failed
     fun courierReady() = lock.withLock { usable(); data.courierReady }
@@ -215,6 +224,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     fun unknownParticipants(): List<String> = lock.withLock {
         usable(); val at = time(); val baseKey = deriveRoom(material.base).roomKey
         try {
+            if (data.phase != KeeperPhase.ACTIVE) return@withLock emptyList()
             data.answers.filter { it.epoch == data.epoch && it.request.kind == KIND_EPOCH_REQUEST && requestDeadline(it.request) > at }
                 .mapNotNull { decodeEpochRequest(it.request, binding.room, material.signer, baseKey, at)?.participant }
                 .filter { it !in data.members && it !in data.removed }.distinct().sorted()
@@ -256,7 +266,8 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
 
     fun approve(participant: String) = lock.withLock {
-        writable(); require(keeperHex(participant) && participant !in data.removed)
+        writable(); check(data.phase == KeeperPhase.ACTIVE) { "Invitation is retired" }
+        require(keeperHex(participant) && participant !in data.removed)
         if (participant in data.members) return@withLock
         check(data.members.size < MAX_MEMBERS)
         val at = time()
@@ -399,7 +410,20 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         require(rekeyEventBytes(binding.room, binding.authority, data.epoch + 1, devices, removed, at,
             closed = closed, commit = true, members = members, scheduled = scheduled,
             destruct = closed && (data.destruct || destruct)) <= MAX_EVENT_BYTES) { "Rekey event exceeds source bound" }
-        if (closed) require(retirementBytes(at, true, data.destruct || destruct) <= MAX_EVENT_BYTES)
+        if (closed) {
+            retirementCapacity(terminal = true)
+            require(retirementBytes(at, true, data.destruct || destruct) <= MAX_EVENT_BYTES)
+        }
+        val size = rekeyEventBytes(binding.room, binding.authority, data.epoch + 1, devices, removed, at,
+            closed = closed, commit = true, members = members, scheduled = scheduled,
+            destruct = closed && (data.destruct || destruct))
+        // Only byte layout is needed here. This unsigned placeholder is never
+        // persisted/exported; its JSON byte count equals the actual encoder.
+        val shell = NostrEvent(KIND_ROOM_REKEY, at, emptyList(), "", binding.authority, "1".repeat(64), "0".repeat(128))
+        val layout = shell.copy(content = "A".repeat(size - keeperBytes(shell)))
+        val events = if (closed) listOf(retirementLayout(at, true, data.destruct || destruct), layout) else listOf(layout)
+        transitionFits(Pending(events, data.epoch + 1, ByteArray(32), gone, members,
+            if (closed) KeeperPhase.CLOSED else data.phase, at, data.destruct || destruct))
         return RekeyAudience(gone, members, devices)
     }
 
@@ -488,11 +512,44 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         } finally { expected.secret.fill(0); keys.key.fill(0) }
     }
 
-    fun prepareRetirement(): NostrEvent = lock.withLock {
+    fun preflightRetirement(): RetirementProposal = lock.withLock {
         writable(); check(data.phase == KeeperPhase.ACTIVE)
-        val at = time(); val event = retirement(at, false, false)
+        checkedRetirement(time())
+        RetirementPlan(RetirementProposal(), data.revision, data.epoch, data.phase).also { retirementProposal = it }.handle
+    }
+    private fun checkedRetirement(at: Long) {
+        retirementCapacity(terminal = false)
+        val event = retirementLayout(at, false, false)
+        require(keeperBytes(event) <= MAX_EVENT_BYTES)
+        transitionFits(Pending(listOf(event), data.epoch, data.secret, data.removed, data.members,
+            KeeperPhase.RETIRED, at, data.destruct))
+    }
+    fun prepareRetirement(handle: RetirementProposal): NostrEvent = lock.withLock {
+        val plan = retirementProposal
+        require(plan != null && plan.handle === handle) { "Unissued or foreign retirement proposal" }
+        retirementProposal = null
+        writable(); check(data.phase == KeeperPhase.ACTIVE)
+        require(plan.revision == data.revision && plan.epoch == data.epoch && plan.phase == data.phase) { "Stale retirement proposal" }
+        val at = time(); checkedRetirement(at)
+        val event = retirement(at, false, false)
         val pending = Pending(listOf(event), data.epoch, data.secret.clone(), data.removed, data.members, KeeperPhase.RETIRED, at, data.destruct)
         save(data.copy(phase = KeeperPhase.RETIRED, high = at, pending = pending)); keeperEvent(event)
+    }
+    fun prepareRetirement(): NostrEvent = prepareRetirement(preflightRetirement())
+
+    /** Explicit retry only; completion/reopen never gives a new attempt budget. */
+    fun reserveRetirement(id: String, lane: RekeyLane): Handoff? = lock.withLock {
+        usable(); val at = time()
+        if (!allowed() || data.pending != null || !binding.permits(lane) || ended(at) ||
+            data.phase == KeeperPhase.ACTIVE || data.phase == KeeperPhase.CLOSED && data.destruct) return@withLock null
+        val kept = data.retirements.singleOrNull { it.event.id == id } ?: return@withLock null
+        if (kept.event.tagValue("expiration")?.let { it.toLong() <= at } == true) return@withLock null
+        val key = "${lane.name}:$id"; val attempt = (kept.attempts[key] ?: 0) + 1
+        if (attempt > 8) return@withLock null
+        val next = kept.copy(attempts = kept.attempts + (key to attempt))
+        if (!reserve(at, lane, keeperBytes(kept.event), false,
+            data.copy(retirements = data.retirements.map { if (it === kept) next else it }))) return@withLock null
+        Handoff(keeperEvent(kept.event), lane, attempt, false, archived = true)
     }
 
     /** Only for notices the controller dispatches directly. A rekey handed to
@@ -520,6 +577,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             val at = runCatching { clock() }.getOrNull() ?: return false
             if (at < data.high) return false
             if (ended(at) || handoff.event.tagValue("expiration")?.let { (it.toLongOrNull() ?: return false) <= at } == true) return false
+            if (handoff.archived) return !handoff.pending && data.pending == null &&
+                data.phase != KeeperPhase.ACTIVE && !(data.phase == KeeperPhase.CLOSED && data.destruct) &&
+                data.retirements.any { kept ->
+                    val key = "${handoff.lane.name}:${handoff.event.id}"
+                    kept.event == handoff.event && kept.attempts[key] == handoff.attempt && kept.offered[key] != handoff.attempt
+                }
             if (handoff.event.kind == KIND_GROUP_INVITATION) return data.phase == KeeperPhase.ACTIVE && data.pending == null &&
                 handoff.lane == RekeyLane.INTERNET && data.welcomeDelivery?.let {
                     it.event == handoff.event && it.attempts == handoff.attempt && !it.accepted && at - it.event.createdAt < WELCOME_REFRESH_SECONDS
@@ -534,6 +597,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     }
     fun offered(handoff: Handoff) = lock.withLock {
         usable()
+        if (handoff.archived) {
+            if (!canHandoff(handoff)) return@withLock
+            val kept = data.retirements.single { it.event == handoff.event }
+            val next = kept.copy(offered = kept.offered + ("${handoff.lane.name}:${handoff.event.id}" to handoff.attempt))
+            save(data.copy(high = time(), retirements = data.retirements.map { if (it === kept) next else it }))
+            return@withLock
+        }
         if (handoff.event.kind == KIND_GROUP_INVITATION) {
             val kept = data.welcomeDelivery ?: return@withLock
             require(handoff.lane == RekeyLane.INTERNET && kept.event == handoff.event && kept.attempts == handoff.attempt)
@@ -589,6 +659,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 members = pending.members, at = pending.at, high = time(), destruct = pending.destruct, cause = cause, pending = null,
                 epochCause = rekey?.id ?: data.epochCause,
                 devices = data.devices.map { it.copy(removed = it.participant in pending.removed) },
+                retirements = data.retirements + archivedRetirements(pending),
                 terminalPredecessor = if (pending.phase == KeeperPhase.CLOSED) RoomEpoch(data.epoch, data.secret) else null))
             expected.secret.fill(0); true
         }
@@ -603,6 +674,45 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun retirementBytes(at: Long, ended: Boolean, destruct: Boolean) = keeperBytes(NostrEvent(
         KIND_INVITATION_RETIREMENT, at, retirementTags("0".repeat(64)), retirementBody(ended, destruct),
         binding.authority, "0".repeat(64), "0".repeat(128)))
+    private fun invitationId(): String {
+        val invitation = invitationUnlocked()
+        return try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
+    }
+    private fun retirementLayout(at: Long, ended: Boolean, destruct: Boolean) = NostrEvent(
+        KIND_INVITATION_RETIREMENT, at, retirementTags(invitationId()), retirementBody(ended, destruct),
+        binding.authority, "0".repeat(64), "0".repeat(128))
+    private fun retirementCapacity(terminal: Boolean) {
+        require(data.retirements.size + data.legacyRetirementSlots < MAX_RETIREMENTS - if (terminal) 0 else 1) {
+            "Retirement archive is full"
+        }
+    }
+    private fun archivedRetirements(pending: Pending) = pending.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.map { event ->
+        Retirement(keeperEvent(event), invitationId(), pending.epoch,
+            pending.attempts.filterKeys { it.substringAfter(':') == event.id },
+            pending.offered.filterKeys { it.substringAfter(':') == event.id })
+    }
+    /** Complete unsigned layouts, including completion's archive overhead and
+     * maximal per-original maps. No entropy, signing, write or live hold. */
+    private fun transitionFits(pending: Pending) {
+        require(data.revision < KEEPER_MAX_TIME)
+        fun fits(record: Record) {
+            val bytes = encode(record.copy(revision = data.revision + 1)).toString().toByteArray(Charsets.UTF_8)
+            try { require(bytes.size <= MAX_FILE_BYTES) { "Source transition exceeds file bound" } }
+            finally { bytes.fill(0) }
+        }
+        val maps = buildMap<String, Int> {
+            pending.events.forEach { event -> RekeyLane.entries.filter(binding::permits).forEach { lane -> put("${lane.name}:${event.id}", 8) } }
+        }
+        val sized = pending.copy(attempts = maps, offered = maps)
+        fits(data.copy(phase = pending.phase, high = pending.at, pending = sized))
+        fits(data.copy(epoch = pending.epoch, secret = pending.secret, phase = pending.phase,
+            removed = pending.removed, members = pending.members, at = pending.at, high = pending.at,
+            destruct = pending.destruct, cause = pending.events.last().id, pending = null,
+            epochCause = pending.events.singleOrNull { it.kind == KIND_ROOM_REKEY }?.id ?: data.epochCause,
+            devices = data.devices.map { it.copy(removed = it.participant in pending.removed) },
+            retirements = data.retirements + archivedRetirements(sized),
+            terminalPredecessor = if (pending.phase == KeeperPhase.CLOSED) RoomEpoch(data.epoch, data.secret) else null))
+    }
     private fun retirement(at: Long, ended: Boolean, destruct: Boolean): NostrEvent {
         val invitation = invitationUnlocked()
         val id = try { deriveInvitationId(invitation) } finally { invitation.bearer.fill(0) }
@@ -649,13 +759,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         if (!closed) { closed = true; selected = null; wipe(); synchronized(ownerGate(binding.owner)) { owners.remove(binding.owner, lease) } }
     }
     private fun wipe() {
-        proposal = null; rejectedProposal = null
+        proposal = null; rejectedProposal = null; retirementProposal = null
         if (::material.isInitialized) material.wipe()
         if (::data.isInitialized) { data.secret.fill(0); data.pending?.secret?.fill(0); data.terminalPredecessor?.secret?.fill(0) }
     }
 
     private fun encode(record: Record): JsonObject = buildJsonObject {
-        put("v", 4); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
+        put("v", 5); put("pin", binding.pin); put("base", material.base.toHex()); put("signer", material.signer.toHex())
         put("bearer", material.bearer.toHex()); put("welcome", material.welcome.toJson())
         put("epoch", record.epoch); put("secret", record.secret.toHex()); put("phase", record.phase.name)
         put("removed", strings(record.removed)); put("members", strings(record.members)); put("at", record.at)
@@ -663,6 +773,12 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         put("cause", record.cause?.let(::JsonPrimitive) ?: JsonNull)
         put("epochCause", record.epochCause?.let(::JsonPrimitive) ?: JsonNull)
         put("courierReady", record.courierReady)
+        put("legacyRetirementSlots", record.legacyRetirementSlots)
+        put("retirements", buildJsonArray { record.retirements.forEach { kept -> add(buildJsonObject {
+            put("event", kept.event.toJson()); put("invitation", kept.invitation); put("epoch", kept.epoch)
+            put("attempts", buildJsonObject { kept.attempts.toSortedMap().forEach { (key, value) -> put(key, value) } })
+            put("offered", buildJsonObject { kept.offered.toSortedMap().forEach { (key, value) -> put(key, value) } })
+        }) } })
         put("devices", buildJsonArray { record.devices.forEach { add(buildJsonObject {
             put("participant", it.participant); put("device", it.device); put("credential", it.credential.toJson())
             put("verifiedAt", it.verifiedAt); put("removed", it.removed)
@@ -692,9 +808,11 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     private fun restore(bytes: ByteArray) {
         require(bytes.size <= MAX_FILE_BYTES)
         val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
-        if (integer(root, "v") != 4) throw NativeKeeperMigrationRequiredException()
-        require(root.keys == setOf("v", "pin", "base", "signer", "bearer", "welcome", "epoch", "secret", "phase", "removed",
-            "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending", "courierReady", "welcomeDelivery", "devices"))
+        val version = integer(root, "v")
+        if (version !in 4..5) throw NativeKeeperMigrationRequiredException()
+        val fields = setOf("v", "pin", "base", "signer", "bearer", "welcome", "epoch", "secret", "phase", "removed",
+            "members", "at", "high", "revision", "destruct", "cause", "epochCause", "terminalPredecessor", "answers", "spends", "pending", "courierReady", "welcomeDelivery", "devices")
+        require(root.keys == fields + if (version == 5) setOf("retirements", "legacyRetirementSlots") else emptySet())
         require(text(root, "pin") == binding.pin)
         material = KeeperMaterial(secret(root, "base"), secret(root, "signer"), secret(root, "bearer"), event(root.getValue("welcome")))
         require(deriveRoom(material.base).roomId == binding.room && Schnorr.publicKeyHex(material.signer) == binding.authority)
@@ -764,13 +882,60 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
             value
         }
         welcome.secret.fill(0)
-        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending, epochCause, predecessor, courierReady, delivery, devices)
+        val retirements = if (version == 4) emptyList() else root.getValue("retirements").jsonArray.also {
+            require(it.size <= MAX_RETIREMENTS)
+        }.map { raw ->
+            val obj = raw.jsonObject
+            require(obj.keys == setOf("event", "invitation", "epoch", "attempts", "offered"))
+            fun counters(name: String) = obj.getValue(name).jsonObject.mapValues { (_, value) ->
+                value.jsonPrimitive.also { require(!it.isString) }.int
+            }
+            Retirement(event(obj.getValue("event")), text(obj, "invitation"), integer(obj, "epoch"), counters("attempts"), counters("offered"))
+        }
+        val legacySlots = if (version == 5) integer(root, "legacyRetirementSlots") else when (phase) {
+            KeeperPhase.ACTIVE -> 0
+            KeeperPhase.RETIRED -> if (pending?.events?.any { it.kind == KIND_INVITATION_RETIREMENT } == true) 0 else 1
+            KeeperPhase.CLOSED -> if (pending != null) 1 else 2
+        }
+        require(legacySlots in 0..2 && retirements.size + legacySlots <= MAX_RETIREMENTS)
+        val pendingRetirements = pending?.events?.count { it.kind == KIND_INVITATION_RETIREMENT } ?: 0
+        require(retirements.size + legacySlots + pendingRetirements <= MAX_RETIREMENTS)
+        data = Record(epoch, current, phase, removed, known, at, high, revision, destruct, cause, answers, spends, pending,
+            epochCause, predecessor, courierReady, delivery, devices, retirements, legacySlots)
+        require(retirements.map { it.event.id }.distinct().size == retirements.size)
+        require(retirements.none { kept -> pending?.events?.any { it.id == kept.event.id } == true })
+        require(phase != KeeperPhase.ACTIVE || retirements.isEmpty() && legacySlots == 0)
+        require(phase == KeeperPhase.CLOSED || legacySlots <= 1)
+        retirements.forEach(::validateRetirement)
+        if (phase != KeeperPhase.ACTIVE) require(retirements.isNotEmpty() || legacySlots > 0 || pendingRetirements > 0)
         require(answers.map { it.request.id }.distinct().size == answers.size)
         answers.forEach(::validateAnswer)
         pending?.let(::validatePending)
         require(phase != KeeperPhase.CLOSED || pending != null || epoch > 0)
         require(spends.count { it.lane == null && !it.fresh && high - it.at <= 60 } <= 64 && spends.count { it.fresh && high - it.at <= 60 } <= 16)
         for (lane in RekeyLane.entries) require(debt(lane, high) <= if (lane == RekeyLane.NEARBY) 16 * 1024 else 64 * 1024)
+    }
+    private fun validateRetirement(kept: Retirement) {
+        val value = kept.event
+        val invitation = invitationUnlocked()
+        try {
+            require(value.kind == KIND_INVITATION_RETIREMENT && value.pubkey == binding.authority &&
+                kept.invitation == deriveInvitationId(invitation) && decodeInvitationRetirement(value, invitation))
+            require(value.createdAt in material.welcome.createdAt..data.at && kept.epoch in 0..data.epoch)
+            require(value.tags == retirementTags(kept.invitation))
+            val body = Json.parseToJsonElement(value.content).jsonObject
+            val terminal = body["ended"] == JsonPrimitive(true)
+            val destructive = body["destruct"] == JsonPrimitive(true)
+            require(value.content == retirementBody(terminal, destructive) && (!destructive || terminal && data.destruct))
+            require(!terminal || data.phase == KeeperPhase.CLOSED && kept.epoch == data.epoch)
+            require(data.phase != KeeperPhase.ACTIVE)
+        } finally { invitation.bearer.fill(0) }
+        require(kept.attempts.size <= 2 && kept.offered.isNotEmpty())
+        kept.attempts.forEach { (key, attempt) ->
+            val lane = RekeyLane.valueOf(key.substringBefore(':'))
+            require(binding.permits(lane) && key == "${lane.name}:${value.id}" && attempt in 1..8)
+        }
+        require(kept.offered.all { (key, attempt) -> attempt in 1..(kept.attempts[key] ?: 0) })
     }
     private fun validateAnswer(c: Cached) {
         require(c.epoch in 0..data.epoch && c.offers in 1..3 && binding.permits(c.lane))
@@ -880,6 +1045,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
         private const val MAX_SPENDS = 256
         private const val MAX_DEVICES = 128
         private const val MAX_CREDENTIAL_BYTES = 4096
+        const val MAX_RETIREMENTS = 16
         private const val WELCOME_REFRESH_SECONDS = 6 * 60 * 60L
         private val owners = ConcurrentHashMap<String, Any>()
         private val gates = ConcurrentHashMap<String, Any>()

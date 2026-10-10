@@ -25,6 +25,8 @@ data class NativeHostingState(
     val approved: List<String> = emptyList(),
     val removed: List<String> = emptyList(),
     val pendingOriginals: List<String> = emptyList(),
+    val retirementOriginals: List<String> = emptyList(),
+    val missingRetirementSlots: Int = 0,
 ) {
     val canRetry: Boolean get() = status == NativeHostingStatus.RECOVERING && pendingOriginals.isNotEmpty()
     val canChangeMembers: Boolean get() = status == NativeHostingStatus.READY &&

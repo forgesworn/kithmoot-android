@@ -47,6 +47,10 @@ internal fun NativeHostingPanel(hosting: NativeHostingState, busy: Boolean = fal
             style = MaterialTheme.typography.bodySmall,
         )
         if (busy) Text("Saving room update…", style = MaterialTheme.typography.bodySmall)
+        if (hosting.missingRetirementSlots > 0) Text(
+            "Earlier invitation notices were not retained. Those notices cannot be resent.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         if (onChangeKey != null) {
             TextButton(onClick = { confirmation = NativeMemberConfirmation(hosting, null) }, enabled = enabled) {
                 Text("Change room key")

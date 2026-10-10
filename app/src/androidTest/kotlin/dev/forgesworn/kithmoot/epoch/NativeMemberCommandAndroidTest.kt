@@ -138,6 +138,28 @@ class NativeMemberCommandAndroidTest {
 
         suspend fun command(removed: List<String> = emptyList(), destruct: Boolean = false) =
             controller!!.rekeyMembers(removed, destruct = destruct)
+        suspend fun retire() = controller!!.retire()
+        fun hosting() = controller!!.hosting.value
+        suspend fun retryRetirement(expected: NativeHostingState, id: String) = controller!!.retryObservedRetirement(expected, id)
+        suspend fun reopenKeeper(legacyFour: Boolean = false) {
+            controller!!.stop()
+            if (legacyFour) {
+                val alias = "kithmoot.keeper-authority." + Digests.sha256(binding.owner.toByteArray()).toHex()
+                val actual = EncryptedRoomStorage(app, alias, NativeKeeperJournal.MAX_FILE_BYTES)
+                val bytes = requireNotNull(actual.read())
+                try {
+                    val root = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
+                    val legacy = JsonObject(root - "retirements" - "legacyRetirementSlots" + ("v" to JsonPrimitive(4))).toString().toByteArray()
+                    try { actual.write(legacy) } finally { legacy.fill(0) }
+                } finally { bytes.fill(0) }
+            }
+            source = authority.open(); ledger = queueVault.open()
+            controller = NativeKeeperController.start(source, receiver, live, ledger,
+                NativeKeeperEndpoints(queueBinding, mesh, null), scope, { selected })
+            await("cold retired controller ready") {
+                controller!!.state.value == NativeKeeperController.State.Ready(0, KeeperPhase.RETIRED)
+            }
+        }
 
         fun peerDurable() = requireNotNull(peerReceiver.get(room.roomId))
 
@@ -205,6 +227,64 @@ class NativeMemberCommandAndroidTest {
             } finally { previous.key.fill(0) }
             r.live.sendChat("Host after source-derived successor"); r.peer.sendChat("Member after source-derived successor")
             await("paired chat after successor") { r.live.chat.value.size == 4 && r.peer.chat.value.size == 4 }
+        } finally { r.close() }
+    }
+
+    @Test fun completedRetirementReopensTheActualEncryptedSourceAndConservesOriginalAttempts() = runBlocking {
+        val r = Rig()
+        try {
+            r.start(); r.joinPeer(); r.retire()
+            val original = r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertEquals(listOf(original.id), r.hosting().retirementOriginals)
+            assertEquals(0, r.hosting().missingRetirementSlots)
+            assertTrue(r.source.snapshot().pending.isEmpty())
+            val initial = r.hosting()
+            r.reopenKeeper()
+            assertNotEquals(initial.ownerGeneration, r.hosting().ownerGeneration)
+            assertEquals(listOf(original.id), r.hosting().retirementOriginals)
+            val before = r.ciphertext(true); val courier = r.ciphertext(false)
+            try {
+                var refused = false
+                try { r.retryRetirement(initial, original.id) } catch (_: IllegalArgumentException) { refused = true }
+                assertTrue("Previous owner's observation must refuse", refused)
+                assertTrue(before.contentEquals(r.ciphertext(true)))
+                assertTrue(courier.contentEquals(r.ciphertext(false)))
+            } finally { before.fill(0); courier.fill(0) }
+            val expected = r.hosting()
+            r.retryRetirement(expected, original.id)
+            assertEquals(listOf(original), r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id })
+            assertEquals(2, r.link.events.count { it.id == original.id })
+            assertEquals(0, r.source.snapshot().epoch)
+            assertEquals(3, r.source.snapshot().deviceCount)
+            r.live.sendChat("Host after retirement reopen"); r.peer.sendChat("Member after retirement reopen")
+            await("paired chat after retired source reopen") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
+            println("NATIVE_RETIREMENT_MEASUREMENT completed-source-reopen original-count=1 reserved-attempts=2 devices=3 paired-chat-rows=2 physical-radio=false")
+        } finally { r.close() }
+    }
+
+    @Test fun missingLegacyRetirementEvidenceKeepsApprovedChatAndRefusesInventedRetry() = runBlocking {
+        val r = Rig()
+        try {
+            r.start(); r.joinPeer(); r.retire()
+            val original = r.link.events.filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
+            r.reopenKeeper(legacyFour = true)
+            assertEquals(1, r.hosting().missingRetirementSlots)
+            assertTrue(r.hosting().retirementOriginals.isEmpty())
+            assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+            assertEquals(3, r.source.snapshot().deviceCount)
+            val before = r.ciphertext(true); val courier = r.ciphertext(false)
+            try {
+                var refused = false
+                try { r.retryRetirement(r.hosting(), original.id) } catch (_: IllegalArgumentException) { refused = true }
+                assertTrue("A missing legacy original cannot be recreated", refused)
+                assertTrue(before.contentEquals(r.ciphertext(true)))
+                assertTrue(courier.contentEquals(r.ciphertext(false)))
+            } finally { before.fill(0); courier.fill(0) }
+            r.live.sendChat("Host with missing old notice"); r.peer.sendChat("Approved member with missing old notice")
+            await("paired chat with missing old notice") { r.live.chat.value.size == 2 && r.peer.chat.value.size == 2 }
+            assertEquals(1, r.link.events.count { it.id == original.id })
+            println("NATIVE_RETIREMENT_MEASUREMENT legacy-completed-reopen missing-slots=1 invented-originals=0 devices=3 paired-chat-rows=2 physical-radio=false")
         } finally { r.close() }
     }
 
