@@ -155,6 +155,43 @@ fun peekRekeyEpoch(event: NostrEvent, roomId: String, authority: String): Int? =
     epoch
 }.getOrNull()
 
+private fun sealedEpochSecret(secret: String) = buildJsonObject { put("v", 1); put("secret", secret) }.toString()
+private fun rekeyTags(room: String, epoch: Int) = listOf(listOf("d", room), listOf("epoch", epoch.toString()))
+private fun rekeyBody(epoch: Int, removed: List<String>, keys: JsonObject, by: String?, closed: Boolean,
+    commitment: String?, members: List<String>?, scheduled: Boolean, destruct: Boolean): JsonObject = buildJsonObject {
+    put("v", 1); put("epoch", epoch); put("removed", strings(removed))
+    if (by != null) put("by", requireEpochHex(by, "admin"))
+    if (closed) put("closed", true)
+    if (destruct) put("destruct", true)
+    if (scheduled) put("scheduled", true)
+    if (commitment != null) put("commit", commitment)
+    if (members != null) put("members", strings(members.map { requireEpochHex(it, "member participant") }
+        .distinct().filter { it !in removed }.sorted()))
+    put("keys", keys)
+}
+
+/** Exact stored event bytes for the encoder below, without keys, encryption,
+ * entropy or signing. Public field validation does not qualify credentials or
+ * validate curve points; the owning source must establish that audience. */
+fun rekeyEventBytes(roomId: String, authority: String, nextEpoch: Int, recipients: List<String>,
+    removed: List<String>, now: Long, by: String? = null, closed: Boolean = false, commit: Boolean = false,
+    members: List<String>? = null, scheduled: Boolean = false, destruct: Boolean = false): Int {
+    val room = requireEpochHex(roomId, "room id")
+    val root = requireEpochHex(authority, "authority")
+    require(nextEpoch in 1..MAX_EPOCH)
+    val gone = removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted()
+    require(!scheduled || gone.isEmpty() && !closed) { "a scheduled rekey removes nobody and does not close the room" }
+    require(!destruct || closed) { "only a closing rekey can make the room self-destruct" }
+    val sealLength = Nip44.encodedLength(sealedEpochSecret("A".repeat(43)).toByteArray(Charsets.UTF_8).size)
+    val keys = buildJsonObject {
+        if (!closed) recipients.forEach { put(requireEpochHex(it, "recipient device"), "A".repeat(sealLength)) }
+    }
+    val body = rekeyBody(nextEpoch, gone, keys, by, closed, if (commit) "0".repeat(64) else null, members, scheduled, destruct)
+    val contentLength = Nip44.encodedLength(body.toString().toByteArray(Charsets.UTF_8).size)
+    return NostrEvent(KIND_ROOM_REKEY, now, rekeyTags(room, nextEpoch), "A".repeat(contentLength), root,
+        "0".repeat(64), "0".repeat(128)).toCompactJson().toByteArray(Charsets.UTF_8).size
+}
+
 fun encodeRekeyEvent(
     roomId: String,
     authoritySecretKey: ByteArray,
@@ -190,7 +227,7 @@ fun encodeRekeyEvent(
     val canonicalRemoved = removed.map { requireEpochHex(it, "removed participant") }.distinct().sorted()
     require(!scheduled || canonicalRemoved.isEmpty() && !closed) { "a scheduled rekey removes nobody and does not close the room" }
     require(!destruct || closed) { "only a closing rekey can make the room self-destruct" }
-    val sealed = buildJsonObject { put("v", 1); put("secret", base64UrlEncode(next.secret)) }.toString()
+    val sealed = sealedEpochSecret(base64UrlEncode(next.secret))
     val keys = buildJsonObject {
         if (!closed) recipients.forEach { raw ->
             val device = requireEpochHex(raw, "recipient device")
@@ -200,19 +237,11 @@ fun encodeRekeyEvent(
             } finally { key.fill(0) }
         }
     }
-    val body = buildJsonObject {
-        put("v", 1); put("epoch", next.epoch); put("removed", strings(canonicalRemoved))
-        if (by != null) put("by", requireEpochHex(by, "admin"))
-        if (closed) put("closed", true)
-        if (destruct) put("destruct", true)
-        if (scheduled) put("scheduled", true)
-        if (commit) put("commit", epochCommitment(room, next.epoch, next.secret))
-        if (members != null) put("members", strings(members.map { requireEpochHex(it, "member participant") }.distinct().filter { it !in canonicalRemoved }.sorted()))
-        put("keys", keys)
-    }
+    val body = rekeyBody(next.epoch, canonicalRemoved, keys, by, closed,
+        if (commit) epochCommitment(room, next.epoch, next.secret) else null, members, scheduled, destruct)
     return Events.sign(
         authoritySecretKey, KIND_ROOM_REKEY, now,
-        listOf(listOf("d", room), listOf("epoch", next.epoch.toString())),
+        rekeyTags(room, next.epoch),
         Nip44.encrypt(body.toString(), current.key, bodyNonce), auxRand,
     )
 }

@@ -31,6 +31,13 @@ object Nip44 {
     private const val MIN_PLAINTEXT_SIZE = 1
     private const val MAX_PLAINTEXT_SIZE = 65535
 
+    /** Exact base64 payload length without encryption, keys or entropy. */
+    fun encodedLength(plaintextBytes: Int): Int {
+        require(plaintextBytes in MIN_PLAINTEXT_SIZE..MAX_PLAINTEXT_SIZE) { "plaintext is out of range for NIP-44" }
+        val frameBytes = 67 + paddedLength(plaintextBytes)
+        return 4 * ((frameBytes + 2) / 3)
+    }
+
     /**
      * The conversation key for a pair of Nostr keys: HKDF-extract over the
      * shared ECDH point's x coordinate. Used for peer-to-peer gift wraps.
