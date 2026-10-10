@@ -147,6 +147,8 @@ fun RoomScreen(
     onSelectSharingParticipant: (String, Boolean) -> Unit = { _, _ -> },
     onStartRoomSharing: () -> Unit = {},
     onStopRoomSharing: () -> Unit = {},
+    onOpenWorkspace: ((String) -> Unit)? = null,
+    workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -155,6 +157,9 @@ fun RoomScreen(
     var swapped by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(workspaceTarget) {
+        if (workspaceTarget != null) { callOpen = false; workOpen = workspaceTarget.assignment != null }
+    }
     androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
         if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
     }
@@ -381,6 +386,10 @@ fun RoomScreen(
        Column {
         if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
+        if (!lockedCallOnly && !state.anonymous && onOpenWorkspace != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton({ onOpenWorkspace("inbox") }, Modifier.heightIn(min = 48.dp)) { Text("Inbox") }
+            TextButton({ onOpenWorkspace("work") }, Modifier.heightIn(min = 48.dp)) { Text("All work") }
+        }
         if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {

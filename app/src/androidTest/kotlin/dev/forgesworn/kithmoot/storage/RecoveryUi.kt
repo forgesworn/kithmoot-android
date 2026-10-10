@@ -126,15 +126,20 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         check(automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) { "Back was refused" }
     }
 
-    fun replace(label: String, value: String) {
+    fun replace(label: String, value: String, awaitValue: Boolean = false) {
         reveal { field(label) }
         // As with click: a field found mid-recomposition, or while home is
         // briefly busy, can refuse the first attempt. Re-query until it takes.
         await("$label to accept text") {
             val target = field(label)
+            if (awaitValue && target?.text?.toString() == value) return@await true
+            // A multiline field reached through lazy task detail may accept
+            // an accessibility action before its editor has focus. Exercise
+            // the same focused editor a person taps and verify its value.
+            if (awaitValue && target?.isFocused == false) target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
-            })
+            }) && !awaitValue
         }
     }
 

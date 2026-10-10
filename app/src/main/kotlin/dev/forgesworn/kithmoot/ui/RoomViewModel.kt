@@ -273,6 +273,7 @@ import dev.forgesworn.kithmoot.ui.room.ShareMarks
 import dev.forgesworn.kithmoot.ui.room.shortId
 import dev.forgesworn.kithmoot.ui.room.roomLane
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1007,6 +1008,153 @@ class RoomViewModel @JvmOverloads constructor(
     private var entryWait: Job? = null
     private var stopOpeningTimer: Job? = null
     private val savedRooms = (application as KithMootApplication).savedRooms
+    private val workspaceLock = Any()
+    private var workspaceJob: Job? = null
+    private var workspaceGeneration = 0L
+    private val workspaceReaders = linkedMapOf<String, dev.forgesworn.kithmoot.session.WorkspaceActivityReader>()
+    private val _workspace = MutableStateFlow(dev.forgesworn.kithmoot.session.WorkspaceSnapshot())
+    val workspace = _workspace.asStateFlow()
+    private val _workspaceOrigin = MutableStateFlow<dev.forgesworn.kithmoot.session.WorkspaceOrigin?>(null)
+    val workspaceOrigin = _workspaceOrigin.asStateFlow()
+    private val _workspaceProjectsRequest = MutableStateFlow(0)
+    val workspaceProjectsRequest = _workspaceProjectsRequest.asStateFlow()
+    fun requestWorkspaceProjects() { _workspaceProjectsRequest.update { it + 1 } }
+
+    /** The foreground panel owns its readers. No room session or signer is
+     * constructed; the canonical origin journals remain the only task store. */
+    fun openWorkspaceActivity() {
+        closeWorkspaceActivity()
+        val account = _start.value.account?.pubkey ?: return
+        val generation = synchronized(workspaceLock) { workspaceGeneration }
+        _workspace.value = dev.forgesworn.kithmoot.session.WorkspaceSnapshot(account)
+        fun publish(room: String? = null, activity: dev.forgesworn.kithmoot.session.WorkspaceActivitySnapshot? = null) = synchronized(workspaceLock) {
+            if (workspaceGeneration == generation && _start.value.account?.pubkey == account) {
+                if (room != null && activity != null) _workspace.update { snapshot -> snapshot.copy(rooms = snapshot.rooms.map {
+                    if (it.room == room) it.copy(activity = activity) else it
+                }) }
+            }
+        }
+        workspaceJob = viewModelScope.launch(Dispatchers.IO) {
+            launch { _start.map { it.account?.pubkey }.distinctUntilChanged().collect { next ->
+                synchronized(workspaceLock) { if (next != account && workspaceGeneration == generation) closeWorkspaceActivity() }
+            } }
+            try {
+                while (isActive) {
+                    if (_start.value.account?.pubkey != account) break
+                    val records = savedRooms.list().filter { it.account == account && it.openedAt > 0 &&
+                        !it.anonymous && !it.ended && it.endsAt == null && !it.destruct }
+                    val ids = records.map { it.id }.toSet()
+                    synchronized(workspaceLock) {
+                        if (workspaceGeneration != generation) return@launch
+                        workspaceReaders.keys.filter { it !in ids }.forEach { workspaceReaders.remove(it)?.close() }
+                        workspaceReaders.values.forEach { it.validate() }
+                    }
+                    val projects = _start.value.projects.projects.filter { it.joined && !it.archived && !it.conflicted && !it.withdrawn }
+                    val rows = records.map { summary ->
+                        val project = projects.firstOrNull { p -> p.definition?.get("rooms")?.jsonArray?.any {
+                            it.jsonObject["room"]?.jsonPrimitive?.content == summary.id
+                        } == true }
+                        val record = savedRooms.get(summary.id)
+                        val inbox = record?.let { dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), it.id,
+                            it.participant, it.devicePubkey).inbox.state() }
+                        val previous = _workspace.value.rooms.firstOrNull { it.room == summary.id }
+                        dev.forgesworn.kithmoot.session.WorkspaceRoomActivity(summary.id, summary.name,
+                            project?.key ?: summary.project, project?.name ?: summary.project,
+                            previous?.activity ?: dev.forgesworn.kithmoot.session.WorkspaceActivitySnapshot(),
+                            inbox ?: dev.forgesworn.kithmoot.session.BackgroundInbox.State(0, 0, emptyList(), emptyList()),
+                            project?.definition?.get("members")?.jsonArray.orEmpty().map { member ->
+                                val value = member.jsonObject
+                                dev.forgesworn.kithmoot.session.Named(value.getValue("pubkey").jsonPrimitive.content,
+                                    value["name"]?.jsonPrimitive?.content, value["kind"] == JsonPrimitive("agent"))
+                            })
+                    }
+                    synchronized(workspaceLock) {
+                        if (workspaceGeneration != generation) return@launch
+                        _workspace.value = dev.forgesworn.kithmoot.session.WorkspaceSnapshot(account, rows)
+                    }
+                    for (summary in records) {
+                        if (synchronized(workspaceLock) { summary.id in workspaceReaders }) continue
+                        val record = savedRooms.get(summary.id) ?: continue
+                        val stored = roomEpochs.get(record.id)
+                        val eligible = record.workspaceAdmission(account, epochSeconds()) &&
+                            !keepsOwnRelays(record) && (record.authority == null || stored != null) &&
+                            (stored == null || stored.phase == EpochPhase.ACTIVE && stored.removed.none { it == account } &&
+                                stored.currentEpoch >= (record.epochHint ?: 0))
+                        if (!eligible) {
+                            publish(record.id, dev.forgesworn.kithmoot.session.WorkspaceActivitySnapshot(error = "Open this room to check its current activity."))
+                            continue
+                        }
+                        val epoch = stored?.currentEpoch ?: 0
+                        val stable = deriveRoom(record.secret)
+                        val root = deriveEpoch(RoomEpoch(epoch, stored?.currentSecret ?: record.secret))
+                        val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+                        val pool = RelayPool(record.relays, OkHttpRelaySockets(), childScope, writeRelays = emptySet())
+                        val vault = AssignmentVault(getApplication(), record.id, account)
+                        val reader = dev.forgesworn.kithmoot.session.WorkspaceActivityReader(record.id, stable.roomKey, account, pool,
+                            dev.forgesworn.kithmoot.session.AssignmentSource { vault.load() }, childScope, record.policy,
+                            initialTrafficRoomId = root.id, initialTrafficRoomKey = root.key, epoch = epoch, authority = record.authority,
+                            valid = {
+                                val current = savedRooms.get(record.id)
+                                val latest = roomEpochs.get(record.id)
+                                _start.value.account?.pubkey == account && current?.workspaceAdmission(account, epochSeconds()) == true &&
+                                    current.devicePubkey == record.devicePubkey && current.authority == record.authority &&
+                                    current.policy == record.policy && current.relays == record.relays && (current.epochHint ?: 0) <= epoch &&
+                                    !keepsOwnRelays(current) && (latest == null && stored == null || latest?.phase == EpochPhase.ACTIVE &&
+                                        latest.currentEpoch == epoch && latest.removed.none { it == account })
+                            }, onClosed = { event, destruct ->
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    val current = savedRooms.get(record.id) ?: return@launch
+                                    if (_start.value.account?.pubkey != account || current.participant != account) return@launch
+                                    val latest = roomEpochs.get(record.id) ?: return@launch
+                                    val previous = deriveEpoch(RoomEpoch(latest.currentEpoch, latest.currentSecret))
+                                    val deviceKey = current.deviceSecretKey()
+                                    val notice = try { dev.forgesworn.kithmoot.protocol.decodeRekeyEvent(event, current.id, current.authority ?: return@launch, previous, deviceKey) }
+                                        finally { deviceKey.fill(0) }
+                                    if (notice?.closed != true) return@launch
+                                    roomEpochs.terminal(current.id, latest.currentEpoch, notice, event.id, epochSeconds())
+                                    if (destruct) { savedRooms.update(current.id) { it.withDestruct() }; selfDestruct(current.id, force = true) }
+                                }
+                            }, release = { pool.stop(); childScope.cancel() })
+                        stable.roomKey.fill(0); root.key.fill(0); stored?.currentSecret?.fill(0)
+                        synchronized(workspaceLock) {
+                            if (workspaceGeneration != generation) { reader.close(); return@launch }
+                            workspaceReaders[record.id] = reader
+                        }
+                        launch { reader.state.collect { publish(record.id, it) } }
+                        pool.start()
+                        launch { reader.open() }
+                    }
+                    delay(5_000)
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { synchronized(workspaceLock) {
+                if (workspaceGeneration == generation) _workspace.value = dev.forgesworn.kithmoot.session.WorkspaceSnapshot(account,
+                    error = "Saved activity could not be verified. Your existing data has been kept.")
+                if (workspaceGeneration == generation) { workspaceReaders.values.forEach { it.close() }; workspaceReaders.clear() }
+            }; coroutineContext.cancelChildren() }
+        }
+    }
+
+    fun closeWorkspaceActivity() = synchronized(workspaceLock) {
+        workspaceGeneration++; workspaceJob?.cancel(); workspaceJob = null
+        workspaceReaders.values.forEach { it.close() }; workspaceReaders.clear()
+        _workspace.value = dev.forgesworn.kithmoot.session.WorkspaceSnapshot()
+    }
+
+    /** All actions still pass the normal saved-room entry and credential gates. */
+    fun openWorkspaceOrigin(target: dev.forgesworn.kithmoot.session.WorkspaceOrigin) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val record = savedRooms.get(target.room)
+            val owner = borrowedAccountOwner
+            if (_start.value.account?.pubkey != target.account || record?.viaAccount != true || record.participant != target.account ||
+                owner != null && (owner._start.value.account?.pubkey != target.account || owner.accountSession !== accountSession)) {
+                showNotice("That room is no longer available to this account."); return@launch
+            }
+            _workspaceOrigin.update { previous -> target.copy(request = (previous?.request ?: 0) + 1) }
+            if (_stage.value != Stage.ROOM || _room.value.roomId != target.room) reopenRoom(target.room)
+        }
+    }
+    fun clearWorkspaceOrigin() { _workspaceOrigin.value = null }
     private var savedRoom: SavedRoom? = null
     /** Kept only in memory, discarded on room/account/session changes. */
     private var nip77Plan: Nip77ReconciliationPlan? = null
@@ -1061,6 +1209,9 @@ class RoomViewModel @JvmOverloads constructor(
     private var accountSession: AccountSession? = null
     @Volatile private var retainedLegacyAccount: NostrAccount? = null
     private var sharedProjects: SharedProjects? = null
+    /** A chat-only visitor reads the call instance's directory, without
+     * opening another writer or taking ownership of its lifecycle. */
+    private var borrowedAccountOwner: RoomViewModel? = null
     private var projectsScope: CoroutineScope? = null
     private var projectsLifecycle: Job? = null
     private var pendingProfile: NostrEvent? = null
@@ -1247,6 +1398,7 @@ class RoomViewModel @JvmOverloads constructor(
      *  signer connection or a second copy of the account's sync. */
     fun borrowAccount(host: RoomViewModel) {
         check(chatOnly) { "Only a chat-only instance borrows an account." }
+        borrowedAccountOwner = host
         accountSession = host.accountSession
         signerBridge = host.signerBridge
         _start.update { it.copy(account = host._start.value.account) }
@@ -1613,10 +1765,13 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun openSharedProjectRoom(project: SharedProject, room: ProjectRoomChoice) = enter {
-        val directory = sharedProjects ?: throw RoomRecoveryException("Sign in to open this project.")
+        fun readingDirectory() = sharedProjects ?: borrowedAccountOwner?.takeIf {
+            it._start.value.account?.pubkey == _start.value.account?.pubkey && it.accountSession === accountSession
+        }?.sharedProjects
+        val directory = readingDirectory() ?: throw RoomRecoveryException("Sign in to open this project.")
         val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this project.")
         fun checkSelection() {
-            if (sharedProjects !== directory || accountSigner !== actor) throw RoomRecoveryException("The signed-in account changed.")
+            if (readingDirectory() !== directory || accountSigner !== actor) throw RoomRecoveryException("The signed-in account changed.")
             selectedProjectRoom(directory.state.value, project.reference, room.room, project.authority)
         }
         checkSelection()
@@ -5073,6 +5228,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        closeWorkspaceActivity()
         stopRoomSharing()
         if (!chatOnly) dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
         boxDiscovery.close()

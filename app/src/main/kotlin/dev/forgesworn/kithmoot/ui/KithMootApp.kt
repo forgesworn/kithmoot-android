@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.displayCutout
@@ -99,6 +100,8 @@ fun KithMootApp(
     onBackToCall: () -> Unit = {},
     /** The room's back arrow while on its call: to the rooms, call kept. */
     onRoomsKeepingCall: (() -> Unit)? = null,
+    onWorkspaceOriginKeepingCall: ((dev.forgesworn.kithmoot.session.WorkspaceOrigin) -> Unit)? = null,
+    onWorkspaceProjectsKeepingCall: (() -> Unit)? = null,
     /** A call answered on a phone still locked: its call view and nothing
      *  else - no rooms list, chat or settings - until the phone is unlocked. */
     lockedCallOnly: Boolean = false,
@@ -112,6 +115,11 @@ fun KithMootApp(
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val roomState by model.room.collectAsState()
+    val workspaceSnapshot by accountModel.workspace.collectAsState()
+    val workspaceAccountState by accountModel.start.collectAsState()
+    val workspaceOrigin by model.workspaceOrigin.collectAsState()
+    val workspaceProjectsRequest by model.workspaceProjectsRequest.collectAsState()
+    var workspaceMode by rememberSaveable { mutableStateOf<String?>(null) }
     val videos by model.videos.collectAsState()
 
     // System back inside a room does what the room's own back arrow does,
@@ -126,6 +134,20 @@ fun KithMootApp(
     // Settings and Projects are pushed over home; back returns to the rooms
     // list rather than leaving the app (design-home-rooms.md section 7).
     var homePage by rememberSaveable { mutableStateOf(HomePage.ROOMS) }
+    LaunchedEffect(workspaceProjectsRequest) { if (workspaceProjectsRequest > 0) homePage = HomePage.PROJECTS }
+    val workspaceLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    val anonymousWorkspace = roomState.anonymous || stage == Stage.START && startState.anonymousMode
+    LaunchedEffect(workspaceMode, accountModel, startState.account?.pubkey, lockedCallOnly, anonymousWorkspace, inPictureInPicture) {
+        if (workspaceMode == null || lockedCallOnly || anonymousWorkspace || inPictureInPicture) {
+            accountModel.closeWorkspaceActivity()
+            if (lockedCallOnly || anonymousWorkspace) workspaceMode = null
+            return@LaunchedEffect
+        }
+        workspaceLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            accountModel.openWorkspaceActivity()
+            try { kotlinx.coroutines.awaitCancellation() } finally { accountModel.closeWorkspaceActivity() }
+        }
+    }
     var projectRoomToAdd by rememberSaveable { mutableStateOf<String?>(null) }
     // Restore witness opens from Settings or from its banner; back returns there.
     var witnessFrom by rememberSaveable { mutableStateOf(HomePage.SETTINGS) }
@@ -565,15 +587,19 @@ fun KithMootApp(
                     circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
                 )
                 val homeProjectActions = dev.forgesworn.kithmoot.ui.start.ProjectActions(
-                    refresh = model::refreshSharedProjects,
-                    retry = model::retryProjectSends,
-                    follow = model::followSharedProject,
+                    refresh = accountModel::refreshSharedProjects,
+                    retry = accountModel::retryProjectSends,
+                    follow = accountModel::followSharedProject,
                     open = model::openSharedProjectRoom,
-                    save = model::saveSharedProject,
-                    rooms = model::availableProjectRooms,
+                    save = accountModel::saveSharedProject,
+                    rooms = accountModel::availableProjectRooms,
                 )
                 when (homePage) {
                     HomePage.ROOMS -> Column(Modifier.padding(padding)) {
+                        if (!startState.anonymousMode) androidx.compose.foundation.layout.Row {
+                            TextButton({ workspaceMode = "inbox" }, Modifier.padding(horizontal = 8.dp)) { Text("Inbox") }
+                            TextButton({ workspaceMode = "work" }, Modifier.padding(horizontal = 8.dp)) { Text("All work") }
+                        }
                       dev.forgesworn.kithmoot.update.UpdateNotice(updates)
                       StartScreen(
                         state = startState,
@@ -706,7 +732,8 @@ fun KithMootApp(
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },
                         )
                     }
-                    HomePage.PROJECTS -> ProjectsScreen(startState, homeProjectActions,
+                    HomePage.PROJECTS -> ProjectsScreen(startState.copy(projects = workspaceAccountState.projects,
+                        projectsBusy = workspaceAccountState.projectsBusy, projectError = workspaceAccountState.projectError), homeProjectActions,
                         onBack = { projectRoomToAdd = null; homePage = HomePage.ROOMS },
                         roomToAdd = projectRoomToAdd, onSignIn = { signInSheetOpen = true })
                 }
@@ -716,6 +743,8 @@ fun KithMootApp(
             Stage.ROOM -> roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
                     state = roomState,
+                    workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
+                    onOpenWorkspace = { workspaceMode = it },
                     accountMenu = accountMenu,
                     videos = videos,
                     eglBase = model.eglBase,
@@ -805,9 +834,15 @@ fun KithMootApp(
                     onLeave = model::leave,
                     onBack = roomBack,
                     modifier = Modifier.padding(padding),
-                    work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions) },
+                    work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions,
+                        targetAssignment = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.assignment,
+                        targetRequest = workspaceOrigin?.request ?: 0,
+                        onClearTarget = model::clearWorkspaceOrigin) },
                     chat = {
                         ChatPane(
+                            targetMessage = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.message,
+                            targetRequest = workspaceOrigin?.request ?: 0,
+                            onClearTarget = model::clearWorkspaceOrigin,
                             messages = roomState.chat,
                             notes = roomState.roomNotes,
                             onReadingChanged = model::notificationReading,
@@ -892,6 +927,30 @@ fun KithMootApp(
       }
     }
 
+    if (workspaceMode != null && !lockedCallOnly && !anonymousWorkspace && !inPictureInPicture) androidx.compose.ui.window.Dialog(
+        onDismissRequest = { workspaceMode = null },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        dev.forgesworn.kithmoot.ui.start.WorkspaceScreen(
+            snapshot = workspaceSnapshot.takeIf { it.account == startState.account?.pubkey }
+                ?: dev.forgesworn.kithmoot.session.WorkspaceSnapshot(),
+            initialInbox = workspaceMode == "inbox", onClose = { workspaceMode = null },
+            onRefresh = accountModel::openWorkspaceActivity,
+            onProjects = {
+                workspaceMode = null
+                if (roomState.onCall && onWorkspaceProjectsKeepingCall != null) onWorkspaceProjectsKeepingCall()
+                else { if (stage == Stage.ROOM) model.leave(); homePage = HomePage.PROJECTS }
+            },
+            onOrigin = { target ->
+                workspaceMode = null
+                when {
+                    target.room == callRoomId -> { accountModel.openWorkspaceOrigin(target); onBackToCall() }
+                    roomState.onCall && target.room != roomState.roomId && onWorkspaceOriginKeepingCall != null -> onWorkspaceOriginKeepingCall(target)
+                    else -> model.openWorkspaceOrigin(target)
+                }
+            }, modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
+        )
+    }
     LaunchedEffect(stage) { if (stage == Stage.START) cardsOpen = false }
 
     if (cardsOpen) {

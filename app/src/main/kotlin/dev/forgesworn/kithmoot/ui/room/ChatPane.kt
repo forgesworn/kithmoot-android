@@ -102,6 +102,9 @@ fun ChatPane(
     latestRequest: Int = 0,
     /** Lines nobody typed, such as who renamed the room, shown in time order. */
     notes: List<dev.forgesworn.kithmoot.ui.RoomNote> = emptyList(),
+    targetMessage: dev.forgesworn.kithmoot.session.MessageRef? = null,
+    targetRequest: Int = 0,
+    onClearTarget: () -> Unit = {},
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
@@ -139,9 +142,12 @@ fun ChatPane(
         invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
     }.distinctBy { it.invite!!.room }.take(5).reversed()
     val rows = buildList {
+        fun replies(r: dev.forgesworn.kithmoot.session.ResolvedMessage) {
+            for (reply in r.replies) { add(reply to true); replies(reply) }
+        }
         for (r in resolved.stream) {
             add(r to false)
-            for (reply in r.replies) add(reply to true)
+            replies(r)
         }
     }
     val conversation = rows.map { it.first.shown }
@@ -187,6 +193,17 @@ fun ChatPane(
     // lands, so scrolling once at the first message used to leave a long
     // conversation open somewhere near its start.
     var following by remember { mutableStateOf(true) }
+    var targetWaited by remember(targetMessage, targetRequest) { mutableStateOf(false) }
+    var targetLocated by remember(targetMessage, targetRequest) { mutableStateOf(false) }
+    LaunchedEffect(targetMessage, targetRequest) {
+        if (targetMessage != null) { query = ""; following = false; kotlinx.coroutines.delay(10_000); targetWaited = true }
+    }
+    LaunchedEffect(targetMessage, targetRequest, visible.map { dev.forgesworn.kithmoot.session.refOf(it.first.original) }) {
+        if (targetMessage != null && !targetLocated) {
+            val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.first.original) == targetMessage }
+            if (index >= 0) { following = false; listState.scrollToItem(index); targetLocated = true }
+        }
+    }
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (!scrolling) following = !listState.canScrollForward
@@ -195,11 +212,11 @@ fun ChatPane(
     val scope = rememberCoroutineScope()
     LaunchedEffect(visible.size, shownPending.size, conversation.lastOrNull()?.id, query) {
         val latest = conversation.lastOrNull()
-        if (query.isBlank() && latest != null && visible.isNotEmpty()) {
+        if (targetMessage == null && query.isBlank() && latest != null && visible.isNotEmpty()) {
             if (latest.id != lastMessageId && latest.participant == selfParticipant && lastMessageId != null) following = true
             if (following) listState.scrollToItem(lastIndex)
             lastMessageId = latest.id
-        } else if (query.isBlank() && shownPending.isNotEmpty() && following) listState.scrollToItem(lastIndex)
+        } else if (targetMessage == null && query.isBlank() && shownPending.isNotEmpty() && following) listState.scrollToItem(lastIndex)
     }
     LaunchedEffect(latestRequest) {
         if (latestRequest > 0 && query.isBlank() && (visible.isNotEmpty() || shownPending.isNotEmpty())) {
@@ -217,6 +234,12 @@ fun ChatPane(
     val compactArtworkSearch = emojiOpen && artworkSearchOpen && maxHeight < 300.dp
     val trayHeight = if (compactArtworkSearch) maxHeight else (maxHeight * 0.48f).coerceIn(160.dp, 320.dp)
     Column(Modifier.fillMaxSize()) {
+        if (targetMessage != null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (targetLocated) "Message opened from workspace" else if (targetWaited)
+                "The message is not in the history loaded here." else "Loading the originating message…",
+                modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton(onClearTarget) { Text("Done") }
+        }
         if (privateInvitations.isNotEmpty() && !compactArtworkSearch) {
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState())
@@ -269,7 +292,7 @@ fun ChatPane(
                 // Inside the first row rather than an item of their own, so a
                 // row's index stays its item index for the scrolling below.
                 if (visible.isEmpty() && leadingNotes.isNotEmpty()) item(key = "room-notes-leading") { Column { leadingNotes.forEach { NoteLine(it) } } }
-                itemsIndexed(visible, key = { _, row -> row.first.original.id }) { index, (r, nested) ->
+                itemsIndexed(visible, key = { _, row -> refOf(row.first.original).key }) { index, (r, nested) ->
                     if (index == 0) leadingNotes.forEach { NoteLine(it) }
                     val message = r.shown
                     val mine = message.participant == selfParticipant

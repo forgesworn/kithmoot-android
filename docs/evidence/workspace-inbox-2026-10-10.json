@@ -1,0 +1,97 @@
+{
+  "verifiedAt": "2026-10-10T04:12:17.473304+00:00",
+  "baseCommit": "13a4df1f5f87914e9b7357891f588afec1a3650f",
+  "sourceFiles": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "bf4b43efe46bbde24b0b92490ef5a208f8e1165db7559dd3a15698c79b3cf2c6",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "caccc9665253be83f02dbdf047473f763ede335e7ae84cd90f50e4c003cd7141",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/WorkspaceInboxRelayUiTest.kt": "78cfad1051768859446554126d12c6d574f5ce96b594119437016245539a78a4",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/WorkspaceInboxUiTest.kt": "3cb88a10fcfa78732355fc939576105e8d368fcfb27551d8093a1e77eaad88a6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/MainActivity.kt": "8b68df8687233ab79f4761f2c8c907e8123a7030c6be28acaa4e973af0c5939e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/WorkspaceActivity.kt": "95b73560e94c97f795cac5d6cbdafa0e5c41ac9dabe16d72a2a8c7942495ed4e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/storage/SavedRoom.kt": "f313dcd3e72226b621aef9541fa4cfdabd2cfd4cbe1c7f448687b1df7a539d4a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "01dbf28b073412e110775b999b7a5d848d19fd7fc5ef0ccb09d52024bb0b9c94",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "3746da603707123abade662b54815d7c8f848106439318042291f205179d5dec",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/ChatPane.kt": "31b89fea536f7e664d3670c7769879c41b38aef20262cf5cae34cb266ac64437",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "54c2d9bb4709db43c80af9822d29acd7e0643485b160d51db1774fb109ca1d0c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/WorkPane.kt": "5af268518a45ad21243b24556c57cdc46cc5f1dbc3b98704852b953fdf318d6e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/start/WorkspaceScreen.kt": "406e643635257c9bf4fb75ea2c8e14c2eeaa8cf6a7161d66146a13534dfca39a",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/WorkspaceActivityTest.kt": "3cb2289f230883e1c5d247c5f513f490f45035c15c9c1347eb99337243a4c0fa",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/storage/WorkspaceAdmissionTest.kt": "e7b7dce5b943438a9135bd6d3fc47c480fa6e642b52b67d280b5714c47eac156",
+    "docs/workspace-assignment-reader.md": "2610c48a9d05aa22ad6ea695052cbdaa8325b1d1b21f4ccf84d8a7f80bd840b5",
+    "docs/workspace-inbox.md": "1bfd48ed96ef8170dd428e30df7ee35959f37cc0385aae3a85823c890a783c6e",
+    "scripts/check-recovery-emulator.sh": "1e697f6324f0f86add3b0dbac48ffa1b5a34a0e9e16db50779de4c7e6a03a98f"
+  },
+  "sourceChecks": {
+    "protocol": {
+      "tests": 392,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appDebug": {
+      "tests": 1725,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appRelease": {
+      "tests": 1725,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debugApkAndInstrumentationBuildPassed": true,
+    "recoveryRunnerTestsPassed": 9,
+    "debugLint": {
+      "passed": true,
+      "errors": 0,
+      "existingIssues": 87,
+      "reportSha256": "76a9677a5c809e899ca0a92797b91f430512aa2450b01572ab8fa8e7e87b8691"
+    },
+    "releaseLint": {
+      "passed": true,
+      "errors": 0,
+      "existingIssues": 65,
+      "reportSha256": "76557778f1ce960b1351654652b0ae6bd49ce4ae8e92562f8fb3192ef37daeb6"
+    },
+    "releaseApkBuildPassed": true,
+    "localFinalChecksLogSha256": "03bd7cca02576d0fff805a994cdd97e60b55e40293e92dbe30bc93efaccf9624"
+  },
+  "emulator": {
+    "api": 35,
+    "architecture": "arm64",
+    "ownedDisposableData": true,
+    "normalText": {
+      "result": "OK (6 tests)",
+      "seconds": 15.553,
+      "logSha256": "3372a958059a4437fc421c85d8caa4d2f8c955f33ef6844ca8f3388497a84727"
+    },
+    "doubleText": {
+      "result": "OK (5 tests)",
+      "fontScale": 2.0,
+      "seconds": 9.274,
+      "logSha256": "87bdee08db76351ce8d3a95d9141072e85aa739452be36ef6ab0417fade608f9"
+    }
+  },
+  "coverage": [
+    "Account/device-bound retained room admission; bookmarks and project membership alone cannot admit activity.",
+    "Canonical cached and live assignments, human mentions/replies, author-bound edits/retractions and read receipts.",
+    "Cancellation, account changes, signed authority epoch changes and room closure clear observed activity.",
+    "Five Compose UI fixtures cover project filters, drafts/media, sign-out, exact canonical task heads, duplicate message IDs across authors and repeated source navigation.",
+    "Installed app journey uses the real view model, Android Keystore-backed origin vaults, native crypto and loopback WebSockets across three admitted fixture rooms.",
+    "Unopened fourth room has no activity query; observation publishes no chat/presence and leaves origin journals/read positions unchanged.",
+    "Actual Inbox opens the originating task; actual room UI signs an answer against its canonical blocked head; sign-out clears activity."
+  ],
+  "limits": [
+    "Synthetic accounts, saved admissions and remote workers against an offline loopback relay; no live executor.",
+    "The relay journey does not combine real signed-project admission and retained-call navigation.",
+    "No physical phone, fresh-device summary delivery, older history completeness or representative performance/battery acceptance.",
+    "Bounded foreground reading from deliberately retained rooms does not establish complete workspace history.",
+    "This is source/emulator evidence. A separately reviewed signed APK, public publication and physical/store-client acceptance remain separate gates."
+  ],
+  "publication": {
+    "newApkPublished": false,
+    "physicalAndroidAcceptance": false,
+    "goalG9Complete": false
+  }
+}
