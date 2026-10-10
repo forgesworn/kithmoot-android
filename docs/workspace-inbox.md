@@ -52,8 +52,8 @@ and physical acceptance.
 Twelve focused JVM tests cover canonical cached/live work, attention projection,
 author-bound modifications, read receipts, account/device admission, expired
 credentials, cancelled queries, forged authority events and signed closure.
-The full app suite contains 1,725 tests; the independent protocol suite contains
-392. Five emulator UI fixtures cover filters, exact routes, draft/media
+At the receipt's source, the full app suite contains 1,725 tests and the
+independent protocol suite contains 392. Five emulator UI fixtures cover filters, exact routes, draft/media
 preservation, sign-out, the selected task's canonical head and author-bound
 message IDs, including repeated navigation to the same message.
 
