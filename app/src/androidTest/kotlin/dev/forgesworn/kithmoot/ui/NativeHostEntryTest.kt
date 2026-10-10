@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.epoch.RoomRekeyBinding
 import dev.forgesworn.kithmoot.epoch.NativeHostingStatus
+import dev.forgesworn.kithmoot.epoch.NativeKeeperController
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
@@ -79,8 +80,12 @@ class NativeHostEntryTest {
             val owners = f.radios.size
             f.main {
                 f.model.setAppVisible(false)
-                assertEquals(NativeHostingStatus.SUSPENDED, f.model.room.value.nativeHosting!!.status)
-                assertFalse(f.model.room.value.nativeHosting!!.canRetry)
+                // Main.immediate teardown may already clear RoomState before
+                // setAppVisible returns. Neither outcome may claim hosting.
+                val withdrawn = f.model.room.value.nativeHosting
+                assertTrue(withdrawn == null || withdrawn.status == NativeHostingStatus.SUSPENDED)
+                assertFalse(withdrawn?.canRetry == true)
+                assertFalse(f.model.nativeHostState() is NativeKeeperController.State.Ready)
                 f.model.setAppVisible(true)
             }
             NativeHostFixture.await("rapid return retires the old owner before rebinding") {
