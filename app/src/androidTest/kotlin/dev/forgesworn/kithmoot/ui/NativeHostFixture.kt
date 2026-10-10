@@ -270,7 +270,9 @@ internal fun ComposeContentTestRule.showNativeHost(f: NativeHostFixture) = setCo
         val room by f.model.room.collectAsState()
         if (stage == Stage.ROOM) RoomScreen(room, emptyMap(), null,
             {}, {}, {}, {}, {}, {}, {}, f.model::leave,
-            chat = {}, onAnswerLetIn = f.model::answerLetIn)
+            chat = {}, onAnswerLetIn = f.model::answerLetIn,
+            onChangeNativeRoomKey = f.model::changeNativeRoomKey,
+            onRemoveNativeRoomMember = f.model::removeNativeRoomMember)
         else Column(Modifier.verticalScroll(rememberScrollState())) {
             NewRoomForm(start.roomName, f.model::onRoomNameChanged, start.anonymousMode, f.model::onAnonymousModeChanged,
                 enabled = !start.busy, busy = start.busy, error = start.error, onStartRoom = f.model::startRoom,

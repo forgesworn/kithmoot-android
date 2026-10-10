@@ -7,7 +7,11 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.epoch.RoomRekeyBinding
 import dev.forgesworn.kithmoot.epoch.NativeHostingStatus
 import dev.forgesworn.kithmoot.epoch.NativeKeeperController
-import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.*
+import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.session.SecondaryIdentity
+import dev.forgesworn.kithmoot.session.RoomEpochState
 import dev.forgesworn.kithmoot.relay.RoomRoute
 import dev.forgesworn.kithmoot.storage.NativeKeeperVault
 import dev.forgesworn.kithmoot.storage.RoomRekeyVault
@@ -28,6 +32,116 @@ class NativeHostEntryTest {
 
     @Test fun nearby_creation_approval_lost_grant_withdrawal_and_reopen() = runBlocking { journey(RoomRoute.NEARBY) }
     @Test fun mixed_creation_approval_lost_grant_withdrawal_and_reopen() = runBlocking { journey(RoomRoute.MIXED) }
+
+    @Test fun nearby_confirmed_member_controls_keep_offline_seals_and_remove_all_devices() = runBlocking {
+        memberControlsJourney(RoomRoute.NEARBY)
+    }
+    @Test fun mixed_confirmed_member_controls_keep_offline_seals_and_remove_all_devices() = runBlocking {
+        memberControlsJourney(RoomRoute.MIXED)
+    }
+
+    private suspend fun memberControlsJourney(route: RoomRoute) = coroutineScope {
+        val f = NativeHostFixture()
+        val offlineKey = ByteArray(32).apply { this[31] = 6 }
+        try {
+            f.startModel(); compose.showNativeHost(f)
+            compose.onNodeWithText(if (route.internet) "Start nearby + Internet chat" else "Start nearby chat")
+                .performScrollTo().performClick()
+            val saved = f.opened(); val at = System.currentTimeMillis() / 1000
+            val who = f.identity(saved, at)
+            val joining = async { f.join(saved, at, who = who) }
+            NativeHostFixture.await("member control approval prompt") { f.model.room.value.letInAsks.any { it.participant == who.participant } }
+            compose.onNodeWithText("Let in").performClick()
+            val peer = joining.await()
+            val credential = who.enrol(Schnorr.publicKeyHex(offlineKey), saved.id, at + 3600, at)
+            val secondary = requireNotNull(SecondaryIdentity.adopt(credential, offlineKey, saved.id, now = at))
+            val offline = f.join(saved, at, who = secondary)
+            offline.leave()
+            NativeHostFixture.await("both approved member devices reach source and public revision") {
+                val source = f.source(saved)
+                source.getValue("devices").jsonArray.size == 3 && f.model.room.value.nativeHosting?.let {
+                    it.status == NativeHostingStatus.READY && it.approved.contains(who.participant) &&
+                        it.revision == source.getValue("revision").jsonPrimitive.long
+                } == true
+            }
+            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithText("Change room key").performScrollTo().performClick()
+            val beforeCancel = sourceDigest(f.source(saved))
+            compose.onNodeWithText("Cancel").performClick()
+            assertEquals(beforeCancel, sourceDigest(f.source(saved)))
+            assertTrue(f.phoneEvents.none { it.kind == KIND_ROOM_REKEY })
+            val expected = requireNotNull(f.model.room.value.nativeHosting)
+            compose.onNodeWithText("Change room key").performScrollTo().performClick()
+            compose.onNodeWithText("Change key").performClick()
+            NativeHostFixture.await("confirmed key control commits source and both live sessions") {
+                f.model.room.value.nativeHosting?.let { it.status == NativeHostingStatus.READY && it.epoch == 1 } == true &&
+                    peer.epochKeys().epoch == 1 && !f.model.room.value.nativeHostingBusy
+            }
+            val original = (f.phoneEvents + f.relayWrites).filter { it.kind == KIND_ROOM_REKEY }.distinctBy { it.id }.single()
+            assertEquals(original.id, f.source(saved).getValue("epochCause").jsonPrimitive.content)
+            assertEquals(original.id, f.app.roomEpochs.get(saved.id)!!.activationCause)
+            val base = saved.secret
+            val previous = try { deriveEpoch(RoomEpoch(0, base)) } finally { base.fill(0) }
+            try {
+                val body = Json.parseToJsonElement(Nip44.decrypt(original.content, previous.key)).jsonObject
+                assertEquals(setOf(saved.devicePubkey, who.devicePubkey, secondary.devicePubkey), body.getValue("keys").jsonObject.keys)
+                val notice = requireNotNull(decodeRekeyEvent(original, saved.id, saved.authority!!, previous, offlineKey))
+                val current = f.app.roomEpochs.get(saved.id)!!
+                try { assertArrayEquals(current.currentSecret, notice.secret) }
+                finally { current.currentSecret.fill(0); notice.secret?.fill(0) }
+            } finally { previous.key.fill(0) }
+            f.main { f.model.sendChat("host after confirmed key change") }
+            peer.sendChat("member after confirmed key change")
+            NativeHostFixture.await("confirmed successor chat crosses both ways") {
+                peer.chat.value.any { it.body == "host after confirmed key change" } &&
+                    f.model.room.value.chat.any { it.body == "member after confirmed key change" }
+            }
+            val sourceBeforeReplay = sourceDigest(f.source(saved))
+            f.main { f.model.changeNativeRoomKey(expected) }
+            NativeHostFixture.await("old confirmation is refused by selected ViewModel") {
+                f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
+            }
+            assertEquals(sourceBeforeReplay, sourceDigest(f.source(saved)))
+            // A real device refresh changes the source while confirmation is
+            // open. Recomposition must not authorise its newer revision.
+            val beforeRefresh = f.model.room.value.nativeHosting!!.revision
+            compose.onNodeWithText("Change room key").performScrollTo().performClick()
+            val refreshed = f.join(saved, at, who = secondary)
+            refreshed.leave()
+            NativeHostFixture.await("real source refresh invalidates rendered confirmation") {
+                f.model.room.value.nativeHosting?.revision != beforeRefresh
+            }
+            compose.onNodeWithText("Change key").assertIsNotEnabled()
+            compose.onNodeWithText("Room hosting changed. Close this confirmation and try again.").assertIsDisplayed()
+            compose.onNodeWithText("Cancel").performClick()
+            assertEquals(1, f.source(saved).getValue("epoch").jsonPrimitive.int)
+            compose.onNodeWithTag("native-remove-${who.participant}").performScrollTo().performClick()
+            compose.onNodeWithText("Remove member").performClick()
+            NativeHostFixture.await("confirmed removal commits source and terminal peer") {
+                f.model.room.value.nativeHosting?.let {
+                    it.status == NativeHostingStatus.READY && it.epoch == 2 && who.participant in it.removed && who.participant !in it.approved
+                } == true && peer.epochState.value is RoomEpochState.Removed && !f.model.room.value.nativeHostingBusy
+            }
+            val removed = f.source(saved)
+            assertEquals(2, removed.getValue("devices").jsonArray.count {
+                it.jsonObject.getValue("participant").jsonPrimitive.content == who.participant && it.jsonObject.getValue("removed").jsonPrimitive.boolean
+            })
+            assertEquals(listOf(saved.participant), f.model.room.value.nativeHosting!!.approved)
+            compose.onNodeWithTag("native-remove-${who.participant}").assertDoesNotExist()
+            assertTrue(runCatching { peer.sendChat("removed member must be blocked") }.isFailure)
+            compose.onNodeWithText("Done").performClick()
+            f.main { f.model.leave() }
+            NativeHostFixture.await("member controls leave") { f.model.stage.value == Stage.START && !f.model.start.value.busy }
+            f.main { f.model.reopenRoom(saved.id) }; f.opened()
+            NativeHostFixture.await("member control state survives actual saved reopen") {
+                f.model.room.value.nativeHosting?.let {
+                    it.status == NativeHostingStatus.READY && it.epoch == 2 && it.removed == listOf(who.participant)
+                } == true
+            }
+            compose.onNodeWithText("Hosting · epoch 2").assertIsDisplayed()
+            if (!route.internet) assertEquals(0, f.server.requestCount)
+        } finally { offlineKey.fill(0); f.close() }
+    }
 
     private suspend fun journey(route: RoomRoute) = coroutineScope {
         val f = NativeHostFixture(loseGrant = true)

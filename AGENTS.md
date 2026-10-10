@@ -24,7 +24,7 @@ Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and
 `feat/native-rekey-preflight`, `feat/native-host-controls` and
-`feat/native-rekey-interruption` and `feat/native-host-status`
+`feat/native-rekey-interruption`, `feat/native-host-status` and `feat/native-member-controls`
 (`.github/workflows/ci.yml`). The feature branch triggers run the same four
 hosted gates without requiring PR creation.
 

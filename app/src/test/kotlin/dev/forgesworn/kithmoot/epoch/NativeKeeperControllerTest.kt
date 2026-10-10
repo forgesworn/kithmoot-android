@@ -112,6 +112,67 @@ class NativeKeeperControllerTest {
         }
     }
 
+    @Test fun observedMemberCommandsRejectForeignStaleUnavailableAndInvalidConfirmationsWithoutHoldingOrWriting() {
+        for (route in RoomRoute.entries) runTest {
+            val r = Rig(this, route)
+            try {
+                r.start(); r.acknowledge(); runCurrent(); val controller = assertNotNull(r.controller)
+                val expected = controller.hosting.value
+                assertEquals(r.source.snapshot().revision, expected.revision)
+                assertTrue(expected.canChangeMembers)
+                var holds = 0; r.whenHeld = { holds++ }
+                suspend fun refused(observation: NativeHostingState, removed: List<String> = emptyList()) {
+                    val source = r.sourceStore.bytes?.clone(); val receiver = r.receiverStore.bytes?.clone()
+                    val courier = r.queueStore.bytes?.clone()
+                    val nearby = r.events(RekeyLane.NEARBY).toList()
+                    val internet = r.events(RekeyLane.INTERNET).toList()
+                    assertFails { controller.rekeyObservedMembers(observation, removed) }; runCurrent()
+                    assertContentEquals(source, r.sourceStore.bytes)
+                    assertContentEquals(receiver, r.receiverStore.bytes)
+                    assertContentEquals(courier, r.queueStore.bytes)
+                    assertEquals(nearby, r.events(RekeyLane.NEARBY)); assertEquals(internet, r.events(RekeyLane.INTERNET))
+                    assertEquals(0, holds)
+                    assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), controller.state.value)
+                }
+                for (observation in listOf(
+                    expected.copy(binding = expected.binding.copy(pin = "0".repeat(64))),
+                    expected.copy(binding = expected.binding.copy(device = "0".repeat(64))),
+                    expected.copy(epoch = 1), expected.copy(revision = expected.revision!! + 1),
+                    expected.copy(revision = null), expected.copy(lifecycle = NativeHostingLifecycle.CLOSED),
+                    expected.copy(pendingOriginals = listOf("0".repeat(64))),
+                ) + NativeHostingStatus.entries.filter { it != NativeHostingStatus.READY }.map { expected.copy(status = it) })
+                    refused(observation)
+                refused(expected, listOf(r.owner.participant))
+                refused(expected, listOf(r.member.participant))
+                val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    r.member.deviceSecretKey, r.member.credential, currentTime / 1000), lane)
+                runCurrent(); r.acknowledge(); runCurrent()
+                assertNotEquals(expected.revision, controller.hosting.value.revision)
+                refused(expected)
+                r.live.sendChat("a refused confirmation leaves verified traffic working")
+            } finally { r.stop() }
+        }
+    }
+
+    @Test fun anObservedConfirmationCannotBeReplayedAfterItsSuccessorCommits() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); val controller = assertNotNull(r.controller)
+            val expected = controller.hosting.value
+            controller.rekeyObservedMembers(expected); runCurrent()
+            assertEquals(1, controller.hosting.value.epoch)
+            val source = r.sourceStore.bytes!!.clone(); val courier = r.queueStore.bytes!!.clone()
+            val originals = r.events(RekeyLane.NEARBY).filter { it.kind == KIND_ROOM_REKEY }
+            assertEquals(1, originals.size)
+            assertFails { controller.rekeyObservedMembers(expected) }; runCurrent()
+            assertContentEquals(source, r.sourceStore.bytes); assertContentEquals(courier, r.queueStore.bytes)
+            assertEquals(originals, r.events(RekeyLane.NEARBY).filter { it.kind == KIND_ROOM_REKEY })
+            assertEquals(1, r.vault.get(r.room.roomId)!!.currentEpoch)
+            r.live.sendChat("confirmed successor remains usable")
+        } finally { r.stop() }
+    }
+
     @Test fun hostingObservationUsesActualSourceMembershipEvenWhenTheMemberIsOffline() {
         for (route in RoomRoute.entries) runTest {
             val r = Rig(this, route)
@@ -122,6 +183,7 @@ class NativeKeeperControllerTest {
                 assertEquals(route, first.binding.route)
                 assertEquals(NativeHostingStatus.READY, first.status)
                 assertEquals(0, first.epoch)
+                assertEquals(r.source.snapshot().revision, first.revision)
                 assertEquals(listOf(r.owner.participant), first.approved)
                 val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
                 r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
@@ -210,7 +272,7 @@ class NativeKeeperControllerTest {
                 assertTrue(persisted.getValue("answers").jsonArray.none {
                     it.jsonObject.getValue("request").jsonObject.getValue("id").jsonPrimitive.content in originals
                 })
-                r.controller!!.rekeyMembers(); runCurrent()
+                r.controller!!.rekeyObservedMembers(r.controller!!.hosting.value); runCurrent()
                 assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
                 val original = r.ledger.status().entries.single().event
                 assertTrue(Events.verify(original))
@@ -243,7 +305,7 @@ class NativeKeeperControllerTest {
                 r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey, key, proof, 0), RekeyLane.NEARBY)
                 runCurrent(); if (proof == r.member.credential) r.controller!!.approve(r.member.participant)
             }
-            r.controller!!.rekeyMembers(removed = listOf(r.member.participant)); runCurrent()
+            r.controller!!.rekeyObservedMembers(r.controller!!.hosting.value, removed = listOf(r.member.participant)); runCurrent()
             assertEquals(listOf(r.owner.participant), r.source.snapshot().members)
             assertEquals(listOf(r.member.participant), r.source.snapshot().removed)
             val devices = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject.getValue("devices").jsonArray

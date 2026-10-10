@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.animation.AnimatedVisibility
+import dev.forgesworn.kithmoot.epoch.NativeHostingState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -149,6 +150,8 @@ fun RoomScreen(
     onStopRoomSharing: () -> Unit = {},
     onOpenWorkspace: ((String) -> Unit)? = null,
     workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
+    onChangeNativeRoomKey: ((NativeHostingState) -> Unit)? = null,
+    onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)? = null,
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -311,7 +314,8 @@ fun RoomScreen(
                     TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
-                state.nativeHosting?.let { NativeHostingPanel(it) }
+                state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
+                    onChangeNativeRoomKey, onRemoveNativeRoomMember) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }

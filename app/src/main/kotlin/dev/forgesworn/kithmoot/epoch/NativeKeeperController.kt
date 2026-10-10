@@ -124,6 +124,21 @@ internal class NativeKeeperController private constructor(private val source: Na
             submitRekey(source.preflightMembers(gone, closed, destruct, scheduled))
         }
     }
+    /** A rendered confirmation is only an expectation. The real selected
+     * owner checks it in the serialized worker before holding or signing. */
+    suspend fun rekeyObservedMembers(expected: NativeHostingState, removed: List<String> = emptyList()) {
+        val gone = removed.toList()
+        command {
+            source.verifyReceiver(receiver, live)
+            val current = source.snapshot()
+            require(expected.canChangeMembers && expected.binding == mutableHosting.value.binding &&
+                expected.epoch == current.epoch && expected.revision == current.revision &&
+                expected.lifecycle?.name == current.phase.name && current.pending.isEmpty()) {
+                "Room hosting changed. Open the confirmation again."
+            }
+            submitRekey(source.preflightMembers(gone))
+        }
+    }
     private suspend fun submitRekey(proposal: NativeKeeperJournal.RekeyProposal) {
         val session = requireNotNull(live); val b = source.binding
         session.holdKeeperTransition(b.room, b.authority, b.participant, b.device)
@@ -239,12 +254,14 @@ internal class NativeKeeperController private constructor(private val source: Na
         source.verifyReceiver(receiver, live)
         val generation = endpoints.generation(RekeyLane.INTERNET)
         val original = source.reserveWelcome() ?: return
+        publishState(mutableState.value, source.snapshot())
         val accepted = try {
             endpoints.offerWelcome(original.event, generation, { selected() && source.canHandoff(original) }, 5_000)
         } catch (_: TimeoutCancellationException) { currentCoroutineContext().ensureActive(); false }
         catch (cancel: CancellationException) { throw cancel }
         catch (_: Exception) { if (source.persistenceFailed()) error("Authority persistence failed"); false }
         if (accepted) source.offered(original)
+        publishState(mutableState.value, source.snapshot())
     }
 
     /** Before any resumed export, validate actual owner/key/cause, including
@@ -297,6 +314,7 @@ internal class NativeKeeperController private constructor(private val source: Na
         val previous = mutableHosting.value
         val observed = if (snapshot == null) previous.copy(status = status) else previous.copy(
             status = status, lifecycle = NativeHostingLifecycle.valueOf(snapshot.phase.name), epoch = snapshot.epoch,
+            revision = snapshot.revision,
             approved = NativeHostingState.frozen(snapshot.members), removed = NativeHostingState.frozen(snapshot.removed),
             pendingOriginals = NativeHostingState.frozen(snapshot.pending.map { it.id }),
         )

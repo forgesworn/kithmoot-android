@@ -506,6 +506,7 @@ data class RoomState(
     val sharing: RoomSharingState? = null,
     /** Public source observation; never a root key or permission to sign. */
     val nativeHosting: NativeHostingState? = null,
+    val nativeHostingBusy: Boolean = false,
     val relaysUp: Int = 0,
     val relaysTotal: Int = 0,
     /** The lane the next message will take, from the room's relays. */
@@ -7124,6 +7125,48 @@ class RoomViewModel @JvmOverloads constructor(
                 roomInvitation = nextInvitation
                 invitationHostJob = serveInvitation(scope, transport, nextHost, secret) { session?.epochKeys()?.epoch }
                 _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
+            }
+        }
+    }
+
+    /** Uses the native source's complete audience; no legacy host key. */
+    fun changeNativeRoomKey(expected: NativeHostingState) = changeNativeMembers(expected, emptyList())
+
+    fun removeNativeRoomMember(expected: NativeHostingState, participant: String) =
+        changeNativeMembers(expected, listOf(participant))
+
+    private fun changeNativeMembers(expected: NativeHostingState, removed: List<String>) {
+        val gone = removed.toList()
+        val entry = nativeKeeperEntry
+        val controller = nativeKeeperController
+        val live = session
+        fun attached() = entry != null && controller != null && live != null && appVisible &&
+            nativeKeeperEntry === entry && nativeKeeperController === controller && session === live
+        // Capture before dispatch so switching rooms cannot select another owner.
+        viewModelScope.launch {
+            while (true) {
+                val state = _room.value
+                if (!attached() || state.roomId != expected.binding.room ||
+                    state.nativeHosting?.binding != expected.binding ||
+                    state.nativeHosting?.revision != expected.revision ||
+                    state.nativeHosting?.canChangeMembers != true || !expected.canChangeMembers) {
+                    _room.update { if (attached() && it.roomId == expected.binding.room)
+                        it.copy(notice = "Room hosting changed. Open the confirmation again.") else it }
+                    return@launch
+                }
+                if (state.nativeHostingBusy) return@launch
+                if (_room.compareAndSet(state, state.copy(nativeHostingBusy = true))) break
+            }
+            var result: String? = null
+            try {
+                withContext(Dispatchers.IO) { requireNotNull(controller).rekeyObservedMembers(expected, gone) }
+                result = "Room update saved. Hosting state does not confirm delivery to members."
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) { result = "Room update could not complete. Inspect the hosting state before trying again." }
+            finally {
+                _room.update { if (attached() && it.roomId == expected.binding.room &&
+                    it.nativeHosting?.binding == expected.binding)
+                    it.copy(nativeHostingBusy = false, notice = result ?: it.notice) else it }
             }
         }
     }

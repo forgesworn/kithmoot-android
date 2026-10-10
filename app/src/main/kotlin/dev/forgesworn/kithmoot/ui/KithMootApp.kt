@@ -841,6 +841,8 @@ fun KithMootApp(
                     onSetSpeaker = model::setSpeaker,
                     onAnswerRecordingConsent = model::answerRecordingConsent,
                     onRotateInvitation = model::rotateInvitation,
+                    onChangeNativeRoomKey = model::changeNativeRoomKey,
+                    onRemoveNativeRoomMember = model::removeNativeRoomMember,
                     inPictureInPicture = inPictureInPicture,
                     onPopOut = onPopOut,
                     lockedCallOnly = lockedCallOnly,
