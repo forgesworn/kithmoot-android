@@ -23,7 +23,7 @@ Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 `./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease`
 is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and
-`feat/native-rekey-preflight`
+`feat/native-rekey-preflight` and `feat/native-host-controls`
 (`.github/workflows/ci.yml`). The feature branch triggers run the same four
 hosted gates without requiring PR creation.
 

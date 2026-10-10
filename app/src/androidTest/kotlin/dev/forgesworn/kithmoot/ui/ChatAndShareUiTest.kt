@@ -3,7 +3,9 @@ package dev.forgesworn.kithmoot.ui
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.util.Rational
+import android.view.WindowInsets
 import androidx.activity.compose.setContent
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -35,27 +37,46 @@ import java.util.concurrent.TimeUnit
 class ChatAndShareUiTest {
     @get:Rule val ui = createEmptyComposeRule()
 
+    private fun awaitSendLayout(scenario: ActivityScenario<MainActivity>) {
+        var previous: androidx.compose.ui.geometry.Rect? = null
+        var stableSince = SystemClock.elapsedRealtime()
+        ui.waitUntil(10_000) {
+            var keyboard = false
+            scenario.onActivity { keyboard = it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }
+            val bounds = ui.onNodeWithContentDescription("Send").fetchSemanticsNode().boundsInWindow
+            if (!keyboard || bounds != previous) {
+                previous = bounds; stableSince = SystemClock.elapsedRealtime(); false
+            } else SystemClock.elapsedRealtime() - stableSince >= 250
+        }
+    }
+
     @Test fun draft_survives_refusal_and_late_receipt_does_not_erase_new_typing() {
-        lateinit var retained: () -> Unit
+        val submissions = java.util.concurrent.CopyOnWriteArrayList<Pair<String, () -> Unit>>()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     KithMootTheme {
-                        ChatPane(emptyList(), "01".repeat(32), { _, callback -> retained = callback },
+                        ChatPane(emptyList(), "01".repeat(32), { body, callback -> submissions += body to callback },
                             Modifier.fillMaxSize().systemBarsPadding())
                     }
                 }
             }
             ui.onNodeWithText("Say something").performTextInput("First draft")
+            awaitSendLayout(scenario)
             ui.onNodeWithContentDescription("Send").performClick()
+            ui.waitUntil(5_000) { submissions.size == 1 }
+            ui.runOnIdle { assertEquals("First draft", submissions.single().first) }
             // The model has not retained anything yet: a refused send keeps the draft.
             ui.onNodeWithText("First draft").assertExists()
             ui.onNodeWithText("First draft").performTextInput(" and newer text")
-            ui.runOnIdle { retained() }
+            ui.runOnIdle { submissions.single().second() }
             ui.onNodeWithText("First draft and newer text").assertExists()
+            awaitSendLayout(scenario)
             ui.onNodeWithContentDescription("Send").performClick()
-            ui.runOnIdle { retained() }
+            ui.waitUntil(5_000) { submissions.size == 2 }
+            ui.runOnIdle { assertEquals("First draft and newer text", submissions.last().first); submissions.last().second() }
             ui.onNodeWithText("Say something").assertExists()
+            ui.runOnIdle { assertEquals(2, submissions.size) }
         }
     }
 

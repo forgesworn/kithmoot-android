@@ -111,6 +111,83 @@ class NativeKeeperControllerTest {
         }
     }
 
+    @Test fun sourceDerivedAudienceRetainsBothOfflineMemberDevicesAfterCacheExpiryOnEveryRoute() {
+        for (route in RoomRoute.entries) runTest {
+            val r = Rig(this, route)
+            val offlineKey = Fixtures.key(7)
+            val credential = r.member.enrol(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(offlineKey),
+                r.room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
+            val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+            try {
+                r.start()
+                val originals = mutableListOf<String>()
+                for ((key, proof) in listOf(r.member.deviceSecretKey to r.member.credential, offlineKey to credential)) {
+                    val ask = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey, key, proof, currentTime / 1000)
+                    originals += ask.id; r.inject(ask, lane); runCurrent()
+                    if (proof == r.member.credential) r.controller!!.approve(r.member.participant)
+                }
+                advanceTimeBy((EPOCH_MAX_AGE_SECONDS + 1) * 1000); runCurrent()
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    r.owner.deviceSecretKey, r.owner.credential, currentTime / 1000), lane); runCurrent()
+                val persisted = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject
+                assertEquals(3, persisted.getValue("devices").jsonArray.size)
+                assertTrue(persisted.getValue("answers").jsonArray.none {
+                    it.jsonObject.getValue("request").jsonObject.getValue("id").jsonPrimitive.content in originals
+                })
+                r.controller!!.rekeyMembers(); runCurrent()
+                assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                val original = r.ledger.status().entries.single().event
+                assertTrue(Events.verify(original))
+                assertEquals(original.id, r.source.snapshot().epochCause)
+                assertEquals(original.id, r.vault.get(r.room.roomId)!!.activationCause)
+                val previous = deriveEpoch(RoomEpoch(0, r.secret))
+                try {
+                    val body = Json.parseToJsonElement(dev.forgesworn.kithmoot.crypto.Nip44.decrypt(original.content, previous.key)).jsonObject
+                    assertEquals(setOf(r.owner.devicePubkey, r.member.devicePubkey,
+                        dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(offlineKey)), body.getValue("keys").jsonObject.keys)
+                    for (key in listOf(r.owner.deviceSecretKey, r.member.deviceSecretKey, offlineKey)) {
+                        val notice = assertNotNull(decodeRekeyEvent(original, r.room.roomId, r.binding.authority, previous, key))
+                        try { assertTrue(assertNotNull(notice.secret).contentEquals(r.vault.get(r.room.roomId)!!.currentSecret)) }
+                        finally { notice.secret?.fill(0) }
+                    }
+                } finally { previous.key.fill(0) }
+                println("NATIVE_MEMBER_COMMAND_MEASUREMENT route=${route.stored} cached_member_requests=0 qualified_devices=3 successor_seals=3")
+            } finally { offlineKey.fill(0); r.stop() }
+        }
+    }
+
+    @Test fun memberRemovalDropsAllOfItsQualifiedDeviceSealsAndRetainsTheirTombstones() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val offlineKey = Fixtures.key(7)
+        try {
+            r.start()
+            val offline = r.member.enrol(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(offlineKey),
+                r.room.roomId, Fixtures.CREDENTIAL_EXPIRY, 0)
+            for ((key, proof) in listOf(r.member.deviceSecretKey to r.member.credential, offlineKey to offline)) {
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey, key, proof, 0), RekeyLane.NEARBY)
+                runCurrent(); if (proof == r.member.credential) r.controller!!.approve(r.member.participant)
+            }
+            r.controller!!.rekeyMembers(removed = listOf(r.member.participant)); runCurrent()
+            assertEquals(listOf(r.owner.participant), r.source.snapshot().members)
+            assertEquals(listOf(r.member.participant), r.source.snapshot().removed)
+            val devices = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject.getValue("devices").jsonArray
+            assertEquals(2, devices.count { it.jsonObject.getValue("removed").jsonPrimitive.boolean })
+            val original = r.ledger.status().entries.single().event
+            val previous = deriveEpoch(RoomEpoch(0, r.secret))
+            try {
+                val body = Json.parseToJsonElement(dev.forgesworn.kithmoot.crypto.Nip44.decrypt(original.content, previous.key)).jsonObject
+                assertEquals(setOf(r.owner.devicePubkey), body.getValue("keys").jsonObject.keys)
+                for (key in listOf(r.member.deviceSecretKey, offlineKey)) {
+                    val notice = assertNotNull(decodeRekeyEvent(original, r.room.roomId, r.binding.authority, previous, key))
+                    assertNull(notice.secret); assertEquals(listOf(r.member.participant), notice.removed)
+                }
+            } finally { previous.key.fill(0) }
+            assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            r.live.sendChat("Remaining owner still uses the actual successor"); runCurrent()
+            assertEquals(1, r.live.chat.value.size)
+        } finally { offlineKey.fill(0); r.stop() }
+    }
+
     @Test fun invalidRekeyCommandsLeaveActualPairedChatActiveWithoutSourceOrCourierWrites() = runTest {
         val r = Rig(this, RoomRoute.NEARBY)
         val peerLink = Link(RoomNearbyDiscovery.scope(r.room.roomId))
@@ -129,6 +206,10 @@ class NativeKeeperControllerTest {
             assertFails { r.controller!!.rekey(listOf(r.owner.credential, r.member.credential, r.member.credential)) }
             assertFails { r.controller!!.rekey(listOf(r.owner.credential, r.member.credential), destruct = true) }
             assertFails { r.controller!!.rekey(listOf(r.owner.credential), removed = listOf(r.member.participant), scheduled = true) }
+            assertFails { r.controller!!.rekeyMembers(removed = listOf(r.owner.participant)) }
+            assertFails { r.controller!!.rekeyMembers(removed = listOf("ab".repeat(32))) }
+            assertFails { r.controller!!.rekeyMembers(destruct = true) }
+            assertFails { r.controller!!.rekeyMembers(removed = listOf(r.member.participant), scheduled = true) }
             runCurrent()
             assertEquals(0, holds); assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
             assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
@@ -138,7 +219,10 @@ class NativeKeeperControllerTest {
         } finally { peer.leave(); peerMesh.close(); r.stop() }
     }
 
-    @Test fun credentialExpiryDuringTheActualHoldResumesOnlyTheUnchangedReceiverAndSource() = runTest {
+    @Test fun credentialExpiryDuringTheActualHoldResumesOnlyTheUnchangedReceiverAndSource() = runTest { expiryDuringHold(false) }
+    @Test fun memberCommandExpiryDuringTheActualHoldRestoresActualPairedChat() = runTest { expiryDuringHold(true) }
+
+    private suspend fun TestScope.expiryDuringHold(sourceAudience: Boolean) {
         val r = Rig(this, RoomRoute.NEARBY)
         val short = PrimaryIdentity.create(r.room.roomId, 1, 0, Fixtures.key(1), Fixtures.key(2))
         val peerLink = Link(RoomNearbyDiscovery.scope(r.room.roomId))
@@ -153,7 +237,10 @@ class NativeKeeperControllerTest {
             r.inject(ask, RekeyLane.NEARBY); runCurrent(); r.controller!!.approve(short.participant)
             val before = r.sourceStore.bytes!!.clone()
             r.whenHeld = { advanceTimeBy(2_000) }
-            assertFailsWith<NativeRekeyRefusedException> { r.controller!!.rekey(listOf(r.owner.credential, short.credential)) }
+            assertFailsWith<NativeRekeyRefusedException> {
+                if (sourceAudience) r.controller!!.rekeyMembers()
+                else r.controller!!.rekey(listOf(r.owner.credential, short.credential))
+            }
             runCurrent()
             assertTrue(before.contentEquals(r.sourceStore.bytes)); assertTrue(r.source.snapshot().pending.isEmpty())
             assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
@@ -191,6 +278,7 @@ class NativeKeeperControllerTest {
             val source = r.sourceStore.bytes!!.clone(); val queue = r.queueStore.bytes!!.clone()
             var held = 0; r.whenHeld = { held++ }
             assertFails { r.controller!!.rekey(eligible, removed = gone) }; runCurrent()
+            assertFails { r.controller!!.rekeyMembers(removed = gone) }; runCurrent()
             assertEquals(0, held); assertTrue(source.contentEquals(r.sourceStore.bytes)); assertTrue(queue.contentEquals(r.queueStore.bytes))
             assertEquals(0, r.events(RekeyLane.INTERNET).count { it.kind == KIND_ROOM_REKEY })
             assertEquals(0, r.events(RekeyLane.NEARBY).count { it.kind == KIND_ROOM_REKEY })
@@ -357,6 +445,22 @@ class NativeKeeperControllerTest {
             assertFails { r.live.sendChat("Closed") }
             assertTrue(r.source.snapshot().pending.isEmpty())
             assertEquals(NativeKeeperController.State.Closed(1), r.controller!!.state.value)
+        } finally { r.stop() }
+    }
+
+    @Test fun sourceDerivedDestructiveClosureKeepsTheActualTerminalStateAndOriginalRetirement() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.start(); r.controller!!.rekeyMembers(closed = true, destruct = true); runCurrent()
+            assertEquals(NativeKeeperController.State.Closed(1), r.controller!!.state.value)
+            assertEquals(RoomEpochState.Closed(1), r.live.epochState.value)
+            assertTrue(Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject.getValue("destruct").jsonPrimitive.boolean)
+            assertEquals(1, r.events(RekeyLane.NEARBY).count { it.kind == KIND_INVITATION_RETIREMENT })
+            assertEquals(1, r.events(RekeyLane.NEARBY).count { it.kind == KIND_ROOM_REKEY })
+            assertEquals(2, r.events(RekeyLane.NEARBY).filter { it.kind in listOf(KIND_INVITATION_RETIREMENT, KIND_ROOM_REKEY) }.distinctBy { it.id }.size)
+            assertTrue(r.source.snapshot().pending.isEmpty())
+            assertFails { r.controller!!.rekeyMembers() }
+            assertFails { r.live.sendChat("Closed native member command") }
         } finally { r.stop() }
     }
 

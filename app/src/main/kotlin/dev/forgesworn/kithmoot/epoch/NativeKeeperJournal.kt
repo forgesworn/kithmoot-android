@@ -420,6 +420,7 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
     fun preflightMembers(removed: List<String> = emptyList(), closed: Boolean = false,
         destruct: Boolean = false, scheduled: Boolean = false): RekeyProposal = lock.withLock {
         val gone = keeperMembers(data.removed + removed)
+        require(gone.all { it in data.members || it in data.removed }) { "Removal needs a source-qualified participant" }
         preflightRekey(if (closed) emptyList() else data.devices.filter {
             !it.removed && it.participant in data.members && it.participant !in gone
         }.map { keeperEvent(it.credential) }, removed, closed, destruct, scheduled)
