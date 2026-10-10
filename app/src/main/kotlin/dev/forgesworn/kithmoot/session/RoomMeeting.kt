@@ -6,6 +6,10 @@ import dev.forgesworn.kithmoot.protocol.RecordingNotice
 import dev.forgesworn.kithmoot.protocol.RecordingView
 import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
+import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.decodeRecordingCaptureOp
+import dev.forgesworn.kithmoot.protocol.verifyRecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.decodeHandOp
 import dev.forgesworn.kithmoot.protocol.decodeMeetingOp
 import dev.forgesworn.kithmoot.protocol.decodeRecordingOp
@@ -28,6 +32,7 @@ data class HeardRecording(val signed: SignedRecordingNotice, val since: Long, va
 data class MeetingSnapshot(
     val policy: SignedMeetingPolicy? = null,
     val recording: HeardRecording? = null,
+    val capture: SignedRecordingCaptureNotice? = null,
     /** Raised hands: participant -> unix seconds raised. */
     val hands: Map<String, Long> = emptyMap(),
 ) {
@@ -35,6 +40,10 @@ data class MeetingSnapshot(
     /** What the room should be told about recording at [now]. */
     fun recordingView(now: Long): RecordingView =
         recordingView(recording?.notice, recording?.since ?: 0, recording?.heardAt ?: 0, now)
+    /** Details never describe another id/version or make an off notice live. */
+    fun recordingCapture(): RecordingCaptureNotice? = capture?.notice?.takeIf {
+        recording?.notice?.on == true && it.id == recording.notice.id && it.version == recording.notice.version
+    }
 }
 
 /** Something worth a line in the room's chat: said only for a change read
@@ -68,11 +77,22 @@ class RoomMeeting(
     fun receive(body: String, participant: String, sentAt: Long): Boolean {
         decodeMeetingOp(body)?.let { ingestMeeting(it, sentAt); return true }
         decodeRecordingOp(body)?.let { ingestRecording(it, sentAt); return true }
+        decodeRecordingCaptureOp(body)?.let { ingestCapture(it); return true }
         decodeHandOp(body)?.let { hand(participant, it, sentAt); return true }
         return false
     }
 
     private fun fresh(sentAt: Long) = sentAt >= now() - 60
+
+    private fun ingestCapture(signed: SignedRecordingCaptureNotice) {
+        val auth = authority ?: return
+        if (!verifyRecordingCaptureNotice(roomId, signed.notice, signed.sig, auth)) return
+        synchronized(this) {
+            val before = mutable.value.capture
+            if (before != null && before.notice.version >= signed.notice.version) return
+            mutable.update { it.copy(capture = signed) }
+        }
+    }
 
     private fun ingestMeeting(signed: SignedMeetingPolicy, sentAt: Long) {
         val auth = authority ?: return

@@ -8,6 +8,10 @@ import dev.forgesworn.kithmoot.protocol.RecordingNotice
 import dev.forgesworn.kithmoot.protocol.RecordingView
 import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
+import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.signRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.encodeRecordingCaptureOp
 import dev.forgesworn.kithmoot.protocol.decodeHandOp
 import dev.forgesworn.kithmoot.protocol.decodeMeetingOp
 import dev.forgesworn.kithmoot.protocol.decodeRecordingOp
@@ -40,6 +44,28 @@ class RoomMeetingTest {
     private fun recordingOp(on: Boolean, id: String, version: Long, sk: ByteArray = authoritySk): String {
         val notice = RecordingNotice(on, id, version)
         return encodeRecordingOp(SignedRecordingNotice(notice, signRecordingNotice(roomId, notice, sk)))
+    }
+
+    @Test fun `capture details need the authority and exactly the live recording id and version`() {
+        val meeting = RoomMeeting(roomId, authority, { clock })
+        val capture = RecordingCaptureNotice("0f".repeat(16), 1, "gallery", alice, bob)
+        fun encoded(value: RecordingCaptureNotice, sk: ByteArray = authoritySk) =
+            encodeRecordingCaptureOp(SignedRecordingCaptureNotice(value, signRecordingCaptureNotice(roomId, value, sk)))
+        meeting.receive(encoded(capture, strangerSk), alice, clock)
+        assertNull(meeting.state.value.capture)
+        meeting.receive(encoded(capture), bob, clock)
+        assertNull(meeting.state.value.recordingCapture(), "details alone cannot start a notice")
+        meeting.receive(recordingOp(true, capture.id, 1), bob, clock)
+        assertEquals(capture, meeting.state.value.recordingCapture())
+        val next = capture.copy(id = "12".repeat(16), version = 2, capture = "speaker")
+        meeting.receive(recordingOp(true, next.id, 2), alice, clock)
+        assertNull(meeting.state.value.recordingCapture(), "old details cannot describe a new recording")
+        meeting.receive(encoded(next), bob, clock)
+        assertEquals(next, meeting.state.value.recordingCapture())
+        meeting.receive(encoded(capture), alice, clock)
+        assertEquals(next, meeting.state.value.recordingCapture(), "a stale replay cannot replace current details")
+        meeting.receive(recordingOp(false, next.id, 3), bob, clock)
+        assertNull(meeting.state.value.recordingCapture(), "details cannot keep a stopped recording live")
     }
 
     @Test fun `believes the authority's policy from anybody, and nobody else's`() {

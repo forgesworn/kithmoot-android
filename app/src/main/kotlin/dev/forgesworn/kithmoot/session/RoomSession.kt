@@ -840,6 +840,7 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
+                recordingProfile = 2,
                 // Omitted on a farewell, as the web client omits it: a device
                 // on its way out is not on the call either, and the last thing
                 // it publishes should not say it is.

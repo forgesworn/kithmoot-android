@@ -304,6 +304,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.forgesworn.kithmoot.protocol.MeetingPolicy
 import dev.forgesworn.kithmoot.protocol.RecordingView
+import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.meetingAllows
 import dev.forgesworn.kithmoot.protocol.meetingGated
 import dev.forgesworn.kithmoot.session.MeetingNews
@@ -625,6 +626,7 @@ data class RoomState(
     val raisedHands: Map<String, Long> = emptyMap(),
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
+    val recordingCapture: RecordingCaptureNotice? = null,
     /** Something was pressed that would put this device on a recorded call,
      *  and the person is being asked first. Null when nothing is asked. */
     val recordingConsent: RecordingConsent? = null,
@@ -5411,6 +5413,7 @@ class RoomViewModel @JvmOverloads constructor(
             meetingSpeakers = policy?.speakers.orEmpty(),
             raisedHands = snapshot.hands,
             recording = snapshot.recordingView(epochSeconds()),
+            recordingCapture = snapshot.recordingCapture(),
         ) }
         // The host hears about a hand as it goes up, not one found in the log.
         if (roomWork?.moderator == true) snapshot.hands.filter { (p, at) -> p !in before.hands && p != me && at >= epochSeconds() - 30 }
@@ -5421,7 +5424,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun showRecording() {
-        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds())) }
+        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds()), recordingCapture = meetingState.value.recordingCapture()) }
     }
 
     /** Off the stage: everything this device sends is stopped, and it says what. */
