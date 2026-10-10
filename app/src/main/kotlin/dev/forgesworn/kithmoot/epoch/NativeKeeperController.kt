@@ -239,6 +239,10 @@ internal class NativeKeeperController private constructor(private val source: Na
     private suspend fun recover() {
         check(selected())
         val beginning = source.snapshot()
+        // Admission ends at the durable source commit, even while the exact
+        // notice waits for local custody. Never keep an old approval card alive
+        // until a transport accepts it.
+        if (beginning.phase != KeeperPhase.ACTIVE) mutableUnknown.value = emptyList()
         val pending = beginning.pending
         if (pending.isNotEmpty()) {
             publishState(State.Pending(pending.map { it.id }), beginning)
