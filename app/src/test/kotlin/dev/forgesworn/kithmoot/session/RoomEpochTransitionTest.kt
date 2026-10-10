@@ -13,7 +13,6 @@ import dev.forgesworn.kithmoot.protocol.RosterEntry
 import dev.forgesworn.kithmoot.protocol.decodeEpochRequest
 import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
-import dev.forgesworn.kithmoot.protocol.KIND_CHAT
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
 import dev.forgesworn.kithmoot.relay.Filter
