@@ -136,11 +136,17 @@ class RecordingShareDraftStore(
         check(draft.storageOrigin == origin && origin == mediaStorageOrigin(origin)) { "The recording upload belongs to a different storage origin" }
         val uri = URI(attachment.url)
         require(uri.scheme == "https" && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-            mediaStorageOrigin("https://${uri.rawAuthority}") == origin && uri.path.substringAfterLast('/') == draft.sealed.hash)
+            mediaStorageOrigin("https://${uri.rawAuthority}") == origin &&
+            uri.path.substringAfterLast('/').matches(Regex("${draft.sealed.hash}(?:\\.[a-z0-9]{1,10})?")))
         require(attachment.sha256 == draft.sealed.hash && attachment.key == draft.sealed.key &&
             attachment.name == draft.sealed.name && attachment.type == draft.sealed.type &&
             attachment.size != null && attachment.size in 73L..MAX_BYTES &&
             (!draft.sealed.file.isFile || attachment.size == draft.sealed.file.length()))
+    }
+
+    @Synchronized fun clearUpload(id: String, room: String, expected: ChatAttachment) {
+        val draft = selected(id, room)
+        if (draft.uploaded == expected) persist(entries.map { if (it.id == id) it.copy(uploaded = null) else it })
     }
 
     /** Remove only after an explicit discard or after Send retains the exact

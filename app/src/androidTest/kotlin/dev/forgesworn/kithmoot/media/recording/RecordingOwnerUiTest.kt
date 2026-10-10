@@ -132,6 +132,26 @@ class RecordingOwnerUiTest {
         assertTrue(draft.sealed.file.canonicalPath.startsWith(app.noBackupFilesDir.canonicalPath + "/"))
         assertEquals(file, app.recordings.export.value)
         assertTrue(file.exists())
+        ui.click("Upload recording")
+        ui.await("explicit storage setup") { ui.hasText("Recording storage server") }
+        assertNull(model.room.value.recordingStorageChoice)
+        ui.replace("Recording storage server", "https://private.example")
+        ui.click("Get storage key")
+        ui.await("public storage identity, no automatic upload") { ui.hasText("Copy storage key") && ui.hasText("Upload") }
+        val choice = requireNotNull(model.room.value.recordingStorageChoice)
+        assertEquals(draft.id, choice.draft)
+        assertEquals(originalRoom, choice.room)
+        assertEquals("https://private.example", choice.origin)
+        assertTrue(choice.publicKey.matches(Regex("[0-9a-f]{64}")))
+        assertFalse("Upload needs separate consent", ui.enabled("Upload"))
+        assertNull(app.recordingShareDrafts.selected(draft.id, originalRoom).storageOrigin)
+        assertNull(app.recordingShareDrafts.selected(draft.id, originalRoom).uploaded)
+        ui.click("Copy storage key")
+        activity.scenario.onActivity {
+            val clipboard = it.getSystemService(android.content.ClipboardManager::class.java)
+            assertEquals(choice.publicKey, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+        }
+        ui.click("Cancel")
         ui.click("Recording ready")
         ui.click("Discard")
         ui.await("explicit discard") { app.recordings.export.value == null }

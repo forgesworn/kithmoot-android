@@ -6,7 +6,9 @@ candidate passed 18 focused JVM tests and all 14 local recording emulator checks
 including gallery selection, signed notices, background pause, explicit resume,
 discard and recipient playback of browser recording attachments through the real
 MIME parser. The subsequent Add-to-chat candidate also passed those 18 JVM and
-14 emulator checks, including the explicit Add/Discard/Remove journey.
+14 emulator checks, including the explicit Add/Discard/Remove journey. The later
+Upload candidate passed 16 focused JVM tests and 15 emulator checks, plus
+Keystore restoration after a forced app-process stop and real-node transfer.
 Live browser/native video, private-node sharing UI, physical qualification and signed delivery remain open; this
 implementation does not close G11. Historical results below are scoped to their
 recorded source/APK hashes.
@@ -59,8 +61,8 @@ storage identity, Forget without retaining the room reference, journal
 restoration, expired DELETE refusal, fresh DELETE success and HEAD 404.
 This fixture used a private test journal and injected clock; it does not prove
 Android Keystore restart persistence, physical elapsed-time retention or the
-sender UI. Choosing/authorising a storage node and explicit Upload/Send remain
-unwired. Local recording and Save require no node authorisation.
+sender UI. The subsequent Upload candidate below qualifies Keystore restart
+separately. Local recording and Save require no node authorisation.
 
 The [storage journal receipt](evidence/native-recording-upload-journal-2026-10-10.json)
 binds these results to the final native class bundle, source and APKs: six JVM
@@ -68,6 +70,40 @@ tests, the synthetic real-node sequence (PUT 201, expired DELETE 401, fresh
 DELETE 200, HEAD 404), and all 14 recording emulator checks in 36.292 seconds.
 The test node and HTTPS proxy were stopped afterwards. Android Keystore
 restart acceptance and the actual sender Upload/Send journey remain separate.
+
+### Explicit Upload candidate
+
+The recording draft offers Upload recording. Its server field is blank for a
+new draft; Get storage key creates a public node identity without contacting
+the server. The operator authorises that key on the chosen private node. A
+separate checkbox permits Upload, which binds this draft to that HTTPS origin.
+Cancel upload cancels only its request. Room closure and network withdrawal
+also close it. Failures keep the independent encrypted draft and schedule
+possible remote cleanup; a failed durable finalisation cannot become ready for
+Send. The original local Save/Discard copy remains independent.
+
+The [Upload receipt](evidence/native-recording-upload-ui-2026-10-10.json) records
+16 focused JVM tests and all 15 local emulator checks passing in 41.589 seconds.
+The real activity verifies node setup, public-key copying, separate consent
+and independent Discard/Remove. A separate guarded driver force-stops the app
+between preparation and verification: the new process restores the same
+Keystore-wrapped storage identity, finds no forgotten room reference and signs
+a fresh exact-file DELETE. This uses an injected clock and no HTTP.
+
+The actual `RecordingUploadRequest` also passed against the real private node
+using the compiled app classes and synthetic playable MP4. It retains the
+verified receipt before becoming ready for Send; Forget/restart then rejects
+expired deletion and confirms a fresh DELETE with HEAD 404. This caught a real
+URL-suffix mismatch between transfer and draft validation. Both now accept the
+same bounded hash-plus-extension form while rejecting a substituted hash.
+The HTTPS fixture trust remains test-only, and its services were stopped.
+
+These checks do not establish UI-driven HTTPS transfer, durable Send/outbox
+ownership, live browser/native capture, physical endurance/interruption or
+signed production delivery. Late Add completion while locked, answering a call
+or in picture-in-picture also needs navigation qualification. Hosted run
+38082646329 passed all gates on the preceding `a3d6124` cleanup checkpoint;
+the latest Upload source still requires complete hosted qualification.
 
 ## Member-rekey recovery release gate
 

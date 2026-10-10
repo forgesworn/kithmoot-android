@@ -63,6 +63,7 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     }
 
     fun hasText(text: String) = nodes().any { it.isVisibleToUser && it.text?.toString() == text }
+    fun enabled(text: String) = button(text)?.isEnabled == true
     fun hasDescription(text: String) = nodes().any { it.isVisibleToUser && it.contentDescription?.toString() == text }
 
     fun descriptionBounds(text: String): Rect = Rect().also { bounds ->

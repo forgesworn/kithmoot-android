@@ -535,6 +535,8 @@ data class RoomState(
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
     val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    val recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
+    val recordingUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
@@ -1017,6 +1019,8 @@ class RoomViewModel @JvmOverloads constructor(
     private val _recordingAdded = MutableStateFlow<RecordingAdded?>(null)
     val recordingAdded = _recordingAdded.asStateFlow()
     private var recordingAddedRequest = 0L
+    private var recordingUploadJob: Job? = null
+    fun cancelRecordingUpload() { recordingUploadJob?.cancel() }
     fun acknowledgeRecordingAdded(request: Long) {
         _recordingAdded.update { if (it?.request == request) null else it }
     }
@@ -5983,6 +5987,72 @@ class RoomViewModel @JvmOverloads constructor(
                 }
                 _recordingExportBusy.value = false
                 recordingExportMutex.unlock()
+            }
+        }
+    }
+
+    /** Choosing a public storage identity does not contact or bind the server. */
+    fun prepareRecordingStorage(id: String, chosen: String) {
+        val room = _room.value.roomId
+        if (_room.value.mediaBusy) return
+        val scope = sessionScope ?: return
+        _room.update { it.copy(mediaBusy = true, chatSendError = null, recordingStorageChoice = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val draft = recordingApplication.recordingShareDrafts.selected(id, room)
+                val origin = mediaStorageOrigin(chosen)
+                check(draft.storageOrigin == null || draft.storageOrigin == origin) { "This draft is already bound to its chosen storage server" }
+                val key = recordingApplication.recordingUploadJournal.identity(origin)
+                val choice = dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice(id, room, origin, key)
+                _room.update { if (it.roomId == room) it.copy(recordingStorageChoice = choice) else it }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _room.update { if (it.roomId == room) it.copy(chatSendError = error.message ?: "Storage identity unavailable") else it } }
+            finally { _room.update { if (it.roomId == room) it.copy(mediaBusy = false) else it } }
+        }
+    }
+
+    fun uploadRecordingDraft(id: String, origin: String, consent: Boolean) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val room = _room.value.roomId
+        val choice = _room.value.recordingStorageChoice
+        if (!consent || choice == null || choice.draft != id || choice.room != room || choice.origin != origin)
+            return note("Choose and authorise this recording's storage server before Upload.")
+        fun permitted(): Boolean = session === live && _room.value.roomId == room &&
+            _room.value.route.internet && !_room.value.anonymous &&
+            !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
+        if (!permitted()) return note("Recording uploads need an active original room with Internet enabled.")
+        if (_room.value.mediaBusy) return
+        _room.update { it.copy(mediaBusy = true, recordingUploadRunning = true, chatSendError = null) }
+        // Enter the outer finally before dispatching IO, so cancelling a
+        // queued upload cannot strand the controls in their busy state.
+        recordingUploadJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val ownerJob = currentCoroutineContext().get(Job)!!
+                    val owned = dev.forgesworn.kithmoot.media.recording.RecordingUploadRequest(
+                        recordingApplication.recordingShareDrafts, recordingApplication.recordingUploadJournal,
+                        id, room, origin, { ownerJob.isActive && permitted() },
+                    )
+                    // Install cancellation cleanup before the blocking PUT.
+                    val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                        try { this@RoomViewModel.room.collect { if (!permitted()) owned.close() } }
+                        finally { owned.close() }
+                    }
+                    try {
+                        owned.upload()
+                        ensureActive()
+                        if (permitted()) note("Recording uploaded privately. No chat message has been sent.")
+                    } finally { owned.close(); watcher.cancel() }
+                }
+            } catch (cancelled: CancellationException) {
+                _room.update { if (session === live && it.roomId == room) it.copy(chatSendError = "Recording upload cancelled. No chat message was sent.") else it }
+                throw cancelled
+            }
+            catch (error: Exception) {
+                _room.update { if (session === live && it.roomId == room) it.copy(chatSendError = "Recording upload failed: ${error.message ?: "storage unavailable"}. No chat message was sent.") else it }
+            } finally {
+                _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, recordingUploadRunning = false) else it }
             }
         }
     }

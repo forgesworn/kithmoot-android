@@ -60,7 +60,9 @@ class RecordingShareDraftStoreTest {
             assertFails { store.retainUpload(draft.id, otherRoom, "https://private.example", receipt(draft, "https://private.example")) }
             assertFails { store.retainUpload(draft.id, origin.room, "https://private.example", receipt(draft, "https://different.example")) }
             assertFails { store.retainUpload(draft.id, origin.room, "https://private.example", receipt(draft, "https://private.example").copy(key = "ff".repeat(32))) }
-            val incoming = receipt(draft, "https://private.example")
+            assertFails { store.retainUpload(draft.id, origin.room, "https://private.example",
+                receipt(draft, "https://private.example").copy(url = "https://private.example/${draft.sealed.hash}_other")) }
+            val incoming = receipt(draft, "https://private.example").let { it.copy(url = "${it.url}.bin") }
             val retained = store.retainUpload(draft.id, origin.room, "https://private.example", incoming)
             val restored = RecordingShareDraftStore(directory, journal, { 101 }).apply { recover() }
             assertEquals(retained, restored.selected(draft.id, origin.room))

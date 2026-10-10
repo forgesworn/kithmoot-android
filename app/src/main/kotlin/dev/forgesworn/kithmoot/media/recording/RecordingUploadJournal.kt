@@ -96,13 +96,22 @@ class RecordingUploadJournal(private val storage: RoomStorage,
     }
 
     /** Forget during a PUT cannot turn its late receipt into a retained copy. */
-    @Synchronized fun finish(ticket: RecordingUploadTicket, retained: Boolean) {
+    @Synchronized fun finish(ticket: RecordingUploadTicket, retained: Boolean): Boolean {
         val entry = owned(ticket)
         val allowed = retained && entry.room != null && entry.room !in revokedRooms &&
             (entry.deleteAt == null || entry.deleteAt > now()) && entry.dueAt == null
-        persist(identities, entries.map { if (it.id == entry.id)
-            it.copy(pending = false, dueAt = if (allowed) null else now() + GRACE) else it })
-        active.remove(ticket.id)
+        try {
+            persist(identities, entries.map { if (it.id == entry.id)
+                it.copy(pending = false, dueAt = if (allowed) null else now() + GRACE) else it })
+            return allowed
+        } finally { active.remove(ticket.id) }
+    }
+
+    @Synchronized fun readyToSend(room: String, origin: String, hash: String): Boolean {
+        check(recovered)
+        return room !in revokedRooms && entries.any { it.room == room && it.origin == origin && it.hash == hash &&
+            !it.pending && it.dueAt == null && it.id !in active && it.id !in deleting &&
+            (it.deleteAt == null || it.deleteAt > now()) }
     }
 
     @Synchronized fun forgetRoom(room: String) {
@@ -124,8 +133,11 @@ class RecordingUploadJournal(private val storage: RoomStorage,
         try {
             val work = synchronized(this) {
                 check(recovered)
-                val expired = entries.map { if (it.deleteAt != null && it.deleteAt <= now() && it.dueAt == null)
-                    it.copy(room = null, dueAt = now() + GRACE) else it }
+                val expired = entries.map {
+                    if (it.pending && it.id !in active) it.copy(pending = false, dueAt = now() + GRACE)
+                    else if (it.deleteAt != null && it.deleteAt <= now() && it.dueAt == null)
+                        it.copy(room = null, dueAt = now() + GRACE) else it
+                }
                 if (expired != entries) persist(identities, expired)
                 entries.filter { it.id !in active && !it.pending && it.dueAt != null && it.dueAt <= now() }.take(8)
                     .map { it to sign(it, "delete") }.also { work -> deleting.addAll(work.map { it.first.id }) }
