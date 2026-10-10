@@ -1,0 +1,39 @@
+{
+  "syntheticOnly": true,
+  "foldKitSource": "dc51766b7e6a141d5ba8aa0e5421df86432a7412",
+  "foldKitVersion": "0.12.0",
+  "refusalVectorSha256": "8e6c63385c41a63166682e61d735aa33d62be1965481db4f1e5e4c9a062db550",
+  "protocolUnitTests": 417,
+  "debugAppUnitTests": 1939,
+  "releaseAppUnitTests": 1939,
+  "lintDebugPassed": true,
+  "lintReleasePassed": true,
+  "bothAssembliesPassed": true,
+  "androidTestAssemblyPassed": true,
+  "renderedAdmissionUiTests": 6,
+  "renderedNearbyRecoveryTests": 6,
+  "combinedRenderedTests": 12,
+  "combinedRenderedSeconds": 72.269,
+  "emulator": "emulator-5584",
+  "installedApks": {
+    "app": {
+      "size": 117355057,
+      "sha256": "0cd979447b7dfeae383b79a7ffd11c8ef2229c917d46964fc7bb70dbb365c4a8",
+      "installedBytesMatch": true
+    },
+    "test": {
+      "size": 4987942,
+      "sha256": "79659c76a5a5b05d79616794fe3e948c8928e8749589a7e67e745f1df7f04f64",
+      "installedBytesMatch": true
+    }
+  },
+  "productionPublication": false,
+  "physicalDeviceAcceptance": false,
+  "fullG17Acceptance": false,
+  "remaining": [
+    "Temporary-room creation controls",
+    "Complete guest preview, cancellation, offline/reconnecting states",
+    "Browser/native host and guest end-to-end journeys",
+    "Physical external signers and unfamiliar host/guest acceptance"
+  ]
+}

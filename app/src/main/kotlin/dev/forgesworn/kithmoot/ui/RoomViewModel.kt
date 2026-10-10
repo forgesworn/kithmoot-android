@@ -164,6 +164,7 @@ import dev.forgesworn.kithmoot.protocol.JoinUrlException
 import dev.forgesworn.kithmoot.protocol.InvitationPayload
 import dev.forgesworn.kithmoot.protocol.encodePersistentInvitation
 import dev.forgesworn.kithmoot.session.requestPersistentAdmission
+import dev.forgesworn.kithmoot.session.RetiredInvitationException
 import dev.forgesworn.kithmoot.session.GroupInvitationException
 import dev.forgesworn.kithmoot.session.INVITATION_NOT_FOUND
 import dev.forgesworn.kithmoot.session.MissingGroupInvitationException
@@ -672,6 +673,7 @@ data class RoomState(
     val epochTrouble: List<String> = emptyList(),
     /** People the room does not know asking to come in, after a removal (kithmoot#207). */
     val letInAsks: List<LetInAsk> = emptyList(),
+    val invitationAdmissions: List<dev.forgesworn.kithmoot.session.PendingInvitationAdmission> = emptyList(),
     val work: AssignmentSnapshot = AssignmentSnapshot(),
     val workActions: List<AvailableAssignmentAction> = emptyList(),
     val workBusy: Boolean = false,
@@ -783,8 +785,7 @@ private const val DM_RELAY_LOOKUP_MS = 2_500L
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 /** How often the banner's picture of which rooms cannot answer calls is looked at again. */
 private const val REACHABILITY_CHECK_MS = 60_000L
-private const val INVITATION_TIMEOUT_MS = 60_000L
-private const val INVITATION_RETRY_MS = 2_000L
+private const val INVITATION_TIMEOUT_MS = 90_000L
 private const val GROUP_INVITATION_REFRESH_MS = 6L * 60 * 60 * 1000
 /** How long the one background read of a group invitation, for the room's relays, may take. */
 private const val ROOM_RELAYS_READ_MS = 20_000L
@@ -825,7 +826,6 @@ private const val FINISHING_LAST_ROOM = "Finishing leaving the last room…"
  */
 private const val EPOCH_ACTIVATION_TIMEOUT_MS = 60_000L
 
-private class RetiredInvitationException : Exception()
 
 internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
     is SignerException,
@@ -995,6 +995,7 @@ class RoomViewModel @JvmOverloads constructor(
     private var roomInvitation: InvitationPayload? = null
     private var roomInvitationHost: RoomInvitationHost? = null
     private var invitationHostJob: Job? = null
+    private var invitationAdmissionDesk: dev.forgesworn.kithmoot.session.TemporaryRoomAdmissionDesk? = null
     @Volatile private var nativeKeeperEntry: NativeKeeperEntry? = null
     @Volatile private var nativeKeeperController: NativeKeeperController? = null
     private var closingKeeper: Job? = null
@@ -3730,6 +3731,9 @@ class RoomViewModel @JvmOverloads constructor(
         } catch (e: GroupInvitationException) {
             _start.update { it.copy(busy = false, error = e.message) }
             return
+        } catch (_: dev.forgesworn.kithmoot.session.DeclinedInvitationException) {
+            _start.update { it.copy(busy = false, opening = null, error = "Your request was declined. Ask someone in the room before trying again.") }
+            return
         } catch (_: RetiredInvitationException) {
             _start.value = _start.value.copy(
                 busy = false,
@@ -3881,58 +3885,26 @@ class RoomViewModel @JvmOverloads constructor(
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
-        val requesterKey = Entropy.bytes(32)
-        val request = encodeInvitationRequest(payload.invitation, requesterKey, epochSeconds())
-        val invitationId = deriveInvitationId(payload.invitation)
+        val accountAtRequest = accountSession
+        val actor = if (anonymous) null else accountSigner?.takeIf {
+            it.pubkey == _start.value.account?.pubkey
+        }
         transport.start()
         return try {
-            withTimeoutOrNull(if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS) {
-                coroutineScope {
-                    // Start collecting before the first publish. Invitation
-                    // events are ephemeral, so subscribing one line later is
-                    // enough to miss a fast response for good.
-                    val response = async(start = CoroutineStart.UNDISPATCHED) {
-                        transport.subscribe(
-                            listOf(
-                                Filter(
-                                    kinds = listOf(KIND_INVITATION_GRANT),
-                                    tags = mapOf(
-                                        "#d" to listOf(invitationId),
-                                        "#p" to listOf(Schnorr.publicKeyHex(requesterKey)),
-                                    ),
-                                ),
-                                Filter(
-                                    authors = listOf(payload.invitation.canonicalInviter),
-                                    kinds = listOf(KIND_INVITATION_RETIREMENT),
-                                    tags = mapOf("#d" to listOf(invitationId)),
-                                ),
-                            ),
-                        ).mapNotNull { event ->
-                            if (decodeInvitationRetirement(event, payload.invitation)) {
-                                throw RetiredInvitationException()
-                            }
-                            decodeRoomAdmissionGrant(
-                                event,
-                                payload.invitation,
-                                requesterKey,
-                                request.id,
-                                epochSeconds(),
-                            )
-                        }.first()
-                    }
-                    val retry = launch {
-                        while (isActive) {
-                            transport.publish(request)
-                            delay(INVITATION_RETRY_MS)
-                        }
-                    }
-                    try {
-                        response.await()
-                    } finally {
-                        retry.cancel()
-                    }
-                }
-            }
+            dev.forgesworn.kithmoot.session.requestTemporaryRoomAdmission(
+                transport, payload.invitation,
+                name = if (anonymous) null else accountAtRequest?.account?.displayName,
+                participant = actor?.pubkey,
+                signer = actor,
+                timeoutMs = if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS,
+                stillCurrent = { anonymous || accountSession === accountAtRequest },
+                onPhase = { phase ->
+                    if (_start.value.busy) _start.update { it.copy(opening = when (phase) {
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.SIGNING -> "Confirm your identity in your signer…"
+                        dev.forgesworn.kithmoot.session.AdmissionRequestPhase.WAITING -> "Waiting for someone in the room to let you in…"
+                    }) }
+                },
+            )
         } finally {
             transport.stop()
             scope.cancel()
@@ -4004,74 +3976,59 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Auto-admit holders of the current link while any admitted member is
-     * online, and stop permanently on the creator's durable tombstone. */
+    /** Temporary invitations require an individual decision on each admitted
+     * device. A retired invitation permanently closes its decision queue. */
     private fun serveInvitation(
         scope: CoroutineScope,
         transport: RoomTransport,
         host: RoomInvitationHost,
         secret: ByteArray,
-        /** The epoch this device is at, asked on every grant: the joiner is
-         *  told whether [secret] opens the live room (fold-kit's `epoch`). */
         epoch: () -> Int?,
     ): Job {
-        val invitationId = deriveInvitationId(host.invitation)
-        val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
-        return scope.launch {
-            val answered = LinkedHashSet<String>()
-            var retired = false
-            transport.subscribe(
-                listOf(
-                    Filter(
-                        kinds = listOf(KIND_INVITATION_REQUEST),
-                        tags = mapOf(
-                            "#d" to listOf(invitationId),
-                            "#p" to listOf(host.invitation.canonicalInviter),
-                        ),
-                    ),
-                    Filter(
-                        authors = listOf(host.invitation.canonicalInviter),
-                        kinds = listOf(KIND_INVITATION_RETIREMENT),
-                        tags = mapOf("#d" to listOf(invitationId)),
-                    ),
-                ),
-            ).collect { event ->
-                if (event.kind == KIND_INVITATION_RETIREMENT) {
-                    if (!decodeInvitationRetirement(event, host.invitation)) return@collect
-                    retired = true
-                    gate.withLock {
-                        if (roomInvitation?.invitation == host.invitation) {
-                            roomInvitationHost = null
-                            savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
-                            _room.update { it.copy(
-                                canRotateInvitation = false,
-                                notice = "This invitation was retired by its creator. The live room is unchanged.",
-                            ) }
-                        }
+        val desk = dev.forgesworn.kithmoot.session.TemporaryRoomAdmissionDesk(
+            scope, transport, host, secret, epoch,
+            stillCurrent = { sessionScope === scope && session != null &&
+                roomInvitation?.invitation == host.invitation && _room.value.canShareInvitation &&
+                (_room.value.endsAt?.let { epochSeconds() < it } ?: true) },
+            onRetired = {
+                gate.withLock {
+                    if (roomInvitation?.invitation == host.invitation) {
+                        roomInvitationHost = null
+                        savedRoom?.let { persistLiveRoom(it.id) { saved -> saved.invitationRetired() } }
+                        _room.update { it.copy(canRotateInvitation = false,
+                            notice = "This invitation was retired by its creator. The live room is unchanged.") }
                     }
-                    return@collect
                 }
-                if (host.invitation.persistent || retired || dev.forgesworn.kithmoot.protocol.verifyInvitationDelegation(host.invitation, host.delegation, epochSeconds()) == null) return@collect
-                val request = decodeInvitationRequest(event, host.invitation, epochSeconds()) ?: return@collect
-                // Lenient relays sometimes retain and replay ephemeral
-                // requests. A newly admitted delegate must not answer the
-                // request that admitted itself.
-                if (request.device == responder) return@collect
-                if (!answered.add(request.requestId)) return@collect
-                while (answered.size > 256) answered.remove(answered.first())
-                transport.publish(
-                    encodeInvitationGrant(
-                        host,
-                        request.device,
-                        request.requestId,
-                        secret,
-                        epochSeconds(),
-                        epoch = epoch(),
-                    ),
-                )
+            },
+            onGrantAccepted = {
+                _room.update { it.copy(notice = "A relay accepted the admission grant. The guest can now join.") }
+            },
+            onDeclineAccepted = {
+                _room.update { it.copy(notice = "A relay accepted the refusal. The guest can see that their request was declined.") }
+            },
+        )
+        invitationAdmissionDesk = desk
+        val serving = desk.start()
+        CoroutineScope(scope.coroutineContext + serving).launch {
+            desk.pending.collect { rows ->
+                if (invitationAdmissionDesk === desk) _room.update { it.copy(invitationAdmissions = rows) }
             }
         }
+        serving.invokeOnCompletion {
+            if (invitationAdmissionDesk === desk) {
+                invitationAdmissionDesk = null
+                _room.update { it.copy(invitationAdmissions = emptyList()) }
+            }
+        }
+        return serving
     }
+
+    fun answerInvitationAdmission(requestId: String, admit: Boolean) {
+        val desk = invitationAdmissionDesk ?: return
+        if (admit) desk.admit(requestId) else desk.decline(requestId)
+    }
+
+    fun dismissInvitationAdmission(requestId: String) { invitationAdmissionDesk?.dismiss(requestId) }
 
     // --- session lifecycle ---------------------------------------------------
 
