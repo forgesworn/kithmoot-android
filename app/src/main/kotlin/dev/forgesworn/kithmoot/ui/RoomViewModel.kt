@@ -870,6 +870,9 @@ class RoomViewModel @JvmOverloads constructor(
      */
     val chatOnly: Boolean = false,
     private val nearbyLinkFactory: (Application) -> NativeRoomMeshLink = ::createAndroidRoomMeshLink,
+    /** Optional constructor dependency for private TLS qualification. Normal
+     * activities leave this null and use the strict production client. */
+    private val recordingUploadClient: okhttp3.OkHttpClient? = null,
 ) : AndroidViewModel(application) {
 
     /** The room the call is in, which this chat-only instance must never
@@ -5990,6 +5993,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val owned = dev.forgesworn.kithmoot.media.recording.RecordingUploadRequest(
                         recordingApplication.recordingShareDrafts, recordingApplication.recordingUploadJournal,
                         id, room, origin, { ownerJob.isActive && permitted() },
+                        client = recordingUploadClient,
                     )
                     // Install cancellation cleanup before the blocking PUT.
                     val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -6010,6 +6014,57 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update { if (session === live && it.roomId == room) it.copy(chatSendError = "Recording upload failed: ${error.message ?: "storage unavailable"}. No chat message was sent.") else it }
             } finally {
                 _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, recordingUploadRunning = false) else it }
+            }
+        }
+    }
+
+    /** Send is a separate explicit action. Keep the exact signed message in
+     * the recording owner before any handoff; retries never sign a replacement. */
+    fun sendRecordingDraft(id: String) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val room = _room.value.roomId
+        fun permitted() = session === live && _room.value.roomId == room && !_room.value.anonymous &&
+            _room.value.movedOn == null && !_room.value.conferenceEnded &&
+            !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
+        if (!permitted()) return note("Open the recording's original chat before Send.")
+        if (_room.value.cadence?.busy == true) return note("Finish the quiet schedule change before sending.")
+        if (_room.value.mediaBusy || _room.value.chatSending) return
+        val durable = !_room.value.quiet
+        _room.update { it.copy(mediaBusy = true, chatSending = true, chatSendError = null) }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val drafts = recordingApplication.recordingShareDrafts
+                    val draft = drafts.selected(id, room)
+                    val attachment = checkNotNull(draft.uploaded) { "Upload this recording before Send" }
+                    val origin = checkNotNull(draft.storageOrigin)
+                    fun ready() = permitted() && recordingApplication.recordingUploadJournal.readyToSend(room, origin, draft.sealed.hash)
+                    check(ready()) { "This recording's upload is no longer ready for Send" }
+                    val prepared = draft.preparedSend ?: checkNotNull(live.prepareChatForSend(draft.sealed.name,
+                        attachments = listOf(attachment))).also { drafts.retainPreparedSend(id, room, it) }
+                    ensureActive()
+                    fun owned() = ready() && runCatching { drafts.withPreparedSend(id, room, prepared) { } }.isSuccess
+                    val confirmed = if (durable) live.sendPreparedChatDurable(prepared,
+                        commitGuard = { commit -> drafts.withPreparedSend(id, room, prepared) {
+                            check(ready()) { "The original recording's Send was revoked" }; commit()
+                        } }, onRetained = {
+                            drafts.finishPreparedSend(id, room, prepared)
+                            if (session === live) note("Recording message kept in its original chat. Relay confirmation pending.")
+                        }) else live.sendPreparedChatConfirmed(prepared, ::owned).also {
+                            if (it) drafts.finishPreparedSend(id, room, prepared)
+                        }
+                    if (session === live) note(if (confirmed) "Recording sent to its original chat." else if (durable)
+                        "Recording message is waiting in its original chat." else
+                        "The recording message was not confirmed. It may have arrived; Retry Send uses the same message.")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _room.update { if (session === live && it.roomId == room)
+                    it.copy(chatSendError = "Recording Send could not finish: ${failure.message ?: "message unavailable"}. An earlier attempt may have arrived.") else it }
+            } finally {
+                _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, chatSending = false) else it }
+                if (durable && session === live) scheduleBackoff(live)
             }
         }
     }

@@ -945,6 +945,7 @@ fun KithMootApp(
                             attachments = roomState.chatAttachments,
                             recordingDrafts = roomState.recordingDrafts,
                             onRemoveRecordingDraft = model::removeRecordingDraft,
+                            onSendRecordingDraft = model::sendRecordingDraft,
                             recordingStorageChoice = roomState.recordingStorageChoice,
                             onPrepareRecordingStorage = model::prepareRecordingStorage,
                             onUploadRecordingDraft = model::uploadRecordingDraft,

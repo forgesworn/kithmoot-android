@@ -1147,6 +1147,30 @@ class RoomSession(
         return outbox.items().none { it.event.id == prepared.pending.event.id }
     }
 
+    /** Non-retaining chat keeps only its recording draft's exact message
+     * until confirmation. It never creates an ordinary chat outbox row. */
+    suspend fun sendPreparedChatConfirmed(prepared: PreparedRoomChat, stillOwned: () -> Boolean): Boolean {
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed() && stillOwned()) { "The original recording's Send is no longer allowed" }
+        val at = now()
+        val epoch = epochKeys()
+        check(epoch.id == prepared.pending.epochId) { "This recording's signed message belongs to an earlier secure room state" }
+        check(at < (ends ?: Long.MAX_VALUE) && prepared.pending.event.createdAt >= at - CHAT_RETENTION_SECONDS)
+        check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
+        policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
+        val own = decodeOwnChat(prepared.pending.event, prepared.pending.event.createdAt, epoch)
+        val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+        val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        val confirmed = transport.publishConfirmedGuarded(prepared.pending.event, transport.publicationGeneration(), {
+            trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
+                now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
+        }, CHAT_CONFIRM_TIMEOUT_MS)
+        if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
+        return confirmed
+    }
+
     /** Everything kept on this phone for the room, oldest first, with what became of each. */
     val pendingChats: StateFlow<List<PendingChat>> = _pendingChats.asStateFlow()
 

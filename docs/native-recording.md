@@ -148,9 +148,43 @@ passing. The room-session fixture confirms that retries use the same relay
 event and leave one own chat message with the original recording descriptor;
 it uses a synthetic transport, not an independent recipient network journey.
 
-The Send control and the confirmation path for non-retaining chat are still
-unwired. Prepared Send must also reject a new Upload before offering bytes.
-This checkpoint does not qualify the full Upload-to-Send journey or production.
+At that checkpoint the Send control and non-retaining confirmation path were
+unwired. The subsequent UI candidate below supplies them; this earlier receipt
+does not qualify that later source or production.
+
+### Explicit HTTPS Upload and Send candidate
+
+Uploaded drafts now offer Send recording, independently of the ordinary text
+composer. An interrupted prepared message offers Retry Send and cannot be
+uploaded again or removed through the ordinary discard action. Durable chat
+hands the exact event to its original outbox. Non-retaining chat retries that
+same event until confirmation without creating an ordinary outbox record.
+Local draft cleanup preserves the independent Save/Discard export and does
+not schedule remote deletion of a copy referenced by the message.
+
+The [HTTPS Send receipt](evidence/native-recording-https-send-ui-2026-10-10.json)
+records 2,022 app unit tests, debug/instrumentation builds and 23 emulator checks
+passing: 15 recording checks (51.991 seconds), six admission UI checks
+(4.755 seconds), and two UI-driven TLS Upload-to-Send/redirect checks
+(9.154 seconds). The native owner journey also clicks Send through a real
+loopback relay, preserves the local export, explicitly adds another independent
+draft, then checks Discard and Remove.
+
+The HTTPS journey begins with an independently qualified synthetic MP4. A
+temporary certificate is trusted only by the test model's constructor client;
+normal activities retain the production client's TLS trust. The loopback
+Blossom-contract server verifies the separate storage identity's signature,
+five-minute authorisation bound, encrypted envelope and exact hash. Upload
+offers one ciphertext copy only after consent; a separate Send publishes one
+event on the original chat channel. A redirect to a second TLS endpoint
+receives no upload, is not retried, and cannot enable Send. The checkbox label
+now toggles the whole accessible consent row.
+
+This server is a contract fixture, not the Wildbloom daemon. Earlier direct
+daemon tests remain separate evidence. An independent recipient fetch/play
+journey, prepared-Send recovery across rekey/interruption, stop-notice recovery,
+live call capture, background reliability, physical acceptance and final
+hosted/signed production delivery remain open.
 
 ## Member-rekey recovery release gate
 

@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.media.recording
 
 import dev.forgesworn.kithmoot.session.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.protocol.Events
 import okhttp3.*
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.File
@@ -18,6 +19,23 @@ class RecordingUploadRequestTest {
         override fun read() = bytes?.clone()
         override fun write(value: ByteArray) { check(!fail); bytes = value.clone() }
         override fun reset() { error("Never reset pending cleanup") }
+    }
+
+    @Test fun `prepared Send rejects another Upload before any bytes and preserves the retained receipt`() {
+        Rig().use { r ->
+            var calls = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain -> calls++; r.response(chain.request()) }.build()
+            RecordingUploadRequest(r.drafts, r.queue, r.draft.id, r.room, r.origin, { true }, client).use { it.upload() }
+            val event = Events.sign(ByteArray(32) { 1 }, KIND_CHAT, r.time,
+                listOf(listOf("d", "synthetic")), "synthetic ciphertext", ByteArray(32))
+            val prepared = PreparedRoomChat(r.room, "aa".repeat(32), event.pubkey,
+                PendingChatOutbox.Pending(r.room, event, editable = false, text = r.draft.sealed.name, messageId = "ab".repeat(16)))
+            val retained = r.drafts.retainPreparedSend(r.draft.id, r.room, prepared)
+            RecordingUploadRequest(r.drafts, r.queue, r.draft.id, r.room, r.origin, { true }, client).use { assertFails { it.upload() } }
+            assertEquals(1, calls)
+            assertEquals(retained, r.drafts.selected(r.draft.id, r.room))
+            assertTrue(r.queue.readyToSend(r.room, r.origin, r.draft.sealed.hash))
+        }
     }
     private class Rig : AutoCloseable {
         val root = Files.createTempDirectory("recording-upload-request-").toFile()

@@ -13,6 +13,9 @@ import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.projects.ProjectTestRelay
 import dev.forgesworn.kithmoot.protocol.RecordingView
+import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.session.ChatAttachment
+import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.storage.RecoveryUi
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
@@ -193,14 +196,49 @@ class RecordingOwnerUiTest {
             assertEquals(choice.publicKey, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
         }
         ui.click("Cancel")
+        // Seed a verified Upload receipt: this qualifies explicit UI Send over
+        // the real loopback relay, not UI-driven HTTPS transfer to a node.
+        val storage = "https://private.example"
+        val receipt = ChatAttachment("$storage/${draft.sealed.hash}", draft.sealed.hash, draft.sealed.key,
+            draft.sealed.name, draft.sealed.type, draft.sealed.file.length())
+        val upload = app.recordingUploadJournal.begin(originalRoom, storage, draft.sealed.hash, draft.discardAt)
+        app.recordingShareDrafts.bindOrigin(draft.id, originalRoom, storage)
+        app.recordingShareDrafts.retainUpload(draft.id, originalRoom, storage, receipt)
+        assertTrue(app.recordingUploadJournal.finish(upload, true))
+        val beforeSend = relay.writes.filter { it.kind == KIND_CHAT }.map { it.id }.toSet()
+        ui.await("separate explicit Send") { ui.hasText("Send recording") }
+        assertTrue("Upload receipt must not send chat", model.room.value.chat.none { receipt in it.attachments })
+        ui.click("Send recording")
+        ui.await("original chat receives recording and exact handoff removes only its draft") {
+            model.room.value.chat.any { receipt in it.attachments } && app.recordingShareDrafts.list(originalRoom).isEmpty() &&
+                !model.room.value.chatSending && !model.room.value.mediaBusy
+        }
+        val sent = model.room.value.chat.single { receipt in it.attachments }
+        assertEquals(listOf(receipt), sent.attachments)
+        val newEvents = relay.writes.filter { it.kind == KIND_CHAT && it.id !in beforeSend }.distinctBy { it.id }
+        assertEquals("One signed recording message reached the loopback relay", 1, newEvents.size)
+        assertTrue(Events.verify(newEvents.single()))
+        assertEquals(originalRoom, model.room.value.roomId)
+        assertEquals(file, app.recordings.export.value)
+        assertTrue("Send preserves independent local Save/Discard", file.exists())
+        assertTrue("Send must not schedule remote deletion", app.recordingUploadJournal.readyToSend(originalRoom, storage, draft.sealed.hash))
+        ui.click("Recording ready")
+        ui.click("Add to original chat")
+        ui.await("explicit new Add retains an independent draft") { app.recordingShareDrafts.list(originalRoom).size == 1 && ui.hasText("Remove draft") }
+        val secondDraft = app.recordingShareDrafts.list(originalRoom).single()
+        assertNotEquals(draft.id, secondDraft.id)
+        assertNotEquals(draft.sealed.key, secondDraft.sealed.key)
+        assertNull(secondDraft.uploaded)
+        assertEquals("Add sends no further message", newEvents.map { it.id }.toSet(),
+            relay.writes.filter { it.kind == KIND_CHAT && it.id !in beforeSend }.map { it.id }.toSet())
         ui.click("Recording ready")
         ui.click("Discard")
         ui.await("explicit discard") { app.recordings.export.value == null }
         assertFalse(file.exists())
-        assertEquals("Discard affects only the local export", draft, app.recordingShareDrafts.list(originalRoom).single())
-        assertTrue(draft.sealed.file.exists())
+        assertEquals("Discard affects only the local export", secondDraft, app.recordingShareDrafts.list(originalRoom).single())
+        assertTrue(secondDraft.sealed.file.exists())
         ui.click("Remove draft")
         ui.await("explicit draft removal") { app.recordingShareDrafts.list(originalRoom).isEmpty() }
-        assertFalse(draft.sealed.file.exists())
+        assertFalse(secondDraft.sealed.file.exists())
     }
 }

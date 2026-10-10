@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,6 +63,7 @@ fun ChatPane(
     attachments: List<ChatAttachment> = emptyList(),
     recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
     onRemoveRecordingDraft: (String) -> Unit = {},
+    onSendRecordingDraft: (String) -> Unit = {},
     recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
     onPrepareRecordingStorage: (String, String) -> Unit = { _, _ -> },
     onUploadRecordingDraft: (String, String, Boolean) -> Unit = { _, _, _ -> },
@@ -423,8 +425,10 @@ fun ChatPane(
                         androidx.compose.foundation.text.selection.SelectionContainer { Text(it.publicKey) }
                         TextButton(onClick = { clipboard.setText(AnnotatedString(it.publicKey)) }) { Text("Copy storage key") }
                         Text("KithMoot keeps this storage identity to retry server deletion after you forget the room. Cleanup requires this device to run and reach the server.")
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(consent, { value -> consent = value }, enabled = !mediaBusy)
+                        Row(Modifier.fillMaxWidth().toggleable(value = consent, enabled = !mediaBusy,
+                            role = androidx.compose.ui.semantics.Role.Checkbox, onValueChange = { consent = it }),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(consent, onCheckedChange = null, enabled = !mediaBusy)
                             Text("Allow this encrypted recording to be uploaded to ${it.origin}", Modifier.weight(1f))
                         }
                     }
@@ -442,12 +446,19 @@ fun ChatPane(
         }
         recordingDrafts.forEach { recording ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                Text("Recording draft: ${recording.sealed.name}. " + if (recording.uploaded == null) "Not uploaded." else "Uploaded privately. Not sent.", maxLines = 2,
+                Text("Recording draft: ${recording.sealed.name}. " + when {
+                    recording.preparedSend != null -> "Send started. A retry uses the same message."
+                    recording.uploaded == null -> "Not uploaded."
+                    else -> "Uploaded privately. Not sent."
+                }, maxLines = 2,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 FlowRow {
                     if (recording.uploaded == null) TextButton(enabled = !mediaBusy && internetAllowed && !torOnly && canSend,
                         onClick = { sharingRecording = recording.id }) { Text("Upload recording") }
-                    TextButton(enabled = !mediaBusy, onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
+                    if (recording.uploaded != null) TextButton(enabled = !mediaBusy && canSend,
+                        onClick = { onSendRecordingDraft(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
+                    if (recording.preparedSend == null) TextButton(enabled = !mediaBusy,
+                        onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
                 }
             }
         }

@@ -53,6 +53,7 @@ class RecordingShareDraftStoreTest {
             assertFails { store.retainPreparedSend(draft.id, origin.room, prepared(draft, 2)) }
             assertFails { store.retainPreparedSend(draft.id, otherRoom, message) }
             assertFails { store.clearUpload(draft.id, origin.room, upload) }
+            assertFails { store.bindOrigin(draft.id, origin.room, "https://private.example") }
             var deletionScheduled = false
             assertFails { store.discard(draft.id, origin.room) { deletionScheduled = true } }
             assertFalse(deletionScheduled)

@@ -120,6 +120,7 @@ class RecordingShareDraftStore(
      * server requires a new explicitly added draft and independent file key. */
     @Synchronized fun bindOrigin(id: String, room: String, chosenOrigin: String): RecordingShareDraft {
         val draft = selected(id, room)
+        check(draft.preparedSend == null) { "Send has started; this recording cannot be uploaded again" }
         val origin = mediaStorageOrigin(chosenOrigin)
         check(draft.storageOrigin == null || draft.storageOrigin == origin) { "This encrypted draft is already bound to its chosen storage origin" }
         if (draft.storageOrigin == origin) return draft

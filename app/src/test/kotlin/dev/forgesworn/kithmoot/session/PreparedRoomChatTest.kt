@@ -17,6 +17,46 @@ class PreparedRoomChatTest {
         override fun reset() { bytes = null }
     }
 
+    @Test fun `non retaining confirmation retries the exact message without an outbox`() = runTest {
+        val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay(); val offers = mutableListOf<NostrEvent>(); var confirm = false
+        val transport = object : RoomTransport by relay.transport() {
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                assertTrue(stillAllowed()); offers += event; return confirm
+            }
+        }
+        val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L })
+        live.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(live.prepareChatForSend("Synthetic quiet recording"))
+        assertFalse(live.sendPreparedChatConfirmed(prepared) { true })
+        assertTrue(live.chat.value.isEmpty()); assertFalse(live.pendingChat())
+        confirm = true
+        assertTrue(live.sendPreparedChatConfirmed(prepared) { true })
+        assertEquals(listOf(prepared.pending.event, prepared.pending.event), offers)
+        assertEquals(1, live.chat.value.size); assertFalse(live.pendingChat())
+        assertFailsWith<IllegalStateException> { live.sendPreparedChatConfirmed(prepared) { false } }
+        assertEquals(2, offers.size)
+        live.leave()
+    }
+
+    @Test fun `non retaining publication rechecks ownership at the transport boundary`() = runTest {
+        val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay(); var owned = true
+        val transport = object : RoomTransport by relay.transport() {
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                owned = false; assertFalse(stillAllowed()); throw PublicationNotOfferedException()
+            }
+        }
+        val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L })
+        live.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(live.prepareChatForSend("Synthetic quiet recording"))
+        assertFailsWith<PublicationNotOfferedException> { live.sendPreparedChatConfirmed(prepared) { owned } }
+        assertTrue(live.chat.value.isEmpty()); assertFalse(live.pendingChat())
+        live.leave()
+    }
+
     @Test fun `prepare is offline and failed draft cleanup retries the same signed recording without duplicate chat`() = runTest {
         val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
         val relay = FakeRelay(); val offers = mutableListOf<NostrEvent>()

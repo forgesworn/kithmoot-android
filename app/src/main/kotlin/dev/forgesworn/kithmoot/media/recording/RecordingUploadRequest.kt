@@ -23,12 +23,13 @@ class RecordingUploadRequest(
     private val room: String,
     private val origin: String,
     private val permitted: () -> Boolean,
-    client: OkHttpClient = uploadHttp,
+    client: OkHttpClient? = null,
 ) : Closeable {
     private val lock = Any()
     private var closed = false
     private var started = false
-    private val http = client.newBuilder().dispatcher(Dispatcher()).eventListener(object : EventListener() {
+    private val http = (client ?: uploadHttp).newBuilder().followRedirects(false).followSslRedirects(false)
+        .retryOnConnectionFailure(false).dispatcher(Dispatcher()).eventListener(object : EventListener() {
         override fun callStart(call: Call) { if (synchronized(lock) { closed }) call.cancel() }
     }).build()
 
