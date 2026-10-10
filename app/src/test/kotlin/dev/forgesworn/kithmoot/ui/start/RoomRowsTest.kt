@@ -75,7 +75,27 @@ class RoomRowsTest {
         val rooms = listOf(room(roomId = "z", label = "Zebra", openedAt = 100), room(roomId = "a", label = "apple", openedAt = 100),
             room(roomId = "b", label = "Apple", openedAt = 200))
         val sorted = sortByActivity(rooms) { null }
-        assertEquals(listOf("b", "a", "z"), sorted.map { it.id })
+        assertEquals(listOf("a", "b", "z"), sorted.map { it.id })
+    }
+
+    @Test fun `viewing an old conversation changes neither last message time nor order`() {
+        val old = room(roomId = "old", openedAt = 50)
+        val newer = room(roomId = "new", openedAt = 60)
+        val activity = mutableMapOf("old" to RoomActivity(100, null, true, 0, 0, emptyList()),
+            "new" to RoomActivity(200, null, true, 0, 0, emptyList()))
+        val viewed = old.copy(openedAt = 300)
+        assertEquals(100L, activityAt(viewed, activity["old"]))
+        assertEquals(listOf("new", "old"), sortByActivity(listOf(viewed, newer)) { activity[it.id] }.map { it.id })
+        val before = roomRowState(old, activity["old"], null, null, 400, ZoneId.of("UTC"), Locale.UK, true)
+        val after = roomRowState(viewed, activity["old"], null, null, 400, ZoneId.of("UTC"), Locale.UK, true)
+        assertEquals(before.time, after.time)
+        activity["old"] = activity.getValue("old").copy(latestAt = 500)
+        assertEquals(listOf("old", "new"), sortByActivity(listOf(viewed, newer)) { activity[it.id] }.map { it.id })
+    }
+
+    @Test fun `unavailable history has no fabricated activity time`() {
+        assertEquals(0L, activityAt(room(openedAt = 300), null))
+        assertEquals("" to "", formatActivityTime(0, 400, ZoneId.of("UTC"), Locale.UK, true))
     }
 
     @Test fun `sortByActivity prefers newest activity over openedAt`() {

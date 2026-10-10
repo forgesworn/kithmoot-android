@@ -10,24 +10,37 @@ class RoomSectionsTest {
         id: String, openedAt: Long = now, pinned: Boolean = false, ended: Boolean = false, endsAt: Long? = null, label: String = id,
     ) = HomeRoom(id, label, RoomSource.PHONE, openedAt, null, null, false, false, ended, false, endsAt, pinned)
 
+    private fun activity(at: Long) = RoomActivity(at, null, true, 0, 0, emptyList())
+
     private fun unread(count: Int) = RoomActivity(null, null, true, count, 0, emptyList())
 
     private fun sectionsOf(rooms: List<HomeRoom>, unreadIds: Set<String> = emptySet()) =
-        rooms.associate { it.id to sectionOf(it, if (it.id in unreadIds) unread(1) else null, now) }
+        rooms.associate { it.id to sectionOf(it, if (it.id in unreadIds) unread(1) else activity(it.openedAt), now) }
 
     /** Nine rooms, so the list is past the small-list rule. */
     private fun big(vararg extra: HomeRoom) = extra.toList() + (1..9 - extra.size).map { room("filler$it") }
 
-    @Test fun `a recent read room is Recent`() = assertEquals(HomeSection.RECENT, sectionOf(room("a", now - day), null, now))
+    @Test fun `a recent read room is Recent`() = assertEquals(HomeSection.RECENT, sectionOf(room("a", now), activity(now - day), now))
 
     @Test fun `seven days exactly is still Recent and one second more is Older`() {
-        assertEquals(HomeSection.RECENT, sectionOf(room("a", now - 7 * day), null, now))
-        assertEquals(HomeSection.OLDER, sectionOf(room("a", now - 7 * day - 1), null, now))
+        assertEquals(HomeSection.RECENT, sectionOf(room("a", now), activity(now - 7 * day), now))
+        assertEquals(HomeSection.OLDER, sectionOf(room("a", now), activity(now - 7 * day - 1), now))
+    }
+
+    @Test fun `reading an old conversation does not move it to Recent`() {
+        val old = activity(now - 30 * day)
+        assertEquals(HomeSection.OLDER, sectionOf(room("a", openedAt = now), old, now))
+    }
+
+    @Test fun `rooms without readable message times remain outside the default folds`() {
+        assertEquals(HomeSection.OTHER, sectionOf(room("a", openedAt = now), null, now))
+        assertEquals(HomeSection.OTHER, sectionOf(room("a", openedAt = now - 30 * day), activity(0), now))
+        assertFalse(HomeSection.OTHER.foldable)
     }
 
     @Test fun `unread from a person is Unread, agents do not count`() {
         assertEquals(HomeSection.UNREAD, sectionOf(room("a"), unread(2), now))
-        assertEquals(HomeSection.RECENT, sectionOf(room("a"), RoomActivity(null, null, true, 0, 5, emptyList()), now))
+        assertEquals(HomeSection.RECENT, sectionOf(room("a"), RoomActivity(now, null, true, 0, 5, emptyList()), now))
     }
 
     @Test fun `pinned beats unread and ended`() {
@@ -37,7 +50,7 @@ class RoomSectionsTest {
     @Test fun `ended beats unread, including a conference past its end`() {
         assertEquals(HomeSection.ENDED, sectionOf(room("a", ended = true), unread(1), now))
         assertEquals(HomeSection.ENDED, sectionOf(room("a", endsAt = now - 1), unread(1), now))
-        assertEquals(HomeSection.RECENT, sectionOf(room("a", endsAt = now + 60), null, now))
+        assertEquals(HomeSection.RECENT, sectionOf(room("a", endsAt = now + 60), activity(now), now))
     }
 
     @Test fun `a room is in exactly one section and empty sections are dropped`() {
@@ -86,8 +99,8 @@ class RoomSectionsTest {
     @Test fun `headings show the count only while folded`() {
         assertEquals("Older · 14", sectionHeading(HomeSection.OLDER, 14, folded = true))
         assertEquals("Older", sectionHeading(HomeSection.OLDER, 14, folded = false))
-        assertEquals(listOf("Pinned", "Unread", "Recent", "Older", "Ended"), HomeSection.entries.map { it.label })
-        assertEquals(listOf(false, false, false, true, true), HomeSection.entries.map { it.foldable })
+        assertEquals(listOf("Pinned", "Unread", "Recent", "Older", "Other rooms", "Ended"), HomeSection.entries.map { it.label })
+        assertEquals(listOf(false, false, false, true, false, true), HomeSection.entries.map { it.foldable })
     }
 
     @Test fun `avatar colour follows the first byte of the id modulo eight`() {

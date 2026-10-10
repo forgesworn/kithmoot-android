@@ -130,7 +130,8 @@ fun StartScreen(
         mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey)
     }
     val returning = isReturning(homeRooms, signedIn, state.destructTombstones.size)
-    val sortedIds = remember(homeRooms) { sortByActivity(homeRooms) { null }.map { it.id } }
+    fun activity(room: HomeRoom) = state.latestMessageTimes[room.id]?.let { RoomActivity(it, null, false, 0, 0, emptyList()) }
+    val sortedIds = remember(homeRooms, state.latestMessageTimes) { sortByActivity(homeRooms, ::activity).map { it.id } }
     var previousOrder by rememberSaveable { mutableStateOf<List<String>?>(null) }
     val listState = rememberLazyListState()
     // The full hold-order rule (design-home-rooms.md section 6) also freezes
@@ -142,7 +143,7 @@ fun StartScreen(
     val orderedIds = holdOrder(previousOrder, sortedIds, held)
     SideEffect { previousOrder = orderedIds }
     val now = System.currentTimeMillis() / 1000
-    val freshSections = homeRooms.associate { it.id to sectionOf(it, null, now) }
+    val freshSections = homeRooms.associate { it.id to sectionOf(it, activity(it), now) }
     var previousSections by remember { mutableStateOf<Map<String, HomeSection>?>(null) }
     val sections = holdSections(previousSections, freshSections, held)
     SideEffect { previousSections = sections }
@@ -541,7 +542,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     SectionHeading(section, group.rooms.size, folded = !open, onToggle = { onFoldToggled(section) })
                 }
                 if (open) items(group.rooms, key = { it.id }) { room ->
-                    val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour)
+                    val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour,
+                        latestMessageAt = state.latestMessageTimes[room.id])
                     RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
                         pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
                         privatePeer = room.privatePeer.takeIf { state.publicProfiles },
