@@ -69,8 +69,10 @@ class RecordingPlaybackUiTest {
                 check(metadata.getBoolean("synthetic"))
                 envelope = File(directory, "browser.enc")
                 assets.open("recording/$browserFixture.enc").use { input -> envelope.outputStream().use(input::copyTo) }
-                attachment = ChatAttachment(metadata.getString("url"), metadata.getString("sha256"),
+                val wire = ChatAttachment(metadata.getString("url"), metadata.getString("sha256"),
                     metadata.getString("key"), metadata.getString("name"), metadata.getString("type"), metadata.getLong("size"))
+                attachment = checkNotNull(parseAttachment(wire.toJson()))
+                assertEquals("The received chat message retains codec parameters", wire.type, attachment.type)
             }
             val client = OkHttpClient.Builder().addInterceptor { chain ->
                 contacted.incrementAndGet()

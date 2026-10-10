@@ -60,6 +60,8 @@ fun ChatPane(
     memberPackAvailable: () -> Boolean = { false },
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
+    recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    onRemoveRecordingDraft: (String) -> Unit = {},
     artwork: List<ChatArtwork> = emptyList(),
     onAddArtwork: (ChatArtwork) -> Unit = {},
     onRemoveArtwork: (Int) -> Unit = {},
@@ -395,6 +397,13 @@ fun ChatPane(
             mediaEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK,
             compactSearch = compactArtworkSearch, onSearchChanged = { artworkSearchOpen = it },
         )
+        recordingDrafts.forEach { recording ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Recording draft: ${recording.sealed.name}. Not uploaded.", Modifier.weight(1f), maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                TextButton(enabled = !mediaBusy, onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
+            }
+        }
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
             showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

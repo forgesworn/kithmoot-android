@@ -30,6 +30,22 @@ class KithMootApplication : Application() {
         dev.forgesworn.kithmoot.media.recording.LocalRecordingStore(java.io.File(noBackupFilesDir, "recordings"))
             .apply { recover() }
     }
+    /** Ciphertext drafts and device-wrapped per-file keys never enter backup. */
+    val recordingShareDrafts by lazy {
+        dev.forgesworn.kithmoot.media.recording.RecordingShareDraftStore(
+            java.io.File(noBackupFilesDir, "recording-share-drafts"),
+            EncryptedRoomStorage(this, "kithmoot.recording-drafts.v1"),
+        ).apply { recover() }
+    }
+    fun forgetRecordingsForRoom(room: String) {
+        var failure: Exception? = null
+        try { recordings.forgetRoom(room) } catch (error: Exception) { failure = error }
+        try { recordingShareDrafts.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        failure?.let { throw it }
+    }
     /** A new process removes abandoned private playback files before its first
      * viewer opens. This lazy owner is shared by all activities in the process. */
     val recordingPlaybackCache by lazy {

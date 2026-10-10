@@ -1,13 +1,44 @@
 # Native recording qualification
 
 Android's recording warnings are already part of the room UI. This branch adds
-native audio/video recording controls, capture and local export. The latest
-qualified candidate passed 35 focused JVM tests and all 10 local recording
-emulator checks, including actual gallery selection, signed notices, background
-pause, explicit resume and discard. Live browser/native video, private-node
-sharing UI, physical qualification and signed delivery remain open; this
+native audio/video recording controls, capture and local export. The draft/parser
+candidate passed 18 focused JVM tests and all 14 local recording emulator checks,
+including gallery selection, signed notices, background pause, explicit resume,
+discard and recipient playback of browser recording attachments through the real
+MIME parser. The subsequent Add-to-chat candidate also passed those 18 JVM and
+14 emulator checks, including the explicit Add/Discard/Remove journey.
+Live browser/native video, private-node sharing UI, physical qualification and signed delivery remain open; this
 implementation does not close G11. Historical results below are scoped to their
 recorded source/APK hashes.
+
+## Private recording drafts
+
+Add retains an independently encrypted recording draft in its original room;
+it preserves the local export for Save/Discard. The draft journal uses the
+application's Android Keystore-backed encrypted storage, while only encrypted
+file envelopes are kept in the no-backup draft directory. Reservations are
+process-local: restart removes unfinished envelopes, and Forget rejects late
+encryption completion. Expiry and explicit removal commit recovery-key removal
+before unlinking ciphertext. Journal failures are reported rather than treated
+as successful wipes. The store caps retained and unfinished drafts at four.
+
+The [draft/parser receipt](evidence/native-recording-draft-parser-2026-10-10.json)
+qualifies persistence, revocation, origin binding and wire parsing. It does not
+qualify the later Add navigation UI, Upload or Send. Upload must remain an
+explicit action to a chosen HTTPS origin, followed by a separate explicit Send.
+The sender UI and durable remote deletion remain unfinished. In particular,
+the current private node rejects the existing long-lived signed DELETE tokens;
+a successful immediate transfer does not prove cleanup after Forget or restart.
+
+The [Add journey receipt](evidence/native-recording-add-2026-10-10.json) records
+the later source and APKs. Through the real activity controls it verifies Add
+opens the original chat and retains its original room/call metadata, leaves the
+storage server unselected and upload receipt empty, preserves the local export,
+allows its controls to reopen, and keeps the encrypted draft after local Discard.
+Explicit Remove then deletes that draft. All 14 emulator checks passed in
+104.405 seconds after the build finished. This is synthetic emulator evidence;
+it does not qualify a live call, system Save provider, physical device, Upload,
+Send, or behaviour under concurrent build load.
 
 ## Capture boundary
 

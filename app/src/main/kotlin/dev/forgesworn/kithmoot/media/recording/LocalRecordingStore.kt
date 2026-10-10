@@ -77,6 +77,14 @@ class LocalRecordingStore(private val directory: File, private val now: () -> Lo
         return file
     }
 
+    /** Only the short final draft commit belongs here. Encryption and network
+     * I/O happen outside this lock. Forget cannot revoke the source between
+     * this check and retaining its independently encrypted chat draft. */
+    @Synchronized fun <T> withSelectedExport(name: String, commit: (File, RecordingExportDetails) -> T): T {
+        val file = selectedExport(name)
+        return commit(file, details(file))
+    }
+
     @Synchronized fun begin(format: RecordingFormat = RecordingFormat.AUDIO, origin: RecordingOrigin? = null, discardAt: Long? = null): File {
         check(active == null && pending() == null) { "Save or discard the previous recording first" }
         check(directory.isDirectory || directory.mkdirs()) { "Recording storage is unavailable" }

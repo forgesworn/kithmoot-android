@@ -26,6 +26,7 @@ class RecordingOwnerUiTest {
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
     private lateinit var relay: ProjectTestRelay
+    private var recordingRoom: String? = null
 
     @Before fun setup() {
         Assume.assumeTrue("Disposable emulator only", android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
@@ -52,6 +53,7 @@ class RecordingOwnerUiTest {
             activity.scenario.onActivity { model.stopNativeRecording() }
             ui.await("capture finalisation") { !model.room.value.nativeRecordingBusy }
             app.recordings.export.value?.let { app.recordings.discard(it) }
+            recordingRoom?.let { app.recordingShareDrafts.forgetRoom(it) }
             if (model.stage.value == Stage.ROOM) {
                 activity.scenario.onActivity { model.leave() }
                 ui.await("room closed") { model.stage.value == Stage.START && !model.start.value.busy }
@@ -71,6 +73,7 @@ class RecordingOwnerUiTest {
         ui.click("Start call")
         ui.await("video options on original call") { model.room.value.onCall && model.room.value.recordingVideoDevices.isNotEmpty() && model.room.value.recordingVideoSupported }
         val originalRoom = model.room.value.roomId
+        recordingRoom = originalRoom
         ui.click("Record call")
         ui.click("Gallery with audio")
         ui.await("gallery radio selection") { ui.checked("Gallery with audio") }
@@ -115,8 +118,28 @@ class RecordingOwnerUiTest {
             assertTrue(durations.all { it > 0 })
             assertTrue(kotlin.math.abs(durations[0] - durations[1]) <= 999)
         } finally { extractor.release() }
+        ui.click("Add to original chat")
+        ui.await("encrypted draft in original chat") {
+            app.recordingShareDrafts.list(originalRoom).size == 1 && ui.hasText("Remove draft")
+        }
+        val draft = app.recordingShareDrafts.list(originalRoom).single()
+        assertEquals(details.origin, draft.origin)
+        assertEquals(file.name, draft.sourceName)
+        assertEquals(details.discardAt, draft.discardAt)
+        assertNull("Add must leave the storage server unselected", draft.storageOrigin)
+        assertNull("Add must not upload", draft.uploaded)
+        assertTrue(draft.sealed.file.isFile)
+        assertTrue(draft.sealed.file.canonicalPath.startsWith(app.noBackupFilesDir.canonicalPath + "/"))
+        assertEquals(file, app.recordings.export.value)
+        assertTrue(file.exists())
+        ui.click("Recording ready")
         ui.click("Discard")
         ui.await("explicit discard") { app.recordings.export.value == null }
         assertFalse(file.exists())
+        assertEquals("Discard affects only the local export", draft, app.recordingShareDrafts.list(originalRoom).single())
+        assertTrue(draft.sealed.file.exists())
+        ui.click("Remove draft")
+        ui.await("explicit draft removal") { app.recordingShareDrafts.list(originalRoom).isEmpty() }
+        assertFalse(draft.sealed.file.exists())
     }
 }

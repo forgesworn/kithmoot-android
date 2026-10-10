@@ -293,11 +293,12 @@ class MainActivity : ComponentActivity() {
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,
+                        onOpenRecordingChat = { notificationRoom.value = it },
                     )
                 } else KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
                     val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
                     if (!opened) model.showNotice("Picture-in-picture could not open. You can still zoom in fullscreen.")
-                }) else null, onRoomsKeepingCall = {
+                }) else null, onOpenRecordingChat = { notificationRoom.value = it }, onRoomsKeepingCall = {
                     visitor.borrowAccount(model)
                     visitor.callRoomId = callRoom.roomId
                     visitor.refreshSavedRooms()

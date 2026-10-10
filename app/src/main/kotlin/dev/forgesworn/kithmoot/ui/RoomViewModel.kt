@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.session.sealFile
+
 import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
 import dev.forgesworn.kithmoot.protocol.isSafeRoomRelayUrl
 import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
@@ -532,6 +534,7 @@ data class RoomState(
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
+    val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
     val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
@@ -1008,6 +1011,15 @@ class RoomViewModel @JvmOverloads constructor(
     fun recordingExportDetails(file: java.io.File) = recordingApplication.recordings.details(file)
     private val _recordingExportBusy = MutableStateFlow(false)
     val recordingExportBusy = _recordingExportBusy.asStateFlow()
+    private val _recordingExportError = MutableStateFlow<String?>(null)
+    val recordingExportError = _recordingExportError.asStateFlow()
+    data class RecordingAdded(val sourceName: String, val room: String, val request: Long)
+    private val _recordingAdded = MutableStateFlow<RecordingAdded?>(null)
+    val recordingAdded = _recordingAdded.asStateFlow()
+    private var recordingAddedRequest = 0L
+    fun acknowledgeRecordingAdded(request: Long) {
+        _recordingAdded.update { if (it?.request == request) null else it }
+    }
     /** Screen-share drawing, received over signalling. See session/RoomSession.kt
      *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
     private var shareMarks = ShareMarks()
@@ -1330,6 +1342,17 @@ class RoomViewModel @JvmOverloads constructor(
     fun vmlsJoinBase(): String = selectedWebApp.joinBase
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val drafts = recordingApplication.recordingShareDrafts
+                combine(room.map { it.roomId }.distinctUntilChanged(), drafts.revision) { roomId, _ -> roomId }
+                    .collect { roomId ->
+                        val retained = drafts.list(roomId)
+                        _room.update { if (it.roomId == roomId) it.copy(recordingDrafts = retained) else it }
+                    }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
+        }
         if (!chatOnly) viewModelScope.launch {
             room.collect { value ->
                 notifications.onCall = dev.forgesworn.kithmoot.ui.room.inACall(
@@ -2200,7 +2223,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Out of [roomId] on this screen, and off its call, saying it self-destructed. */
     private suspend fun leaveForDestruct(roomId: String) {
-        try { recordingApplication.recordings.forgetRoom(roomId) }
+        try { recordingApplication.forgetRecordingsForRoom(roomId) }
         catch (failure: Exception) {
             // Metadata/storage failure still revokes in-memory retention and
             // must not leave the destroyed room's capture running locally.
@@ -2703,6 +2726,7 @@ class RoomViewModel @JvmOverloads constructor(
         savedRooms.get(id)?.let {
             closingKeeper?.join()
             forgetNativeStores(it)
+            recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
@@ -2757,6 +2781,7 @@ class RoomViewModel @JvmOverloads constructor(
             readable.forEach(::forgetNativeStores)
             linkConsents.reset()
             readable.forEach { saved ->
+                recordingApplication.forgetRecordingsForRoom(saved.id)
                 RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
                 dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
@@ -5905,6 +5930,70 @@ class RoomViewModel @JvmOverloads constructor(
             try { recordingExport.value?.let { recordingApplication.recordings.discard(it) } }
             catch (error: Exception) { note(error.message ?: "The local recording could not be removed.") }
             finally { recordingExportMutex.unlock() }
+        }
+    }
+
+    /** Add retains an independently encrypted draft, never an upload or a
+     * message. The original local Save/Discard export remains available. */
+    fun addRecordingToOriginalChat(sourceName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!recordingExportMutex.tryLock()) return@launch
+            _recordingExportBusy.value = true
+            _recordingExportError.value = null
+            var ticket: dev.forgesworn.kithmoot.media.recording.RecordingDraftTicket? = null
+            var retained = false
+            try {
+                val exports = recordingApplication.recordings
+                val file = exports.selectedExport(sourceName)
+                val details = exports.details(file)
+                val origin = checkNotNull(details.origin) { "This export has no original chat; save a local copy instead" }
+                check(savedRooms.get(origin.room) != null) { "The original chat is no longer saved on this phone" }
+                val drafts = recordingApplication.recordingShareDrafts
+                val existing = drafts.list(origin.room).firstOrNull { it.sourceName == sourceName && it.origin == origin }
+                if (existing == null) {
+                    val reservation = drafts.begin(origin, sourceName, details.discardAt).also { ticket = it }
+                    val sealed = sealFile(file, reservation.destination,
+                        "KithMoot-call-${java.time.LocalDate.now()}.${details.format.extension}", details.format.mime)
+                    ensureActive()
+                    exports.withSelectedExport(sourceName) { selected, current ->
+                        check(selected == file && current == details && savedRooms.get(origin.room) != null) { "The original recording or room changed while adding" }
+                        drafts.complete(reservation, sealed)
+                    }
+                } else {
+                    exports.withSelectedExport(sourceName) { selected, current ->
+                        check(selected == file && current == details && savedRooms.get(origin.room) != null)
+                        check(drafts.selected(existing.id, origin.room) == existing)
+                    }
+                }
+                retained = true
+                withContext(Dispatchers.Main) {
+                    _recordingAdded.value = RecordingAdded(sourceName, origin.room, ++recordingAddedRequest)
+                    note("Recording added privately to its original chat. Nothing has been uploaded or sent.")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _recordingExportError.value = "Recording could not be added: ${failure.message ?: "private storage unavailable"}."
+            } finally {
+                if (!retained) ticket?.let { pending ->
+                    runCatching { recordingApplication.recordingShareDrafts.abandon(pending) }
+                        .onFailure { _recordingExportError.value = "The unfinished encrypted draft could not be removed. The local export has been kept." }
+                }
+                _recordingExportBusy.value = false
+                recordingExportMutex.unlock()
+            }
+        }
+    }
+
+    fun removeRecordingDraft(id: String) {
+        val room = _room.value.roomId
+        if (_room.value.mediaBusy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val draft = recordingApplication.recordingShareDrafts.selected(id, room)
+                if (draft.storageOrigin != null) dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = draft.sealed.hash)
+                recordingApplication.recordingShareDrafts.remove(id, room)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (_room.value.roomId == room) note("Recording draft could not be removed: ${failure.message ?: "storage unavailable"}") }
         }
     }
 
