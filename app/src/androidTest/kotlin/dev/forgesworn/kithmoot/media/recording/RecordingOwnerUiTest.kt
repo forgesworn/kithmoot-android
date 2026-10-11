@@ -71,6 +71,41 @@ class RecordingOwnerUiTest {
         if (::relay.isInitialized) relay.close()
     }
 
+    @Test fun participant_without_room_owner_key_can_record_and_export_call_audio() {
+        val link = dev.forgesworn.kithmoot.protocol.encodeJoinUrl("https://kithmoot.app/j/",
+            ByteArray(32) { 63 }, listOf(relay.url))
+        activity.scenario.onActivity { model.joinFromUrl(link) }
+        ui.room()
+        ui.await("member media ready without room ownership") {
+            !model.room.value.mediaStarting && model.room.value.recordingAllowed
+        }
+        assertFalse(model.room.value.meetingModerator)
+        recordingRoom = model.room.value.roomId
+        ui.click("Start call"); ui.await("member call joined") { model.room.value.onCall }
+        ui.click("Record call"); ui.click("Start recording")
+        ui.await("member warning confirmed before capture") {
+            model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy && model.room.value.recording is RecordingView.On
+        }
+        assertEquals("audio", model.room.value.recordingCapture?.capture)
+        SystemClock.sleep(1200)
+        ui.click("Stop recording")
+        ui.await("member clip retained and own warning stopped") {
+            app.recordings.export.value?.isFile == true && !model.room.value.nativeRecordingBusy &&
+                model.room.value.recording == RecordingView.Off && !model.room.value.recordingStopPending
+        }
+        val extractor = MediaExtractor()
+        try {
+            extractor.setDataSource(requireNotNull(app.recordings.export.value).absolutePath)
+            assertEquals(1, extractor.trackCount)
+            assertEquals("audio/mp4a-latm", extractor.getTrackFormat(0).getString(MediaFormat.KEY_MIME))
+            extractor.selectTrack(0)
+            var samples = 0
+            while (extractor.sampleTime >= 0) { samples++; if (!extractor.advance()) break }
+            assertTrue("The actual AAC export must contain recorded samples", samples > 3)
+        } finally { extractor.release() }
+        assertFalse(model.room.value.meetingModerator)
+    }
+
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
         ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }

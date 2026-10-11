@@ -43,7 +43,7 @@ class LiveRecordingPublicationTest {
         assertEquals(state().recording.notice, recorder.liveRecording.value!!.state.recording.notice)
         recorder.announce()
         val entry = decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, currentTime / 1000)!!
-        assertEquals(3, entry.recordingProfile)
+        assertEquals(4, entry.recordingProfile)
         assertEquals(state().capture!!.notice, entry.liveRecording!!.capture!!.notice)
         assertTrue(verifyLiveRecordingState(room.roomId, entry.liveRecording!!, owner.participant))
         assertTrue(recorder.publishLiveRecordingConfirmed(state(on = false, version = 18)))

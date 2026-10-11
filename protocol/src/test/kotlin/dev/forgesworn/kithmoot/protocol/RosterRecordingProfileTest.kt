@@ -13,7 +13,7 @@ class RosterRecordingProfileTest {
     @Test fun `supported numeric capabilities survive and legacy JSON remains unchanged`() {
         val baseline = entry.toJson()
         assertNull(baseline["recordingProfile"])
-        for (text in listOf("null", "true", "\"2\"", "1", "4", "{}", "[]")) {
+        for (text in listOf("null", "true", "\"2\"", "1", "5", "{}", "[]")) {
             val fields = baseline.toMutableMap()
             fields["recordingProfile"] = Json.parseToJsonElement(text)
             val decoded = RosterEntry.fromJson(JsonObject(fields))
@@ -21,6 +21,7 @@ class RosterRecordingProfileTest {
             assertEquals(baseline, decoded.toJson())
         }
         assertEquals(3, RosterEntry.fromJson(entry.copy(recordingProfile = 3).toJson()).recordingProfile)
+        assertEquals(4, RosterEntry.fromJson(entry.copy(recordingProfile = 4).toJson()).recordingProfile)
         for (text in listOf("2", "2.0", "2e0")) {
             val fields = baseline.toMutableMap()
             fields["recordingProfile"] = Json.parseToJsonElement(text)

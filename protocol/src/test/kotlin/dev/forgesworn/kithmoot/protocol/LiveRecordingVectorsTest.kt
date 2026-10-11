@@ -22,8 +22,11 @@ class LiveRecordingVectorsTest(private val name: String, private val row: JsonOb
             state?.let { verifyLiveRecordingState(text("verificationRoom"), it, text("authority")) } == true)
         val event = NostrEvent.fromJson(row.getValue("event").jsonObject)
         val decoded = requireNotNull(decodeRosterEvent(event, text("roomId"), text("roomKeyHex").hexToBytes(), raw.getValue("updatedAt").jsonPrimitive.long))
-        assertEquals("complete decoded JSON for $name", expected.getValue("entry"), decoded.toJson())
-        assertEquals("live authority for $name", expected.getValue("liveAuthorised").jsonPrimitive.boolean,
+        // This published fixture predates profile 4. Keep its signed bytes
+        // verbatim, and explicitly verify the newly supported capability.
+        val newlySupported = name == "unknown-profile-drops-live" && raw["recordingProfile"] == JsonPrimitive(4)
+        assertEquals("complete decoded JSON for $name", if (newlySupported) raw else expected.getValue("entry"), decoded.toJson())
+        assertEquals("live authority for $name", newlySupported || expected.getValue("liveAuthorised").jsonPrimitive.boolean,
             decoded.liveRecording?.let { verifyLiveRecordingState(text("verificationRoom"), it, text("authority")) } == true)
         val model = RosterEntry.fromJson(raw)
         if (model.toJson() == raw) {
