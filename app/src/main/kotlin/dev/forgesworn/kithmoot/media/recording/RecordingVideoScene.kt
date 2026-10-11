@@ -68,7 +68,11 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         val add = mutableListOf<Input>()
         synchronized(this) {
             if (stopped || disposed) return
-            plan = next; version++
+            // Call/roster collectors can repeat an unchanged plan while media
+            // continues. Reconcile track identity every time, but redraw and
+            // upload the full caption bitmap only when its content changes.
+            if (plan.origin != next.origin || plan.slots != next.slots) version++
+            plan = next
             val slots = next.slots.mapNotNull { slot -> slot.source?.let { it to slot } }.toMap()
             for (old in inputs.values.toList()) {
                 val slot = slots[old.key]
