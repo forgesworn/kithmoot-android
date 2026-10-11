@@ -17,6 +17,19 @@ source completion. Closure leaves ordinary chat blocked while guarded original
 control remains available; rejecting a new closed-room operation does not stop
 the courier.
 
+Recovery of a retained rekey uses the ordinary authenticated receiver without
+placing a second transition hold first. A relay echo may commit the exact
+original while recovery waits for the receiver mutex. A late hold would move
+that already active receiver back into Updating and make recovery fail. The
+receiver remains responsible for its barrier, durable commit and exact-event
+checks; preparing a new rekey still holds ordinary chat before signing.
+
+The controlled echo regression pauses the receiver gate, starts recovery and
+then releases the echo. It checks Internet, Nearby and mixed routes, the exact
+original and activation causes, one receiver gate entry, durable writes,
+retained transport debt and fresh chat after adoption. This is an in-process
+race check; process-death and physical-device acceptance remain separate gates.
+
 Internet authority request subscriptions admit at most three locally spaced
 copies of a request ID and collapse simultaneous relay copies. Normal room/chat
 subscriptions retain their existing deduplication. Stable-room answer dispatch
