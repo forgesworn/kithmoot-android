@@ -21,7 +21,7 @@ class SharedProjectsUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     // Scroll the app's accessible containers. Whole-window swipe fallbacks
     // can pull down Android's notification shade instead of revealing a card.
-    private val ui = RecoveryUi(useSwipeFallback = false)
+    private val ui = RecoveryUi(useSwipeFallback = false, declineBackgroundBatteryAsk = true)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
     private var server: ProjectTestRelay? = null
@@ -44,10 +44,10 @@ class SharedProjectsUiTest {
     }
     private fun confirmed() = ui.await("project publication") { !model.start.value.projectsBusy && model.start.value.projects.pendingSends == 0 }
     private fun project(name: String) = model.start.value.projects.projects.single { it.name == name }
-    private fun create(name: String, person: LocalSigner, bot: LocalSigner, room: Boolean = false) {
+    private fun create(name: String, person: LocalSigner, bot: LocalSigner, room: Boolean = false, roomName: String = "Build room") {
         ui.click("New project"); ui.replace("Project name", name)
         ui.replace("People's npubs", npubOf(person.pubkey)); ui.replace("Agents' npubs", npubOf(bot.pubkey))
-        if (room) ui.click("Share Build room with project")
+        if (room) ui.click("Share $roomName with project")
         ui.click("Save project")
         ui.await("saved $name") { model.start.value.projects.projects.any { it.name == name } }
         confirmed()
@@ -200,6 +200,68 @@ class SharedProjectsUiTest {
         assertEquals(original.definition!!.getValue("members"), updated.definition!!.getValue("members"))
         assertNull("Shared project assignment must not silently become a local label", app.savedRooms.get(saved.id)!!.project)
         screenshot("project-room-assignment.png")
+    }
+
+    @Test fun project_room_logo_override_and_call_origin_survive_browsing_another_project() {
+        val relay = ProjectTestRelay().also { server = it }
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        ui.home()
+        if (app.accounts.load() != null) {
+            ui.await("previous saved account") { model.start.value.account != null }
+            activity.scenario.onActivity { model.signOut() }; ui.await("previous account closed") { model.start.value.account == null }
+        }
+        resetProjectTestVault(app, owner); resetProjectTestVault(app, member)
+        app.savedRooms.reset(); activity.scenario.onActivity { model.refreshSavedRooms() }
+        asAccount(1, relay)
+        for (name in listOf("Build room", "Other room")) {
+            ui.click("New room"); ui.replace("Room name (optional)", name); ui.click("Start a room"); ui.room()
+            ui.click("Leave room"); ui.home()
+        }
+        ui.click("Projects"); create("Project Alpha", member, agent, room = true)
+        create("Project Beta", member, agent, room = true, roomName = "Other room")
+        val alpha = project("Project Alpha"); val beta = project("Project Beta")
+        val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
+            .bufferedReader().use { Json.parseToJsonElement(it.readText()) }.jsonObject.getValue("vectors").jsonArray
+            .mapNotNull { LogoImages.read(it.jsonObject["payload"]) }.first()
+        var edit: dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? = null
+        activity.scenario.onActivity { edit = model.openProjectLogoEditor(alpha) }
+        runBlocking { requireNotNull(edit).save(image) { true } }
+        ui.await("project artwork committed") { project("Project Alpha").logo?.sha256 == image.sha256 }; confirmed()
+        ui.click("Open Build room in Project Alpha"); ui.room()
+        ui.await("project selected in room header") { ui.hasText("Project Alpha") }
+        assertEquals(alpha.reference, model.room.value.projectContext); assertNull(model.room.value.logo)
+        activity.scenario.onActivity { edit = model.openRoomLogoEditor() }
+        runBlocking { requireNotNull(edit).save(image) { true } }
+        ui.await("room override committed") { model.room.value.logo?.sha256 == image.sha256 }
+        activity.scenario.onActivity { edit = model.openRoomLogoEditor() }
+        runBlocking { requireNotNull(edit).save(null) { true } }
+        ui.await("room override removed") { model.room.value.logo == null }
+        assertEquals(image.sha256, project("Project Alpha").logo?.sha256)
+        screenshot("project-room-inherited-logo.png")
+        activity.scenario.onActivity { model.joinCall(micOn = false) }
+        ui.await("actual call membership captures project") { model.room.value.onCall && model.room.value.callProjectContextCaptured }
+        assertEquals(alpha.reference, model.room.value.callProjectContext)
+        assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
+        val callRoom = model.room.value.roomId
+        ui.click("Leave room"); ui.home(); ui.click("Projects")
+        var visitor: RoomViewModel? = null
+        activity.scenario.onActivity { visitor = ViewModelProvider(it).get("chat-only", RoomViewModel::class.java) }
+        ui.click("Open Other room in Project Beta")
+        ui.await("other project room beside originating call") {
+            visitor?.stage?.value == Stage.ROOM && visitor?.room?.value?.roomId == beta.roomChoices().single().room &&
+                visitor?.room?.value?.projectContext == beta.reference && ui.hasText("Project Beta") && ui.hasText("Back to the call")
+        }
+        assertEquals(callRoom, model.room.value.roomId); assertTrue(model.room.value.onCall)
+        assertEquals(alpha.reference, model.room.value.callProjectContext)
+        assertTrue(ui.hasText("Project Alpha")); assertTrue(ui.hasText("Other room"))
+        assertNotEquals(alpha.reference, beta.reference)
+        screenshot("project-call-origin-beside-other-room.png")
+        ui.click("Back to the call")
+        ui.await("returned to originating project room") { ui.hasText("Build room") && !ui.hasText("Back to the call") }
+        assertEquals(alpha.reference, model.room.value.callProjectContext)
+        activity.scenario.onActivity { model.leaveCall() }
+        ui.await("explicit leave clears captured call project") { !model.room.value.onCall && !model.room.value.callProjectContextCaptured }
+        assertNull(model.room.value.callProjectContext)
     }
 
     @Test fun project_logo_owner_scope_private_delivery_restart_and_explicit_removal() {

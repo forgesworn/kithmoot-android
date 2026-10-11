@@ -2,11 +2,13 @@ package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -17,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -35,6 +38,7 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
     // Mute keeps the microphone running and says so separately; either way
     // nobody hears this device.
     val heard = call.micOn && !call.micMuted
+    val regular = !call.anonymous && !call.quiet && !call.privateConversation && !call.conferenceEnded
     val room = call.name.ifBlank { "your room" }
     val summary = when {
         !call.onCall -> "Still in $room."
@@ -44,7 +48,15 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
     }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(summary, style = MaterialTheme.typography.titleSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (regular)
+                    PrivateLogo(call.logo ?: call.projectBrand?.image, room, Modifier.size(28.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(summary, style = MaterialTheme.typography.titleSmall)
+                    call.projectBrand?.takeIf { regular }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall) }
+                }
+            }
             RecordingBanner(call.recording, description = recordingCaptureDescription(call))
             FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (call.onCall) FilledTonalButton(

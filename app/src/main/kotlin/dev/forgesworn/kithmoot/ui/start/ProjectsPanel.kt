@@ -125,6 +125,9 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
                                 if (rooms.isEmpty()) Text("No rooms shared yet.")
                                 for (room in rooms) OutlinedButton({ actions.open(project, room) }, enabled = enabled,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Open ${room.name} in ${project.name}" }) {
+                                    PrivateLogo(dev.forgesworn.kithmoot.ui.room.projectShortcutLogo(room, project.reference, state),
+                                        room.name, Modifier.size(24.dp))
+                                    Spacer(Modifier.width(8.dp))
                                     Text(room.name)
                                 }
                             }

@@ -12,7 +12,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
-internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
+internal class RecoveryUi(private val useSwipeFallback: Boolean = true,
+    private val declineBackgroundBatteryAsk: Boolean = false) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
     fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
@@ -36,6 +37,11 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     private fun declineNotificationAsk(): Boolean {
         if (nodes().any { it.text?.toString() == "Know when someone writes" }) {
             button("Not now")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        // Call journeys can surface this OS question during teardown. This
+        // explicit fixture choice denies the exception; it never grants one.
+        if (declineBackgroundBatteryAsk && nodes().any { it.text?.toString() == "Let app always run in background?" }) {
+            button("Deny")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
         return false
     }

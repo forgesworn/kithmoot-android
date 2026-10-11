@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
                 var visiting by rememberSaveable { mutableStateOf(false) }
                 val callStage by model.stage.collectAsState()
                 val callRoom by model.room.collectAsState()
+                val callAccount by model.start.collectAsState()
                 val visitorStage by visitor.stage.collectAsState()
                 // With the call gone and the visited room closed, there is only
                 // one instance left worth showing.
@@ -286,7 +287,9 @@ class MainActivity : ComponentActivity() {
                         visitor,
                         accountModel = model,
                         dock = if (callStage == Stage.ROOM) ({
-                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom, onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave)
+                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom.copy(projectBrand =
+                                dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(callRoom, callAccount)),
+                                onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave)
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,
