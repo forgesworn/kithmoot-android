@@ -200,6 +200,7 @@ jobs:
             python3 scripts/check-native-retirement-restart-emulator.py reserved-before-offer
             python3 scripts/check-native-retirement-restart-emulator.py offered-before-archive
             python3 scripts/check-native-retirement-restart-emulator.py archive-before-hint
+            bash scripts/check-recording-stop-restart-emulator.sh
 
       - name: Keep emulator reports
         if: always()
@@ -213,6 +214,7 @@ jobs:
             app/build/reports/native-rekey-before-restart-emulator/
             app/build/reports/native-rekey-after-restart-emulator/
             app/build/reports/native-retirement-*-restart-emulator/
+            app/build/reports/native-recording-stop-restart/
           if-no-files-found: warn
           retention-days: 7
 

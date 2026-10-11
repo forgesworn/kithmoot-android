@@ -15,6 +15,18 @@ import androidx.test.platform.app.InstrumentationRegistry
 internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
+    /** Confirm the chosen radio option before the next accessibility action. */
+    fun checked(label: String): Boolean {
+        var node = nodes().firstOrNull { it.text?.toString() == label }
+        while (node != null) {
+            if (node.isCheckable) return node.isChecked
+            if (node.isClickable) return node.isSelected || (0 until node.childCount)
+                .mapNotNull(node::getChild).any { it.isCheckable && it.isChecked }
+            node = node.parent
+        }
+        return false
+    }
+
     fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (!declineNotificationAsk() && !predicate()) {
@@ -51,6 +63,7 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     }
 
     fun hasText(text: String) = nodes().any { it.isVisibleToUser && it.text?.toString() == text }
+    fun enabled(text: String) = button(text)?.isEnabled == true
     fun hasDescription(text: String) = nodes().any { it.isVisibleToUser && it.contentDescription?.toString() == text }
 
     fun descriptionBounds(text: String): Rect = Rect().also { bounds ->

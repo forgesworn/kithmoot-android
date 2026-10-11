@@ -77,6 +77,32 @@ class PendingChatOutbox(
         write(items + Pending(epochId, event, PendingChatState.WAITING, editable, text, messageId))
     } }
 
+    /** Transfer an already signed, durably owned message without signing a
+     * replacement on retry. An existing row keeps its delivery state, including
+     * UNKNOWN or MOVED. The caller's synchronous guard must hold its draft
+     * owner across the storage commit, so Forget cannot precede a late write.
+     * No network action occurs here. */
+    suspend fun retainPrepared(item: Pending, commitGuard: ((() -> Unit) -> Unit) = { it() }): Pending =
+        gate.withLock { withContext(Dispatchers.IO) {
+            require(item.state == PendingChatState.WAITING) { "A prepared message must start unsent" }
+            verified(item.event)
+            val items = read()
+            val existing = items.firstOrNull { it.event.id == item.event.id }
+            if (existing != null) {
+                require(existing.copy(state = item.state) == item) { "The retained message does not match its prepared owner" }
+            } else {
+                check(items.size < MAX_ITEMS) { "Too many messages are waiting on this phone. Let some send, or remove some, first." }
+            }
+            var committed = false
+            commitGuard {
+                check(!committed) { "A message handoff may commit only once" }
+                if (existing == null) write(items + item)
+                committed = true
+            }
+            check(committed) { "The prepared message was not handed to the outbox" }
+            existing ?: item
+        } }
+
     /**
      * Records what became of a message. [UNKNOWN] is sticky: a later refusal does
      * not clear the chance that an earlier attempt arrived, and a changed room

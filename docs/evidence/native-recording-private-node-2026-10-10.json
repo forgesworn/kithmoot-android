@@ -1,0 +1,236 @@
+{
+  "captured_at_utc": "2026-10-10T17:39:53.939422+00:00",
+  "production_ready": false,
+  "scope": "Exact Android streaming transfer source compiled with Kotlin 2.0.21, synthetic playable gallery MP4, bundled Wildbloom daemon behind loopback test TLS proxy. No app UI, physical or public network claim.",
+  "transfer": {
+    "passed": true,
+    "synthetic": true,
+    "https": true,
+    "missingAuthorityDenied": true,
+    "wrongServerDenied": true,
+    "uploaded": true,
+    "downloadHashVerified": true,
+    "wrongKeyNoPlaintext": true,
+    "deletedAndHeadMissing": true,
+    "envelopeSha256": "5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+    "plaintextSha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76"
+  },
+  "fixture_header_override": false,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/AttachmentUpload.kt": "d4548e31aa4f070822a04f98d5088818f7728ff5d7602627a6f804aea1182cdb",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/FileAttachment.kt": "81c5ce4f163b00acfd4926ba1840ecab148109dea46f71da72ddf1b10c2cf96f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/ChatAttachment.kt": "c709938187121679c281ddb15d541d23fc807796a80c2c27b0de296ee1bbaeea"
+  },
+  "class_sha256": {
+    "dev/forgesworn/kithmoot/session/AttachmentUploadKt$uploadFileMedia$body$1.class": "e4b1b9f937fcc9a44488050e5d02c9e90ce6f188465b8ac5a8db2e65a24aadf3",
+    "dev/forgesworn/kithmoot/session/ChatAttachment.class": "f630862dc1de06d6d7582f9eb0e9954b9586bb296b83a6c70c59335e2f5bfec0",
+    "dev/forgesworn/kithmoot/session/FileAttachmentKt.class": "0956b6e84975d028c14e318a6b2399f6fa3765dbbdd1ca752ce76574b5cec070",
+    "dev/forgesworn/kithmoot/session/OpenedAttachment.class": "b7cbd2db940a76ad17532e2e1cdbf37968b12677a0d7f88f303d1d8b795ee3fc",
+    "dev/forgesworn/kithmoot/session/OpenedFile.class": "191105afe603bcf4ca488b526017032e931c5f4e6c0902341d926c6c7b05cb10",
+    "dev/forgesworn/kithmoot/session/SealedFile.class": "5ce65cb23a914f2ef55e47d57438db64fa558ab8ab32a74df5aafab25324715f",
+    "dev/forgesworn/kithmoot/session/ChatAttachmentKt.class": "ae27234278b202415ea19427569a816985cef97421afd7c11238d5ddabb6f206",
+    "dev/forgesworn/kithmoot/session/AttachmentUploadKt.class": "1130202952734babbf3b1ea008279ccc48ae770341ac5a22318cdc1ed54cd0ae",
+    "dev/forgesworn/kithmoot/session/SealedMedia.class": "c07ac09fac4423eec153ec28039c38ffadaf0e748842d02a02421a5f681390b3"
+  },
+  "daemon_sha256": "5be2323f969ef57c61ab1437e8c95b0243835db108f73ccd54b95e4e06ac49fc",
+  "fixture_sha256": {
+    "PrivateRecording.java": "a7b5bb5f59d8605062f6d243519e36745f1c9ff00bd9b661a10983ebb396bd55",
+    "serve.mjs": "9e004d07b200bcd8e0eeacfd5778e6cc0eb7acb752baf9f17bc6b3b48ede14ee"
+  },
+  "request_statuses": [
+    {
+      "ordinal": 14,
+      "method": "PUT",
+      "path": "/upload",
+      "status": 401
+    },
+    {
+      "ordinal": 15,
+      "method": "PUT",
+      "path": "/upload",
+      "status": 401
+    },
+    {
+      "ordinal": 16,
+      "method": "PUT",
+      "path": "/upload",
+      "status": 201
+    },
+    {
+      "ordinal": 17,
+      "method": "GET",
+      "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+      "status": 200
+    },
+    {
+      "ordinal": 18,
+      "method": "GET",
+      "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+      "status": 200
+    },
+    {
+      "ordinal": 19,
+      "method": "DELETE",
+      "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+      "status": 200
+    },
+    {
+      "ordinal": 20,
+      "method": "HEAD",
+      "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+      "status": 404
+    }
+  ],
+  "decode_verified": true,
+  "open": [
+    "Origin-bound Add/Upload/Send app controls",
+    "Recipient explicit Show and player",
+    "Durable deletion authorisation for room expiry",
+    "Live browser/native video",
+    "Full current-main CI",
+    "Physical endurance/interruption qualification",
+    "Signed production delivery"
+  ],
+  "current_node": {
+    "passed": true,
+    "binary_sha256": "7f12e5677d4b1842a0054e6fb761fb611d44d93e6720c2387a5fce199dce566f",
+    "source_commit": "4474ce194888b039f14cf7001e2eab43305b2c9c",
+    "cargo_lock_sha256": "28750981e87e80a29963add4fc60ca14e60eb09b8b6afbaf75b86507ec9ce798",
+    "requests": [
+      {
+        "ordinal": 1,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 401
+      },
+      {
+        "ordinal": 2,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 401
+      },
+      {
+        "ordinal": 3,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 201
+      },
+      {
+        "ordinal": 4,
+        "method": "GET",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+        "status": 200
+      },
+      {
+        "ordinal": 5,
+        "method": "GET",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+        "status": 200
+      },
+      {
+        "ordinal": 6,
+        "method": "DELETE",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 200
+      },
+      {
+        "ordinal": 7,
+        "method": "HEAD",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 404
+      }
+    ],
+    "transfer": {
+      "passed": true,
+      "synthetic": true,
+      "https": true,
+      "missingAuthorityDenied": true,
+      "wrongServerDenied": true,
+      "uploaded": true,
+      "downloadHashVerified": true,
+      "wrongKeyNoPlaintext": true,
+      "deletedAndHeadMissing": true,
+      "envelopeSha256": "5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+      "plaintextSha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76"
+    },
+    "fixture_header_override": false
+  },
+  "android_build": {
+    "successful": true,
+    "elapsed": "3m 37s",
+    "focused_jvm": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0
+    },
+    "compile_jar_sha256": "fb73e6b184a458a72e9f33cb404cead09b5b578db54e3602dc45f2f53bf9adae",
+    "apk_sha256": "adb40bb2446ad9cc93809acc2d84c380dea2d41ed3e3ad55a3caa8fcbfc7fc6c",
+    "source_test_sha256": "e4292afef2fcebb431bfe16ed0cc8694446387549932d099fe51bbf8e6083f54"
+  },
+  "gradle_classes_transfer": {
+    "passed": true,
+    "fixture_header_override": false,
+    "wrong_key_failure": "AEADBadTagException",
+    "transfer": {
+      "passed": true,
+      "synthetic": true,
+      "https": true,
+      "missingAuthorityDenied": true,
+      "wrongServerDenied": true,
+      "uploaded": true,
+      "downloadHashVerified": true,
+      "wrongKeyNoPlaintext": true,
+      "deletedAndHeadMissing": true,
+      "envelopeSha256": "5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+      "plaintextSha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76"
+    },
+    "request_statuses": [
+      {
+        "ordinal": 1,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 401
+      },
+      {
+        "ordinal": 2,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 401
+      },
+      {
+        "ordinal": 3,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 201
+      },
+      {
+        "ordinal": 4,
+        "method": "GET",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+        "status": 200
+      },
+      {
+        "ordinal": 5,
+        "method": "GET",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c.bin",
+        "status": 200
+      },
+      {
+        "ordinal": 6,
+        "method": "DELETE",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 200
+      },
+      {
+        "ordinal": 7,
+        "method": "HEAD",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 404
+      }
+    ],
+    "fixture_sha256": {
+      "PrivateRecording.java": "9b83f6da421f4b299d9bf55318e03e113e6845be81f292c173e401ee3256fc2b",
+      "serve.mjs": "0ad711146595358f5d1e9a2d229e30404b955da6b79aa1ed21c9ececc72d24b9"
+    }
+  }
+}

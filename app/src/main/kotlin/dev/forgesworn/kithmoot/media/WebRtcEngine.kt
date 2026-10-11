@@ -8,6 +8,13 @@ import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2_ENABLED
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.media.recording.CallAudioCapture
+import dev.forgesworn.kithmoot.media.recording.AacRecordingFile
+import dev.forgesworn.kithmoot.media.recording.ComposedAvRecordingFile
+import dev.forgesworn.kithmoot.media.recording.RecordingVideoScene
+import dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan
+import dev.forgesworn.kithmoot.media.recording.RecordingVideoKey
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -148,6 +155,11 @@ class WebRtcEngine(
      * [dispose] gives them back.
      */
     private val playbackAudio = PlaybackAudio()
+    private val recordingLock = Any()
+    @Volatile private var audioRecording: CallAudioCapture? = null
+    private var recordingVideo: RecordingVideoScene? = null
+    private var recordingInputs: Map<AudioTrack, Double> = emptyMap()
+    private var recordingLocalAllowed = false
     private val audioDevice: JavaAudioDeviceModule
     val localMedia: LocalMedia
     val audioRouting = CallAudioRouting(context)
@@ -221,6 +233,10 @@ class WebRtcEngine(
                 // cue follows this person's voice rather than a shared video.
                 if (format == android.media.AudioFormat.ENCODING_PCM_16BIT) runCatching { microphoneLevel.addPcm16(buffer, bytes) }
                 playbackAudio.fill(buffer, format, channels, rate, bytes)
+                // The buffer now contains exactly the outgoing, post-mute
+                // microphone/app mix. Never tap the raw microphone above.
+                val bits = if (format == android.media.AudioFormat.ENCODING_PCM_16BIT) 16 else 0
+                audioRecording?.localSamples(buffer, bits, rate, channels, if (channels > 0) bytes / (2 * channels) else 0)
                 timestamp
             }
             .setUseHardwareAcousticEchoCanceler(true)
@@ -240,6 +256,71 @@ class WebRtcEngine(
     fun setCallActive(active: Boolean) {
         synchronized(lock) { callActive = active }
         if (active) engineScope.launch(MediaDispatcher) { reconcile(session.remoteDevices.value) } else stop()
+    }
+
+    /** Use the same authorised inputs and gains as local call playback.
+     * Called by the room owner whenever roster, hold or meeting policy changes. */
+    fun setRecordingInputs(remote: Map<AudioTrack, Double>, localAllowed: Boolean) {
+        synchronized(recordingLock) {
+            recordingInputs = if (callActive) remote.toMap() else emptyMap()
+            recordingLocalAllowed = callActive && localAllowed
+            audioRecording?.setInputs(recordingInputs, recordingLocalAllowed)
+        }
+    }
+
+    /** The caller must first confirm the room's signed notice. No discovery,
+     * upload or public metadata publication is initiated by local capture. */
+    fun startAudioRecording(file: File): CallAudioCapture =
+        synchronized(recordingLock) {
+            check(callActive) { "Join the call before recording" }
+            check(audioRecording == null) { "This device is already recording" }
+            val capture = CallAudioCapture(file, output = { AacRecordingFile(it) })
+            try {
+                capture.setInputs(recordingInputs, recordingLocalAllowed)
+                audioRecording = capture
+                capture
+            } catch (error: Throwable) { capture.discard(); throw error }
+        }
+
+    fun startVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>): CallAudioCapture =
+        synchronized(recordingLock) {
+            check(callActive && audioRecording == null) { "The original call is unavailable or already recording" }
+            val scene = RecordingVideoScene(plan)
+            val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) }) }
+                catch (error: Throwable) { scene.dispose(); throw error }
+            try {
+                capture.setInputs(recordingInputs, recordingLocalAllowed)
+                scene.setPlan(plan, tracks)
+                recordingVideo = scene
+                audioRecording = capture
+                capture
+            } catch (error: Throwable) { capture.discard(); throw error }
+        }
+
+    fun updateRecordingVideo(capture: CallAudioCapture, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>) =
+        synchronized(recordingLock) { if (audioRecording === capture) recordingVideo?.setPlan(plan, tracks); Unit }
+
+    fun revokeRecordingVideo(key: RecordingVideoKey? = null, reason: String = "Video unavailable") =
+        synchronized(recordingLock) { recordingVideo?.revoke(key, reason); Unit }
+
+    /** Detach ownership before asynchronous finalisation. The returned capture
+     * must be finished or discarded by the caller; engine teardown cannot
+     * race it into a second export or remove its completed file. */
+    fun takeAudioRecording(): CallAudioCapture? = synchronized(recordingLock) {
+        recordingVideo = null
+        audioRecording.also { audioRecording = null; it?.detachInputs() }
+    }
+
+    fun audioRecordingError(): Throwable? = audioRecording?.error()
+
+    private fun discardAudioRecording() {
+        val capture = synchronized(recordingLock) {
+            recordingVideo = null
+            recordingInputs = emptyMap()
+            recordingLocalAllowed = false
+            audioRecording.also { audioRecording = null }
+        }
+        runCatching { capture?.discard() }.onFailure { Log.e("KithMootRecording", "Discard failed", it) }
     }
 
     /**
@@ -327,6 +408,7 @@ class WebRtcEngine(
     /** Tears down every connection and every capturer. */
     fun stop() {
         synchronized(lock) { callActive = false }
+        discardAudioRecording()
         closeLinks()
         localMedia.releaseAll()
         audioRouting.close()
@@ -340,6 +422,7 @@ class WebRtcEngine(
      * is nobody's to release but ours.
      */
     fun dispose() {
+        discardAudioRecording()
         closeLinks()
         localMedia.releaseAll()
         audioRouting.close()
@@ -921,14 +1004,16 @@ class WebRtcEngine(
          * says so, even though the receiver and its track linger.
          */
         private fun refreshRemoteTracks() {
-            if (closed) return
             val pc = connection ?: return
-            val slotMap = if (profileTwo && ::link.isInitialized) link.slotMap else null
-            val bindings = remoteTracksFor(device, pc, received.values.toList(), slotMap)
-            _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
-            val aliases = bindings.count { it.trackId != it.track.id() }
-            val videos = bindings.count { it.track is VideoTrack }
-            Log.i("KithMootMedia", "peer=${device.take(8)} negotiatedTracks=${bindings.size} receiverAliases=$aliases videoTracks=$videos")
+            synchronized(pc) {
+                if (closed) return
+                val slotMap = if (profileTwo && ::link.isInitialized) link.slotMap else null
+                val bindings = remoteTracksFor(device, pc, received.values.toList(), slotMap)
+                _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
+                val aliases = bindings.count { it.trackId != it.track.id() }
+                val videos = bindings.count { it.track is VideoTrack }
+                Log.i("KithMootMedia", "peer=${device.take(8)} negotiatedTracks=${bindings.size} receiverAliases=$aliases videoTracks=$videos")
+            }
         }
 
         fun addLocalTrack(track: LocalTrack) {

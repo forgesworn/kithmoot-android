@@ -1,0 +1,83 @@
+{
+  "production_ready": false,
+  "base_commit": "9ebf31c7797eb665d5bb24ba3ec0d8d4ad92f15d",
+  "integrated_main": "839556db",
+  "scope": "Latest guest-admission main integrated; cadence wrapper forwards actual guarded phone delivery and rejects substitution of delegated queue receipts. Room/device-scoped in-memory ownership revision fences dispatch, including failed writes; status-only changes do not fence unrelated phone ownership. JVM fixtures; not actual node delivery, full room/UI, instrumentation or physical acceptance.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceLeaseVault.kt": "dfea1473703c22f16e5fa8364e997d7f6fb92d2894d05d65dd62644e1bccfcf7",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "da33dd3ac9942452d6634af9429dc2b6f6d381d012f35f5f4c968f8690532a52",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "596138950fe858456b7448e53c133e7f126ffe9763448939a6f50cd2cdccb79c",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceGuardedPublicationTest.kt": "8197a17a756e24a72a5e6d57574795d5d34281e7300964f33e58688105bf65a4",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceLeaseVaultTest.kt": "f06a96ee9443a345a8dca8e5871ceabe7f2c60681799902da2c37efed5e8067b",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransportTest.kt": "ef1dacd4c2e4a630d976c6d04d13d0b2a93d5b0f492fbfb1c5ac13ee0d79f7c3"
+  },
+  "local_full_ci": {
+    "passed": true,
+    "elapsed": "16m 16s",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ],
+    "log_sha256": "ee024bb0482c33fb6b5d03334e82422ae9fd5953e2da1d642ad582b5c0dc4830"
+  },
+  "jvm": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2070,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "cadence_guarded": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "cases": [
+    "a wait crossing an ownership epoch cannot dispatch under its earlier phone snapshot",
+    "non chat guarded controls stay on their normal lane during delegation",
+    "phone owned guarded publication forwards the original token timeout and event",
+    "caller revocation reaches dispatch and explicit refusal remains false",
+    "delegated or unresolved ownership cannot substitute a box queue receipt",
+    "ownership change at actual dispatch prevents the phone from borrowing node slots"
+  ],
+  "additional_ownership_cases": [
+    "Failed ownership write fences existing dispatch before storage",
+    "Read and exact retry preserve ownership revision",
+    "Receipt-only updates do not revoke phone ownership",
+    "Other rooms and devices cannot fence the original room/device"
+  ],
+  "apk_inputs": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "e933215e87e2c9e65229880645f6983d4f6a80a726e0fe08c9f622c1f179bc2a"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "960775709d4c0044bdb50d2f3657a137493ddc6faab5e81057f1f84a6c9bde12"
+    }
+  ],
+  "runtime": {
+    "physical": false,
+    "instrumentation_run": false
+  },
+  "remaining": [
+    "Quiet-room recording announcement routing/privacy preference and heartbeat counter budget",
+    "Cadence-aware waiting and cancellation flow",
+    "Guarded confirmation through delegated nodes",
+    "Full signed-room capture, saved-room recovery and independent recipient through real private storage",
+    "Load reliability and physical 45-minute endurance/interruption/provider exports",
+    "Final integrated-head hosted CI, signing and production distribution"
+  ]
+}

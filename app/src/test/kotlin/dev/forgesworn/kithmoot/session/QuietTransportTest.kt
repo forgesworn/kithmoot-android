@@ -176,6 +176,78 @@ class QuietTransportTest {
     }
 
     @Test
+    fun `a refused slot retains its exact wrap and message until a receipt`() = runTest {
+        val relay = FakeRelay().apply { confirmsPublications = false }
+        val delegate = relay.transport()
+        val offered = mutableListOf<NostrEvent>()
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by delegate {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+                offered += event
+                return delegate.publishConfirmed(event, timeoutMs)
+            }
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 })
+        val message = chat(ada, "wait for the receipt")
+        a.publish(message)
+        a.tick(); a.tick()
+        assertEquals(1, a.pending)
+        assertTrue(relay.published.isEmpty())
+        assertEquals(1, offered.map { it.id }.distinct().size)
+        assertEquals(1, a.exportState().used.getValue(ada.participant).counters.size)
+        relay.confirmsPublications = true
+        a.tick()
+        assertEquals(0, a.pending)
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
+        assertEquals(1, offered.map { it.id }.distinct().size)
+        a.stop()
+    }
+
+    @Test
+    fun `an unsupported receipt cannot silently use fire and forget`() = runTest {
+        val relay = FakeRelay()
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by relay.transport() {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+                throw UnsupportedOperationException("no durable receipt")
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 })
+        a.publish(chat(ada, "keep the retry copy"))
+        a.tick()
+        assertEquals(1, a.pending)
+        assertTrue(relay.published.isEmpty())
+        a.stop()
+    }
+
+    @Test
+    fun `a failed durable removal preserves the accepted wrap for exact retry`() = runTest {
+        val relay = FakeRelay()
+        var storageLocked = false
+        val delegate = relay.transport()
+        var failAfterReceipt = true
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by delegate {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+                delegate.publishConfirmed(event, timeoutMs).also { if (failAfterReceipt) storageLocked = true }
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            onState = { if (storageLocked) error("storage locked") })
+        val message = chat(ada, "persist the receipt before removal")
+        a.publish(message)
+        assertFailsWith<IllegalStateException> { a.tick() }
+        assertEquals(listOf(message.id), a.queuedEvents().map { it.id })
+        val accepted = relay.published.single()
+        failAfterReceipt = false
+        storageLocked = false
+        a.tick()
+        assertEquals(0, a.pending)
+        assertEquals(setOf(accepted.id), relay.published.map { it.id }.toSet())
+        assertEquals(1, a.exportState().used.getValue(ada.participant).counters.size)
+        a.stop()
+    }
+
+    @Test
     fun `confirmed quiet send means its exact inner event was durably queued`() = runTest {
         val relay = FakeRelay()
         val states = mutableListOf<QuietTransport.QuietState>()

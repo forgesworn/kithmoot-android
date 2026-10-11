@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.session.sealFile
+
 import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
 import dev.forgesworn.kithmoot.protocol.isSafeRoomRelayUrl
 import dev.forgesworn.kithmoot.protocol.MAX_INVITATION_RELAYS
@@ -533,6 +535,9 @@ data class RoomState(
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
+    val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    val recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
+    val recordingUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
@@ -637,6 +642,13 @@ data class RoomState(
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
     val recordingCapture: RecordingCaptureNotice? = null,
+    val nativeRecording: Boolean = false,
+    val nativeRecordingPaused: Boolean = false,
+    val nativeRecordingBusy: Boolean = false,
+    val recordingVideoDevices: List<dev.forgesworn.kithmoot.media.recording.RecordingVideoEndpoint> = emptyList(),
+    val recordingVideoSupported: Boolean = false,
+    val recordingStopPending: Boolean = false,
+    val recordingStopRetrying: Boolean = false,
     /** Something was pressed that would put this device on a recorded call,
      *  and the person is being asked first. Null when nothing is asked. */
     val recordingConsent: RecordingConsent? = null,
@@ -858,6 +870,9 @@ class RoomViewModel @JvmOverloads constructor(
      */
     val chatOnly: Boolean = false,
     private val nearbyLinkFactory: (Application) -> NativeRoomMeshLink = ::createAndroidRoomMeshLink,
+    /** Optional constructor dependency for private TLS qualification. Normal
+     * activities leave this null and use the strict production client. */
+    private val recordingUploadClient: okhttp3.OkHttpClient? = null,
 ) : AndroidViewModel(application) {
 
     /** The room the call is in, which this chat-only instance must never
@@ -988,6 +1003,32 @@ class RoomViewModel @JvmOverloads constructor(
     /** The open room's latest messages, so closing it can tell the background inbox what it showed. */
     @Volatile private var shownChat: List<dev.forgesworn.kithmoot.session.ChatMessage> = emptyList()
     private var engine: WebRtcEngine? = null
+    private val nativeRecordingLock = Any()
+    private var nativeRecordingGeneration = 0L
+    private var nativeRecordingStarting = false
+    private data class NativeRecordingOwner(val id: String, val media: WebRtcEngine, val work: RoomWork, val file: java.io.File,
+        val capture: dev.forgesworn.kithmoot.media.recording.CallAudioCapture,
+        val origin: dev.forgesworn.kithmoot.media.recording.RecordingOrigin,
+        val layout: dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout?,
+        val selected: dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?, val selectedName: String,
+        val speaker: dev.forgesworn.kithmoot.media.recording.RecordingSpeaker?)
+    private var nativeRecordingOwner: NativeRecordingOwner? = null
+    private val recordingApplication get() = getApplication<dev.forgesworn.kithmoot.KithMootApplication>()
+    val recordingExport get() = recordingApplication.recordings.export
+    fun recordingExportDetails(file: java.io.File) = recordingApplication.recordings.details(file)
+    private val _recordingExportBusy = MutableStateFlow(false)
+    val recordingExportBusy = _recordingExportBusy.asStateFlow()
+    private val _recordingExportError = MutableStateFlow<String?>(null)
+    val recordingExportError = _recordingExportError.asStateFlow()
+    data class RecordingAdded(val sourceName: String, val room: String, val request: Long)
+    private val _recordingAdded = MutableStateFlow<RecordingAdded?>(null)
+    val recordingAdded = _recordingAdded.asStateFlow()
+    private var recordingAddedRequest = 0L
+    private var recordingUploadJob: Job? = null
+    fun cancelRecordingUpload() { recordingUploadJob?.cancel() }
+    fun acknowledgeRecordingAdded(request: Long) {
+        _recordingAdded.update { if (it?.request == request) null else it }
+    }
     /** Screen-share drawing, received over signalling. See session/RoomSession.kt
      *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
     private var shareMarks = ShareMarks()
@@ -1311,6 +1352,17 @@ class RoomViewModel @JvmOverloads constructor(
     fun vmlsJoinBase(): String = selectedWebApp.joinBase
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val drafts = recordingApplication.recordingShareDrafts
+                combine(room.map { it.roomId }.distinctUntilChanged(), drafts.revision) { roomId, _ -> roomId }
+                    .collect { roomId ->
+                        val retained = drafts.list(roomId)
+                        _room.update { if (it.roomId == roomId) it.copy(recordingDrafts = retained) else it }
+                    }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
+        }
         if (!chatOnly) viewModelScope.launch {
             room.collect { value ->
                 notifications.onCall = dev.forgesworn.kithmoot.ui.room.inACall(
@@ -1426,6 +1478,9 @@ class RoomViewModel @JvmOverloads constructor(
             while (true) {
                 runCatching { runDueDestructs() }
                 launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).retry() } }
+                launch { runCatching { recordingApplication.recordingUploadJournal.retry { origin, hash, auth ->
+                    dev.forgesworn.kithmoot.session.deleteUploadedMedia(origin, hash, auth)
+                } } }
                 runCatching { sendDestructHeadsUps(epochSeconds()) }
                 runCatching { destructTombstones.list(epochSeconds()) }.getOrNull()?.let { rows ->
                     if (rows != _start.value.destructTombstones) _start.update { it.copy(destructTombstones = rows) }
@@ -2181,6 +2236,13 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Out of [roomId] on this screen, and off its call, saying it self-destructed. */
     private suspend fun leaveForDestruct(roomId: String) {
+        try { recordingApplication.forgetRecordingsForRoom(roomId) }
+        catch (failure: Exception) {
+            // Metadata/storage failure still revokes in-memory retention and
+            // must not leave the destroyed room's capture running locally.
+            if (_room.value.roomId == roomId) stopNativeRecording()
+            throw failure
+        }
         gate.withLock {
             if (savedRoom?.id != roomId) return@withLock
             val live = session
@@ -2677,6 +2739,7 @@ class RoomViewModel @JvmOverloads constructor(
         savedRooms.get(id)?.let {
             closingKeeper?.join()
             forgetNativeStores(it)
+            recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
@@ -2731,6 +2794,7 @@ class RoomViewModel @JvmOverloads constructor(
             readable.forEach(::forgetNativeStores)
             linkConsents.reset()
             readable.forEach { saved ->
+                recordingApplication.forgetRecordingsForRoom(saved.id)
                 RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
                 dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
@@ -4385,6 +4449,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 },
                 release = { eventId -> check(quietRoom.confirmQueued(eventId)) { "The confirmed quiet message was not retained locally." } },
+                ownershipGeneration = { cadenceLeases.publicationGeneration(derived.roomId, who.devicePubkey) },
                 onFailure = { message -> _room.update { state -> state.copy(
                     chatSendError = message,
                     notice = message,
@@ -4697,8 +4762,12 @@ class RoomViewModel @JvmOverloads constructor(
                     onMeetingNews={ news -> if (session === live) onMeetingNews(news) },
                     // The room's own key, only on the device that made it: the
                     // one device that may run its calls as meetings.
-                    authoritySecretKey=epochAuthorityHost?.inviterSecretKey)
+                    authoritySecretKey=epochAuthorityHost?.inviterSecretKey,
+                    recordingStops=recordingApplication.recordingStops)
                 roomWork=work
+                scope.launch { work.recordingStopPending.collect { pending ->
+                    _room.update { if (roomWork === work) it.copy(recordingStopPending = pending != null) else it }
+                } }
                 scope.launch { work.meeting.state.collect { snapshot -> if (roomWork === work) adoptMeeting(snapshot) } }
                 // A notice that stops being reposted turns unconfirmed, then
                 // goes, with nothing arriving to say so: the clock does.
@@ -4938,7 +5007,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
 
             launch {
-                combine(media.remoteTracks, media.localMedia.tracks, live.participants, meetingState) { arrived, local, people, meeting ->
+                combine(media.remoteTracks, media.localMedia.tracks, live.participants, meetingState, callHeld) { arrived, local, people, meeting, _ ->
                     // In meeting mode a picture from anybody off the stage is
                     // not shown, whatever their app sends: see protocol/Meeting.kt.
                     val remote = arrived.filter { !meetingGated(meeting.meeting, ownerOf(it.device, people)) }
@@ -4973,7 +5042,10 @@ class RoomViewModel @JvmOverloads constructor(
                         )
                         for (track in local) (track.track as? VideoTrack)?.let { put(roleKey(who.devicePubkey, track.role), it) }
                     }
-                }.collect { _videos.value = it }
+                }.collect {
+                    _videos.value = it
+                    if (session === live && engine === media) refreshRecordingVideo(media, live)
+                }
             }
             launch {
                 combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
@@ -5014,6 +5086,15 @@ class RoomViewModel @JvmOverloads constructor(
                         track.setEnabled(play)
                         track.setVolume(gain.toDouble())
                     }
+                    // The recording uses this original call's authorised
+                    // playback sources, including hold/monitor/meeting gates.
+                    // Outgoing microphone mute and app mixing happen inside
+                    // WebRtcEngine before its recording callback.
+                    runCatching { media.setRecordingInputs(
+                        decisions.filter { it.second }.associate { it.first to it.third.toDouble() },
+                        localAllowed = media.callActive && !callHeld.value &&
+                            meetingAllows(meetingState.value.meeting, who.participant),
+                    ) }.onFailure { stopNativeRecording(); note("Recording stopped: ${it.message ?: "audio capture failed"}") }
                 }
             }
             launch { media.localMedia.tracks.collect(::onLocalTracks) }
@@ -5077,6 +5158,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Tear down peer connections before an old epoch can continue media exchange. */
     private fun stopMediaForEpoch() {
+        stopNativeRecording()
         opening?.cancel()
         opening = null
         engine?.stop()
@@ -5336,6 +5418,7 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val live = session
+        stopNativeRecording()
         // Withdraw the native authority before the screen changes or IO leave
         // starts; a queued approval/retry must not keep hosting behind Home.
         nativeKeeperEntry?.close()
@@ -5402,6 +5485,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        stopNativeRecording()
         nativeKeeperEntry?.let { entry ->
             session?.holdKeeperStartup(); entry.close()
             nativeKeeperEntry = null; nativeKeeperController = null
@@ -5614,6 +5698,480 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Explicit local audio capture. The UI confirms the action before calling
+     * this; confirmed signed notices still precede any capture installation. */
+    fun startNativeAudioRecording() = startNativeRecording(null, null)
+
+    fun startNativeVideoRecording(layout: dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout,
+        selected: dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) = startNativeRecording(layout, selected)
+
+    private fun startNativeRecording(layout: dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout?,
+        selected: dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) {
+        val media = engine ?: return note("Join the call before recording.")
+        val work = roomWork?.takeIf { it.moderator } ?: return note("Only the room's authority can start recording.")
+        val originalSession = session ?: return note("Join the call before recording.")
+        val originalCall = originalSession.currentCall() ?: return note("Join the call before recording.")
+        val originalState = _room.value
+        val origin = dev.forgesworn.kithmoot.media.recording.RecordingOrigin(originalState.roomId, originalCall.id, originalState.name)
+        if (dev.forgesworn.kithmoot.media.recording.RecordingCodecs.audioEncoder == null)
+            return note("Audio recording is unavailable on this device.")
+        if (layout != null && !dev.forgesworn.kithmoot.media.recording.RecordingCodecs.videoSupported)
+            return note("Video recording is unavailable on this device. Choose audio only.")
+        if (layout != null && !appVisible) return note("Open KithMoot before starting video recording.")
+        val initial = recordingVideoSnapshot(media, originalSession, origin)
+        val speaker = if (layout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SPEAKER)
+            dev.forgesworn.kithmoot.media.recording.RecordingSpeaker() else null
+        val initialSpeaker = speaker?.select(initial.first, _room.value.speaking, android.os.SystemClock.elapsedRealtime())
+            ?: initial.first.firstOrNull()
+        val chosen = if (speaker != null) initialSpeaker?.key else selected
+        val selectedName = initial.first.firstOrNull { it.key == chosen }?.name ?: "Selected device"
+        if (layout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA &&
+            initial.first.none { it.key == selected && it.recordingProfile == 2 && it.allowed })
+            return note("Choose a compatible device on this call.")
+        val ticket = synchronized(nativeRecordingLock) {
+            if (nativeRecordingStarting || nativeRecordingOwner != null || !_room.value.onCall || !media.callActive) return
+            if (recordingApplication.recordings.pending() != null) return note("Save or discard the previous recording first.")
+            nativeRecordingStarting = true
+            ++nativeRecordingGeneration
+        }
+        _room.update { it.copy(nativeRecordingBusy = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            var file: java.io.File? = null
+            var noticeId: String? = null
+            var installed = false
+            try {
+                val source = recordingApplication.recordings.begin(
+                    format = if (layout == null) dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO else dev.forgesworn.kithmoot.media.recording.RecordingFormat.VIDEO,
+                    origin = origin,
+                    discardAt = originalState.endsAt?.takeIf { originalState.destruct })
+                file = source
+                val recordingId = work.startRecording(layout?.wire ?: "audio").id
+                noticeId = recordingId
+                synchronized(nativeRecordingLock) {
+                    check(nativeRecordingGeneration == ticket && engine === media && roomWork === work && session === originalSession &&
+                        originalSession.currentCall()?.id == origin.call && _room.value.onCall && media.callActive && (layout == null || appVisible) &&
+                        (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id == recordingId) {
+                        "The original call ended before recording could start"
+                    }
+                    val snapshot = recordingVideoSnapshot(media, originalSession, origin)
+                    val activeSpeaker = speaker?.select(snapshot.first, _room.value.speaking, android.os.SystemClock.elapsedRealtime())
+                    val captureKey = activeSpeaker?.key ?: chosen
+                    val captureName = activeSpeaker?.name ?: selectedName
+                    val capture = if (layout == null) media.startAudioRecording(source) else media.startVideoRecording(source,
+                        dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, snapshot.first, captureKey, captureName), snapshot.second)
+                    nativeRecordingOwner = NativeRecordingOwner(recordingId, media, work, source, capture, origin, layout, captureKey, captureName, speaker)
+                    nativeRecordingStarting = false
+                    installed = true
+                    _room.update { it.copy(nativeRecording = true, nativeRecordingPaused = false, nativeRecordingBusy = false) }
+                }
+                viewModelScope.launch {
+                    while (isActive) {
+                        delay(500)
+                        val owns = synchronized(nativeRecordingLock) { nativeRecordingOwner?.id == noticeId }
+                        if (!owns) return@launch
+                        refreshRecordingVideo(media, originalSession)
+                        if (layout != null && !appVisible && !_room.value.nativeRecordingPaused) changeNativeRecordingPause(true)
+                        val error = media.audioRecordingError()
+                        if (error != null || engine !== media || session !== originalSession ||
+                            originalSession.currentCall()?.id != origin.call || !_room.value.onCall ||
+                            (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id != noticeId) {
+                            stopNativeRecording()
+                            if (error != null) note("Recording stopped: ${error.message ?: "audio capture failed"}")
+                            return@launch
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { if (engine === media) note(error.message ?: "Recording could not start.") }
+            finally {
+                if (!installed) withContext(NonCancellable) {
+                    noticeId?.let { runCatching { work.stopRecording(it) } }
+                    file?.let { runCatching { recordingApplication.recordings.abandon(it) } }
+                    synchronized(nativeRecordingLock) {
+                        if (nativeRecordingGeneration == ticket) {
+                            nativeRecordingStarting = false
+                            if (engine === media) _room.update { it.copy(nativeRecordingBusy = false) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun recordingVideoSnapshot(media: WebRtcEngine, live: RoomSession,
+        origin: dev.forgesworn.kithmoot.media.recording.RecordingOrigin): Pair<List<dev.forgesworn.kithmoot.media.recording.RecordingVideoEndpoint>,
+        Map<dev.forgesworn.kithmoot.media.recording.RecordingVideoKey, VideoTrack>> {
+        val who = live.identity
+        val local = media.localMedia.tracks.value
+        val endpoints = dev.forgesworn.kithmoot.media.recording.recordingVideoEndpoints(origin, live.participants.value,
+            dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey(who.participant, who.devicePubkey), personName(who.participant).take(256),
+            local.any { it.role == Roles.CAMERA }, local.any { it.role == Roles.SCREEN }, callHeld.value || !appVisible,
+            allowed = { meetingAllows(meetingState.value.meeting, it) })
+        val tracks = buildMap {
+            for (endpoint in endpoints) for (role in dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.entries) {
+                val wire = if (role == dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA) Roles.CAMERA else Roles.SCREEN
+                val track = if (endpoint.key.device == who.devicePubkey) local.firstOrNull { it.role == wire }?.track as? VideoTrack
+                    else _videos.value[roleKey(endpoint.key.device, wire)]
+                track?.let { put(dev.forgesworn.kithmoot.media.recording.RecordingVideoKey(endpoint.key, role), it) }
+            }
+        }
+        return endpoints to tracks
+    }
+
+    private fun refreshRecordingVideo(media: WebRtcEngine, live: RoomSession) {
+        if (session !== live || engine !== media) return
+        val call = live.currentCall() ?: return
+        val origin = dev.forgesworn.kithmoot.media.recording.RecordingOrigin(live.room.roomId, call.id, _room.value.name)
+        val owner = synchronized(nativeRecordingLock) { nativeRecordingOwner }
+        val snapshot = recordingVideoSnapshot(media, live, origin)
+        _room.update { if (session === live) it.copy(recordingVideoDevices = snapshot.first,
+            recordingVideoSupported = dev.forgesworn.kithmoot.media.recording.RecordingCodecs.videoSupported) else it }
+        if (owner == null || owner.media !== media || owner.layout == null || owner.origin.call != call.id) return
+        val activeSpeaker = owner.speaker?.select(snapshot.first, _room.value.speaking, android.os.SystemClock.elapsedRealtime())
+        runCatching { media.updateRecordingVideo(owner.capture,
+            dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(owner.origin, owner.layout, snapshot.first,
+                activeSpeaker?.key ?: owner.selected, activeSpeaker?.name ?: owner.selectedName), snapshot.second)
+        }.onFailure { failure -> synchronized(nativeRecordingLock) {
+            if (nativeRecordingOwner === owner) { stopNativeRecording(); note("Recording stopped: ${failure.message ?: "video inputs failed"}") }
+        } }
+    }
+
+    private fun revokeLocalRecordingVideo(role: dev.forgesworn.kithmoot.media.recording.RecordingVideoRole) {
+        val who = identity ?: return
+        engine?.revokeRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoKey(
+            dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey(who.participant, who.devicePubkey), role))
+    }
+
+    fun toggleNativeRecordingPause() = changeNativeRecordingPause(null)
+
+    private fun changeNativeRecordingPause(requested: Boolean?) {
+        val (owner, pause) = synchronized(nativeRecordingLock) {
+            val owner = nativeRecordingOwner ?: return
+            if (_room.value.nativeRecordingBusy) return
+            val pause = requested ?: !_room.value.nativeRecordingPaused
+            if (pause == _room.value.nativeRecordingPaused) return
+            if (!pause && !appVisible && owner.layout != null) return note("Open KithMoot to resume video recording.")
+            _room.update { it.copy(nativeRecordingBusy = true) }
+            owner to pause
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Retain the exact capture, rather than looking up whatever
+                // recording the engine happens to own when this job executes.
+                // A queued Resume must recheck visibility when it executes.
+                var effectivePause = pause || (owner.layout != null && !appVisible)
+                if (effectivePause) owner.capture.pause() else owner.capture.resume()
+                while (true) {
+                    val pauseAfterResume = synchronized(nativeRecordingLock) {
+                        if (nativeRecordingOwner !== owner) return@launch
+                        // Commit against the lifecycle boundary, but do not
+                        // hold its monitor during the worker's bounded flush.
+                        if (owner.layout != null && !appVisible && !effectivePause) true
+                        else {
+                            _room.update { it.copy(nativeRecordingPaused = effectivePause, nativeRecordingBusy = false) }
+                            false
+                        }
+                    }
+                    if (!pauseAfterResume) break
+                    owner.capture.pause()
+                    effectivePause = true
+                }
+            } catch (cancelled: CancellationException) {
+                synchronized(nativeRecordingLock) {
+                    if (nativeRecordingOwner === owner) stopNativeRecording()
+                }
+                throw cancelled
+            } catch (error: Exception) {
+                synchronized(nativeRecordingLock) {
+                    if (nativeRecordingOwner === owner) {
+                        stopNativeRecording()
+                        note("Recording stopped: ${error.message ?: "pause failed"}")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Synchronously revoke input access before leaving/rekeying; finalisation
+     * belongs to the application so closing this room cannot cancel it. */
+    fun stopNativeRecording() {
+        val held = synchronized(nativeRecordingLock) {
+            ++nativeRecordingGeneration
+            nativeRecordingStarting = false
+            val owner = nativeRecordingOwner.also { nativeRecordingOwner = null }
+            _room.update { it.copy(nativeRecording = false, nativeRecordingPaused = false, nativeRecordingBusy = owner != null) }
+            owner?.let { it to it.media.takeAudioRecording() }
+        } ?: return
+        val (owner, capture) = held
+        recordingApplication.recordingExports.launch {
+            try {
+                runCatching { owner.work.stopRecording(owner.id) }.onFailure {
+                    if (roomWork === owner.work) note("Capture stopped locally. The room's stop notice could not be confirmed.")
+                }
+                check(capture != null) { "Recording capture was interrupted" }
+                recordingApplication.recordings.complete(capture.finish())
+            } catch (error: Exception) {
+                runCatching { capture?.discard() }
+                runCatching { recordingApplication.recordings.abandon(owner.file) }
+                if (roomWork === owner.work) note("Recording could not be exported: ${error.message ?: "capture failed"}")
+            } finally {
+                if (roomWork === owner.work) _room.update { it.copy(nativeRecordingBusy = false) }
+            }
+        }
+    }
+
+    private val recordingExportMutex = Mutex()
+    private val recordingStopRetryMutex = Mutex()
+    fun retryRecordingStop() {
+        val work = roomWork ?: return
+        val id = work.recordingStopPending.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!recordingStopRetryMutex.tryLock()) return@launch
+            try {
+                if (roomWork !== work) return@launch
+                _room.update { it.copy(recordingStopRetrying = true) }
+                work.stopRecording(id)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (roomWork === work) note("Capture is stopped locally. The room's stop notice still needs confirmation; try again when connected.")
+            } finally {
+                if (roomWork === work) _room.update { it.copy(recordingStopRetrying = false) }
+                recordingStopRetryMutex.unlock()
+            }
+        }
+    }
+    fun saveRecording(sourceName: String, uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!recordingExportMutex.tryLock()) return@launch
+            _recordingExportBusy.value = true
+            try {
+                val file = recordingApplication.recordings.selectedExport(sourceName)
+                recordingApplication.recordings.details(file)
+                val resolver = getApplication<android.app.Application>().contentResolver
+                try {
+                    file.inputStream().use { input ->
+                        checkNotNull(resolver.openOutputStream(uri, "wt")) { "The save location is unavailable" }
+                            .use { output -> input.copyTo(output, 64 * 1024) }
+                    }
+                    // A room can be destroyed while the document provider is
+                    // copying. Reject that unsaved copy and remove it as well.
+                    recordingApplication.recordings.details(file)
+                } catch (error: Exception) {
+                    runCatching { resolver.delete(uri, null, null) }
+                    throw error
+                }
+                recordingApplication.recordings.discard(file)
+                note("Recording saved. Your saved copy remains until you remove it.")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                val remains = recordingExport.value?.let { runCatching { recordingApplication.recordings.details(it) }.isSuccess } == true
+                note("Recording could not be saved: ${error.message ?: "storage unavailable"}." +
+                    if (remains) " The local export is still available." else " The original recording is no longer available.")
+            }
+            finally { _recordingExportBusy.value = false; recordingExportMutex.unlock() }
+        }
+    }
+
+    fun discardRecordingExport() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!recordingExportMutex.tryLock()) return@launch
+            try { recordingExport.value?.let { recordingApplication.recordings.discard(it) } }
+            catch (error: Exception) { note(error.message ?: "The local recording could not be removed.") }
+            finally { recordingExportMutex.unlock() }
+        }
+    }
+
+    /** Add retains an independently encrypted draft, never an upload or a
+     * message. The original local Save/Discard export remains available. */
+    fun addRecordingToOriginalChat(sourceName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!recordingExportMutex.tryLock()) return@launch
+            _recordingExportBusy.value = true
+            _recordingExportError.value = null
+            var ticket: dev.forgesworn.kithmoot.media.recording.RecordingDraftTicket? = null
+            var retained = false
+            try {
+                val exports = recordingApplication.recordings
+                val file = exports.selectedExport(sourceName)
+                val details = exports.details(file)
+                val origin = checkNotNull(details.origin) { "This export has no original chat; save a local copy instead" }
+                check(savedRooms.get(origin.room) != null) { "The original chat is no longer saved on this phone" }
+                val drafts = recordingApplication.recordingShareDrafts
+                val existing = drafts.list(origin.room).firstOrNull { it.sourceName == sourceName && it.origin == origin }
+                if (existing == null) {
+                    val reservation = drafts.begin(origin, sourceName, details.discardAt).also { ticket = it }
+                    val sealed = sealFile(file, reservation.destination,
+                        "KithMoot-call-${java.time.LocalDate.now()}.${details.format.extension}", details.format.mime)
+                    ensureActive()
+                    exports.withSelectedExport(sourceName) { selected, current ->
+                        check(selected == file && current == details && savedRooms.get(origin.room) != null) { "The original recording or room changed while adding" }
+                        drafts.complete(reservation, sealed)
+                    }
+                } else {
+                    exports.withSelectedExport(sourceName) { selected, current ->
+                        check(selected == file && current == details && savedRooms.get(origin.room) != null)
+                        check(drafts.selected(existing.id, origin.room) == existing)
+                    }
+                }
+                retained = true
+                withContext(Dispatchers.Main) {
+                    _recordingAdded.value = RecordingAdded(sourceName, origin.room, ++recordingAddedRequest)
+                    note("Recording added privately to its original chat. Nothing has been uploaded or sent.")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _recordingExportError.value = "Recording could not be added: ${failure.message ?: "private storage unavailable"}."
+            } finally {
+                if (!retained) ticket?.let { pending ->
+                    runCatching { recordingApplication.recordingShareDrafts.abandon(pending) }
+                        .onFailure { _recordingExportError.value = "The unfinished encrypted draft could not be removed. The local export has been kept." }
+                }
+                _recordingExportBusy.value = false
+                recordingExportMutex.unlock()
+            }
+        }
+    }
+
+    /** Choosing a public storage identity does not contact or bind the server. */
+    fun prepareRecordingStorage(id: String, chosen: String) {
+        val room = _room.value.roomId
+        if (_room.value.mediaBusy) return
+        val scope = sessionScope ?: return
+        _room.update { it.copy(mediaBusy = true, chatSendError = null, recordingStorageChoice = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val draft = recordingApplication.recordingShareDrafts.selected(id, room)
+                val origin = mediaStorageOrigin(chosen)
+                check(draft.storageOrigin == null || draft.storageOrigin == origin) { "This draft is already bound to its chosen storage server" }
+                val key = recordingApplication.recordingUploadJournal.identity(origin)
+                val choice = dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice(id, room, origin, key)
+                _room.update { if (it.roomId == room) it.copy(recordingStorageChoice = choice) else it }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _room.update { if (it.roomId == room) it.copy(chatSendError = error.message ?: "Storage identity unavailable") else it } }
+            finally { _room.update { if (it.roomId == room) it.copy(mediaBusy = false) else it } }
+        }
+    }
+
+    fun uploadRecordingDraft(id: String, origin: String, consent: Boolean) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val room = _room.value.roomId
+        val choice = _room.value.recordingStorageChoice
+        if (!consent || choice == null || choice.draft != id || choice.room != room || choice.origin != origin)
+            return note("Choose and authorise this recording's storage server before Upload.")
+        fun permitted(): Boolean = session === live && _room.value.roomId == room &&
+            _room.value.route.internet && !_room.value.anonymous &&
+            !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
+        if (!permitted()) return note("Recording uploads need an active original room with Internet enabled.")
+        if (_room.value.mediaBusy) return
+        _room.update { it.copy(mediaBusy = true, recordingUploadRunning = true, chatSendError = null) }
+        // Enter the outer finally before dispatching IO, so cancelling a
+        // queued upload cannot strand the controls in their busy state.
+        recordingUploadJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val ownerJob = currentCoroutineContext().get(Job)!!
+                    val owned = dev.forgesworn.kithmoot.media.recording.RecordingUploadRequest(
+                        recordingApplication.recordingShareDrafts, recordingApplication.recordingUploadJournal,
+                        id, room, origin, { ownerJob.isActive && permitted() },
+                        client = recordingUploadClient,
+                    )
+                    // Install cancellation cleanup before the blocking PUT.
+                    val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                        try { this@RoomViewModel.room.collect { if (!permitted()) owned.close() } }
+                        finally { owned.close() }
+                    }
+                    try {
+                        owned.upload()
+                        ensureActive()
+                        if (permitted()) note("Recording uploaded privately. No chat message has been sent.")
+                    } finally { owned.close(); watcher.cancel() }
+                }
+            } catch (cancelled: CancellationException) {
+                _room.update { if (session === live && it.roomId == room) it.copy(chatSendError = "Recording upload cancelled. No chat message was sent.") else it }
+                throw cancelled
+            }
+            catch (error: Exception) {
+                _room.update { if (session === live && it.roomId == room) it.copy(chatSendError = "Recording upload failed: ${error.message ?: "storage unavailable"}. No chat message was sent.") else it }
+            } finally {
+                _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, recordingUploadRunning = false) else it }
+            }
+        }
+    }
+
+    /** Send is a separate explicit action. Keep the exact signed message in
+     * the recording owner before any handoff; retries never sign a replacement. */
+    fun sendRecordingDraft(id: String) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val room = _room.value.roomId
+        fun permitted() = session === live && _room.value.roomId == room && !_room.value.anonymous &&
+            _room.value.movedOn == null && !_room.value.conferenceEnded &&
+            !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
+        if (!permitted()) return note("Open the recording's original chat before Send.")
+        if (_room.value.cadence?.busy == true) return note("Finish the quiet schedule change before sending.")
+        if (_room.value.mediaBusy || _room.value.chatSending) return
+        val durable = !_room.value.quiet
+        _room.update { it.copy(mediaBusy = true, chatSending = true, chatSendError = null) }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                withContext(Dispatchers.IO) {
+                    val drafts = recordingApplication.recordingShareDrafts
+                    val draft = drafts.selected(id, room)
+                    val attachment = checkNotNull(draft.uploaded) { "Upload this recording before Send" }
+                    val origin = checkNotNull(draft.storageOrigin)
+                    fun ready() = permitted() && recordingApplication.recordingUploadJournal.readyToSend(room, origin, draft.sealed.hash)
+                    check(ready()) { "This recording's upload is no longer ready for Send" }
+                    val prepared = draft.preparedSend ?: checkNotNull(live.prepareChatForSend(draft.sealed.name,
+                        attachments = listOf(attachment))).also { drafts.retainPreparedSend(id, room, it) }
+                    ensureActive()
+                    fun owned() = ready() && runCatching { drafts.withPreparedSend(id, room, prepared) { } }.isSuccess
+                    val confirmed = if (durable) live.sendPreparedChatDurable(prepared,
+                        commitGuard = { commit -> drafts.withPreparedSend(id, room, prepared) {
+                            check(ready()) { "The original recording's Send was revoked" }; commit()
+                        } }, onRetained = {
+                            drafts.finishPreparedSend(id, room, prepared)
+                            if (session === live) note("Recording message kept in its original chat. Relay confirmation pending.")
+                        }) else live.sendPreparedChatConfirmed(prepared, ::owned).also {
+                            if (it) drafts.finishPreparedSend(id, room, prepared)
+                        }
+                    if (session === live) {
+                        val pending = live.pendingChats.value.firstOrNull { it.id == prepared.pending.event.id }
+                        note(when {
+                            confirmed -> "Recording sent to its original chat."
+                            durable && pending?.state == dev.forgesworn.kithmoot.session.PendingChatState.MOVED ->
+                                "The room changed before this recording message could send. Its unsent message is kept in the original chat."
+                            durable && pending?.state == dev.forgesworn.kithmoot.session.PendingChatState.UNKNOWN ->
+                                "Recording delivery is unconfirmed. It may have arrived; the original chat keeps the same message."
+                            durable -> "Recording message is waiting in its original chat."
+                            else -> "The recording message was not confirmed. It may have arrived; Retry Send uses the same message."
+                        })
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                _room.update { if (session === live && it.roomId == room)
+                    it.copy(chatSendError = "Recording Send could not finish: ${failure.message ?: "message unavailable"}. An earlier attempt may have arrived.") else it }
+            } finally {
+                _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, chatSending = false) else it }
+                if (durable && session === live) scheduleBackoff(live)
+            }
+        }
+    }
+
+    fun removeRecordingDraft(id: String) {
+        val room = _room.value.roomId
+        if (_room.value.mediaBusy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                recordingApplication.recordingShareDrafts.discard(id, room) { draft ->
+                    draft.storageOrigin?.let { recordingApplication.recordingUploadJournal.discard(it, draft.sealed.hash) }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (_room.value.roomId == room) note("Recording draft could not be removed: ${failure.message ?: "storage unavailable"}") }
+        }
+    }
+
     /** Raise or lower this person's hand, for the room's authority to see. */
     fun raiseHand(up: Boolean) {
         val work = roomWork ?: return note("Wait for the room to finish connecting, then raise your hand.")
@@ -5676,6 +6234,14 @@ class RoomViewModel @JvmOverloads constructor(
     private fun adoptMeeting(snapshot: MeetingSnapshot) {
         val before = meetingState.value
         meetingState.value = snapshot
+        // Clear excluded cached pictures before deferred policy collectors.
+        val currentMedia = engine
+        val currentSession = session
+        if (currentMedia != null && currentSession != null) refreshRecordingVideo(currentMedia, currentSession)
+        val currentRecording = synchronized(nativeRecordingLock) { nativeRecordingOwner?.id }
+        if (currentRecording != null && (snapshot.recordingView(epochSeconds()) as? RecordingView.On)?.id != currentRecording) {
+            stopNativeRecording()
+        }
         val me = _room.value.selfParticipant
         val policy = snapshot.meeting
         val could = _room.value.meetingSpeaker
@@ -5730,6 +6296,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun leaveCall() {
         val live = session ?: return
         if (!_room.value.onCall || _room.value.callChanging) return
+        stopNativeRecording()
         // Joining again asks again, if it is still being recorded.
         consentedRecording = null
         // A remembered Join must not survive a Leave; it would put the person
@@ -5826,6 +6393,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun holdCall() = act {
         if (!_room.value.onCall || callHeld.value) return@act
         callHeld.value = true
+        engine?.revokeRecordingVideo(reason = "The call is on hold")
         val state = _room.value
         if (dev.forgesworn.kithmoot.telecom.holdMutesMic(state.micOn, state.micMuted)) {
             micMutedForHold = engine?.localMedia?.setMicrophoneMuted(true) == true
@@ -5927,6 +6495,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!_room.value.mediaRunning) return@act noteIfJoinPending()
         val media = engine?.localMedia ?: return@act note(mediaMissing())
         if (_room.value.cameraOn) {
+            revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA)
             media.stopCamera()
         } else if (!_room.value.meetingSpeaker) {
             note(MEETING_LOCKED)
@@ -5951,7 +6520,14 @@ class RoomViewModel @JvmOverloads constructor(
      * stale composite. See media/effects/BackgroundProcessor.kt.
      */
     fun setAppVisible(visible: Boolean) {
-        appVisible = visible
+        synchronized(nativeRecordingLock) { appVisible = visible }
+        if (!visible) {
+            val video = synchronized(nativeRecordingLock) { nativeRecordingOwner?.layout != null }
+            if (video) {
+                engine?.revokeRecordingVideo(reason = "Recording paused while KithMoot is hidden")
+                changeNativeRecordingPause(true)
+            }
+        }
         if (!visible) {
             _room.update { it.copy(nativeHosting = it.nativeHosting?.paused(),
                 joinUrl = if (it.nativeHosting != null) "" else it.joinUrl,
@@ -6091,6 +6667,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private fun cameraLost() = act {
         if (!_room.value.cameraOn) return@act
+        revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA)
         engine?.localMedia?.stopCamera()
         note("Android took the camera away. Tap Camera to start it again.")
     }
@@ -6127,6 +6704,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun stopScreenShare() = act {
+        revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.SCREEN)
         engine?.localMedia?.stopScreenShare()
         ScreenShareService.stop(getApplication())
     }
@@ -7841,6 +8419,7 @@ internal fun quietStateToJson(state: QuietTransport.QuietState): JsonObject = bu
     put("queued", buildJsonArray { for (e in state.queued) add(e.toJson()) })
     put("boxPending", buildJsonArray { for (id in state.boxPending.sorted()) add(JsonPrimitive(id)) })
     state.keyFingerprint?.let { put("keyFingerprint", it) }
+    if (state.offeredThroughSlot >= 0) put("offeredThroughSlot", state.offeredThroughSlot)
 }
 
 internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = runCatching {
@@ -7858,5 +8437,7 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
     require(boxPending.all { it.matches(Regex("[0-9a-f]{64}")) && it in retainedIds })
     val keyFingerprint = json["keyFingerprint"]?.jsonPrimitive?.content
     require(keyFingerprint == null || keyFingerprint.matches(Regex("[0-9a-f]{64}")))
-    QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint)
+    val offeredThroughSlot = json["offeredThroughSlot"]?.jsonPrimitive?.also { require(!it.isString) }?.long ?: -1L
+    require(offeredThroughSlot >= -1)
+    QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint, offeredThroughSlot)
 }.getOrNull()

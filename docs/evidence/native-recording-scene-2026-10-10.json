@@ -1,0 +1,76 @@
+{
+  "captured_at_utc": "2026-10-10T15:19:19.305908+00:00",
+  "production_ready": false,
+  "scope": "Synthetic gallery compositor decoded playback and focused JVM tests; not app call recording",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoPlan.kt": "bf004f75ec4b096cf20ff3c45974b9361bcf5daf0efd42bcfa84e14b376beaf1",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoScene.kt": "8d67fb09cb8696f7789b1adf7f53c62e28f0a13e2f2bcbacd6f0dd9241ad12f3",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/ComposedAvRecording.kt": "8df1fa4b6b2c283612db2fb41f27a68080f955b4cc9430f6ea5c359ec35b3742",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "c1d6d8618b7f98f6a7498bb353e87f8650b583e3ae61fe26731dc63fb66a3517",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoSceneTest.kt": "db67286d96519215301614d69996e95f3ed0b4c74c8724815ce2e1fc7783f218",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "835d2f15b1bebbc6a132bd4c960cc552274d1261db9d42c5efdb155ce88729f3"
+  },
+  "apk_artifacts": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "fcd84714cd8ac83e91c9c981a2d05094d984a97977d4cdb3d7ec06d8f314faf7",
+      "local_snapshot": "/tmp/kithmoot-recording-scene-qualified/fcd84714cd8ac83e91c9c981a2d05094d984a97977d4cdb3d7ec06d8f314faf7.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "bc48220f61e73a8db551b0c114d3988dcacba64bf7bc5963964ebfaf00186ba2",
+      "local_snapshot": "/tmp/kithmoot-recording-scene-qualified/bc48220f61e73a8db551b0c114d3988dcacba64bf7bc5963964ebfaf00186ba2.apk"
+    }
+  ],
+  "focused_jvm": {
+    "tests": 22,
+    "failures": 0
+  },
+  "runtime": {
+    "tests_started": 8,
+    "tests_completed_passed": 7,
+    "full_gate_passed": false,
+    "terminated_after_native_gl_stall": true,
+    "report": "app/build/reports/native-recording-scene/instrumentation.txt",
+    "report_sha256": "a41f1f6823c9590ce90af99d789b7a9513050e1af2424c85e0cee3a7fe797188"
+  },
+  "gallery": {
+    "decoded_pixel_checks_passed": true,
+    "checks": [
+      "Legacy capability excludes camera",
+      "Authorised camera appears",
+      "Permission withdrawal replaces camera with placeholder"
+    ],
+    "local_movie": "/tmp/kithmoot-recording-gallery-qualified.mp4",
+    "sha256": "51e90268a58f81da7c62c4c70a19f660dda9b4984198f8b12bbbb395bb887b6e",
+    "bytes": 95327,
+    "ffprobe": {
+      "video_codec": "h264",
+      "video_frames": 30,
+      "video_size": [
+        1280,
+        720
+      ],
+      "audio_codec": "aac",
+      "audio_packets": 94,
+      "both_track_duration_seconds": 2
+    }
+  },
+  "live_call_probe": {
+    "diagnostic_sinks_attached": true,
+    "native_track_groups": 1,
+    "add_callback_frames": 13,
+    "track_callback_frames": 13,
+    "bound_sink_frames": 13,
+    "native_encoded_frames": 20,
+    "browser_frames": 16,
+    "production_representative_gate_closed": false
+  },
+  "stalled_test": {
+    "name": "unavailable_screen_keeps_the_selected_camera_visible_in_its_own_overlay",
+    "native_stack": "/tmp/kithmoot-recording-scene-native-stack.txt",
+    "java_stack": "/tmp/kithmoot-recording-scene-java-stack.txt",
+    "observed_frame": "glCreateShader_enc -> QemuPipeStream::commitBufferAndReadFully -> read"
+  },
+  "physical": false
+}

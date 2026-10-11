@@ -48,6 +48,10 @@ private val attachmentHttp = OkHttpClient.Builder().followRedirects(false).follo
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
+    if (recordingPlaybackMime(attachment.type) != null) {
+        RecordingAttachmentViewer(attachment, onClose)
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var opened by remember(attachment) { mutableStateOf<OpenedAttachment?>(null) }

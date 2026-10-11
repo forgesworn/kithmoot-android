@@ -17,6 +17,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 enum class CadenceOwnership(val wire: String) {
     CLIENT_EXCLUDED("client-excluded"), BOX_OWNED("box-owned"), ENDED("ended");
@@ -52,6 +54,10 @@ data class StoredCadenceLease(
  * any network call; only a matching durable receipt transfers ownership.
  */
 class CadenceLeaseVault(private val storage: RoomStorage) {
+    private val publicationRevision = AtomicLong()
+    private val publicationRevisions = ConcurrentHashMap<Pair<String, String>, Long>()
+    /** Cheap dispatch fence. Captured before reading lease ownership. */
+    fun publicationGeneration(room: String, device: String): Long = publicationRevisions[room to device] ?: 0L
     @Synchronized fun all(room: String? = null, device: String? = null): List<StoredCadenceLease> = read()
         .filter { (room == null || it.plan.room == room) && (device == null || it.plan.device == device) }
         .sortedWith(compareBy({ it.plan.startEpoch }, { it.plan.generation }))
@@ -127,15 +133,28 @@ class CadenceLeaseVault(private val storage: RoomStorage) {
 
     private fun write(leases: List<StoredCadenceLease>) = guarded {
         require(leases.size <= MAX_LEASES)
+        val before = ownerships(read())
+        val after = ownerships(leases)
+        val changed = (before.keys + after.keys).filter { before[it] != after[it] }
         val bytes = buildJsonObject {
             put("version", 1)
             put("leases", JsonArray(leases.map(::encode)))
         }.toString().toByteArray(Charsets.UTF_8)
         try {
             require(bytes.size <= MAX_STORE_BYTES)
+            // Fence an existing phone publication before any ownership write,
+            // including a write whose outcome cannot be established.
+            for (owner in changed) publicationRevisions[owner] = publicationRevision.incrementAndGet()
             storage.write(bytes)
         } finally { bytes.fill(0) }
     }
+
+    /** Receipts and housekeeping do not change phone/box counter ownership. */
+    private fun ownerships(leases: List<StoredCadenceLease>) = leases
+        .filter { it.ownership != CadenceOwnership.ENDED }
+        .groupBy { it.plan.room to it.plan.device }
+        .mapValues { (_, values) -> values.map { it.plan to it.ownership }
+            .sortedWith(compareBy({ it.first.leaseId }, { it.first.generation })) }
 
     private fun encode(value: StoredCadenceLease): JsonObject = buildJsonObject {
         val p = value.plan

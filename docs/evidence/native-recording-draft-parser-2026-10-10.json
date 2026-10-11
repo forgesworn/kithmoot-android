@@ -1,0 +1,45 @@
+{
+  "production_ready": false,
+  "build_successful": true,
+  "build_elapsed": "4m 57s",
+  "focused_jvm": {
+    "tests": 18,
+    "failures": 0,
+    "suites": [
+      "RecordingAttachmentWireTest",
+      "RecordingShareDraftStoreTest",
+      "LocalRecordingStoreTest"
+    ]
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingShareDraftStore.kt": "25d170a161249835f8bf6450a887cbfc5c22733341b5d2f98d255948863e852d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStore.kt": "f37afd9ffd977a3708d315dfb3cca3a7286f300a8bde8d48b9d22e9389fd73b2",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/ChatAttachment.kt": "0aa5eadbd58db3a239f4bccac144d085887ad943b877fffe7808d7ff190880f7",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/KithMootApplication.kt": "4a16b598d89552c6198444b0cdf171351acdd69ae1d474c744d520e4f6854993",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "270ed625a9e9d9b534cfaf3db8289bf90b529eb3434f252ee5a6eed85d39a782",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/service/RoomSelfDestructor.kt": "2fe60c4e58948090f5976a89025a976fe97679619e7ce3862e3439b93ceeaa69",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "46b6dcafc658a09ec0880289cc1f705a58432b29153a8ce6390881bd9360c256"
+  },
+  "runtime": {
+    "tests": 14,
+    "failures": 0,
+    "elapsed_seconds": 36.459,
+    "report": "app/build/reports/native-recording-draft-parser/instrumentation.txt",
+    "report_sha256": "9add114d27d1d920a7bcdbfc5c65b2756a5ab4a8529ade405c2df584190b4c46",
+    "serial": "emulator-5586",
+    "browser_descriptors_use_actual_chat_parser": true,
+    "physical": false,
+    "live_browser_call": false
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "1c6ac121ab0039518b032b8ad56cfcb9587b28de379afcb975df8b14284a2ede"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "c8cd40758cccba08a99ff425b1a02f8a04145de55adeb990e99a04a19381391a"
+    }
+  ],
+  "scope": "Draft persistence and revocation foundation; sender UI and Upload/Send not yet connected. No latest-source full CI claim."
+}

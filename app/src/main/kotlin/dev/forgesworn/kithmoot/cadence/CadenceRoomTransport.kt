@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.protocol.DeadDrop
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
@@ -21,12 +22,15 @@ class CadenceRoomTransport(
     private val retain: suspend (NostrEvent) -> Unit,
     private val queue: (StoredCadenceLease, NostrEvent) -> CompletableFuture<Boolean>,
     private val release: (String) -> Unit,
+    /** In-memory lease revision; dispatch must not read the encrypted vault. */
+    private val ownershipGeneration: () -> Long,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val onFailure: (String) -> Unit = {},
 ) : RoomTransport {
     override fun receivedEventConfirmsPublication(eventId: String): Boolean =
         inner.receivedEventConfirmsPublication(eventId)
     override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
+    override fun publicationGeneration(): Long = inner.publicationGeneration()
 
     override fun publish(event: NostrEvent) {
         val lease = delegated(event) ?: return inner.publish(event)
@@ -45,6 +49,22 @@ class CadenceRoomTransport(
             onFailure(error.message ?: "Bothy could not queue the quiet message.")
             throw error
         }
+    }
+
+    override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        if (event.kind != KIND_CHAT)
+            return inner.publishConfirmedGuarded(event, generation, stillAllowed, timeoutMs)
+        val ownership = ownershipGeneration()
+        val epoch = DeadDrop.epochIndexAt(now())
+        if (leaseAt(epoch) != null) throw PublicationNotOfferedException(
+            "Recording delivery cannot be confirmed while a node owns or is taking this phone's quiet schedule. Resolve that schedule before Retry Send.")
+        // A box queue receipt is not proof that a relay delivered the notice.
+        // Forward only phone-owned dispatch, fenced across lease changes and
+        // epoch boundaries; never borrow delegated counters or fall back.
+        return inner.publishConfirmedGuarded(event, generation, {
+            ownershipGeneration() == ownership && DeadDrop.epochIndexAt(now()) == epoch && stillAllowed()
+        }, timeoutMs)
     }
 
     override fun reachable(): Boolean = inner.reachable()

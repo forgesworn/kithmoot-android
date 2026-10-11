@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBarsPadding
+
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 
@@ -102,6 +105,8 @@ fun KithMootApp(
     onRoomsKeepingCall: (() -> Unit)? = null,
     onWorkspaceOriginKeepingCall: ((dev.forgesworn.kithmoot.session.WorkspaceOrigin) -> Unit)? = null,
     onWorkspaceProjectsKeepingCall: (() -> Unit)? = null,
+    /** MainActivity keeps an existing call while opening the recording's chat. */
+    onOpenRecordingChat: ((String) -> Unit)? = null,
     /** A call answered on a phone still locked: its call view and nothing
      *  else - no rooms list, chat or settings - until the phone is unlocked. */
     lockedCallOnly: Boolean = false,
@@ -116,6 +121,59 @@ fun KithMootApp(
     val startState by model.start.collectAsState()
     val guestAdmission by model.guestAdmission.collectAsState()
     val roomState by model.room.collectAsState()
+    val recordingModel = accountModel
+    val recordingExport by recordingModel.recordingExport.collectAsState()
+    val recordingExportBusy by recordingModel.recordingExportBusy.collectAsState()
+    val recordingExportError by recordingModel.recordingExportError.collectAsState()
+    val recordingAdded by recordingModel.recordingAdded.collectAsState()
+    val recordingDetails = recordingExport?.let { runCatching { recordingModel.recordingExportDetails(it) }.getOrNull() }
+    val recordingFormat = recordingDetails?.format ?: dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO
+    var savingRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
+    var deferredRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
+    val recordingPromptAllowed = !lockedCallOnly && !inPictureInPicture && !callAnswering
+    LaunchedEffect(recordingAdded, recordingPromptAllowed) {
+        val added = recordingAdded ?: return@LaunchedEffect
+        // Add can finish after the call view becomes restricted. Keep the
+        // pending navigation until that view permits chat, including when the
+        // event itself remains unchanged across unlock or leaving PiP.
+        if (!recordingPromptAllowed) return@LaunchedEffect
+        if (recordingExport?.name == added.sourceName) {
+            deferredRecordingName = added.sourceName
+            if (onOpenRecordingChat != null) onOpenRecordingChat(added.room) else model.openNotificationRoom(added.room)
+        }
+        recordingModel.acknowledgeRecordingAdded(added.request)
+    }
+    val saveRecording = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(recordingFormat.mime)) { uri ->
+        val original = savingRecordingName
+        savingRecordingName = null
+        if (uri != null && original != null) recordingModel.saveRecording(original, uri)
+    }
+    if (recordingExport != null && deferredRecordingName != recordingExport?.name && recordingPromptAllowed) {
+        AlertDialog(
+            onDismissRequest = { if (!recordingExportBusy) deferredRecordingName = recordingExport?.name },
+            title = { Text("Recording ready") },
+            text = { Column {
+                Text("Kept privately on this device. Save a copy, add an encrypted draft to the original chat, or discard this local export. Add uploads nothing and sends no message. Saved copies remain until you remove them." +
+                    if (recordingDetails?.discardAt != null) " Unsaved copies follow the original room's self-destruct settings." else "")
+                recordingExportError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            } },
+            confirmButton = {
+                Column {
+                    TextButton(enabled = !recordingExportBusy && recordingDetails?.origin != null, onClick = {
+                        recordingExport?.name?.let(recordingModel::addRecordingToOriginalChat)
+                    }) { Text("Add to original chat") }
+                    TextButton(enabled = !recordingExportBusy && recordingDetails != null, onClick = {
+                        savingRecordingName = recordingExport?.name
+                        saveRecording.launch("KithMoot-call-${java.time.LocalDate.now()}.${recordingFormat.extension}")
+                    }) { Text(if (recordingExportBusy) "Working…" else "Save") }
+                }
+            },
+            dismissButton = { Column {
+                TextButton(enabled = !recordingExportBusy, onClick = { deferredRecordingName = recordingExport?.name }) { Text("Later") }
+                TextButton(enabled = !recordingExportBusy, onClick = recordingModel::discardRecordingExport) { Text("Discard") }
+            } },
+        )
+    }
     val workspaceSnapshot by accountModel.workspace.collectAsState()
     val workspaceAccountState by accountModel.start.collectAsState()
     val workspaceOrigin by model.workspaceOrigin.collectAsState()
@@ -531,7 +589,9 @@ fun KithMootApp(
             else promptFor(roomState.roomId)
     }
     // Under a dock or the banner the status bar is already cleared.
-    val topCleared = dock != null || reachBanner != null
+    val recordingActionsVisible = recordingExport != null && recordingPromptAllowed &&
+        (stage == Stage.ROOM || stage == Stage.START && homePage == HomePage.ROOMS)
+    val topCleared = dock != null || reachBanner != null || recordingActionsVisible && stage == Stage.ROOM
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -553,6 +613,11 @@ fun KithMootApp(
                     // The dock or banner above has already cleared the status bar.
                     windowInsets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                 )
+                if (recordingActionsVisible) TextButton(onClick = { deferredRecordingName = null },
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (stage == Stage.ROOM && dock == null && reachBanner == null) Modifier.statusBarsPadding() else Modifier)) {
+                    Text("Recording ready")
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background,
@@ -805,8 +870,8 @@ fun KithMootApp(
                                 PermissionAsk(
                                     permission = Manifest.permission.CAMERA,
                                     title = "Camera",
-                                    why = "So the room can see you. Nothing is recorded and " +
-                                        "the video does not pass through a server.",
+                                    why = "So the room can see you. A notice tells you when KithMoot is recording " +
+                                        "the call. Other participants may also record with another app.",
                                     refused = "No camera, so your tile stays a placeholder.",
                                     onGranted = model::toggleCamera,
                                 ),
@@ -849,6 +914,11 @@ fun KithMootApp(
                     onSetMeetingMode = model::setMeetingMode,
                     onSetSpeaker = model::setSpeaker,
                     onAnswerRecordingConsent = model::answerRecordingConsent,
+                    onStartAudioRecording = model::startNativeAudioRecording,
+                    onStartVideoRecording = model::startNativeVideoRecording,
+                    onStopRecording = model::stopNativeRecording,
+                    onToggleRecordingPause = model::toggleNativeRecordingPause,
+                    onRetryRecordingStop = model::retryRecordingStop,
                     onRotateInvitation = model::rotateInvitation,
                     onChangeNativeRoomKey = model::changeNativeRoomKey,
                     onRemoveNativeRoomMember = model::removeNativeRoomMember,
@@ -880,6 +950,14 @@ fun KithMootApp(
                             onSend = model::sendChat,
                             onReact = model::react,
                             attachments = roomState.chatAttachments,
+                            recordingDrafts = roomState.recordingDrafts,
+                            onRemoveRecordingDraft = model::removeRecordingDraft,
+                            onSendRecordingDraft = model::sendRecordingDraft,
+                            recordingStorageChoice = roomState.recordingStorageChoice,
+                            onPrepareRecordingStorage = model::prepareRecordingStorage,
+                            onUploadRecordingDraft = model::uploadRecordingDraft,
+                            recordingUploadRunning = roomState.recordingUploadRunning,
+                            onCancelRecordingUpload = model::cancelRecordingUpload,
                             artwork = roomState.chatArtwork,
                             onAddArtwork = model::addChatArtwork,
                             onRemoveArtwork = model::removeChatArtwork,

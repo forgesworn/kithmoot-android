@@ -500,11 +500,16 @@ class RoomSession(
 
     /** Called by the exclusive foreground source owner before it signs.
      * Uses the ordinary epoch barrier, never a transport handoff lock. */
-    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String) {
+    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String,
+        recoveringEpoch: Int? = null) {
         require(keeperProfileMatches(stableRoom, root, participant, device))
         epochMutex.withLock {
             require(keeperProfileMatches(stableRoom, root, participant, device))
             if (_epochState.value is RoomEpochState.Closed) return@withLock
+            // A courier echo can finish adoption between the controller's
+            // recovery snapshot and this barrier. Never hold the next epoch
+            // merely to replay an original notice already adopted here.
+            if (recoveringEpoch != null && epochKeys().epoch >= recoveringEpoch) return@withLock
             keeperTransitionFrom = _epochState.value as? RoomEpochState.Active
             blockForRekey()
             _epochState.value = RoomEpochState.Updating(epochKeys().epoch + 1)
@@ -1100,22 +1105,70 @@ class RoomSession(
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
-        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        val prepared = prepareChatForSend(body, reaction, attachments, artwork) ?: return false
+        return sendPreparedChatDurable(prepared, onRetained = onRetained)
+    }
+
+    /** Signs but neither retains nor publishes. Recording Send first commits
+     * this exact message to its private draft owner, so a failed handoff can
+     * retry without creating another signed message. */
+    fun prepareChatForSend(body: String, reaction: ChatReaction? = null,
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): PreparedRoomChat? {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
-        if (text.isEmpty()) return false
+        if (text.isEmpty()) return null
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
+        check(at < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
             sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id)
+        return PreparedRoomChat(room.roomId, identity.participant, identity.devicePubkey,
+            PendingChatOutbox.Pending(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id))
+    }
+
+    /** Transfers the same prepared event on every retry. The synchronous guard
+     * checks the recording owner at the outbox storage boundary. Existing
+     * authority, epoch and admission checks still control publication. */
+    suspend fun sendPreparedChatDurable(prepared: PreparedRoomChat,
+        commitGuard: ((() -> Unit) -> Unit) = { it() }, onRetained: suspend () -> Unit = {}): Boolean {
+        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        check(now() < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
+        outbox.retainPrepared(prepared.pending, commitGuard)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)
-        return outbox.items().none { it.event.id == event.id }
+        return outbox.items().none { it.event.id == prepared.pending.event.id }
+    }
+
+    /** Non-retaining chat keeps only its recording draft's exact message
+     * until confirmation. It never creates an ordinary chat outbox row. */
+    suspend fun sendPreparedChatConfirmed(prepared: PreparedRoomChat, stillOwned: () -> Boolean): Boolean {
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed() && stillOwned()) { "The original recording's Send is no longer allowed" }
+        val at = now()
+        val epoch = epochKeys()
+        check(epoch.id == prepared.pending.epochId) { "This recording's signed message belongs to an earlier secure room state" }
+        check(at < (ends ?: Long.MAX_VALUE) && prepared.pending.event.createdAt >= at - CHAT_RETENTION_SECONDS)
+        check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
+        policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
+        val own = decodeOwnChat(prepared.pending.event, prepared.pending.event.createdAt, epoch)
+        val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+        val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        val confirmed = transport.publishConfirmedGuarded(prepared.pending.event, transport.publicationGeneration(), {
+            trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
+                now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
+        }, CHAT_CONFIRM_TIMEOUT_MS)
+        if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
+        return confirmed
     }
 
     /** Everything kept on this phone for the room, oldest first, with what became of each. */
@@ -1209,7 +1262,7 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedGuarded(event, generation, {
-                trafficAllowed() && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && epochKeys().id == item.epochId && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {

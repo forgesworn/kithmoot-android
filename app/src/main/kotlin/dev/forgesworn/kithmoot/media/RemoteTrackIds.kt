@@ -49,9 +49,12 @@ internal fun remoteTracksFor(
     /** The generation-opening offer's mid-to-role map, on a profile-2 pair.
      *  Null on profile 1, where a role comes from the roster advert instead. */
     slots: Map<String, String>? = null,
-): List<RemoteTrack> {
-    val ids = remoteTrackIds(connection.remoteDescription?.description ?: return emptyList())
-    return connection.transceivers.mapNotNull { transceiver ->
+): List<RemoteTrack> = synchronized(connection) {
+    // A second read disposes the previous read's wrappers. Share this monitor
+    // with WebRtcPeerConnection's slot and bitrate operations for the entire
+    // read/use lifetime, rather than just around the getter.
+    val ids = remoteTrackIds(connection.remoteDescription?.description ?: return@synchronized emptyList())
+    connection.transceivers.mapNotNull { transceiver ->
         val advertised = ids[transceiver.mid] ?: return@mapNotNull null
         val receiverId = transceiver.receiver.track()?.id() ?: return@mapNotNull null
         // getTransceivers disposes its previous Java wrappers on every read.

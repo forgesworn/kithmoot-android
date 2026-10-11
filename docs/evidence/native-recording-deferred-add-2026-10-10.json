@@ -1,0 +1,61 @@
+{
+  "production_ready": false,
+  "base_commit": "2376dfa56fcefddaeeb64ee839fc67664e2fe64a",
+  "scope": "Add completion remains pending while lockedCallOnly, inPictureInPicture or callAnswering is set, and navigates the original room exactly once when allowed. The real Compose app receives these states; this does not qualify physical keyguard or OS PiP transitions.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "b67bb1d6db276ea5a3e9d7d293bd681abe3b067bea4e1bd0a47384daebafee8a",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "33bac9752a8efb2328ea0f9f2cdac11e42212097528411984d30fc338d7df052",
+    "scripts/check-recording-emulator.sh": "038438bba474bf50daadb1c9d0209e431ae541d8d5b1ba3cfb909a4fcd76e89c"
+  },
+  "build": {
+    "debug_app_and_instrumentation": true,
+    "final_elapsed": "35s"
+  },
+  "runtime": {
+    "tests": 15,
+    "failures": 0,
+    "elapsed_seconds": 39.482,
+    "report": "app/build/reports/native-recording-deferred-add-final/instrumentation.txt",
+    "report_sha256": "3137f71b090b7616f5637412c5a3af64f67b16d6d313ecaa8922b080efabaa44",
+    "serial": "emulator-5586",
+    "physical": false,
+    "modes_checked": [
+      "lockedCallOnly",
+      "inPictureInPicture",
+      "callAnswering"
+    ],
+    "pending_event_not_acknowledged_until_allowed": true,
+    "navigation_exactly_once_per_event": true,
+    "repeated_add_keeps_same_draft": true,
+    "includes_existing_upload_setup_discard_and_remove": true,
+    "live_browser_interop_included": false
+  },
+  "regression": {
+    "previous_app_apk_sha256": "65f0ada029c0921a25e08bd60903c0415bb5a090bc10395ee31869645edca926",
+    "previous_app_commit": "2376dfa56fcefddaeeb64ee839fc67664e2fe64a",
+    "preliminary_test_report_sha256": "3c391739618bd189504672a1505bc72beb340f69e55ce5ed53b949f6e465fc59",
+    "previous_app_failed": "Pending Add disappeared while locked; the preliminary test timed out waiting for its unacknowledged event.",
+    "test_harness_correction": "The first fixed-app run passed all restriction checks but the test callback only counted navigation, so the later Upload button was unavailable. The final test callback also invokes the real openNotificationRoom method; all 15 then passed.",
+    "first_fixed_run_report_sha256": "0a7ae4b10cd9942efe7439e16847fa1006b0a12caafe24a750678edbba0638b5"
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "f4cac69f61b5355f5611e7c14d51a428cf7913f07de37e35e3ea35e07994380b"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "cdc28b81b6adc48df7fd24a1ff61729bdf0d88eb25907c4416644768ba414553"
+    }
+  ],
+  "remaining": [
+    "Durable Send/outbox ownership",
+    "UI-driven HTTPS transfer",
+    "Stop-notice recovery across close/restart",
+    "Live browser/native video capture",
+    "Background reliability under load",
+    "Integration with current main and complete hosted CI",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Signed production delivery"
+  ]
+}

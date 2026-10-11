@@ -1,0 +1,107 @@
+{
+  "production_ready": false,
+  "base_commit": "eb1a0bfc0621973c665e0e97531286a063463357",
+  "scope": "Explicit native Send controls and UI-driven HTTPS Upload-to-Send against a loopback Blossom-contract server. Native capture/owner UI is separate; this TLS journey starts from a previously qualified synthetic MP4. No independent recipient or physical-device claim.",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "7ac3dcf2db2ce9813a6a873d47b413861657eb2ecf518eb86ef6f38919d86efc",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingShareDraftStore.kt": "16cd02009d821ba8bea5daba6ec8182abc66d59fe4f667bc92e37a0b10d654a7",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadRequest.kt": "af35ef71774060683b0eeebb8b32860487a4a8f137a32f8aa8913e96676da0e9",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "5d1e208763498c57f4e11e8621161f9574870e687d66f8a79452910dc3788117",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "39095c8a496293d90634c39210d48340024acf1fef40479eef1e955bedfe7385",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "634fdff1b71f9bdb27b38fc4a409581cce868f0be9a43d5e127e89b39f8d2888",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/ChatPane.kt": "c56cfd1eb08e6900539e912165976694bf7b11c929a64dff8996161ee3c2937c",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingShareDraftStoreTest.kt": "7422dbf9c4b342a3ef740f8f18e71094752df61d0ed06f15a2d6623d0ebf9dbc",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadRequestTest.kt": "26ed1c8420c94ea35e695045d9e36cfcb7d6d6713b7db5220fb1c029c65f410b",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChatTest.kt": "ae93a938b541a9ffa9dfa37a20e6630426e909cbd235f1f0dc3207ff6053710c",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "cb13cbf8622892e3f262157a1d99a99c2d563d73cd094ea8660d7bbd6ede7773",
+    "scripts/check-recording-upload-send-emulator.sh": "535da52bdfa9f26cf6b3909747fd714032eb03bb98ea53f67f9430c336be1645"
+  },
+  "jvm": {
+    "tests": 2022,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "report_bundle_sha256": "efdd16a7beef291cb224dd2c0b1d4baccf4edbdb5c1b7d95a280a10a4accfd97"
+  },
+  "build": {
+    "full_app_unit_debug_and_instrumentation": true,
+    "elapsed": "4m 7s",
+    "final_test_only_rebuild_elapsed": "33s",
+    "lint_or_release_included": false
+  },
+  "runtime": {
+    "https_upload_send": {
+      "tests": 2,
+      "failures": 0,
+      "elapsed_seconds": 9.154,
+      "report_sha256": "558cd90ec517edbc961f2b90ea7f4b0677e61098d63e0df2c5af65e6db435792",
+      "physical": false,
+      "serial": "emulator-5586"
+    },
+    "recording": {
+      "tests": 15,
+      "failures": 0,
+      "elapsed_seconds": 51.991,
+      "report_sha256": "2eaad234e736e6fe9aaf90dca8004000273ccc0885f2de975af8409e5ebf3321",
+      "physical": false,
+      "serial": "emulator-5586",
+      "live_browser_interop_included": false
+    },
+    "admission_ui": {
+      "tests": 6,
+      "failures": 0,
+      "elapsed_seconds": 4.755,
+      "report_sha256": "168c331a7460086318096dd7b1c4dd9212be4f7f1d62b2675310912f8f312133",
+      "physical": false,
+      "serial": "emulator-5586"
+    }
+  },
+  "https_fixture": {
+    "actual_ui_http_upload_qualified": true,
+    "actual_tls_socket": true,
+    "certificate_temporary": true,
+    "test_constructor_client_only": true,
+    "default_production_client_unchanged": true,
+    "actual_wildbloom_daemon": false,
+    "valid_storage_signature_checked": true,
+    "storage_key_distinct_from_room_device": true,
+    "authorization_lifetime_max_seconds": 300,
+    "ciphertext_magic_and_sha256_checked": true,
+    "no_automatic_upload_before_consent": true,
+    "no_recording_message_before_explicit_send": true,
+    "one_original_chat_event_after_send": true,
+    "local_export_preserved_after_send": true,
+    "redirect_target_received_no_upload": true,
+    "no_automatic_retry": true,
+    "failed_upload_retains_local_export_and_encrypted_draft": true,
+    "sample_sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+    "earlier_fixture_failure": "Room-control events share kind 1460; first fixture wrongly counted them as chat sends. Corrected to the original default chat channel.",
+    "earlier_failure_report_sha256": "89fc922a4a22e64eaf48b08aca173717fe631eb115919064c300d2c39d810dba"
+  },
+  "hosted_preceding_head": {
+    "source": "eb1a0bfc0621973c665e0e97531286a063463357",
+    "run": 38087452349,
+    "recovery": "success",
+    "verify": "in_progress_at_snapshot",
+    "covers_this_ui_source": false
+  },
+  "remaining": [
+    "Independent recipient fetch/play on a real node and physical device",
+    "Signed stop-notice recovery across close/restart",
+    "Live browser/native video capture",
+    "Background reliability under load",
+    "Rekey/interruption recovery of an already prepared recording Send",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Complete final hosted CI and signed production delivery"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "5696efc03a81a08912c0377254a13a0f18d7ce7bf6afff5068775a7f88102a25"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "623992a004be479c8c814163d80875fc54559f10c10c97bb95a45559e358525a"
+    }
+  ]
+}

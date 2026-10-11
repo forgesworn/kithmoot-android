@@ -21,9 +21,20 @@ import dev.forgesworn.kithmoot.protocol.MEETING_REPOST_SECONDS
 import dev.forgesworn.kithmoot.protocol.MeetingPolicy
 import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.signMeetingPolicy
+import dev.forgesworn.kithmoot.protocol.RECORDING_REPOST_SECONDS
+import dev.forgesworn.kithmoot.protocol.RecordingNotice
+import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
+import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.signRecordingNotice
+import dev.forgesworn.kithmoot.protocol.signRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.encodeRecordingOp
+import dev.forgesworn.kithmoot.protocol.encodeRecordingCaptureOp
 import dev.forgesworn.kithmoot.protocol.withMeetingMode
 import dev.forgesworn.kithmoot.protocol.withSpeaker
 import dev.forgesworn.kithmoot.protocol.verifyRoomRelays
+import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
+import dev.forgesworn.kithmoot.protocol.CredentialCheck
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.relay.StoredHistoryUnavailableException
@@ -87,7 +98,9 @@ class RoomWork(
     /** The secret half of [authority], when this device made the room and
      *  so may run it as a meeting. Null everywhere else. */
     private val authoritySecretKey:ByteArray?=null,
+    private val recordingStops:RecordingStopJournal?=null,
 ) {
+    private val recordingTrafficLock=Any()
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
     /** The room's meeting policy, recording notice and raised hands, all
@@ -276,11 +289,137 @@ class RoomWork(
      *  it as a meeting. */
     val moderator:Boolean=authority!=null&&authoritySecretKey?.let{runCatching{Schnorr.publicKeyHex(it)}.getOrNull()}==authority.lowercase()
     @Volatile private var meetingRepost:Job?=null
+    private val recordingMutex=Mutex()
+    private val recordingStopGeneration=recordingStops?.generation(roomId)
+    @Volatile private var recordingRepost:Job?=null
+    private val mutableRecordingStopPending=MutableStateFlow<String?>(authority?.let {
+        recordingStops?.pending(roomId,identity.devicePubkey,it)?.notice?.id
+    })
+    /** A locally stopped recording whose off notice still needs acknowledgement. */
+    val recordingStopPending=mutableRecordingStopPending.asStateFlow()
     private fun receiveMeeting(body:String,participant:String,sentAt:Long):Boolean {
         val before=meeting.state.value.policy
+        val recordingBefore=meeting.state.value.recording?.notice
         if(!meeting.receive(body,participant,sentAt))return false
         if(meeting.state.value.policy!=before)scheduleMeetingRepost()
+        if(meeting.state.value.recording?.notice!=recordingBefore)recordingRepost?.cancel()
+        val retained=authority?.let { recordingStops?.pending(roomId,identity.devicePubkey,it) }
+        if(retained!=null) {
+            val heard=meeting.state.value.recording?.notice
+            // An empty replay or an unrelated meeting op is not stop proof.
+            // Equal-version conflicting On cannot prove the retained Off.
+            if(heard!=null && (heard.version>retained.notice.version ||
+                    (heard.id!=retained.notice.id && heard.version>=retained.notice.version))) {
+                runCatching { recordingStops?.confirm(roomId,identity.devicePubkey,retained) }
+                    .onSuccess { mutableRecordingStopPending.value=null }
+                    .onFailure { mutableError.value="The recording stop notice was confirmed but could not be cleared on this device." }
+            }
+        } else if(recordingStops==null) mutableRecordingStopPending.value?.let { id ->
+            if(meeting.state.value.recording?.notice?.let { it.on&&it.id==id }!=true) mutableRecordingStopPending.value=null
+        }
         return true
+    }
+    /** Confirm details before the running notice. Capture may begin only after
+     * this returns. A failed publication never authorises local capture. */
+    suspend fun startRecording(capture:String):RecordingNotice=recordingMutex.withLock {
+        check(!closed) {"This room has closed"}
+        val sk=authoritySecretKey
+        check(moderator&&sk!=null) {"Only the room's authority can start recording."}
+        check(recordingStops?.pending(roomId,identity.devicePubkey,checkNotNull(authority))==null) {
+            "Confirm the earlier recording's stop notice before starting another recording"
+        }
+        check(meeting.state.value.recording?.notice?.on!=true) {"A recording is already running"}
+        val id=Entropy.bytes(16).toHex()
+        val version=maxOf(nowMs(),(meeting.state.value.recording?.notice?.version?:0)+1,
+            (meeting.state.value.capture?.notice?.version?:0)+1)
+        val details=RecordingCaptureNotice(id,version,capture,identity.participant,identity.devicePubkey)
+        val signedDetails=SignedRecordingCaptureNotice(details,signRecordingCaptureNotice(roomId,details,sk))
+        val notice=RecordingNotice(true,id,version)
+        val signed=SignedRecordingNotice(notice,signRecordingNotice(roomId,notice,sk))
+        val off=RecordingNotice(false,id,version+1)
+        val signedOff=SignedRecordingNotice(off,signRecordingNotice(roomId,off,sk))
+        recordingStops?.arm(roomId,identity.devicePubkey,signedOff,checkNotNull(authority),checkNotNull(recordingStopGeneration))
+        try {
+            publishRecordingControl(encodeRecordingCaptureOp(signedDetails))
+            publishRecordingControl(encodeRecordingOp(signed))
+        } catch(error:Exception) {
+            if(recordingStops!=null) mutableRecordingStopPending.value=id
+            throw error
+        }
+        recordingRepost=scope.launch {
+            while(isActive) {
+                delay(RECORDING_REPOST_SECONDS*1000)
+                recordingMutex.withLock {
+                    if(closed||meeting.state.value.recording?.notice!=notice)return@launch
+                    // A failed refresh leaves the last confirmed notice intact;
+                    // peers eventually show it as unconfirmed, never silently off.
+                    try {
+                        publishRecordingControl(encodeRecordingCaptureOp(signedDetails))
+                        publishRecordingControl(encodeRecordingOp(signed))
+                    } catch(cancelled:CancellationException) {throw cancelled}
+                    catch(_:Exception) {mutableError.value="The recording notice could not be refreshed."}
+                }
+            }
+        }
+        notice
+    }
+
+    /** Stop only the recording this caller owns: an old completion must never
+     * turn off a newer recorder's notice. Call after capture has detached. */
+    suspend fun stopRecording(id:String)=recordingMutex.withLock {
+        val retained=authority?.let { recordingStops?.pending(roomId,identity.devicePubkey,it) }
+        if(retained!=null && retained.notice.id!=id) return@withLock
+        if(retained!=null) mutableRecordingStopPending.value=id
+        check(!closed) {"This room has closed"}
+        val sk=authoritySecretKey
+        check(retained!=null || (moderator&&sk!=null)) {"Only the room's authority can stop recording."}
+        val before=meeting.state.value.recording?.notice
+        if(retained==null && (before==null||before.id!=id||!before.on))return@withLock
+        if(retained!=null && before!=null && (before.version>retained.notice.version ||
+                (before.id!=id && before.version>=retained.notice.version))) {
+            recordingStops?.confirm(roomId,identity.devicePubkey,retained)
+            mutableRecordingStopPending.value=null
+            return@withLock
+        }
+        // Capture has already detached. Never refresh an On notice afterwards,
+        // even if the relay cannot currently confirm its replacement.
+        recordingRepost?.cancel()
+        val signed=retained?:RecordingNotice(false,id,maxOf(nowMs(),checkNotNull(before).version+1)).let {
+            SignedRecordingNotice(it,signRecordingNotice(roomId,it,checkNotNull(sk)))
+        }
+        try {
+            publishRecordingControl(encodeRecordingOp(signed))
+            if(retained!=null) {
+                // A local echo or replay of Off can precede a transport
+                // refusal. Only explicit publication confirmation completes
+                // this exact retained stop; keep its retry on any failure.
+                recordingStops?.confirm(roomId,identity.devicePubkey,retained)
+                mutableRecordingStopPending.value=null
+            }
+        } catch(error:Exception) {
+            if(meeting.state.value.recording?.notice?.let { it.on&&it.id==id }==true)
+                mutableRecordingStopPending.value=id
+            throw error
+        }
+    }
+
+    private suspend fun publishRecordingControl(body:String) {
+        check(!closed) {"This room has closed"}
+        check(ends==null||now()<ends) {"This room has ended"}
+        val generation=transport.publicationGeneration()
+        val (id,key)=synchronized(recordingTrafficLock) {trafficRoomId to trafficRoomKey}
+        val sentAt=now()
+        check(verifyDeviceCredential(identity.credential,roomId,sentAt) is CredentialCheck.Valid) {
+            "The recording device's room credential needs renewal"
+        }
+        val credentialDeadline=identity.credential.tagValue("expiration")?.toLongOrNull()?:0L
+        val event=encodeChatEvent(body,identity.participant,identity.credential,id,key,
+            identity.deviceSecretKey,sentAt,channel="control",credentialRoomId=roomId,roomEnds=ends)
+        check(transport.publishConfirmedGuarded(event,generation,{
+            !closed && trafficRoomId==id && now()<credentialDeadline && (ends==null||now()<ends) &&
+                (recordingStops==null||recordingStops.generation(roomId)==recordingStopGeneration)
+        })) {"No relay confirmed the recording notice"}
+        receiveMeeting(body,identity.participant,sentAt)
     }
     /** The policy a change starts from: the room's own, or none at all. */
     private fun stagePolicy():MeetingPolicy=meeting.state.value.meeting?:MeetingPolicy(false,emptyList(),0)
@@ -364,7 +503,7 @@ class RoomWork(
         require(id.matches(Regex("[0-9a-f]{64}"))&&key.size==32)
         check(!closed) {"This room has closed"}
         collector?.cancelAndJoin();collector=null
-        trafficRoomId=id;trafficRoomKey=key.copyOf();trafficEpoch=epoch
+        synchronized(recordingTrafficLock) {trafficRoomId=id;trafficRoomKey=key.copyOf();trafficEpoch=epoch}
         settleName()
         scheduleNameCarry(3_000L,12_000L)
         synchronized(catalogues){catalogues.clear();mutableActions.value=emptyList()}
@@ -384,5 +523,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }

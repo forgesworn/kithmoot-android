@@ -1,0 +1,86 @@
+{
+  "production_ready": false,
+  "build_successful": true,
+  "build_elapsed": "3m 33s",
+  "focused_jvm": {
+    "tests": 6,
+    "failures": 0,
+    "suite": "RecordingUploadJournalTest"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadJournal.kt": "3535a4773f3121f71e430fccacc9b3a423a85fe26ce90256ca65e7bcb00067e2",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadJournalTest.kt": "76c6f5d166ec6356bf5c207156d9bd3f4a1c77d77b8b6f69e80762a5ff01efcb",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/KithMootApplication.kt": "d1c72cd1301b386897fd3f3f1b739ced05bd01d77bcbfe2a130d8945c537685d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "2ba6ba95d8cce51bd6b59bdc748db84eae9a6522b6f0f83d8c7c1f9e6c0d62f5",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/service/BackgroundCallListenerService.kt": "b81b001dc138f37371a94a3879669351c4e53e717eba623e964a118fb8903e3f"
+  },
+  "runtime": {
+    "tests": 14,
+    "failures": 0,
+    "elapsed_seconds": 36.292,
+    "report": "app/build/reports/native-recording-upload-journal-final/instrumentation.txt",
+    "report_sha256": "790c97c0018813d6450b7f0d3f4e260feacaa50a04e34292491045deeb4cfa5f",
+    "serial": "emulator-5586",
+    "physical": false
+  },
+  "private_node": {
+    "synthetic": true,
+    "https_loopback": true,
+    "clock_injected": true,
+    "journal_is_private_test_storage": true,
+    "android_keystore_persistence_qualified": false,
+    "compiled_native_class_bundle_sha256": "481eab3c065af7c0c6e66fc89aa212f1c8c27fb59c67e661f4b6ef0202cd2f47",
+    "helper_source_sha256": "a5901dc6a083161d1ee2bedb93ff0d4d7ca958cdda688bfe7f517a7f705a3390",
+    "daemon_binary_sha256": "7f12e5677d4b1842a0054e6fb761fb611d44d93e6720c2387a5fce199dce566f",
+    "operations": [
+      {
+        "ordinal": 1,
+        "method": "PUT",
+        "path": "/upload",
+        "status": 201
+      },
+      {
+        "ordinal": 2,
+        "method": "DELETE",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 401
+      },
+      {
+        "ordinal": 3,
+        "method": "DELETE",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 200
+      },
+      {
+        "ordinal": 4,
+        "method": "HEAD",
+        "path": "/5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+        "status": 404
+      }
+    ],
+    "result": {
+      "synthetic": true,
+      "passed": true,
+      "storageIdentityAllowed": true,
+      "upload": true,
+      "forgetRemovedRoomReference": true,
+      "restart": true,
+      "expiredDeleteRefused": true,
+      "freshDeleteConfirmedByHead": true,
+      "roomKeysUsed": false,
+      "productionKeystoreTested": false
+    },
+    "temporary_services_stopped": true
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "e5ddeada069acc93c5ed418ca543e2de897a8e534395366780a0555455bfefcb"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "77323b962cfdc5303bf04291832df80c8af2f8e6c789e750c55e89dd73a1fbd4"
+    }
+  ],
+  "scope": "Storage-only per-origin identity and fresh exact-hash cleanup, wired into Forget/removal and cleanup loops. Explicit sender node setup, Upload/Send, Android Keystore restart, hosted and physical qualification remain open."
+}
