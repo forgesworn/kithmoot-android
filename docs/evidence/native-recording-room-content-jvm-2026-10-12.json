@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-12",
+  "source": "c1457a245d7479da25676d164f493527d14b6a52",
+  "gates": [
+    {
+      "command": ":protocol:test",
+      "suites": 76,
+      "tests": 494,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_manifest_sha256": "68351235c94e9200bcacf26a68313afcbb250564fe4e747f030d75a8c435f600",
+      "result": "passed"
+    },
+    {
+      "command": ":app:testDebugUnitTest",
+      "suites": 256,
+      "tests": 2210,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_manifest_sha256": "c852f6108461a437468ac16f336f9d09bfdc6896d970013e9c7fc6f1346fc1f7",
+      "result": "passed"
+    }
+  ],
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803",
+  "limits": [
+    "Local lint and APK packaging are still running.",
+    "Hosted recovery and recording instrumentation are still pending.",
+    "JUnit pass counts do not claim implementation of uncovered protocol vector groups.",
+    "No physical 45-minute capture or signed production publication is established."
+  ]
+}
