@@ -55,5 +55,21 @@
     "JVM fixtures, not real Link or delegated node delivery",
     "A native request already offered cannot be retracted by cancelling its future",
     "Quiet delegated recording remains disabled; capacity and physical gates remain open"
-  ]
+  ],
+  "startup_followup": {
+    "source_base": "c913d468",
+    "suite": "LinkTransportTest",
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "cancellation during native startup prevents the request offer",
+      "withdrawn permission during native startup prevents the request offer"
+    ],
+    "report_sha256": "d55f96f3adeb2500ae5be49ff3c3e186206533725f87a961454addcc2ae0e79c",
+    "log_sha256": "83d79eb0c9305a5727d9298921a0a18dd83f777c6a368345e9c82c17d0f83c12",
+    "test_source_sha256": "52a07f0282979bc3f2831d411d1faddaeb15942e44d9289946823ece7723e1b7",
+    "scope": "JVM worker/native-startup fixture; no delegated delivery qualification"
+  }
 }
