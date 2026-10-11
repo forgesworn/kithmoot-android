@@ -5,6 +5,13 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
+The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
+records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.
+The new real-node job passed its four HTTPS contract tests, then stopped at
+the report assertion because the runner lacked `rg`; its real-node short,
+maximum and slow UI stages did not run. Commit `815e765f` installs that
+dependency. The corrective hosted run remains pending qualification.
+
 The earlier integrated-main/cadence candidate passed 417 protocol and 2,070 app
 unit tests, both lint variants and both APK builds locally; see the
 [main/cadence receipt](evidence/native-recording-main-cadence-guarded-2026-10-11.json).
