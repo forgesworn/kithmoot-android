@@ -446,6 +446,14 @@ temporary data, daemon and proxy cleanup pass. The upload took 25.47 seconds.
 This proves a host/server transfer, not native encryption, Android UI at this
 size, slow authorisation expiry or long physical capture.
 
+The [slow host/private-node receipt](evidence/native-recording-private-node-host-slow-2026-10-11.json)
+adds the same 256 MiB source with an 80 ms delay per 64 KiB chunk in both
+directions. Upload took 357.87 seconds: the daemon accepted the initially valid
+authorisation and completed after its five-minute expiry. One PUT 201 and one
+GET 200, authenticated plaintext identity and complete cleanup pass. This
+does not prove rejection of a new offer made after expiry, or Android transfer
+behaviour; those remain separate checks.
+
 The optional `scripts/check-recording-private-node-host.py` requires Python
 `cryptography`, Node 24, an explicitly selected `nostr-tools` package, an
 existing private daemon binary and a synthetic 1-256 MiB MP4. Its signer is
