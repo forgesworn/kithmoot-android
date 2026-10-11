@@ -4,6 +4,8 @@
   "implementationFilesSHA256": {
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "8637608d80a42c36673d2d8de23bf76cba00aafbfa8749af2719c7bed3143d5f",
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/SharedProjectsUiTest.kt": "e5ceda165d6afb30ef51651b2c6ec0747c328ce10de0783a9f8505fe05cf302c",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "b4aaf128e4dead9c0c6754d2ebb98635e449d3ce26c1775804de22bc5f44c912",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionEntryTest.kt": "ce3871abebc62a5400129811c0bb8fd14b721648cb3b0135601cc80d29d7c58b",
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionUiTest.kt": "58dcd7a6c51d04dc70b7a0a1bcd146f9f6de2d28d9c64b210b2e64280c5cba42",
     "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmission.kt": "8292e48a5e1333361c756c762793f56fa392162dfef12efcb6c4e3dc9022fda5",
     "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionDialog.kt": "0b76ccd72d7483713a9042c284d5c65e20b18aa3323691048b52c6ddef0b660a",
@@ -12,9 +14,10 @@
     "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "a5f4ae71a4d43a7426a5578a9b73ebcc7b89b1693a69c307d6d7defa4986fa57",
     "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionGateTest.kt": "e5a3603cd7597d3b84da07df1c3fd0a5ee5f0dcca6d13d63245a4fbea6f113b8",
     "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/ProjectInvitationReviewTest.kt": "0cf004347f2d95a04847cb9337f28c23831e1a715e1e25cd11650c970771dc41",
-    "docs/project-invitation-preview.md": "7b67198bb179a26313fbb534023495ea55a15f04933820f597067b7a5a3373b7",
+    "docs/closed-room-logo-catchup.md": "3f4ce30a482c8d1ae99f52a428372af72d5413f5ea2eaa4f60d581421d6e285b",
+    "docs/project-invitation-preview.md": "a620be28a703e532e84fa8e143f7b7cf53a015ac946e9c381199e45e4335734d",
     "docs/project-logo-journal.md": "6640c29e853df1054c13265633c38b129873ceff424707bfd16bbdbf64e69323",
-    "scripts/check-recovery-emulator.sh": "b01223e8adb3e369c0f62716d2cbeb4e0369caa4d67d94b020b7f8d1a328277a"
+    "scripts/check-recovery-emulator.sh": "97d9ad7a43ade324e9da0fb760dabe06898574fbdfc1edef6631191eaef3fe81"
   },
   "local": {
     "protocolTests": 443,
@@ -37,11 +40,11 @@
     "api": 35,
     "architecture": "arm64-v8a",
     "completePreviousBatch": "OK (36 tests)",
-    "current38CaseBatch": "passed; runner exit zero and full instrumentation summary",
-    "sourceFilesCompared": 1285,
+    "current38CaseBatch": "superseded by complete 40-case batch",
+    "sourceFilesCompared": 1287,
     "sourceFileHashMismatches": 0,
-    "testCases": 38,
-    "strictResult": "OK (38 tests)",
+    "testCases": 40,
+    "strictResult": "OK (40 tests)",
     "classes": [
       "SharedProjectsUiTest",
       "ContextualProjectLogoUiTest",
@@ -49,20 +52,22 @@
       "GuestAdmissionEntryTest",
       "ProjectLogoEditorTest",
       "RoomLogoUiTest"
-    ]
+    ],
+    "viewport": "1080x2400 at 420 dpi",
+    "animations": "disabled"
   },
   "artifacts": {
     "app/build/outputs/apk/debug/app-debug.apk": {
       "bytes": 117073003,
       "sha256": "b0728de3d268489577bccf0028faa3e24a8e0389b349cf7e6aac6e66ece60d46"
     },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "bytes": 5120293,
+      "sha256": "56d9fec2d1812a10bdb2490a74be758b25833cdc1f91ea7518fa2bf61490111e"
+    },
     "app/build/outputs/apk/release/app-release-unsigned.apk": {
       "bytes": 79498322,
       "sha256": "143f549ad9c3183293e45fafae4f536ae1fe554c94d8423db803e3c8d0765d8e"
-    },
-    "instrumentation": {
-      "bytes": 4841881,
-      "sha256": "cc2f2ad962bff74e72d990b7af3213677bb59547eca5d8cd0287cc5c911f42f1"
     }
   },
   "preservedFailures": [
@@ -80,10 +85,17 @@
     "g15Complete": false,
     "g17Complete": false
   },
+  "additionalAcceptance": [
+    "Waiting closed-room guests make no artwork/control-channel queries and receive no saved room or logo.",
+    "An authenticated grant unlocks current private artwork without ordinary chat or call media.",
+    "Removal during waiting defeats both stored and late older images.",
+    "Fresh ViewModel with cleared process cache restores the admitted room logo from encrypted storage while relay artwork history is withheld."
+  ],
   "remaining": [
-    "closed-room logo catch-up",
-    "independent browser/native account recovery",
+    "independent browser/native replacement-device recovery",
+    "forced-process-restart logo recovery",
     "physical-phone acceptance",
     "new signed Android release publication"
-  ]
+  ],
+  "qualifiedSource": "b2eb0a39cff6ffcc608fe54aad89e1ba8bd6606d"
 }
