@@ -9,9 +9,11 @@ import kotlinx.serialization.json.*
  * notice needed after capture disappears. The application supplies encrypted,
  * backup-excluded storage. An Off is re-enveloped by the current live session. */
 class RecordingStopJournal(private val storage: RoomStorage) {
-    private data class Entry(val room: String, val device: String, val signed: SignedRecordingNotice)
+    private data class Entry(val room: String, val device: String, val signed: SignedRecordingNotice, val call: String? = null)
     private val generations = mutableMapOf<String, Long>()
     @Synchronized fun generation(room: String): Long = generations[room] ?: 0L
+    @Synchronized fun pendingCall(room: String, device: String): String? =
+        read().firstOrNull { it.room == room && it.device == device }?.call
 
     @Synchronized fun pending(room: String, device: String, authority: String): SignedRecordingNotice? {
         val entry = read().firstOrNull { it.room == room && it.device == device } ?: return null
@@ -22,16 +24,17 @@ class RecordingStopJournal(private val storage: RoomStorage) {
     }
 
     @Synchronized fun arm(room: String, device: String, signed: SignedRecordingNotice, authority: String,
-        generation: Long = generation(room)) {
+        generation: Long = generation(room), call: String? = null) {
         check(generation == generation(room)) { "This room's recording notices were forgotten" }
         require(room.matches(HEX) && device.matches(HEX) && !signed.notice.on)
         require(verifyRecordingNotice(room, signed.notice, signed.sig, authority))
+        require(call == null || call.matches(Regex("[0-9a-f]{32}")))
         val items = read()
         val existing = items.firstOrNull { it.room == room && it.device == device }
         check(existing == null || existing.signed == signed) { "An earlier recording still needs its stop notice" }
         if (existing != null) return
         check(items.size < MAX_ENTRIES) { "Too many recording stop notices are waiting" }
-        write(items + Entry(room, device, signed))
+        write(items + Entry(room, device, signed, call))
     }
 
     @Synchronized fun confirm(room: String, device: String, signed: SignedRecordingNotice) {
@@ -54,7 +57,9 @@ class RecordingStopJournal(private val storage: RoomStorage) {
             val device = obj.getValue("device").jsonPrimitive.content
             val signed = checkNotNull(decodeRecordingOp(obj.getValue("body").jsonPrimitive.content))
             check(room.matches(HEX) && device.matches(HEX) && !signed.notice.on)
-            Entry(room, device, signed)
+            val call = (obj["call"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            check(call == null || call.matches(Regex("[0-9a-f]{32}")))
+            Entry(room, device, signed, call)
         }
         check(entries.map { it.room to it.device }.distinct().size == entries.size)
         return entries
@@ -63,6 +68,7 @@ class RecordingStopJournal(private val storage: RoomStorage) {
     private fun write(items: List<Entry>) = storage.write(buildJsonArray {
         items.forEach { entry -> add(buildJsonObject {
             put("room", entry.room); put("device", entry.device); put("body", encodeRecordingOp(entry.signed))
+            entry.call?.let { put("call", it) }
         }) }
     }.toString().toByteArray(Charsets.UTF_8))
 

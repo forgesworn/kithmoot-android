@@ -47,7 +47,11 @@ internal fun recordingLine(view: RecordingView, description: String? = null): St
 }
 
 internal fun recordingCaptureDescription(state: RoomState): String? {
-    val capture = state.recordingCapture ?: return null
+    val captures = state.recordingCaptures.ifEmpty { listOfNotNull(state.recordingCapture) }
+    return captures.mapNotNull { capture -> recordingCaptureDescription(state, capture) }.takeIf { it.isNotEmpty() }?.joinToString(" ")
+}
+
+private fun recordingCaptureDescription(state: RoomState, capture: dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice): String? {
     val name = state.profiles[capture.recorder]?.name ?: state.tiles.firstOrNull { it.participant == capture.recorder }?.name
     val key = shortNpub(capture.recorder)
     val who = if (name.isNullOrBlank()) key else "$name ($key)"

@@ -559,7 +559,7 @@ fun RoomScreen(
         // Outside the controls that hide on a call: a recording, and why a
         // microphone is locked, are said for as long as they are true.
         if (state.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || state.recordingStopPending || state.meetingOn ||
-            (state.onCall && state.meetingModerator && !lockedCallOnly && !inPictureInPicture)) {
+            (state.onCall && state.recordingAllowed && !lockedCallOnly && !inPictureInPicture)) {
             // With the header hidden on a call, nothing else keeps these
             // clear of the status bar and the camera cutout.
             val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
@@ -573,11 +573,11 @@ fun RoomScreen(
                     }
                 }
                 MeetingNotice(state, onRaiseHand, onOpenMeeting = { meetingOpen = true })
-                if (state.onCall && state.meetingModerator && !lockedCallOnly && !inPictureInPicture) {
+                if (state.onCall && state.recordingAllowed && !lockedCallOnly && !inPictureInPicture) {
                     TextButton(
                         onClick = { if (state.nativeRecording) onStopRecording() else confirmRecording = true },
                         enabled = !state.nativeRecordingBusy && (state.nativeRecording ||
-                            (!state.recordingStopPending && state.recording == dev.forgesworn.kithmoot.protocol.RecordingView.Off)),
+                            !state.recordingStopPending),
                     ) { Text(when {
                         state.nativeRecordingPreparing -> "Announcing recording…"
                         state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Preparing recording…"
