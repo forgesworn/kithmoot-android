@@ -4449,6 +4449,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 },
                 release = { eventId -> check(quietRoom.confirmQueued(eventId)) { "The confirmed quiet message was not retained locally." } },
+                ownershipGeneration = { cadenceLeases.publicationGeneration(derived.roomId, who.devicePubkey) },
                 onFailure = { message -> _room.update { state -> state.copy(
                     chatSendError = message,
                     notice = message,

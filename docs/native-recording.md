@@ -287,6 +287,26 @@ recording heartbeat timing, cadence wrapper and delegated box delivery need
 integration and qualification. This candidate is not qualified for quiet-room
 recording or sharing.
 
+The cadence wrapper now forwards guarded publications to the phone-owned
+quiet transport, including its publication generation and timeout. It refuses
+to substitute a delegated node's queue receipt for actual relay delivery.
+An active or unresolved delegated schedule rejects this path before transport
+retention or any network offer; the caller's signed draft remains available
+for retry. Ordinary delegated chat keeps its existing
+handoff behaviour. The dispatch guard checks an in-memory lease revision and
+the ownership epoch, without reading the encrypted journal while a transport
+holds its dispatch lock. Relevant ownership writes fence earlier requests
+before storage, including failed writes. Revisions are scoped to the original
+room/device; receipt status updates and other rooms/devices do not revoke the
+phone's snapshot. Confirmation through delegated delivery remains open.
+
+Quiet-room recording also has a capacity constraint to resolve: the protocol
+allows eight drop keys per device per hour, while current recording startup
+and five-minute refreshes each send two control events. These notices cannot
+reliably share that budget with chat during long recordings. Announcement
+routing, heartbeat cadence and the user's waiting/cancellation flow therefore
+need product-level integration before quiet-room recording is qualified.
+
 The slot driver now requests durable publication confirmation through every
 underlying transport, including hybrid wrappers; it no longer substitutes a
 fire-and-forget call for a receipt. Refusal or unsupported confirmation keeps

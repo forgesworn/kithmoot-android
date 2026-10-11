@@ -5,9 +5,60 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CadenceLeaseVaultTest {
+    @Test fun failedOwnershipWriteFencesAnExistingDispatchBeforeStorageIsCalled() {
+        lateinit var vault: CadenceLeaseVault
+        var captured = -1L
+        val storage = object : RoomStorage {
+            override fun read(): ByteArray? = null
+            override fun write(value: ByteArray) {
+                assertTrue(vault.publicationGeneration(ROOM, DEVICE) != captured)
+                throw IllegalStateException("storage unavailable")
+            }
+            override fun reset() = Unit
+        }
+        vault = CadenceLeaseVault(storage)
+        captured = vault.publicationGeneration(ROOM, DEVICE)
+        assertThrows(RoomStorageException::class.java) { vault.prepare(plan(), 100) }
+        assertTrue(vault.publicationGeneration(ROOM, DEVICE) != captured)
+    }
+
+    @Test fun ownershipWritesFenceButReadAndExactRetryLeaveTheTokenAlone() {
+        val vault = CadenceLeaseVault(MemoryStorage())
+        val initial = vault.publicationGeneration(ROOM, DEVICE)
+        vault.all()
+        assertEquals(initial, vault.publicationGeneration(ROOM, DEVICE))
+        val prepared = vault.prepare(plan(), 100)
+        val excluded = vault.publicationGeneration(ROOM, DEVICE)
+        assertTrue(excluded != initial)
+        assertEquals(prepared, vault.prepare(plan(), 101))
+        assertEquals(excluded, vault.publicationGeneration(ROOM, DEVICE))
+        val owned = vault.accept(prepared, receipt("active"), 102)
+        val active = vault.publicationGeneration(ROOM, DEVICE)
+        assertTrue(active != excluded)
+        vault.accept(owned, receipt("active").copy(queueCount = 1), 103)
+        assertEquals(active, vault.publicationGeneration(ROOM, DEVICE))
+    }
+
+    @Test fun anotherRoomOrDeviceCannotFenceThisRoomsPublication() {
+        val vault = CadenceLeaseVault(MemoryStorage())
+        vault.prepare(plan(), 100)
+        val captured = vault.publicationGeneration(ROOM, DEVICE)
+        val otherRoom = "43".repeat(32)
+        val otherDevice = "de".repeat(32)
+        vault.prepare(plan().copy(room = otherRoom, trafficRoom = otherRoom,
+            leaseId = "33".repeat(16), requestId = "44".repeat(16)), 101)
+        assertEquals(captured, vault.publicationGeneration(ROOM, DEVICE))
+        assertTrue(vault.publicationGeneration(otherRoom, DEVICE) > 0)
+        vault.prepare(plan().copy(device = otherDevice,
+            leaseId = "55".repeat(16), requestId = "66".repeat(16)), 102)
+        assertEquals(captured, vault.publicationGeneration(ROOM, DEVICE))
+        assertTrue(vault.publicationGeneration(ROOM, otherDevice) > 0)
+    }
+
     @Test fun prepareExcludesBeforeNetworkAndSurvivesRestart() {
         val storage = MemoryStorage()
         val first = CadenceLeaseVault(storage)
