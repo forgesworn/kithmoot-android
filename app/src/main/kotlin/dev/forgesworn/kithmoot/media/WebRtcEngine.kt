@@ -270,33 +270,36 @@ class WebRtcEngine(
 
     /** The caller must first confirm the room's signed notice. No discovery,
      * upload or public metadata publication is initiated by local capture. */
-    fun startAudioRecording(file: File, stillAllowed: () -> Boolean = { true }): CallAudioCapture =
-        synchronized(recordingLock) {
-            check(callActive) { "Join the call before recording" }
-            check(audioRecording == null) { "This device is already recording" }
-            val capture = CallAudioCapture(file, output = { AacRecordingFile(it) }, allowed = stillAllowed)
-            try {
-                capture.setInputs(recordingInputs, recordingLocalAllowed)
-                audioRecording = capture
-                capture
-            } catch (error: Throwable) { capture.discard(); throw error }
-        }
+    class PreparedRecording internal constructor(internal val engine: WebRtcEngine,
+        val capture: CallAudioCapture, internal val scene: RecordingVideoScene? = null)
 
-    fun startVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>, stillAllowed: () -> Boolean = { true }): CallAudioCapture =
-        synchronized(recordingLock) {
-            check(callActive && audioRecording == null) { "The original call is unavailable or already recording" }
-            val permission = dev.forgesworn.kithmoot.media.recording.RecordingCapturePermission(stillAllowed)
-            val scene = RecordingVideoScene(plan, permission::allowed)
-            val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) }, allowed = permission::allowed) }
-                catch (error: Throwable) { scene.dispose(); throw error }
-            try {
-                capture.setInputs(recordingInputs, recordingLocalAllowed)
-                scene.setPlan(plan, tracks)
-                recordingVideo = scene
-                audioRecording = capture
-                capture
-            } catch (error: Throwable) { capture.discard(); throw error }
-        }
+    fun prepareAudioRecording(file: File, stillAllowed: () -> Boolean): PreparedRecording {
+        check(callActive) { "Join the call before recording" }
+        return PreparedRecording(this, CallAudioCapture(file, output = { AacRecordingFile(it) },
+            allowed = stillAllowed, startSuspended = true))
+    }
+
+    fun prepareVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>,
+        stillAllowed: () -> Boolean): PreparedRecording {
+        check(callActive) { "The original call is unavailable" }
+        val permission = dev.forgesworn.kithmoot.media.recording.RecordingCapturePermission(stillAllowed)
+        val scene = RecordingVideoScene(plan, permission::allowed)
+        val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) },
+            allowed = permission::allowed, startSuspended = true) }
+            catch (error: Throwable) { scene.dispose(); throw error }
+        try {
+            scene.setPlan(plan, tracks)
+            return PreparedRecording(this, capture, scene)
+        } catch (error: Throwable) { capture.discard(); throw error }
+    }
+
+    fun installPreparedRecording(prepared: PreparedRecording) = synchronized(recordingLock) {
+        check(prepared.engine === this && callActive && audioRecording == null) { "The original call is unavailable or already recording" }
+        prepared.capture.activate()
+        prepared.capture.setInputs(recordingInputs, recordingLocalAllowed)
+        recordingVideo = prepared.scene
+        audioRecording = prepared.capture
+    }
 
     fun updateRecordingVideo(capture: CallAudioCapture, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>) =
         synchronized(recordingLock) { if (audioRecording === capture) recordingVideo?.setPlan(plan, tracks); Unit }
@@ -307,7 +310,8 @@ class WebRtcEngine(
     /** Detach ownership before asynchronous finalisation. The returned capture
      * must be finished or discarded by the caller; engine teardown cannot
      * race it into a second export or remove its completed file. */
-    fun takeAudioRecording(): CallAudioCapture? = synchronized(recordingLock) {
+    fun takeAudioRecording(expected: CallAudioCapture? = null): CallAudioCapture? = synchronized(recordingLock) {
+        if (expected != null && audioRecording !== expected) return@synchronized null
         recordingVideo = null
         audioRecording.also { audioRecording = null; it?.detachInputs() }
     }

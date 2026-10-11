@@ -19,6 +19,7 @@ class CallAudioCapture(
     private val file: File,
     output: (File) -> PcmFileOutput = { PcmWaveFile(it) },
     allowed: () -> Boolean = { true },
+    private val startSuspended: Boolean = false,
     private val clock: () -> Long = System::nanoTime,
 ) {
     private val permission = RecordingCapturePermission(allowed)
@@ -28,7 +29,8 @@ class CallAudioCapture(
     private data class Input(val source: String, val sink: AudioTrackSink)
     private val inputs = IdentityHashMap<AudioTrack, Input>()
     private val gains = mutableMapOf<String, Double>()
-    private val began = clock()
+    private var preparationComplete = !writer.requiresPreparation
+    private var began: Long? = if (startSuspended || writer.requiresPreparation) null else clock()
     private var pausedAt: Long? = null
     private var stoppedAt: Long? = null
     private var omitted = 0L
@@ -43,10 +45,24 @@ class CallAudioCapture(
         try {
             writer.bindTimeline {
                 synchronized(this) {
-                    if (finished || stoppedAt != null || pausedAt != null || failure != null || !captureAllowed()) null else frameNow()
+                    if (began == null || finished || stoppedAt != null || pausedAt != null || failure != null || !captureAllowed()) null else frameNow()
                 }
             }
         } catch (error: Throwable) { worker.shutdownNow(); writer.discard(); throw error }
+        if (writer.requiresPreparation) worker.execute {
+            try {
+                // Encoder/EGL startup must not hold the input monitor or
+                // consume the two-second PCM window before capture begins.
+                writer.prepare()
+                synchronized(this) {
+                    preparationComplete = true
+                    if (!startSuspended && !finished && stoppedAt == null) {
+                        check(captureAllowed()) { "Recording permission changed during preparation" }
+                        began = pausedAt ?: clock()
+                    }
+                }
+            } catch (error: Throwable) { synchronized(this) { fail(error) } }
+        }
         ticker = worker.scheduleWithFixedDelay({
             try {
                 val samples = synchronized(this) {
@@ -55,6 +71,17 @@ class CallAudioCapture(
                 samples?.let(::writeSamples)
             } catch (error: Throwable) { synchronized(this) { fail(error) } }
         }, 10, 10, TimeUnit.MILLISECONDS)
+    }
+
+    @Synchronized fun prepared(): Boolean = preparationComplete && failure == null && !finished && stoppedAt == null
+
+    /** The owner rechecks the original call before opening this timeline. */
+    @Synchronized fun activate() {
+        checkHealthy()
+        check(preparationComplete && !finished && stoppedAt == null && began == null) { "Recording is not ready to start" }
+        check(captureAllowed()) { "Recording permission changed before capture started" }
+        began = clock()
+        refreshSources()
     }
 
     /** Run on the same owner thread that manages WebRTC track lifetime.
@@ -117,7 +144,7 @@ class CallAudioCapture(
         receive(LOCAL, buffer, bits, rate, channels, frames)
 
     @Synchronized private fun receive(source: String, buffer: ByteBuffer, bits: Int, rate: Int, channels: Int, frames: Int) {
-        if (finished || stoppedAt != null || failure != null || pausedAt != null || !captureAllowed()) return
+        if (began == null || finished || stoppedAt != null || failure != null || pausedAt != null || !captureAllowed()) return
         val gain = if (source == LOCAL) { if (!localAllowed) return else 1.0 } else gains[source] ?: return
         try { mixer.offer(source, buffer, bits, rate, channels, frames, frameNow(), gain) }
         catch (error: Throwable) { fail(error) }
@@ -187,6 +214,7 @@ class CallAudioCapture(
                 try {
                     val samples = synchronized(this) {
                         checkHealthy()
+                        check(began != null) { "Recording capture did not start" }
                         takeUntil(frameNow())
                     }
                     writeSamples(samples)
@@ -231,7 +259,10 @@ class CallAudioCapture(
     @Synchronized fun error(): Throwable? = failure
     private fun checkHealthy() { failure?.let { throw IllegalStateException("Recording capture failed: ${it.message}", it) } }
     private fun fail(error: Throwable) { failure = error; mixer.clear() }
-    private fun frameNow(): Long = (((pausedAt ?: stoppedAt ?: clock()) - began - omitted).coerceAtLeast(0) / 1000) * PcmRecordingMixer.SAMPLE_RATE / 1_000_000
+    private fun frameNow(): Long {
+        val start = began ?: return 0
+        return (((pausedAt ?: stoppedAt ?: clock()) - start - omitted).coerceAtLeast(0) / 1000) * PcmRecordingMixer.SAMPLE_RATE / 1_000_000
+    }
     private fun takeUntil(frame: Long): ShortArray {
         captureAllowed()
         check(frame - emitted <= PcmRecordingMixer.CAPACITY) { "Recording worker fell behind" }

@@ -9,6 +9,9 @@ class ComposedAvRecordingFile(file: File, sharedContext: EglBase.Context, privat
         AvRecordingFile(file, sharedContext, scene::draw, releaseDraw = scene::releaseGl)
     } catch (error: Throwable) { scene.dispose(); throw error }
 
+    override val requiresPreparation: Boolean get() = true
+    override fun prepare() = output.prepare()
+
     override fun bindTimeline(clock: () -> Long?) = scene.bindTimeline(clock)
     override fun pauseInputs(paused: Boolean) = scene.pause(paused)
     override fun detachInputs() = scene.detachInputs()

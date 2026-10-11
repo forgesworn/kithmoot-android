@@ -75,6 +75,17 @@ class AvRecordingFile(
         }
     }
 
+    override val requiresPreparation: Boolean get() = true
+
+    override fun prepare() {
+        check(!closed)
+        assertWorker()
+        if (codec == null) initialiseVideo()
+        // Warm the compositor without submitting an encoder input frame.
+        // Its source timeline remains closed until capture is activated.
+        draw(0, WIDTH, HEIGHT)
+    }
+
     override fun write(samples: ShortArray) {
         check(!closed)
         if (samples.isEmpty()) return

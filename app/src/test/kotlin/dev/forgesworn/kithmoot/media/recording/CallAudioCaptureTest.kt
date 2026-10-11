@@ -7,6 +7,111 @@ import java.nio.file.Files
 import kotlin.test.*
 
 class CallAudioCaptureTest {
+    private fun awaitCondition(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (!condition() && System.nanoTime() < deadline) Thread.sleep(5)
+        assertTrue(condition())
+    }
+
+    @Test fun `encoder preparation and owner approval consume no recording time or queued PCM`() {
+        val directory = Files.createTempDirectory("capture-preparation-").toFile()
+        val time = java.util.concurrent.atomic.AtomicLong()
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val capture = CallAudioCapture(File(directory, "call.wav"), output = { file ->
+            val wave = PcmWaveFile(file)
+            object : PcmFileOutput by wave {
+                override val requiresPreparation = true
+                override fun prepare() {
+                    started.countDown()
+                    check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    time.set(3_000_000_000)
+                }
+            }
+        }, startSuspended = true, clock = time::get)
+        try {
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertFalse(capture.prepared())
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            release.countDown()
+            awaitCondition(capture::prepared)
+            capture.localSamples(pcm(8888), 16, 48_000, 1, 480)
+            time.set(6_000_000_000)
+            capture.activate()
+            capture.localSamples(pcm(2222), 16, 48_000, 1, 480)
+            time.addAndGet(10_000_000)
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(44 + 960, data.capacity())
+            for (offset in 44 until data.capacity() step 2) assertEquals(2222, data.getShort(offset).toInt())
+        } finally { release.countDown(); capture.discard(); directory.deleteRecursively() }
+    }
+
+    @Test fun `revocation before activation cannot produce a successful recording`() {
+        val directory = Files.createTempDirectory("capture-unarmed-").toFile()
+        val file = File(directory, "call.wav")
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val capture = CallAudioCapture(file, allowed = allowed::get, startSuspended = true)
+        try {
+            assertTrue(capture.prepared())
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            allowed.set(false)
+            assertFailsWith<IllegalStateException> { capture.activate() }
+            assertTrue(capture.permissionRevoked())
+            allowed.set(true)
+            assertFailsWith<IllegalStateException> { capture.activate() }
+            assertFails { capture.finish() }
+            assertFalse(file.exists())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
+    @Test fun `automatic capture starts its clock after encoder preparation`() {
+        val directory = Files.createTempDirectory("capture-auto-prepare-").toFile()
+        val time = java.util.concurrent.atomic.AtomicLong()
+        val capture = CallAudioCapture(File(directory, "call.wav"), output = { file ->
+            val wave = PcmWaveFile(file)
+            object : PcmFileOutput by wave {
+                override val requiresPreparation = true
+                override fun prepare() { time.set(3_000_000_000) }
+            }
+        }, clock = time::get)
+        try {
+            awaitCondition(capture::prepared)
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(1234), 16, 48_000, 1, 480)
+            time.addAndGet(10_000_000)
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(44 + 960, data.capacity())
+            assertEquals(1234, data.getShort(44).toInt())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
+    @Test fun `failed preparation is reported and disposed on its encoder worker`() {
+        val directory = Files.createTempDirectory("capture-prepare-error-").toFile()
+        val file = File(directory, "call.mp4")
+        val preparedBy = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val discardedBy = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val capture = CallAudioCapture(file, output = { destination ->
+            check(destination.createNewFile())
+            object : PcmFileOutput {
+                override val requiresPreparation = true
+                override fun prepare() { preparedBy.set(Thread.currentThread()); error("Encoder setup failed") }
+                override fun write(samples: ShortArray) { error("Capture must remain closed") }
+                override fun close() { error("An unprepared file cannot be exported") }
+                override fun discard() { discardedBy.set(Thread.currentThread()); destination.delete() }
+            }
+        }, startSuspended = true)
+        try {
+            awaitCondition { capture.error() != null }
+            assertFalse(capture.prepared())
+            assertFails { capture.activate() }
+            assertFails { capture.finish() }
+            assertSame(preparedBy.get(), discardedBy.get())
+            assertFalse(file.exists())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
     private fun pcm(sample: Short): ByteBuffer = ByteBuffer.allocate(960).order(ByteOrder.LITTLE_ENDIAN)
         .also { buffer -> repeat(480) { buffer.putShort(sample) }; buffer.flip() }
 

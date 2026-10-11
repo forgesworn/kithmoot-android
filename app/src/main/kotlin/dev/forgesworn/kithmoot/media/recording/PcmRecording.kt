@@ -85,6 +85,9 @@ class PcmRecordingMixer(private val maxSources: Int = 32) {
  * Never overwrites an existing file; failed writes remove only our own output.
  */
 interface PcmFileOutput : AutoCloseable {
+    val requiresPreparation: Boolean get() = false
+    /** Worker-owned setup only; do not capture or submit media here. */
+    fun prepare() {}
     /** Null means future input is revoked, paused or failed. */
     fun bindTimeline(clock: () -> Long?) {}
     fun pauseInputs(paused: Boolean) {}
