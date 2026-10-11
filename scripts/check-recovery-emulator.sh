@@ -87,6 +87,8 @@ run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
 run_tests guest-admission-ui 8 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
 run_tests guest-admission-entry 4 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests missing-index-storage 3 -e class dev.forgesworn.kithmoot.storage.MissingRoomIndexStorageTest
+run_tests missing-index-maintenance 1 -e class dev.forgesworn.kithmoot.ui.MissingIndexMaintenanceTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests restart-reopen 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#b_reopen -e requireRestart true

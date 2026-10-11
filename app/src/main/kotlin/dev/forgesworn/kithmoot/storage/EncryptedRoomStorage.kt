@@ -70,6 +70,11 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
     override fun read(): ByteArray? {
         val input = try { file.openRead() } catch (e: FileNotFoundException) {
             if (base.exists() || File(base.path + ".bak").exists()) throw e
+            // A retained key means this store existed. Missing ciphertext is
+            // unavailable state, never evidence that every saved room was forgotten.
+            if (KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias(alias)) {
+                throw IOException("Saved-room ciphertext is unavailable", e)
+            }
             return null
         }
         val sealed = input.use {
