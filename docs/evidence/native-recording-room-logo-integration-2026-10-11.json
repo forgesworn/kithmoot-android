@@ -74,13 +74,97 @@
   ],
   "followup": {
     "scope": "Opt-in fresh UiAutomation nodes; wait for actual enabled Stop control before withholding relay acknowledgements. Same explicit UI Stop, process restart and retained-signature/export assertions. Driver retains per-stage logcat and both pipeline exit statuses.",
-    "qualification": "running",
+    "qualification": "Local recovery/capture checks and all hosted gates passed on the follow-up head. No physical, rekey, long capture or Send-restart qualification follows.",
     "source_sha256": {
       "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingStopRecoveryUiTest.kt": "9796ff22d47f135c47d7f83ddf9035dd421db5edaa7e92486b12e0de9a7dcc88",
       "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "bae18b641bf3c2470d22f78f7a1db5c18b908d857175e540be50f90789747af0",
       "scripts/check-recording-stop-ui-restart-emulator.sh": "d6748f6ca5cd4a17a0a60f4ea18d72405d15c17671d85cffafb3ce018300f72b"
     },
-    "local_build": "running",
-    "hosted_new_head": "required"
+    "local_build": {
+      "status": "passed",
+      "elapsed_seconds": 1010,
+      "tasks": [
+        ":app:assembleDebug",
+        ":app:assembleDebugAndroidTest",
+        ":app:lintDebug"
+      ],
+      "log_sha256": "0fe827ed242fe5d2b0bd65b47edc07e883fb790367251d48b38cd8fa19aaac72"
+    },
+    "hosted_new_head": {
+      "head": "54f30a8c533a6088a5ec6144a12b13e6972e4baa",
+      "run_id": 38124808866,
+      "verify": "passed",
+      "counts": {
+        "protocol": {
+          "tests": 427,
+          "failures": 0,
+          "ignored": 0
+        },
+        "app": {
+          "tests": 2088,
+          "failures": 0,
+          "ignored": 0
+        }
+      },
+      "signing_api_33": "passed",
+      "signing_api_35": "passed",
+      "recovery": "passed",
+      "stop_ui_stages": {
+        "prepare": {
+          "passed": true,
+          "elapsed_seconds": 25.526,
+          "report_sha256": "0032dc3cdfeb7134d9e1c9260da97241c236d63fcf1af2e2c276b8e327cdde1e"
+        },
+        "verify": {
+          "passed": true,
+          "elapsed_seconds": 6.262,
+          "report_sha256": "6e8c6acbd3bbb0beea5ab989409cca3a28f7457972483c6a50f81efeb209b1b8"
+        },
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 3.684,
+          "report_sha256": "3b08334c26290bb65921ff18b313650fae4bea05e967d18ae7313473e5ccfed1"
+        }
+      }
+    },
+    "runtime": {
+      "physical": false,
+      "serial": "emulator-5586",
+      "stages": {
+        "prepare": {
+          "passed": true,
+          "elapsed_seconds": 60.083,
+          "sha256": "4d26156c71d7b697af3250b259e82afe184690add22b8ae98830678e9e26ea4b"
+        },
+        "verify": {
+          "passed": true,
+          "elapsed_seconds": 41.317,
+          "sha256": "7ac88c9f4165e2f0a0dae9f19dd9b9ba52f9cc30bcf13d12cdaca2e2f047a6cf"
+        },
+        "cleanup": {
+          "passed": true,
+          "elapsed_seconds": 13.384,
+          "sha256": "cc1811345b8682d133b7e110855ad7ae6b212e9aeb505422d24e9c966936293c"
+        }
+      }
+    },
+    "apks": {
+      "app/build/outputs/apk/debug/app-debug.apk": {
+        "sha256": "12b821126f2588b84ab1413c8c4eac50f4b25a2c3b279519dfe522e613452cbd",
+        "bytes": 117690988
+      },
+      "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+        "sha256": "5c178e3aa1736bb10db6d5c4ebe58edbd8912d4f8480d65bf9000d2f12a058d0",
+        "bytes": 5170646
+      }
+    },
+    "capture_playback": {
+      "tests": 17,
+      "failures": 0,
+      "skipped": 0,
+      "elapsed_seconds": 340.14,
+      "physical": false,
+      "report_sha256": "6c661b554e6659099b23d1dfb0e98effb3c8724e41040a3511d9158f699642c6"
+    }
   }
 }

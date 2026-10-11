@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -27,7 +28,32 @@ def required(name):
 
 
 def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    checksum = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(chunk)
+    return checksum.hexdigest()
+
+
+def copy_fixture(adb, serial, target, source):
+    """Stream synthetic inputs without retaining a whole recording in host RAM."""
+    command = [adb, "-s", serial, "shell", "-T", "run-as",
+               "dev.forgesworn.kithmoot", "sh", "-c", f"'cat > {target}'"]
+    with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE) as process:
+        try:
+            with Path(source).open("rb") as stream:
+                shutil.copyfileobj(stream, process.stdin, length=1024 * 1024)
+            process.stdin.close()
+            process.stdin = None
+            output, error = process.communicate(timeout=30)
+            if process.returncode:
+                raise subprocess.CalledProcessError(process.returncode, command, output, error)
+        except BaseException:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+            raise
 
 
 def main():
@@ -87,8 +113,7 @@ extendedKeyUsage = serverAuth
             device("shell", "run-as", "dev.forgesworn.kithmoot", "mkdir", "-p", fixture_path)
             for name, source in [("fixture.p12", scratch / "fixture.p12"), ("sample.mp4", sample)]:
                 # Both path components are generated constants; no user text enters shell code.
-                device("shell", "-T", "run-as", "dev.forgesworn.kithmoot", "sh", "-c",
-                       f"'cat > {fixture_path}/{name}'", input=source.read_bytes())
+                copy_fixture(adb, serial, f"{fixture_path}/{name}", source)
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 backend_port = reservation.getsockname()[1]

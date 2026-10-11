@@ -25,11 +25,14 @@ its exact retained Off through the production Retry stop notice control.
 
 The [room-logo integration receipt](evidence/native-recording-room-logo-integration-2026-10-11.json)
 records 427 protocol and 2,088 app tests, both lint/build variants and API 33/35
-signing lineage passing on the merged candidate. Hosted recovery failed while
-finding the Stop control after model capture started. Its accessibility report
-still showed the startup label; cache staleness remains a hypothesis. The
-follow-up reads fresh accessibility nodes and requires the actual enabled Stop
-control before withholding acknowledgements. Its runtime qualification is pending.
+signing lineage passing on the merged candidate. The initial hosted recovery
+failed while finding the Stop control after model capture started; cache
+staleness remains a hypothesis. The follow-up on `54f30a8c` reads fresh
+accessibility nodes and requires the actual enabled Stop control before
+withholding acknowledgements. All four hosted gates pass on that head.
+Local Stop/restart/Retry passes all three stages, and all 17 capture/playback
+checks pass without skips. This does not qualify physical capture, long
+recordings, rekey or Send recovery across process death.
 
 The [startup cancellation receipt](evidence/native-recording-start-cancellation-2026-10-11.json)
 qualifies cancelling a pending announcement through the native room controls,
