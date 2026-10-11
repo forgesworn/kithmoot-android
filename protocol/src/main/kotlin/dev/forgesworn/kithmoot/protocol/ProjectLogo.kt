@@ -28,6 +28,10 @@ object ProjectLogos {
     private fun member(context: ProjectLogoContext, recipient: String): Boolean =
         context.definition.getValue("members").jsonArray.any { it.jsonObject.projectText("pubkey") == recipient }
 
+    fun isWrap(event: NostrEvent, recipient: String, now: Long): Boolean =
+        event.kind == Projects.WRAP_KIND && event.content.length <= MAX_WRAP_BYTES && time(event.createdAt, now) &&
+            event.tags == listOf(listOf("p", recipient), listOf("l", APP)) && Events.verify(event)
+
     fun parse(content: String, context: ProjectLogoContext): ProjectLogoRecord? = runCatching {
         Projects.key(context.reference)
         if (content.toByteArray(Charsets.UTF_8).size > MAX_BYTES) return null
@@ -84,9 +88,7 @@ object ProjectLogos {
             Projects.authority(context.reference, context.definition)
             member(context, recipient)
         }.getOrDefault(false) }
-        if (authorised.isEmpty() || event.kind != Projects.WRAP_KIND || event.content.length > MAX_WRAP_BYTES ||
-            !time(event.createdAt, now) || event.tags != listOf(listOf("p", recipient), listOf("l", APP)) ||
-            !Events.verify(event)) return null
+        if (authorised.isEmpty() || !isWrap(event, recipient, now)) return null
         val plaintext = decrypt(event.pubkey, event.content)
         if (plaintext.toByteArray(Charsets.UTF_8).size > MAX_WRAP_BYTES) return null
         return runCatching {
