@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.relay.HybridRoomTransport
+import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
@@ -40,6 +42,73 @@ class QuietTransportTest {
         body = text, participant = from.participant, credential = from.credential, roomId = room.roomId,
         roomKey = room.roomKey, deviceSecretKey = from.deviceSecretKey, sentAt = clock,
     )
+
+    private fun TestScope.hybridReader(mesh: FakeRelay, relay: FakeRelay): Pair<QuietTransport, HybridRoomTransport> {
+        val internet = object : RoomTransport by relay.transport() {
+            override fun receivedViaRelays(eventId: String) = listOf("wss://fixture.invalid/")
+        }
+        val hybrid = HybridRoomTransport(mesh.transport(), internet) { clock }
+        return QuietTransport(hybrid, room.roomKey, rowan.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false,
+            slotOffset = { 0 }) to hybrid
+    }
+
+    @Test fun `unwrapped relay event retains the outer hybrid delivery evidence`() = runTest {
+        val relay = FakeRelay()
+        val sender = quiet(relay, ada)
+        val (reader, hybrid) = hybridReader(FakeRelay(), relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "relay delivery")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertEquals(listOf(message), seen)
+        assertFalse(hybrid.receivedEventConfirmsPublication(message.id))
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        sender.stop(); reader.stop()
+    }
+
+    @Test fun `mesh first wrap gains relay evidence without rendering a second message`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay()
+        val sender = quiet(mesh, ada)
+        val (reader, _) = hybridReader(mesh, relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "mesh then relay")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertEquals(listOf(message), seen)
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        assertTrue(reader.receivedViaRelays(message.id).isEmpty())
+        relay.publish(mesh.published.single()); runCurrent()
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        assertEquals(listOf(message), seen)
+        sender.stop(); reader.stop()
+    }
+
+    @Test fun `a new authenticated wrap of a seen inner event can prove relay delivery`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay()
+        val sender = quiet(mesh, ada)
+        val (reader, _) = hybridReader(mesh, relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "same inner event")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        val original = mesh.published.single()
+        clock += 60
+        sender.publish(message); sender.tick(); runCurrent()
+        val retry = mesh.published.last()
+        assertTrue(original.id != retry.id)
+        relay.publish(retry); runCurrent()
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        assertEquals(listOf(message), seen)
+        sender.stop(); reader.stop()
+    }
 
     @Test
     fun `chat crosses as gift wraps and the other side reads it`() = runTest {

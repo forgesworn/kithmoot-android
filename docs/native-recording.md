@@ -557,6 +557,15 @@ the signed-stop journal already own their recovery. Cancellation, timeout,
 stop and rekey remove the temporary request, so restarting cannot replay an
 old recording On without its owner being checked again.
 
+The [quiet ingress receipt](evidence/native-recording-quiet-ingress-2026-10-11.json)
+records 51 focused JVM tests passing. Authenticated inner events now retain a
+bounded mapping to their outer gift wraps, so relay evidence held by the hybrid
+transport is available under the inner event ID. Evidence is queried dynamically:
+a mesh-first wrap can gain relay proof later without rendering the chat message
+twice, and a fresh authenticated wrap of an already-seen event can also prove
+delivery. Mesh-only ingress does not confirm relay publication. This fixes receipt
+provenance; delegated guarded dispatch and quiet heartbeat capacity remain open.
+
 Before dispatch, the transport persists spent counters and an occupied-slot
 marker. Restart honours that marker even when the receipt was unknown; an
 unconfirmed offer must not be replaced with a different wrap in the same slot.

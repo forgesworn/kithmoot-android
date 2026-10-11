@@ -88,6 +88,8 @@ class QuietTransport(
         const val CANNOT_SEND: String = "This device cannot post in a quiet room. Two devices per person can: the one holding your identity and the one it paired. Others read."
         const val TOO_LONG: String = "This message is too long for a quiet room. Every message in a quiet room is padded to one size, and this one does not fit."
         private val EVENT_ID = Regex("[0-9a-f]{64}")
+        private const val MAX_INGRESS_EVENTS = 4096
+        private const val MAX_WRAPS_PER_EVENT = 8
         const val MEANING: String = "Quiet room. Messages ride the gift-wrap stream as dead drops, one every five minutes at most, and a relay cannot tell whether anything was said, by whom, or when. Being here still shows while you are here, and calls are not quiet."
 
         fun counterRange(slot: Int): IntRange? {
@@ -151,6 +153,10 @@ class QuietTransport(
     private var offsetSlot = -1L
     private var offset = 0L
     private val delivered = LinkedHashSet<String>()
+    // Hybrid ingress is tracked under the outer ID. Keep only authenticated
+    // wrap mappings, and consult the lane at receipt time: a mesh-first copy
+    // can subsequently be observed on a relay without being emitted twice.
+    private val ingressWraps = linkedMapOf<String, LinkedHashSet<String>>()
     private val opened = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 512)
     private var broadcast: Job? = null
     private var timer: Job? = null
@@ -313,9 +319,17 @@ class QuietTransport(
      * bucket is refused here, to the caller, not discovered at its slot.
      * Anything else goes straight to the relays.
      */
-    override fun receivedEventConfirmsPublication(eventId: String): Boolean =
-        inner.receivedEventConfirmsPublication(eventId)
-    override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean {
+        val wraps = synchronized(delivered) { ingressWraps[eventId]?.toList() }
+            ?: return inner.receivedEventConfirmsPublication(eventId)
+        return wraps.any(inner::receivedEventConfirmsPublication)
+    }
+    override fun receivedViaRelays(eventId: String): List<String> {
+        val wraps = synchronized(delivered) { ingressWraps[eventId]?.toList() }
+            ?: return inner.receivedViaRelays(eventId)
+        return wraps.filter(inner::receivedEventConfirmsPublication)
+            .flatMap(inner::receivedViaRelays).distinct()
+    }
 
     override fun publish(event: NostrEvent) = retain(event, forBox = false)
 
@@ -545,6 +559,10 @@ class QuietTransport(
         val hit = current ?: lookupPast(tag, t) ?: return
         val inner = RoomDrops.openRoomDrop(wrap, hit.key.privateKey) ?: return
         synchronized(delivered) {
+            val wraps = ingressWraps.getOrPut(inner.id) { linkedSetOf() }
+            wraps.add(wrap.id)
+            while (wraps.size > MAX_WRAPS_PER_EVENT) wraps.remove(wraps.first())
+            while (ingressWraps.size > MAX_INGRESS_EVENTS) ingressWraps.remove(ingressWraps.keys.first())
             keep("w:" + wrap.id)
             if ("i:" + inner.id in delivered) return
             keep("i:" + inner.id)
