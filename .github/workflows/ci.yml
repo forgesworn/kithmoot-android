@@ -54,6 +54,28 @@ jobs:
         run: |
           python3 scripts/prepare-mesh-radio.py
 
+      - name: Check out the pinned browser recording implementation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 32653c747e26bc1e268ba15eacccb5c36343d268
+          path: build/browser-recording-reference
+          persist-credentials: false
+
+      - name: Use Node 24 for browser interoperability assets
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: build/browser-recording-reference/package-lock.json
+
+      - name: Prepare actual browser Peer and recording Session assets
+        run: |
+          npm ci --prefix build/browser-recording-reference
+          npm run build:context --prefix build/browser-recording-reference
+          node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
+          node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
+
       - name: Check release helper syntax
         run: |
           bash -n scripts/*.sh
@@ -61,6 +83,7 @@ jobs:
           python3 scripts/check-recovery-runner.py
           python3 scripts/check-sharing-restart-runner.py
           python3 scripts/test-pull-recovery-proof.py
+          python3 scripts/test_recording_private_node_proxy.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
@@ -115,6 +138,7 @@ jobs:
         with:
           name: signing-lineage-apks
           path: |
+            app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
@@ -216,6 +240,237 @@ jobs:
             app/build/reports/native-rekey-before-restart-emulator/
             app/build/reports/native-rekey-after-restart-emulator/
             app/build/reports/native-retirement-*-restart-emulator/
+          if-no-files-found: warn
+          retention-days: 7
+
+  recording-restart-emulator:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install the Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Download exact recording APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
+      - name: Install recording report tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Qualify recording Stop and Send across process restart
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports app/build/reports/native-recording-restart-launcher
+            bash scripts/check-recording-stop-restart-emulator.sh
+            bash scripts/check-recording-stop-ui-restart-emulator.sh
+            KITHMOOT_RECORDING_SEND_RESTART=1 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-send-ui-restart bash scripts/check-recording-upload-send-emulator.sh
+      - name: Keep recording restart reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: recording-restart-emulator-reports
+          path: |
+            app/build/reports/native-recording-restart-launcher/
+            app/build/reports/native-recording-stop-restart/
+            app/build/reports/native-recording-stop-ui-restart/
+            app/build/reports/native-recording-send-ui-restart/
+          if-no-files-found: warn
+          retention-days: 7
+
+  recording-call-emulator:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [capture, session]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install the Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Download exact recording APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
+      - name: Install recording report tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Qualify full capture and live native/browser Session warnings
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+          KITHMOOT_RECORDING_SUITE: ${{ matrix.suite }}
+          KITHMOOT_RECORDING_REPORTS: app/build/reports/native-recording-${{ matrix.suite }}
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports "$KITHMOOT_RECORDING_REPORTS"
+            if [ "$KITHMOOT_RECORDING_SUITE" = capture ]; then bash scripts/check-recording-emulator.sh full; else bash scripts/check-recording-session-interop-emulator.sh; fi
+      - name: Keep full capture and Session interoperability reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: recording-call-emulator-reports-${{ matrix.suite }}
+          path: app/build/reports/native-recording-${{ matrix.suite }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  recording-private-node-emulator:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [google_apis, default]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Check out the pinned private-node fixture source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/wildbloom-node
+          ref: 4474ce194888b039f14cf7001e2eab43305b2c9c
+          path: build/wildbloom-node
+          persist-credentials: false
+
+      - name: Build the real loopback-only fixture daemon
+        working-directory: build/wildbloom-node
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal
+          cargo +1.94.1 build --locked --release --jobs 2 -p wildbloomd
+
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install the Android build SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Download the exact APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
+
+      - name: Generate short and full-size synthetic MP4 fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg ripgrep
+          mkdir -p build/recording-private-node app/build/reports/native-recording-private-node
+          ffmpeg -nostdin -v error -f lavfi -i 'color=c=red:s=1280x720:r=10:d=3' -f lavfi -i 'sine=frequency=440:sample_rate=48000:duration=3' -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest -movflags +faststart build/recording-private-node/short.mp4
+          python3 - <<'PY'
+          import hashlib, json, shutil, struct
+          from pathlib import Path
+          short = Path('build/recording-private-node/short.mp4')
+          large = short.with_name('maximum.mp4')
+          shutil.copyfile(short, large)
+          target = 256 * 1024 * 1024
+          padding = target - large.stat().st_size
+          if not 8 <= padding < 2**32:
+              raise RuntimeError('Synthetic MP4 does not fit the recording limit')
+          with large.open('ab') as output:
+              output.write(struct.pack('>I4s', padding, b'free'))
+              output.truncate(target)
+          binary = Path('build/wildbloom-node/target/release/wildbloomd')
+          receipt = {'node_source': '4474ce194888b039f14cf7001e2eab43305b2c9c',
+                     'system_image_target': '${{ matrix.target }}',
+                     'node_binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+                     'physical': False, 'synthetic_track_seconds': 3,
+                     'large_plaintext_bytes': large.stat().st_size}
+          Path('app/build/reports/native-recording-private-node/fixture.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          ffprobe -v error -show_streams -of json build/recording-private-node/maximum.mp4 > app/build/reports/native-recording-private-node/streams.json
+          ffmpeg -nostdin -v error -i build/recording-private-node/maximum.mp4 -map 0:a:0 -map 0:v:0 -f null -
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify Android Upload Send Show and Play against the real private node
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+          KITHMOOT_WILDBLOOM_BINARY: ${{ github.workspace }}/build/wildbloom-node/target/release/wildbloomd
+          KITHMOOT_RECORDING_HOST_PROXY: '1'
+        with:
+          api-level: 35
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: pixel_6
+          avd-name: kithmoot-recording-private-node
+          disable-animations: true
+          disable-spellchecker: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/short.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/https-contract bash scripts/check-recording-upload-send-emulator.sh
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/short.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/short python3 scripts/check-recording-private-node-emulator.py
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/maximum.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/maximum python3 scripts/check-recording-private-node-emulator.py
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/maximum.mp4 KITHMOOT_RECORDING_PROXY_CHUNK_DELAY=0.08 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/maximum-slow python3 scripts/check-recording-private-node-emulator.py
+
+      - name: Keep real private-node Android reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: recording-private-node-emulator-reports-${{ matrix.target }}
+          path: app/build/reports/native-recording-private-node/
           if-no-files-found: warn
           retention-days: 7
 

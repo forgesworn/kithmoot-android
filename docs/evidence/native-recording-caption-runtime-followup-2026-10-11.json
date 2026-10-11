@@ -1,0 +1,34 @@
+{
+  "qualification": "Caption follow-up runtime limits",
+  "source_commit": "537c2996",
+  "apk_receipt": "native-recording-session-interop-build-2026-10-11.json",
+  "full_capture_attempt": {
+    "result": "failed before first test",
+    "reason": "Android process startup ANR while DexFileVerifier verifies APK bytecode; no recording code on captured main-thread stack",
+    "log_sha256": "1aa634f2e4ad94c4c34b5876734bc6668d72f510280ee416afde24ccfd868ddf",
+    "startup_trace_sha256": "b324964502ff64589efc93f89d13d0ead7ee3025c024a554c8c26cc3fa914331"
+  },
+  "isolated_live_video": {
+    "result": "failed",
+    "failure": "Browser rejected camera-replacement answer because m-line order differed from its offer",
+    "log_sha256": "deffe589099664f0ad35cb75412bc9ffb9ccbf3df1c18212776adb90b91a199d"
+  },
+  "local_capture_attempt": {
+    "result": "startup crash after reinstall",
+    "log_sha256": "1aa634f2e4ad94c4c34b5876734bc6668d72f510280ee416afde24ccfd868ddf"
+  },
+  "direct_local_capture": {
+    "result": "passed",
+    "tests": 18,
+    "skipped": 0,
+    "duration_seconds": 198.635,
+    "includes": "All local AAC/AV, video sinks, four scene cases, three real owner UI cases, playback and upload journal cases",
+    "log_sha256": "77932765a07e15e00b403fbb29735e9e1607c9dd6d5bc8a99cb31625b9256f18",
+    "scope": "Direct invocation on already installed exact receipt APKs; live browser RTP cases excluded and remain unqualified"
+  },
+  "limits": [
+    "Caption caching and encoder preparation do not yet qualify full live video capture",
+    "Actual native/browser Session warning case passed separately; neither capture failure invalidates or replaces that recorded scope",
+    "Per-source permissions, quiet Send/rekey/restart, physical endurance and production shipment remain open"
+  ]
+}

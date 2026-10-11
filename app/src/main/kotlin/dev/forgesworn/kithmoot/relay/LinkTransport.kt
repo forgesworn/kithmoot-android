@@ -142,6 +142,8 @@ data class LinkJsonRequest(
     val path: String,
     val authorization: String,
     val body: ByteArray,
+    /** Rechecked on the serial worker immediately before the native offer. */
+    val stillAllowed: () -> Boolean = { true },
 ) {
     override fun toString() = "LinkJsonRequest(method=$method, body=${body.size} bytes)"
 }
@@ -368,9 +370,16 @@ class LinkTransportManager(
         val result = java.util.concurrent.CompletableFuture<LinkJsonResponse>()
         worker.execute {
             try {
+                if (result.isDone) return@execute
                 check(!closed) { "Link transport has stopped" }
                 check(vault.state().routes.any { it.routeId == request.routeId }) { "Unknown Link route" }
-                result.complete(engine().request(request.copy(body = request.body.copyOf())))
+                check(request.stillAllowed()) { "Link request is no longer authorised" }
+                val activeEngine = engine()
+                // Native startup can wait. Recheck after it, so cancellation
+                // or withdrawn consent during startup cannot offer the request.
+                if (result.isDone) return@execute
+                check(request.stillAllowed()) { "Link request is no longer authorised" }
+                result.complete(activeEngine.request(request.copy(body = request.body.copyOf())))
             } catch (e: Exception) {
                 result.completeExceptionally(e)
             }

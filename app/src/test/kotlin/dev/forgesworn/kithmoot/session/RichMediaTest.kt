@@ -34,8 +34,13 @@ class RichMediaTest {
         var substituted = false
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request(); assertEquals("https://files.example/upload", request.url.toString()); assertEquals("PUT", request.method)
-            val event = NostrEvent.fromJson(Json.parseToJsonElement(String(Base64.getDecoder().decode(request.header("Authorization")!!.removePrefix("Nostr ")))))
-            assertTrue(Events.verify(event)); assertEquals("upload", event.tagValue("t")); assertEquals(sealed.hash, event.tagValue("x")); assertEquals("files.example", event.tagValue("server"))
+            val token = request.header("Authorization")!!.removePrefix("Nostr ")
+            assertTrue(token.matches(Regex("[A-Za-z0-9_-]+")), "BUD-11 requires URL-safe Base64 without padding")
+            val event = NostrEvent.fromJson(Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(token))))
+            assertTrue(Events.verify(event)); assertEquals(100L, event.createdAt)
+            assertEquals(300L, event.tagValue("expiration")!!.toLong() - event.createdAt,
+                "A five-minute request must fit the private node's five-minute event lifetime")
+            assertEquals("upload", event.tagValue("t")); assertEquals(sealed.hash, event.tagValue("x")); assertEquals("files.example", event.tagValue("server"))
             val buffer = Buffer(); request.body!!.writeTo(buffer); assertContentEquals(sealed.envelope, buffer.readByteArray())
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(201).message("Created")
                 .body(buildJsonObject { put("url", if (substituted) "https://evil.example/${sealed.hash}" else "https://files.example/${sealed.hash}"); put("sha256", sealed.hash); put("size", sealed.envelope.size) }.toString().toResponseBody()).build()

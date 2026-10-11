@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "name": "synthetic-browser-audio.webm",
+  "type": "audio/webm;codecs=opus",
+  "url": "https://synthetic.example/bc8d62ef6401df54ffb9ea2d564fd91f6f67779e859feb5951abb0a2f6e7df03",
+  "sha256": "bc8d62ef6401df54ffb9ea2d564fd91f6f67779e859feb5951abb0a2f6e7df03",
+  "key": "3ed981bce78994b0e53dbc72ffa1ed9ee1b0f6fa8871d41207c3a7dacff9bcd1",
+  "size": 65608,
+  "sourceSha256": "ed012f0970d5f71a13f8bd32a6d72f8c4d6c025b55b80ca10a45637390d09039"
+}

@@ -1,0 +1,106 @@
+{
+  "production_ready": false,
+  "base_commit": "dd2b30c561674faeac75fd779cebe69f1da37597",
+  "scope": "Actual native Upload/Send UI and received ChatPane Show/Play, separate participant identity and production relay connection, private allowlisted Wildbloom daemon behind temporary emulator-local TLS proxy. Same recipient app process on disposable emulator; synthetic MP4, not live capture or physical acceptance.",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "e1350947b82ca94af561aadb508827635be7cf13da681a0c5756d3937c7f372c",
+    "scripts/check-recording-private-node-emulator.py": "59afbb97148ab81fa9b19809d8eb1ab34c2eb561ae3b206824533ed102bbe462"
+  },
+  "runtime": {
+    "passed": true,
+    "physical": false,
+    "serial": "emulator-5586",
+    "real_wildbloom_daemon": true,
+    "separate_recipient_process": false,
+    "responses": [
+      "PUT 201",
+      "GET 200"
+    ],
+    "sample_sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+    "daemon_sha256": "7f12e5677d4b1842a0054e6fb761fb611d44d93e6720c2387a5fce199dce566f",
+    "report_sha256": "beb1d649a0b695b030a98fde337767949fc05e50e4ca52c709713cff5e163d7d",
+    "tests": 1,
+    "failures": 0,
+    "skipped": 0,
+    "elapsed_seconds": 10.637
+  },
+  "cleanup": {
+    "device_exit_codes": {
+      "app_force_stop": 0,
+      "fixture_removed": 0
+    },
+    "daemon_stopped": true
+  },
+  "configuration": {
+    "backend_bind": "host loopback",
+    "transport": "App HTTPS to temporary TLS proxy; private daemon over emulator host loopback alias",
+    "quota_bytes": 4194304,
+    "max_blob_bytes": 2097152,
+    "public_node_discovery": false,
+    "header_authorization_override": false,
+    "operator_explicitly_allowlists_ui_storage_key": true,
+    "tls_trust_production_unchanged": true
+  },
+  "contract_regression": {
+    "tests": 3,
+    "failures": 0,
+    "elapsed_seconds": 16.455,
+    "report_sha256": "93b42b5b71585d6dc56f61c45a1a8c1de6c1f7860f8c9d10187566eeada8a636"
+  },
+  "instrumentation_build": {
+    "passed": true,
+    "elapsed": "36s",
+    "log_sha256": "346dc4738eeb42cf692ec18908835a018bbd83847a373f4d26fc8a2b1793549a"
+  },
+  "full_local_ci": {
+    "passed": true,
+    "elapsed": "50s",
+    "incremental": true,
+    "reuses_unchanged_jvm_and_app_build_tasks": true,
+    "protocol_tests": 417,
+    "app_tests": 2070,
+    "lint_debug": true,
+    "lint_release": true,
+    "debug_apk": true,
+    "release_apk": true,
+    "log_sha256": "36a5df7fc638184304d7df0d91de728c47bb0cac8f4d48083ee5cc6299016f03"
+  },
+  "preceding_hosted": {
+    "run": 38101649231,
+    "head": "dd2b30c561674faeac75fd779cebe69f1da37597",
+    "verify": "success",
+    "recovery_emulator": "success",
+    "signing_lineage_sdk33": "success",
+    "signing_lineage_sdk35": "success",
+    "covers_new_instrumentation": false
+  },
+  "earlier_failed_attempt": {
+    "instrumentation_report_sha256": "1203ea95e27e220b39f002d4f18816ead596a142e606190f2250c8eb18546535",
+    "driver_log_sha256": "1dd5715217db705f8d0df1d53dd6cb7f191913170742fbc910b52bc14585e852",
+    "observed": "ADB transport reconnected and reverse mapping was absent; instrumentation collector ended without result. Original driver cleanup also failed removing absent mapping.",
+    "change": "Use direct emulator host alias; stop on-device instrumentation if its ADB collector exits; record fixture removal and daemon shutdown."
+  },
+  "remaining": [
+    "Recipient through independent app process/device",
+    "Full signed-room capture and physical camera/screen/lip-sync acceptance",
+    "Quiet announcement timing, heartbeat budget, waiting/cancellation and delegated confirmation",
+    "Full saved-room stop-notice and prepared-Send restart/rekey UI",
+    "Load reliability and physical 45-minute endurance/interruption/provider exports",
+    "Large blob quota and slow short-authorisation upload acceptance",
+    "Final integrated hosted CI, versioned signed production release and installed distribution"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "193f68470f2f08272385958352cbe5e9f324e8d513fdc8afd0bc70e467a44c07"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "6addaa818c9ce1237a9a9b5d3f7b874f2d8a4b4f55b39c014d181d2a9c067679"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "607a93f74486adac1b17fb1a7a6b1436e37eff3fd03411d1d4ace6f6fda9381c"
+    }
+  ]
+}

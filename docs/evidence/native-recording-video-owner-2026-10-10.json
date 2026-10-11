@@ -1,0 +1,46 @@
+{
+  "captured_at_utc": "2026-10-10T16:31:54.692028+00:00",
+  "production_ready": false,
+  "scope": "Pre-lifecycle-fix app-owned capture qualification; APK hashes identify the tested build, current edited sources differ.",
+  "apk_artifacts": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "8d13b17bd77ddcac0007d33c1af78edca982fff90d65c22334ac3e367a4e9978",
+      "local_snapshot": "/tmp/kithmoot-recording-video-owner-qualified/8d13b17bd77ddcac0007d33c1af78edca982fff90d65c22334ac3e367a4e9978.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "b3b70c08f8c05088b9db327e3dcd9e0eae1a142cd805474f9102d8868cb0d0f2",
+      "local_snapshot": "/tmp/kithmoot-recording-video-owner-qualified/b3b70c08f8c05088b9db327e3dcd9e0eae1a142cd805474f9102d8868cb0d0f2.apk"
+    }
+  ],
+  "focused_jvm": {
+    "tests": 32,
+    "failures": 0
+  },
+  "runtime": {
+    "tests": 11,
+    "failures": 2,
+    "report": "app/build/reports/native-recording-video-owner/instrumentation.txt",
+    "report_sha256": "1bc99ceb42feb81111b4b18f2a6c569138b89bce1a31b7ceb2108586a3c779a6",
+    "diagnostic_live_video_sinks_present": true,
+    "failures_observed": [
+      "Browser/native video counters remained zero despite incoming decoded RTP and diagnostic sinks",
+      "App-owned gallery started with signed notice but did not pause when Activity moved to CREATED"
+    ]
+  },
+  "passed": [
+    "AAC container and decoded timing",
+    "H264/AAC synchronised transitions",
+    "Native early and late sink attachment and reattachment",
+    "Gallery capability and permission pixel checks",
+    "Immediate source revocation and exact-source restoration",
+    "Missing screen with same-device camera overlay"
+  ],
+  "device": {
+    "serial": "emulator-5584",
+    "sdk": 35,
+    "gpu": "host",
+    "physical": false
+  }
+}

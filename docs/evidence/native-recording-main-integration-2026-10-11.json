@@ -1,0 +1,41 @@
+{
+  "qualification": "Native recording and current main project-logo merge",
+  "recording_parent": "fb946366",
+  "main_parent": "c36e499d78e646aebd5dce940c010b3c7bc94ae5",
+  "tests": 29,
+  "suites": {
+    "CallAudioCaptureTest": {
+      "tests": 8,
+      "sha256": "74200f725ece51d1f2550c2a0f7c14876c7bc2667635647036e40dae6026d5c4"
+    },
+    "RoomWorkLiveRecordingTest": {
+      "tests": 3,
+      "sha256": "3468218d79e79f2af8af8ce3ef07778c668105d82645ecdda492dfed02217b12"
+    },
+    "ProjectBrandsTest": {
+      "tests": 11,
+      "sha256": "e7ff67a550a271f7d3b55ae38c12237bec3dd4d6b40bdc79ac3d4861b2f17cfd"
+    },
+    "RoomBrandsTest": {
+      "tests": 7,
+      "sha256": "60eb84c87bafa6d75ca359424050e61569ef3f51f5e097f9c240706703de8e02"
+    }
+  },
+  "debug_app_and_instrumentation_build": "passed",
+  "resolved_source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/MainActivity.kt": "98e52fcd57446147e6c4a87f8fd6bcd037e5949c2badd03a58d8c7f31cd7fb06",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "022be870562c2ade0d19d40c23183447997b3c554fd267a9e0eef92096d05435",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "775972454870a36b64644b2671da6dabd19046e0fb253c6b598f72f641744a05"
+  },
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "eb4f8db794ccdddddd564e9e0e175d5c45466aaac647ede697af803e21acec43",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "604c64a9a56a2726e6739d4f59b0bdafdc47ea6b2090634b706f888f819ad4dc"
+  },
+  "log_sha256": "d8bf51ff2d7a35e070e37c546c5953e2ffb398c5d07e47411657b5a47e9c4543",
+  "limits": [
+    "Debug app and instrumentation APK compilation, not instrumentation runtime",
+    "Current merged source still requires hosted full test/lint/release qualification",
+    "Whole-capture frame owner gate is wired; per-source/frame lifecycle and cross-client recording acceptance remain open",
+    "No physical endurance or signed production release"
+  ]
+}

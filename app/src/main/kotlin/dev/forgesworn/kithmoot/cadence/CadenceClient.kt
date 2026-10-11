@@ -21,6 +21,12 @@ import kotlinx.serialization.json.long
 data class CadenceStatusResult(val answer: CadenceStatusAnswer, val path: LinkPathState)
 data class CadenceLeaseResult(val lease: StoredCadenceLease, val path: LinkPathState)
 
+/** Cancellation reaches the queued Link request; an in-flight offer cannot be retracted. */
+private fun <T, R> CompletableFuture<T>.thenApplyCancellable(transform: (T) -> R): CompletableFuture<R> =
+    thenApply { transform(it) }.also { mapped ->
+        mapped.whenComplete { _, _ -> if (mapped.isCancelled) cancel(true) }
+    }
+
 /** All cadence control stays inside one consented, pinned ForgeSworn Link route. */
 class CadenceClient(private val link: LinkJsonTransport, private val consents: LinkConsentVault) {
     fun status(
@@ -32,7 +38,7 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
     ): CompletableFuture<CadenceStatusResult> {
         val body = BoxCadence.statusBody(scope, requestId, now)
         val signed = BoxCadence.sign(scope.nodeId, "POST", "/cadence/v1/status", body, identity.deviceSecretKey, now)
-        return request(accountPubkey, scope, identity, signed).thenApply { response ->
+        return request(accountPubkey, scope, identity, signed).thenApplyCancellable { response ->
             CadenceStatusResult(BoxCadence.parseStatus(response.status, response.body), response.path)
         }
     }
@@ -84,12 +90,20 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         event: NostrEvent,
         now: Long,
         vault: CadenceLeaseVault,
+        stillAllowed: () -> Boolean = { true },
     ): CompletableFuture<CadenceLeaseResult> {
+        val ownership = vault.publicationGeneration(scope.room, scope.device)
         validateLeaseScope(scope, identity, current)
         require(current.ownership == CadenceOwnership.BOX_OWNED) { "cadence lease ownership is unresolved" }
+        require(vault.all(scope.room, scope.device).singleOrNull {
+            it.plan.leaseId == current.plan.leaseId && it.plan.generation == current.plan.generation
+        } == current) { "cadence lease changed before queueing" }
+        check(stillAllowed()) { "cadence queue request was cancelled" }
         val body = BoxCadence.queueBody(exactLeaseBody(current), requestId, event)
         val signed = BoxCadence.sign(scope.nodeId, "POST", BoxCadence.queuePath(current.plan.leaseId), body, identity.deviceSecretKey, now)
-        return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault)
+        return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault) {
+            vault.publicationGeneration(scope.room, scope.device) == ownership && stillAllowed()
+        }
     }
 
     fun stop(
@@ -165,7 +179,8 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         current: StoredCadenceLease,
         now: Long,
         vault: CadenceLeaseVault,
-    ): CompletableFuture<CadenceLeaseResult> = request(accountPubkey, scope, identity, signed).thenApply { response ->
+        stillAllowed: () -> Boolean = { true },
+    ): CompletableFuture<CadenceLeaseResult> = request(accountPubkey, scope, identity, signed, stillAllowed).thenApplyCancellable { response ->
         CadenceLeaseResult(vault.accept(current, BoxCadence.parseReceipt(response.status, response.body), now), response.path)
     }
 
@@ -174,14 +189,16 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         scope: CadenceScope,
         identity: RoomIdentity,
         signed: CadenceSignedRequest,
+        stillAllowed: () -> Boolean = { true },
     ) = run {
         validateIdentity(scope, identity)
         val canonicalUrl = BoxCadence.server(scope.nodeId)
         val routeId = requireNotNull(consents.activeRoute(accountPubkey, scope.room, canonicalUrl)) {
             "cadence requires active room consent for this Link route"
         }
-        link.request(LinkJsonRequest(routeId, signed.method, signed.path, signed.authorization, signed.body))
-            .thenApply { response ->
+        link.request(LinkJsonRequest(routeId, signed.method, signed.path, signed.authorization, signed.body,
+            stillAllowed = { consents.activeRoute(accountPubkey, scope.room, canonicalUrl) == routeId && stillAllowed() }))
+            .thenApplyCancellable { response ->
                 check(consents.activeRoute(accountPubkey, scope.room, canonicalUrl) == routeId) {
                     "cadence consent changed while the request was in flight"
                 }

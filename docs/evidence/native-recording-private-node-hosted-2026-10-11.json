@@ -1,0 +1,38 @@
+{
+  "qualification": "Android UI Upload Send Show Play against a real private Wildbloom fixture",
+  "source_commit": "c913d46842df125156445e9f9126254126e21b97",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38140631224",
+  "all_hosted_jobs_passed": true,
+  "cases": {
+    "short": {
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "00997994571bd947eb0833e0a05906da90b4a289beb40a557577a007d16aad1c",
+      "instrumentation_sha256": "f0618c47656169f7e853356902a41969f195dc79de1b10bc0e60e89fc547bcb6",
+      "cleanup_verified": true
+    },
+    "maximum": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "e628cccadf305c477e7949e3edf586d97b2b1c1fd9bb6b0dbe8b6d1d9de1b4b4",
+      "instrumentation_sha256": "6839bc48cb00faf458d11bf705a35bb6f5f496ddb8eccf30221f0c71e9338739",
+      "cleanup_verified": true
+    },
+    "maximum-slow": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "98ea5b8a9a94a8f0c0226c78a0b78a210ee1686a83436dde4104ca815faeee4b",
+      "instrumentation_sha256": "0883c76e59cecc6f33c9480b8920af8ca5dc2e222dcb16cf203a3d40fc6b8ba5",
+      "cleanup_verified": true
+    }
+  },
+  "limits": [
+    "Android emulator, not physical phones",
+    "Separate recipient process on the same emulator",
+    "Synthetic MP4 transfer fixtures, not 45-minute live capture",
+    "Later profile-3 reception and publishing changes are not covered by this run"
+  ]
+}

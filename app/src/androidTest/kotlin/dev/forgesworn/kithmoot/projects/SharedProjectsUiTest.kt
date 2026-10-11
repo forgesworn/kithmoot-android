@@ -22,7 +22,7 @@ class SharedProjectsUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     // Scroll the app's accessible containers. Whole-window swipe fallbacks
     // can pull down Android's notification shade instead of revealing a card.
-    private val ui = RecoveryUi(useSwipeFallback = false, declineBackgroundBatteryAsk = true)
+    private val ui = RecoveryUi(useSwipeFallback = false, freshNodes = true, declineBackgroundBatteryAsk = true)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
     private var scenarioLaunchIntent: android.content.Intent? = null

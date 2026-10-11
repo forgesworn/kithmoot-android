@@ -30,7 +30,11 @@ fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
     require(obj["event"] == null || string("event")?.matches(hex64) == true)
     ChatAttachment(url, hash.lowercase(), key.lowercase(),
         string("name")?.filterNot { Character.isISOControl(it) || Character.getType(it) == Character.FORMAT.toInt() }?.take(255),
-        string("type")?.takeIf { it.length <= 128 && it.matches(Regex("[\\w.+-]+/[\\w.+-]+")) }?.lowercase(),
+        string("type")?.takeIf { type ->
+            type.length <= 128 && (type.matches(Regex("[\\w.+-]+/[\\w.+-]+")) ||
+                (recordingPlaybackMime(type) != null && type.contains(';') &&
+                    type.substringAfter(';').isNotBlank() && type.all { it.code in 32..126 }))
+        }?.lowercase(),
         (obj["size"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 })
 }.getOrNull()
 

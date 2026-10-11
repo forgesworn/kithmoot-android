@@ -1,0 +1,5 @@
+These are synthetic recording interoperability fixtures, included only in the instrumentation APK. They contain silence and alternating canvas colours, with disposable per-file recovery keys in the descriptors. They contain no account keys, real calls or personal media.
+
+Generate with `node scripts/make-recording-playback-fixtures.mjs [kithmoot checkout] [wildbloom checkout]` after installing the reference checkout dependencies and Playwright Chromium. Requires ffmpeg. WebM files come from the reference PWA CallRecorder, including its codec parameters and absent declared duration. Ogg uses a lossless remux of that synthetic Opus stream. Encryption comes independently from Wildbloom's privacy envelope writer.
+
+Generation is deliberately manual: random encryption produces new descriptors each time. Never run it during a build being qualified. Native runtime tests authenticate and play these files through the recipient viewer; they do not prove real-room delivery, camera quality, live call capture or physical-phone acceptance.

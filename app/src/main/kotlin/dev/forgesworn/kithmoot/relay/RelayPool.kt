@@ -83,6 +83,10 @@ interface RoomTransport {
         stillAllowed: () -> Boolean, timeoutMs: Long = 15_000): Boolean =
         throw UnsupportedOperationException("This transport cannot guard a pending chat publication")
 
+    /** Suggested wait for guarded delivery, including scheduled slots. Callers
+     * still enforce their own credential, room and freshness deadlines. */
+    fun guardedConfirmationTimeoutMs(kind: Int): Long = 15_000
+
     /** Fails if complete retained history cannot be established. */
     suspend fun queryStored(filters: List<Filter>, timeoutMs: Long = 15_000): List<NostrEvent> =
         throw StoredHistoryUnavailableException()

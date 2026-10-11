@@ -42,6 +42,7 @@ class CadenceRoomTransportTest {
             retain = { event -> retained += event.id },
             queue = { _, event -> queued += event.id; CompletableFuture.completedFuture(true) },
             release = { released += it },
+            ownershipGeneration = { 0 },
             now = { now },
         )
         val chat = Events.sign(deviceKey, 1460, now, listOf(listOf("d", room)), "cipher", ByteArray(32))
@@ -61,6 +62,7 @@ class CadenceRoomTransportTest {
             retain = { failedRetained += it.id },
             queue = { _, _ -> CompletableFuture<Boolean>().also { it.completeExceptionally(IllegalStateException("reply lost")) } },
             release = { failedReleased += it },
+            ownershipGeneration = { 0 },
             now = { now },
             onFailure = { failures += it },
         )

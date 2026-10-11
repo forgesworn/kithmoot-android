@@ -66,6 +66,7 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         synchronized(lock) { eventId in relayObserved } && internet.receivedEventConfirmsPublication(eventId)
     override fun receivedViaRelays(eventId: String): List<String> =
         if (synchronized(lock) { eventId in relayObserved }) internet.receivedViaRelays(eventId) else emptyList()
+    override fun guardedConfirmationTimeoutMs(kind: Int): Long = internet.guardedConfirmationTimeoutMs(kind)
     override fun publicationGeneration(): Long = generation.get()
     override fun reachable(): Boolean = !blocked && (nearby.reachable() || internet.reachable())
     override fun describe(): List<String> = internet.describe()

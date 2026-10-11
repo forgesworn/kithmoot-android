@@ -1,0 +1,93 @@
+{
+  "production_ready": false,
+  "base_commit": "2d56a60207be07739a3bb2276e38173e0bacad86",
+  "scope": "Scheduled recording confirmation waits bounded by notice freshness and credentials; local Save/Discard independent of relay acknowledgement. Emulator recording and picker journeys; no physical or quiet heartbeat endurance qualification.",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "d80d5c2a07fb619fa3dd8511a707fe459000f3da9221c041972829ba245b2d00",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/ArtworkPickerUiTest.kt": "8cb36b26503cd284427c3c994ed2b6a170028ed08becb0bd8c251500adc138d6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "c0acd937139a06b751f8cc512605519062c678cb9dbde732356be2b628baf512",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/HybridRoomTransport.kt": "d7da1ebd09a5239e9cf2f40e69aaceec2e253d8813548276365ba6c0dd0eabde",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/RelayPool.kt": "d738d3d662fcf9f3bb288892c327861b726acec32d5a570b41c3ce08934d5bb2",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "9ed705d88433512a4abc1cc5ef415cb241bec943110fd251bafdc75fd63bdb16",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "cf247dd947b36bb2602182b5a2ec1df22ce083c9f849c80c772ce02d28fb2710",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "968f9d02276cff52eaa006b51ddd679e373be50d62b76cf7f50a6d4c7a6d2bbb",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RoomWorkRecordingTest.kt": "fccb474b8760e8e4caac5a301203af790593553eb251edb465c796381bfb63c4",
+    "scripts/check-recording-emulator.sh": "1f034fc5e90929d5f319f602f6ece4ba7e7ce1370cc29799315acc249d338f50",
+    "docs/native-recording.md": "216b82d279e7da43151d0d8dd6580b75b03ac0219c81daabfd9e664b9c1729bd"
+  },
+  "recording_runtime": {
+    "tests": 17,
+    "failures": 0,
+    "elapsed_seconds": 81.457,
+    "physical": false,
+    "serial": "emulator-5586"
+  },
+  "recording_unit_cases": 21,
+  "picker_runtime": {
+    "suite_tests": 5,
+    "focused_tests": 1,
+    "failures": 0
+  },
+  "picker_findings": [
+    "Reproduced hosted 5-second Search artwork visibility timeout locally before changes.",
+    "Separate local failure asserted draft while compact search hid the composer; observed actual semantics tree.",
+    "Wait for initial IME before opening; close picker before retained Unicode assertion. Original 5-second visibility and text assertions preserved."
+  ],
+  "log_sha256": {
+    "recording_runtime": "f7dd7999f636014c289f25bb06a79153b55f02ceb8a4795e1d2c97edd7af4cbe",
+    "picker_original_failure": "122ae7b0360d1a006c05440ecc264c1495550f1a6cf6ec35e95702ff5e9213fc",
+    "picker_open_failure": "3c84fd043b26f3d358845401b2b27aed56f51c19f4632043f14ee97fbaaf2895",
+    "picker_hidden_composer_tree": "04febe61e7ef9f3ea351c0a6f4f79be08f40efab60cd5d988e2096a491525512",
+    "picker_suite": "1f1bf68770b78b0cf2e631ddf1cd883ff3a112b99a76b207db56c7b7d256f2cc",
+    "picker_focused": "6843dd2d528a4ec3e68edb578a4b60487250f87cc36ca75cc79cbbc97ab47586"
+  },
+  "full_local_ci": {
+    "status": "passed",
+    "elapsed": "11m 25s",
+    "log_sha256": "78c5e18dcffec455181aaf8a9b360ea6d545ff2d7044df9ea1353d6819db57c8",
+    "counts": {
+      "protocol": {
+        "tests": 417,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app": {
+        "tests": 2078,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ]
+  },
+  "remaining": [
+    "Quiet heartbeat slot/counter capacity and delegated confirmation",
+    "Independent recipient app/device and signed-room live capture",
+    "Physical 45-minute endurance, interruptions, sync and provider exports",
+    "Large/slow uploads",
+    "Final hosted gates, signed production distribution and install acceptance"
+  ],
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "15d783e0b8579e9059b9080f07bb6b4e0df8750e5977faac682ac154023f726e",
+      "bytes": 117684543
+    },
+    "app/build/outputs/apk/release/app-release-unsigned.apk": {
+      "sha256": "5b1db836332c69ba53660969a6e3819d3bd3f312b83baac12294db022be3cbc4",
+      "bytes": 79570254
+    },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "sha256": "a166bafc3b7701dc5e2ef68a00868e923d88e51cd15ff8d63c6d4f6bb1c1032e",
+      "bytes": 5057642
+    }
+  },
+  "immutable_archive": "kithmoot-cadence-export-qualified-rmvwl6qj"
+}

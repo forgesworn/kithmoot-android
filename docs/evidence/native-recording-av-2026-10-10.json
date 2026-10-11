@@ -1,0 +1,87 @@
+{
+  "captured_at_utc": "2026-10-10T14:01:13.152285+00:00",
+  "scope": "Synthetic AAC/H.264 encoder and complete decoded playback; no call inputs or user account",
+  "production_ready": false,
+  "device": {
+    "serial": "emulator-5584",
+    "avd": "codex-recording-qualification-20261010",
+    "sdk": 35,
+    "gpu": "host",
+    "physical": false
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "c1d6d8618b7f98f6a7498bb353e87f8650b583e3ae61fe26731dc63fb66a3517",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AacRecording.kt": "e91879fbd8fca808fc7a4f811130ddafc413703f665ba0140b7703d4aab90833",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecordingTest.kt": "38513084cf8bce40ff21186b682628a76e36025ca65ef34df8a39ea1a64d94a0"
+  },
+  "apk_artifacts": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "2d5a0fc4454be9a599b64c07f9f4acde1da638e7865c7a1e21ab43c2c455413c",
+      "bytes": 117210805,
+      "local_snapshot": "/tmp/kithmoot-recording-av-qualified/2d5a0fc4454be9a599b64c07f9f4acde1da638e7865c7a1e21ab43c2c455413c.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "c39735fb3573ff61d346b7f85717d1221ac992b4db8a0a3a6ea039cb070e1638",
+      "bytes": 4774938,
+      "local_snapshot": "/tmp/kithmoot-recording-av-qualified/c39735fb3573ff61d346b7f85717d1221ac992b4db8a0a3a6ea039cb070e1638.apk"
+    }
+  ],
+  "report": {
+    "path": "app/build/reports/native-recording-av-host/instrumentation.txt",
+    "sha256": "5e33b4225f3f7336950770f7948ee44b3ff2ac979f0b9aa22c03a5c953f166a0",
+    "tests": 5,
+    "failures": 1
+  },
+  "av_playback": {
+    "passed": true,
+    "audio_samples": 96256,
+    "video_frames": 30,
+    "audio_transition_us": [
+      540000,
+      1050000,
+      1540000
+    ],
+    "video_transition_us": [
+      533333,
+      1000000,
+      1533333
+    ],
+    "video_minus_audio_us": [
+      -6667,
+      -50000,
+      -6667
+    ],
+    "maximum_allowed_offset_us": 80000,
+    "expected_track_duration_us": 2000000,
+    "allowed_track_duration_error_us": 999,
+    "export_bytes": 52005
+  },
+  "cleanup_and_limits": {
+    "passed": true,
+    "covers": [
+      "empty",
+      "discard",
+      "source limit",
+      "existing file preservation",
+      "private temporary parts removal"
+    ]
+  },
+  "aac_only_tests": {
+    "passed": 2
+  },
+  "live_browser_call": {
+    "passed": false,
+    "failure": "Native video sink received zero frames; browser video counter zero; ICE connected and audio received both ways"
+  },
+  "open": [
+    "Live-call video and recording",
+    "Compositor and video input authority/capability selection",
+    "Video controls and retained export ownership",
+    "Explicit encrypted room sharing and playback",
+    "Current-source full CI gates",
+    "Physical interruption and 45-minute acceptance",
+    "Production release"
+  ]
+}

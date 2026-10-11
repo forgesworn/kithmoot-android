@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -60,6 +61,14 @@ fun ChatPane(
     memberPackAvailable: () -> Boolean = { false },
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
+    recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    onRemoveRecordingDraft: (String) -> Unit = {},
+    onSendRecordingDraft: (String) -> Unit = {},
+    recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
+    onPrepareRecordingStorage: (String, String) -> Unit = { _, _ -> },
+    onUploadRecordingDraft: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    recordingUploadRunning: Boolean = false,
+    onCancelRecordingUpload: () -> Unit = {},
     artwork: List<ChatArtwork> = emptyList(),
     onAddArtwork: (ChatArtwork) -> Unit = {},
     onRemoveArtwork: (Int) -> Unit = {},
@@ -327,7 +336,9 @@ fun ChatPane(
                                     color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
                                     TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
-                                        Text("Open attachment: ${attachment.name ?: "Image"}")
+                                        Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
+                                            "Show recording: ${attachment.name ?: "Recording"}"
+                                        else "Open attachment: ${attachment.name ?: "Image"}")
                                     }
                                 }
                                 if (!r.retracted) message.artwork.forEach { reference ->
@@ -393,6 +404,64 @@ fun ChatPane(
             mediaEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK,
             compactSearch = compactArtworkSearch, onSearchChanged = { artworkSearchOpen = it },
         )
+        var sharingRecording by rememberSaveable { mutableStateOf<String?>(null) }
+        val chosenRecording = recordingDrafts.firstOrNull { it.id == sharingRecording }
+        if (chosenRecording != null && chosenRecording.uploaded == null) {
+            var storage by rememberSaveable(chosenRecording.id) { mutableStateOf(chosenRecording.storageOrigin.orEmpty()) }
+            var consent by rememberSaveable(chosenRecording.id, storage) { mutableStateOf(false) }
+            val canonical = runCatching { mediaStorageOrigin(storage) }.getOrNull()
+            val choice = recordingStorageChoice?.takeIf { it.draft == chosenRecording.id &&
+                it.room == chosenRecording.origin.room && it.origin == canonical }
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            AlertDialog(onDismissRequest = { if (!mediaBusy) sharingRecording = null },
+                title = { Text("Upload recording privately") },
+                text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Choose your HTTPS storage server. Only the encrypted file is uploaded; sending a chat message is a separate action.")
+                    OutlinedTextField(storage, { storage = it }, label = { Text("Recording storage server") },
+                        enabled = !mediaBusy && chosenRecording.storageOrigin == null, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    choice?.let {
+                        Text("Authorise this public storage key on your private node before Upload. It cannot access room messages or decrypt recordings.")
+                        androidx.compose.foundation.text.selection.SelectionContainer { Text(it.publicKey) }
+                        TextButton(onClick = { clipboard.setText(AnnotatedString(it.publicKey)) }) { Text("Copy storage key") }
+                        Text("KithMoot keeps this storage identity to retry server deletion after you forget the room. Cleanup requires this device to run and reach the server.")
+                        Row(Modifier.fillMaxWidth().toggleable(value = consent, enabled = !mediaBusy,
+                            role = androidx.compose.ui.semantics.Role.Checkbox, onValueChange = { consent = it }),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(consent, onCheckedChange = null, enabled = !mediaBusy)
+                            Text("Allow this encrypted recording to be uploaded to ${it.origin}", Modifier.weight(1f))
+                        }
+                    }
+                    sendError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                } },
+                confirmButton = {
+                    if (choice == null) TextButton(enabled = !mediaBusy && storage.isNotBlank(),
+                        onClick = { onPrepareRecordingStorage(chosenRecording.id, storage) }) { Text("Get storage key") }
+                    else TextButton(enabled = !mediaBusy && consent && internetAllowed && !torOnly && canSend,
+                        onClick = { onUploadRecordingDraft(chosenRecording.id, choice.origin, consent) }) { Text(if (mediaBusy) "Uploading…" else "Upload") }
+                }, dismissButton = {
+                    if (recordingUploadRunning) TextButton(onClick = onCancelRecordingUpload) { Text("Cancel upload") }
+                    else TextButton(enabled = !mediaBusy, onClick = { sharingRecording = null }) { Text("Cancel") }
+                })
+        }
+        recordingDrafts.forEach { recording ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                Text("Recording draft: ${recording.sealed.name}. " + when {
+                    recording.preparedSend != null -> "Send started. A retry uses the same message."
+                    recording.uploaded == null -> "Not uploaded."
+                    else -> "Uploaded privately. Not sent."
+                }, maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                FlowRow {
+                    if (recording.uploaded == null) TextButton(enabled = !mediaBusy && internetAllowed && !torOnly && canSend,
+                        onClick = { sharingRecording = recording.id }) { Text("Upload recording") }
+                    if (recording.uploaded != null) TextButton(enabled = !mediaBusy && canSend,
+                        onClick = { onSendRecordingDraft(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
+                    if (recording.preparedSend == null) TextButton(enabled = !mediaBusy,
+                        onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
+                }
+            }
+        }
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
             showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

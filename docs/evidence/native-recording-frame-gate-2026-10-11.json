@@ -1,0 +1,33 @@
+{
+  "qualification": "Native capture ownership gate at PCM callbacks and video composition",
+  "source_base": "0839abe4",
+  "tests": 16,
+  "suites": {
+    "CallAudioCaptureTest": {
+      "tests": 8,
+      "sha256": "b083d9968f23fdb922b4da73ac75971829f51efcb578bba7a5216c0d209e06f2"
+    },
+    "RecordingVideoAuthorityTest": {
+      "tests": 5,
+      "sha256": "55c410a83252792d2614ffdc7d91a08f5187c2822e7dc72d4f19a380188ab3f0"
+    },
+    "RoomWorkLiveRecordingTest": {
+      "tests": 3,
+      "sha256": "6febfab2d010252058094d10724b7cf675c58b58efcfbbe5b4a4497953611093"
+    }
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingCapturePermission.kt": "774d314b9f972cfd2950709d02297d89c7f71784359f23c2dd6a13c5aa417cc8",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/CallAudioCapture.kt": "c8185a0dbc7b1255ae3b33c76bdbd79515bd6edaa107d6fc4fd80868d7e93572",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoScene.kt": "5671ef935bcadb99a0d63077b098fa3fc4f3d82b3071aa2adf703f4b315e4b1f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/WebRtcEngine.kt": "fe5d9bb9271dc2345a29a9cafead78c6d6cfbcc025fc7ea0a897f9a54a1ba4f8",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "f7d67e8a1997302fd1ab772cc4dad06e1bda2b10baacefb974614cb50be4457f"
+  },
+  "log_sha256": "1bdb117facff899bb1a5cd0f2f1339dd26c4d4b19f8042f02f066980c0c8a74e",
+  "limits": [
+    "JVM PCM export and ownership primitive validation plus app compilation",
+    "Video compositor guards are wired but real frame/EGL instrumentation remains open",
+    "Per-source meeting and roster revocation runtime remains separate from the whole-capture owner gate",
+    "Main integration, hosted verification, physical capture and Android-desktop runtime remain open"
+  ]
+}

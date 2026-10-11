@@ -1,0 +1,44 @@
+{
+  "source_commit": "5d96574d",
+  "browser_source_commit": "32653c747e26bc1e268ba15eacccb5c36343d268",
+  "prior_hosted_run": 38161227634,
+  "prior_hosted_results": {
+    "verify": "passed",
+    "signing_33": "passed",
+    "signing_35": "passed",
+    "private_node_default": "passed",
+    "private_node_google_apis": "passed",
+    "recovery": "cancelled",
+    "capture": "18 passed, 2 failed",
+    "session": "failed before instrumentation"
+  },
+  "capture_failures": [
+    "Old bridge omitted seq/re and accepted an incompatible camera answer",
+    "Stop control could not be found; accessibility snapshot mixed an old Announcing recording label with active Pause recording"
+  ],
+  "session_failure": "Home resolved to com.android.sdksetup/.DefaultActivity, which could not be started; no recording Session test ran",
+  "changes": [
+    "Bounded wait for setup HOME to give way to the actual launcher, retaining resolution and failed-command diagnostics",
+    "Fresh accessibility node reads for recording owner and shared-project UI journeys",
+    "Pin actual browser bundles to the all-green hosted web source and refresh local dependencies"
+  ],
+  "launcher_validation": {
+    "syntax": "passed",
+    "bounded_mock_cases": {
+      "setup_then_launcher": "passed; never launches setup component; two real-home focus checks required",
+      "stuck_setup": "passed; no passing receipt",
+      "failed_launch": "passed; actual stdout retained and no passing receipt",
+      "physical_device": "passed; refused before launch"
+    }
+  },
+  "primary_setup_source": {
+    "url": "https://android.googlesource.com/device/generic/goldfish/+/refs/heads/main/provision/EmulatorProvisonLib/src/com/android/sdksetup/ProvisionActivity.java",
+    "sha256": "4fb473eac6b2f62afc380dab370a56c0d30bcae87c2178099fbf20592e0ef634",
+    "behaviour": "ProvisionActivity removes its own component when provisioning ends"
+  },
+  "limits": [
+    "Mock checks do not qualify a fresh hosted AOSP boot",
+    "Fresh UI node reads do not yet prove the Stop/project-picker failures fixed",
+    "Cancellation room teardown, per-source gates, full Send recovery, physical endurance and production release remain open"
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "production_ready": false,
+  "base_commit": "514318e2a60e2e01aa07b80e2e64ede31c915df0",
+  "scope": "Recording announcement cancellation in actual native ViewModel and Compose controls, dispatch and heartbeat ownership fencing, retained exact Off on cancellation. Synthetic loopback relay and emulator; does not qualify quiet timing/counter capacity, delegated delivery or physical recording.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "2ebfb3f2e6e85df060cf82785ead81abaa6fd584578cc532ab989a7b0623748d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "983991a30b8f914a87fd53f08701fbd81367a37b5a0e5a9ad538370fb34096a6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "a1c83fb7dc36882b0ad238b1a24de30fb5778417093846b027663f40261aed41",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/CallDock.kt": "2f59c99d5396bfdb29f93e8e129cd17d0baa64cc10f174d9b964717c06ec7152",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RoomWorkRecordingTest.kt": "a263988d2f17f5f00bf66a0c540e6898643040ab2b1295094f6498ac2fe4036d",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "1b00e369c57432d026bb688ca36c7a5a2bbf8aeaae4a8a0073ec1d6d160b391b",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "98867673fd2183b67c4e4e80bf23c6e8cd1d717000701346c758d66e0224c2bb",
+    "scripts/check-recording-emulator.sh": "ca214a0eea9c0ddb53198284528445da4de0bba14b1e621f784fe3156d5e6aa7"
+  },
+  "cases": [
+    "Pre-start cancellation arms no notice and offers nothing",
+    "Owner withdrawal between capture details and On prevents dispatch",
+    "Cancellation of suspended publication keeps exact stop for retry and cannot revive on late release",
+    "Withdrawn capture owner cannot refresh On but exact Off still confirms",
+    "Actual UI Cancel revokes and cancels startup, removes unused source, never offers On or exports, and retains Off until explicit retry"
+  ],
+  "runtime": {
+    "capture_playback": {
+      "tests": 16,
+      "failures": 0,
+      "elapsed_seconds": 57.453,
+      "physical": false,
+      "serial": "emulator-5586",
+      "live_browser_interop_included": false,
+      "report_sha256": "accf7badcd3a412c3ae781edfaf94298e44260458b74e3639e5ce9218e740333"
+    },
+    "https_contract": {
+      "tests": 3,
+      "failures": 0,
+      "elapsed_seconds": 17.237,
+      "report_sha256": "a224b998b29c1d97352d368906eaaf2f2d0e592ca8699cd40573c3d33ce0e4c6"
+    },
+    "stop_restart": {
+      "passed": true,
+      "physical": false,
+      "reports_sha256": {
+        "prepare": "158dfa9ad2a50b63e4c0f1bf3a83e1349cf0e8803f808b895e070737bb4fa43d",
+        "verify": "6535d3fe15c7c28f3a095e96da03603b956f8b1244440d207e2a33f30533423d",
+        "cleanup": "d45063087c85b40cca6a95c824349eb2aeebc810858932a0e9ec4671d3cd1f07"
+      }
+    }
+  },
+  "build": {
+    "focused_then_debug_instrumentation_passed": true,
+    "elapsed": "1m 50s",
+    "log_sha256": "9d6e68d8d809bad1c6d1fe0d7e4b8a9dc5c442c51e73e8ef6dc5ede08b9bdfd7",
+    "final_instrumentation_passed": true,
+    "final_instrumentation_elapsed": "33s",
+    "final_instrumentation_log_sha256": "39545a2e753fa5ccf306601b15a293b63f570e5d9d7db6d2a56aa971c47f481c"
+  },
+  "earlier_ui_failure": {
+    "report_sha256": "ac439141692b3901d6311f8f8fa00219c0de3fc134df8153fea7762b3acb8101",
+    "observed": "Pending Off disappeared before Retry click after fixture acknowledgements were released; capture remained off.",
+    "fixture_change": "Wait for the relay to record withheld acknowledgement of the exact Off before enabling acknowledgement and clicking Retry."
+  },
+  "full_local_ci": {
+    "passed": true,
+    "elapsed": "8m 4s",
+    "log_sha256": "1553d3bd8089353d3033907f1dd5800201b625e7286ead2c61ec6a208560c859",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ]
+  },
+  "remaining": [
+    "Cadence-aware confirmation waiting/deadline and quiet heartbeat slot budget",
+    "Recording announcement routing and actual delegated confirmation",
+    "Full saved-room stop-notice and prepared-Send restart/rekey UI",
+    "Recipient in independent app process/device",
+    "Live signed-room capture, load reliability and physical 45-minute endurance/interruption/provider exports",
+    "Large/slow uploads",
+    "Final integrated hosted CI, signed versioned production release and installed distribution"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "3850d08da01147845256ef91536aa6fbf94bbf97ea679329fc58eaa743022f78"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "c729a1b624ffea8a433e614c9abaf59f542521ff2be2e1afb4122a05dab884b3"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "d87cb38293d7ace49a91ec35d90f2688f852f844cbb0fb2074973b7d13d42353"
+    }
+  ],
+  "jvm": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2074,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "recording_work": {
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  }
+}

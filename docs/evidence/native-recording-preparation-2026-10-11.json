@@ -1,0 +1,67 @@
+{
+  "qualification": "Worker-owned encoder preparation before capture activation",
+  "source_commit": "1cbf109b136b6c513bbed5f3c7d2094e1d57014f",
+  "unit_suites": {
+    "dev.forgesworn.kithmoot.media.recording.CallAudioCaptureTest": {
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "2fa45194bb9b6ff955ca1b2459f3da87bb9723f09e92ef60ed5144b55ddf7548"
+    },
+    "dev.forgesworn.kithmoot.session.LiveRecordingPublicationTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "547b86bebfa6f42980fb6133b3135d6c72ee659c2948fe838032c26fb585df03"
+    },
+    "dev.forgesworn.kithmoot.session.RoomWorkLiveRecordingTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "395c02feadd743ccd0766e1fdbb7cbe559f879bd91579e76137a00adf85ba676"
+    },
+    "dev.forgesworn.kithmoot.session.LiveRecordingReceptionTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "2892a64733790b38e54c2f3a932e7d3b915c632b870f4b6f285e58c1201bc011"
+    }
+  },
+  "unit_tests": 29,
+  "build": "debug and instrumentation APKs passed",
+  "build_log_sha256": "f352fda827ca3214c1bb1da73e50ae2ede6d9d6067449e816404aec0cb88667c",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/WebRtcEngine.kt": "3316005b8d8b072592a97b22eb221ad2a56300092f34b1a83d2c3b177fc808c3",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "aff0562923280b1cf26fcfbacdd68628ef0a069fa3eb6c4e72b7e3080f716965",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/CallAudioCapture.kt": "47cb638b18cc71b4c1b1a9ffa05e293d2c838324f7c14a5aa7d4f9475242fcf5",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/ComposedAvRecording.kt": "c06de9da3e8d592815fc266c800a9a1256419b7719e61d9117f8339798f3dad9",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/PcmRecording.kt": "eb51f7f1eb97f8533f72f926d76489cd7bad6da5e61af2fcfc2ad49e503d09c4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "42256784aeab2676c37a9342e6a1d6ad1e1f42cc832a740918765be5a4f87769",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/CallAudioCaptureTest.kt": "66f677f0e150cc582d1719a43038c14046ca66d0575be2aad01f0d76b2808fe5"
+  },
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "7efd78df51fa21da16362280f3301d45636060c85fc93a8a3b05ea5df1cb619e",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "83f82090448844ba2e7ad4f2f0a2d91e74088a8abad5366f9ace2cc424310608"
+  },
+  "behaviour": [
+    "Codec and EGL warm-up completes on the recording worker before its PCM/video clock begins",
+    "A prepared candidate owns no engine input and is activated only after the originating owner rechecks its call and signed notice",
+    "Cancelled and failed preparation disposes only its own candidate on the worker"
+  ],
+  "limits": [
+    "Full emulator rerun was interrupted: live call setup failed before recording and ADB disconnected during owner UI tests",
+    "Encoder preparation alone does not resolve the live video queue failure; overlay refresh follow-up is building",
+    "Physical long-call acceptance, source permission gates, cross-client Session warnings and final production delivery remain open"
+  ],
+  "interrupted_runtime_log_sha256": "28e56f8a85ef6095e0d0194a46ca1ceef76fd1a61276b31fadfabfd65e3029ef",
+  "isolated_video_retry": {
+    "result": "failed",
+    "tests": 1,
+    "failure": "Live browser call reached recording, then remote PCM exceeded the two-second queue bound",
+    "log_sha256": "0117029f7f40a0a9337b173db42be7285f321c1837ae8bc734a29d1dd43b06d7"
+  }
+}

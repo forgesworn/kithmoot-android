@@ -1,0 +1,90 @@
+{
+  "source_commit": "fe426a68dc1a570081dee11f98a1f8282a9e8f0c",
+  "browser_commit": "6fdc629f2137f0ba682764ea55bb9f9068238950",
+  "build": {
+    "result": "passed",
+    "duration_seconds": 38,
+    "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+    "test_apk_sha256": "7ee2cbd6084c233094bb395df9c06a1f8a94b5c0cb4b56c29db26c05b536d258"
+  },
+  "runtime": {
+    "result": "failed and deliberately stopped after system ANR contaminated UI cases",
+    "instrumentation_sha256": "38002af493668d4f1344401adf0fb03b395bbe19026402dbe1b3054ce9f7e19c",
+    "failures": [
+      "Live video failed before recording: connected RTP but no frames delivered to capture test",
+      "Live audio capture failed with bounded PCM queue overflow",
+      "Owner UI setup blocked by Messages system ANR dialog"
+    ],
+    "limits": [
+      "This installed bridge dropped seq/re and cannot qualify browser offer correlation",
+      "Run was stopped with app force-stop after observed failures; no full-suite completion claimed"
+    ]
+  },
+  "follow_up": {
+    "bridge_commit": "21492dd5",
+    "change": "Preserve seq/re in both directions, matching production WebRtcEngine signal envelopes; compilation passed and runtime pending",
+    "build": {
+      "result": "passed",
+      "source_commit": "3f334998",
+      "duration_seconds": 87,
+      "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "test_apk_sha256": "5a3f879eac3c75785497491adf779368d6abfe9c4f28a4201690ac75101e6709"
+    },
+    "emulator_setup": "Owned disposable Android 35 ARM64 host-GPU AVD; unrelated com.google.android.apps.messaging disabled after observed system ANR",
+    "runtime": {
+      "result": "failed; deliberately stopped after live failures and system ANR blocked owner UI",
+      "instrumentation_sha256": "735d6e3d05b05546914702aa3f96a1ad20d820ffc5dec5bff12d150128ccec32",
+      "live_audio": "Failed before capture: zero sink/browser frames despite connected RTP",
+      "live_video": "Failed before capture: zero sink/browser frames despite connected RTP",
+      "limits": [
+        "Neither case reached camera replacement or recording; offer correlation and PCM queue fixes are not runtime-qualified"
+      ],
+      "emulator_setup_limit": "Messaging disable command passed before reboot, but the rebooted disabled-package list omitted Messaging and its ANR dialog blocked UI again"
+    }
+  },
+  "browser_validation": {
+    "focused_peer_tests": 174,
+    "typecheck": "passed on browser correlation commit",
+    "current_main_merged_hosted_run": 38161339649
+  },
+  "synthetic_producer_follow_up": {
+    "source_commit": "38325cdc",
+    "change": "Three bulk plane writes replace per-pixel plane getters, retaining 320x240 pixels, Y/U/V values 160/90/130 and 66 ms schedule",
+    "evidence": "javap on the installed io.github.webrtc-sdk Android 144.7559.12 classes confirms each getDataY/U/V calls ByteBuffer.slice; old loop called getters 115200 times per frame",
+    "sdk_bytecode_sha256": "898cf474e01dcd8f7b64bde2e1779f6f8a37eca8e8c670a6546cfafe0c937f2d",
+    "scope": "Synthetic fixture optimisation; production PCM queue bound and recording assertions unchanged. Short live audio/video exports passed; full suite and physical/endurance qualification remain open.",
+    "build": {
+      "result": "passed",
+      "duration_seconds": 58,
+      "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "test_apk_sha256": "589494d213ce6355cc7afa1800432a3dedac21b469ced2b3c920f95983d048c9"
+    },
+    "next_runtime_setup": "Owned Android 35 ARM64 AVD with host GPU and 2048 MiB RAM, reducing host memory pressure; explicit messaging stop/disable after boot before qualification",
+    "runtime": {
+      "result": "19 passed, 1 failed",
+      "tests": 20,
+      "skipped": 0,
+      "source_commit": "38325cdc",
+      "browser_commit": "6fdc629f2137f0ba682764ea55bb9f9068238950",
+      "instrumentation_sha256": "0575450d258c36bc7a6425d3ae72825c9279eaa450ae22279482f564a7acfcfe",
+      "live_audio": "passed: both 440 Hz remote and 660 Hz local tones decoded, camera replacement and encrypted export roundtrip",
+      "live_video": "passed: both tones decoded, camera replacement, native/browser gallery pictures and encrypted export roundtrip",
+      "export_metrics": {
+        "audio_samples": 262144,
+        "video_frames": 82,
+        "bytes": 358297
+      },
+      "remaining_failure": "Cancellation test assertions passed; @After room teardown exceeded 60-second wait. Device log records teardownMs=121979",
+      "device_log_sha256": "0c9623ade1dbbb32b4592a9b5a83ceac9f8ad64932c0a78d106cb71b5019232c"
+    }
+  },
+  "hosted_session_follow_up": {
+    "run": 38161227634,
+    "source_commit": "fe426a68",
+    "job": 114538134882,
+    "result": "failed before instrumentation",
+    "failure": "Emulator readiness resolved com.android.sdksetup/.DefaultActivity; am start -W returned exit 1, whose captured stdout/stderr were not retained",
+    "log_sha256": "6cf0a1347bb9d100cbc191323064eedfdd5e761cd44048056163125f504311da",
+    "limits": "This does not qualify or disprove native/browser Session warning delivery; emulator launch failure needs diagnostics and correction"
+  }
+}

@@ -35,6 +35,8 @@ import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.RosterEntry
+import dev.forgesworn.kithmoot.protocol.LiveRecordingState
+import dev.forgesworn.kithmoot.protocol.verifyLiveRecordingState
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.SignalGuard
@@ -76,6 +78,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -141,6 +144,7 @@ data class LocalRoles(
  * `RemoteAnnotation` (`src/mesh.ts`).
  */
 data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
+data class ReceivedLiveRecording(val state: LiveRecordingState, val sentAt: Long)
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
@@ -432,6 +436,23 @@ class RoomSession(
      */
     private var call: CallMembership? = null
 
+    private data class RecordingCaptureState(val callId: String?, val incompatibleCalls: Set<String>)
+    @Volatile private var recordingCaptureState = RecordingCaptureState(null, emptySet())
+
+    /** Updated under the session lock before any flow can invoke a media
+     * collector. Capture callbacks must never take that lock: collectors may
+     * already hold it while acquiring the capture's audio monitor. */
+    private fun refreshRecordingCaptureStateLocked() {
+        recordingCaptureState = RecordingCaptureState(call?.id, roster.values.mapNotNull {
+            if (!it.left && it.recordingProfile != 3) it.call?.id else null
+        }.toSet())
+    }
+
+    fun recordingCaptureAllowed(callId: String, requireLiveWarnings: Boolean): Boolean {
+        val snapshot = recordingCaptureState
+        return snapshot.callId == callId && (!requireLiveWarnings || callId !in snapshot.incompatibleCalls)
+    }
+
     private val _participants = MutableStateFlow<List<Participant>>(emptyList())
 
     /** The room as people, not as devices. */
@@ -500,11 +521,16 @@ class RoomSession(
 
     /** Called by the exclusive foreground source owner before it signs.
      * Uses the ordinary epoch barrier, never a transport handoff lock. */
-    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String) {
+    internal suspend fun holdKeeperTransition(stableRoom: String, root: String, participant: String, device: String,
+        recoveringEpoch: Int? = null) {
         require(keeperProfileMatches(stableRoom, root, participant, device))
         epochMutex.withLock {
             require(keeperProfileMatches(stableRoom, root, participant, device))
             if (_epochState.value is RoomEpochState.Closed) return@withLock
+            // A courier echo can finish adoption between the controller's
+            // recovery snapshot and this barrier. Never hold the next epoch
+            // merely to replay an original notice already adopted here.
+            if (recoveringEpoch != null && epochKeys().epoch >= recoveringEpoch) return@withLock
             keeperTransitionFrom = _epochState.value as? RoomEpochState.Active
             blockForRekey()
             _epochState.value = RoomEpochState.Updating(epochKeys().epoch + 1)
@@ -638,6 +664,14 @@ class RoomSession(
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
+
+    private val _liveRecording = MutableStateFlow<ReceivedLiveRecording?>(null)
+    private val liveRecordingPublicationMutex = Mutex()
+    private var outgoingLiveRecording: LiveRecordingState? = null
+    private var outgoingLiveRecordingAllowed: (() -> Boolean)? = null
+    @Volatile private var liveRecordingGeneration = 0L
+    /** Latest complete authority-verified warning received in authenticated presence. */
+    val liveRecording: StateFlow<ReceivedLiveRecording?> = _liveRecording.asStateFlow()
 
     private val _signals = MutableSharedFlow<UnwrappedSignal>(replay = 0, extraBufferCapacity = 256)
 
@@ -816,6 +850,7 @@ class RoomSession(
             farewell = trafficAllowed()
             joined = false
             publicationAllowed = false
+            clearOutgoingLiveRecordingLocked()
             tracks = emptyList()
             claims = emptyMap()
             // A farewell is never on a call. Leaving the room is leaving
@@ -824,6 +859,7 @@ class RoomSession(
             val leaving = call
             if (leaving != null && !othersOnCallLocked(leaving.id)) offCall = leaving
             call = null
+            refreshRecordingCaptureStateLocked()
             cancelling = jobs.toList()
             jobs.clear()
             traffic = trafficJobs.toList()
@@ -872,9 +908,7 @@ class RoomSession(
         }
     }
 
-    private fun publishAnnouncement(reply: Boolean, left: Boolean) {
-        val epoch = epochKeys()
-        val entry = lock.withStateLock {
+    private fun announcementEntryLocked(reply: Boolean, left: Boolean, live: LiveRecordingState? = null): RosterEntry =
             RosterEntry(
                 participant = identity.participant,
                 device = identity.devicePubkey,
@@ -890,12 +924,95 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
-                recordingProfile = 2,
+                recordingProfile = if (authority != null) 3 else 2,
+                liveRecording = if (left) null else live,
                 // Omitted on a farewell, as the web client omits it: a device
                 // on its way out is not on the call either, and the last thing
                 // it publishes should not say it is.
                 call = if (left) null else call,
-            ).also { roster[identity.devicePubkey] = it }
+            )
+
+    private fun clearOutgoingLiveRecordingLocked() {
+        outgoingLiveRecording = null
+        outgoingLiveRecordingAllowed = null
+        liveRecordingGeneration++
+    }
+
+    val requiresLiveRecordingWarnings: Boolean get() = policy?.quiet == true
+
+    /** Checks each device's own call claim before UI flow delivery. */
+    fun liveRecordingCompatible(callId: String): Boolean = lock.withStateLock {
+        roster.values.none { !it.left && it.call?.id == callId && it.recordingProfile != 3 }
+    }
+
+    private fun liveRecordingStillCurrent(state: LiveRecordingState): Boolean {
+        val before = _liveRecording.value?.state ?: return true
+        val next = state.recording.notice
+        return before.recording.notice.version < next.version ||
+            (before.recording.notice == next && before.capture?.notice == state.capture?.notice)
+    }
+
+    /** Live presence bypasses quiet chat slots, but requires the relay's exact
+     * acknowledgement. A queued or local echo never permits capture. The
+     * owner's guard must be cheap and must not call the transport. */
+    suspend fun publishLiveRecordingConfirmed(state: LiveRecordingState, stillAllowed: () -> Boolean = { true }): Boolean {
+        val requestGeneration = liveRecordingGeneration
+        return liveRecordingPublicationMutex.withLock {
+            val root = authority ?: error("This room has no recording authority")
+            require(verifyLiveRecordingState(room.roomId, state, root)) { "The recording warning is not authorised" }
+            state.capture?.notice?.let {
+                require(it.recorder == identity.participant && it.device == identity.devicePubkey) {
+                    "Only the recording device can publish its running warning"
+                }
+            }
+            val transportGeneration = transport.publicationGeneration()
+            val epoch = epochKeys()
+            val localGeneration: Long
+            val entry = lock.withStateLock {
+                check(joined && trafficAllowed() && stillAllowed() && liveRecordingGeneration == requestGeneration) {
+                    "Recording publication is no longer allowed"
+                }
+                check(liveRecordingStillCurrent(state)) { "A newer recording warning has already been received" }
+                localGeneration = liveRecordingGeneration
+                announcementEntryLocked(reply = true, left = false, live = state)
+            }
+            val at = entry.updatedAt
+            check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
+            policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
+            val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+            val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+            val allowed = {
+                stillAllowed() && trafficAllowed() && liveRecordingGeneration == localGeneration &&
+                    epochKeys().id == epoch.id && liveRecordingStillCurrent(state) &&
+                    now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                    now() < at + timing.presenceTtlSeconds
+            }
+            val event = encodeRosterEvent(entry, epoch.id, epoch.key, identity.deviceSecretKey, roomEnds = ends)
+            val confirmed = transport.publishConfirmedGuarded(event, transportGeneration, allowed, CHAT_CONFIRM_TIMEOUT_MS)
+            if (!confirmed) return@withLock false
+            val currentTransportGeneration = transport.publicationGeneration()
+            lock.withStateLock {
+                if (!allowed() || currentTransportGeneration != transportGeneration) return@withLock false
+                outgoingLiveRecording = state
+                outgoingLiveRecordingAllowed = stillAllowed
+                roster[identity.devicePubkey] = entry
+                refreshRecordingCaptureStateLocked()
+                _liveRecording.value = ReceivedLiveRecording(state, at)
+            }
+            recompute()
+            true
+        }
+    }
+
+    private fun publishAnnouncement(reply: Boolean, left: Boolean) {
+        val epoch = epochKeys()
+        val entry = lock.withStateLock {
+            if (outgoingLiveRecordingAllowed?.invoke() == false ||
+                outgoingLiveRecording?.let { !liveRecordingStillCurrent(it) } == true) clearOutgoingLiveRecordingLocked()
+            announcementEntryLocked(reply, left, outgoingLiveRecording).also {
+                roster[identity.devicePubkey] = it
+                refreshRecordingCaptureStateLocked()
+            }
         }
         transport.publish(
             encodeRosterEvent(
@@ -923,6 +1040,7 @@ class RoomSession(
             val previous = call
             val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
             call = next
+            refreshRecordingCaptureStateLocked()
             bellsFor(previous, next)
         }
         announce(reply = true)
@@ -1100,22 +1218,70 @@ class RoomSession(
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
-        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        val prepared = prepareChatForSend(body, reaction, attachments, artwork) ?: return false
+        return sendPreparedChatDurable(prepared, onRetained = onRetained)
+    }
+
+    /** Signs but neither retains nor publishes. Recording Send first commits
+     * this exact message to its private draft owner, so a failed handoff can
+     * retry without creating another signed message. */
+    fun prepareChatForSend(body: String, reaction: ChatReaction? = null,
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): PreparedRoomChat? {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
-        if (text.isEmpty()) return false
+        if (text.isEmpty()) return null
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
+        check(at < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
             sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
-        outbox.retain(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id)
+        return PreparedRoomChat(room.roomId, identity.participant, identity.devicePubkey,
+            PendingChatOutbox.Pending(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id))
+    }
+
+    /** Transfers the same prepared event on every retry. The synchronous guard
+     * checks the recording owner at the outbox storage boundary. Existing
+     * authority, epoch and admission checks still control publication. */
+    suspend fun sendPreparedChatDurable(prepared: PreparedRoomChat,
+        commitGuard: ((() -> Unit) -> Unit) = { it() }, onRetained: suspend () -> Unit = {}): Boolean {
+        val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        check(now() < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
+        outbox.retainPrepared(prepared.pending, commitGuard)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)
-        return outbox.items().none { it.event.id == event.id }
+        return outbox.items().none { it.event.id == prepared.pending.event.id }
+    }
+
+    /** Non-retaining chat keeps only its recording draft's exact message
+     * until confirmation. It never creates an ordinary chat outbox row. */
+    suspend fun sendPreparedChatConfirmed(prepared: PreparedRoomChat, stillOwned: () -> Boolean): Boolean {
+        require(prepared.room == room.roomId && prepared.participant == identity.participant &&
+            prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        check(trafficAllowed() && stillOwned()) { "The original recording's Send is no longer allowed" }
+        val at = now()
+        val epoch = epochKeys()
+        check(epoch.id == prepared.pending.epochId) { "This recording's signed message belongs to an earlier secure room state" }
+        check(at < (ends ?: Long.MAX_VALUE) && prepared.pending.event.createdAt >= at - CHAT_RETENTION_SECONDS)
+        check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
+        policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
+        val own = decodeOwnChat(prepared.pending.event, prepared.pending.event.createdAt, epoch)
+        val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+        val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        val confirmed = transport.publishConfirmedGuarded(prepared.pending.event, transport.publicationGeneration(), {
+            trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
+                now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
+        }, CHAT_CONFIRM_TIMEOUT_MS)
+        if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
+        return confirmed
     }
 
     /** Everything kept on this phone for the room, oldest first, with what became of each. */
@@ -1209,7 +1375,7 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedGuarded(event, generation, {
-                trafficAllowed() && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && epochKeys().id == item.epochId && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
@@ -1344,6 +1510,27 @@ class RoomSession(
                 seenAt[entry.device] = now()
                 respond = respondedTo.add(entry.device)
             }
+            refreshRecordingCaptureStateLocked()
+        }
+        if (!entry.left && entry.recordingProfile == 3) entry.liveRecording?.let { state ->
+            val root = authority
+            if (root != null && verifyLiveRecordingState(room.roomId, state, root)) {
+                // Shares the ACK commit lock: a concurrent newer Off cannot
+                // be overwritten by completion of an earlier local On.
+                lock.withStateLock {
+                    _liveRecording.update { before ->
+                        val previous = before?.state?.recording?.notice
+                        val next = state.recording.notice
+                        when {
+                            previous != null && previous.version > next.version -> before
+                            before != null && previous != null && previous.version == next.version &&
+                                (previous != next || before.state.capture?.notice != state.capture?.notice) -> before
+                            before != null && previous?.version == next.version -> ReceivedLiveRecording(state, maxOf(before.sentAt, entry.updatedAt))
+                            else -> ReceivedLiveRecording(state, entry.updatedAt)
+                        }
+                    }
+                }
+            }
         }
         recompute()
         if (respond) scheduleResponse()
@@ -1446,6 +1633,7 @@ class RoomSession(
                 respondedTo.remove(device)
                 changed = true
             }
+            refreshRecordingCaptureStateLocked()
         }
         if (changed) recompute()
     }
@@ -1934,6 +2122,7 @@ class RoomSession(
     private suspend fun blockForRekey() {
         lock.withStateLock {
             publicationAllowed = false
+            clearOutgoingLiveRecordingLocked()
             responseJob?.cancel()
         }
         if (!transportBlocked) {
@@ -1960,6 +2149,7 @@ class RoomSession(
             notice.removed.forEach { removed ->
                 roster.entries.removeAll { it.value.participant.equals(removed, ignoreCase = true) }
             }
+            refreshRecordingCaptureStateLocked()
             respondedTo.clear()
             departed.clear()
             EpochGap(from.epoch, next.epoch, now()).takeIf { next.epoch > from.epoch + 1 + between.size }

@@ -230,6 +230,79 @@ class LinkTransportTest {
         manager.close()
     }
 
+    @Test fun `cancelled queued request never reaches the native engine`() = queuedRequestIsNotOffered(cancel = true)
+
+    @Test fun `withdrawn dispatch permission prevents a queued native offer`() = queuedRequestIsNotOffered(cancel = false)
+
+    @Test fun `cancellation during native startup prevents the request offer`() = startupRequestIsNotOffered(cancel = true)
+
+    @Test fun `withdrawn permission during native startup prevents the request offer`() = startupRequestIsNotOffered(cancel = false)
+
+    private fun startupRequestIsNotOffered(cancel: Boolean) {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val runtime = RequestRuntime().apply {
+            beforeStart = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        }
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("route-1")) }
+        val manager = LinkTransportManager(vault, runtime)
+        try {
+            val pending = manager.request(LinkJsonRequest("route-1", "POST", "/cadence/v1/status",
+                "Nostr dGVzdA==", byteArrayOf(0), stillAllowed = allowed::get))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            if (cancel) assertTrue(pending.cancel(true)) else allowed.set(false)
+            release.countDown()
+            if (!cancel) {
+                val failure = assertFailsWith<ExecutionException> { pending.get(5, TimeUnit.SECONDS) }
+                assertEquals("Link request is no longer authorised", failure.cause?.message)
+            }
+            manager.request(LinkJsonRequest("route-1", "POST", "/cadence/v1/status",
+                "Nostr dGVzdA==", byteArrayOf(1))).get(5, TimeUnit.SECONDS)
+            assertEquals(listOf(1), runtime.requests.map { it.body.single().toInt() })
+        } finally {
+            release.countDown()
+            manager.close()
+        }
+    }
+
+    private fun queuedRequestIsNotOffered(cancel: Boolean) {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val runtime = RequestRuntime().apply {
+            beforeRequest = { request ->
+                if (request.body.contentEquals(byteArrayOf(0))) {
+                    entered.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                }
+            }
+        }
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("route-1")) }
+        val manager = LinkTransportManager(vault, runtime)
+        fun request(value: Byte) = LinkJsonRequest("route-1", "POST", "/cadence/v1/status",
+            "Nostr dGVzdA==", byteArrayOf(value), stillAllowed = allowed::get)
+        try {
+            val first = manager.request(request(0))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val queued = manager.request(request(1))
+            if (cancel) assertTrue(queued.cancel(true)) else allowed.set(false)
+            release.countDown()
+            first.get(5, TimeUnit.SECONDS)
+            if (!cancel) {
+                val failure = assertFailsWith<ExecutionException> { queued.get(5, TimeUnit.SECONDS) }
+                assertEquals("Link request is no longer authorised", failure.cause?.message)
+            }
+            // Flush the worker before inspecting its exact native offers.
+            manager.request(LinkJsonRequest("route-1", "POST", "/cadence/v1/status",
+                "Nostr dGVzdA==", byteArrayOf(2))).get(5, TimeUnit.SECONDS)
+            assertEquals(listOf(0, 2), runtime.requests.map { it.body.single().toInt() })
+        } finally {
+            release.countDown()
+            manager.close()
+        }
+    }
+
     @Test fun `unknown cadence route fails without starting native engine`() {
         val runtime = RecordingRuntime()
         val manager = LinkTransportManager(LinkTransportVault(MemoryStorage()), runtime)
@@ -299,19 +372,27 @@ class LinkTransportTest {
     private class RequestRuntime : LinkTransportRuntime {
         var request: LinkJsonRequest? = null
         var thread: String? = null
-        override fun start(state: LinkTransportState): LinkTransportSession = object : LinkTransportSession {
-            override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
-            override fun request(request: LinkJsonRequest): LinkJsonResponse {
-                this@RequestRuntime.request = request
-                thread = Thread.currentThread().name
-                return LinkJsonResponse(403, "{\"v\":1,\"code\":\"scope\"}".toByteArray(), LinkPathState("relayed", "relay", null, ""))
+        val requests = mutableListOf<LinkJsonRequest>()
+        var beforeRequest: (LinkJsonRequest) -> Unit = {}
+        var beforeStart: () -> Unit = {}
+        override fun start(state: LinkTransportState): LinkTransportSession = run {
+            beforeStart()
+            object : LinkTransportSession {
+                override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
+                override fun request(request: LinkJsonRequest): LinkJsonResponse {
+                    beforeRequest(request)
+                    requests += request
+                    this@RequestRuntime.request = request
+                    thread = Thread.currentThread().name
+                    return LinkJsonResponse(403, "{\"v\":1,\"code\":\"scope\"}".toByteArray(), LinkPathState("relayed", "relay", null, ""))
+                }
+                override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
+                override fun upsert(route: StoredLinkRoute) = Unit
+                override fun retire(routeId: String) = Unit
+                override fun finalize(routeId: String) = Unit
+                override fun remove(routeId: String) = Unit
+                override fun stop() = Unit
             }
-            override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute = error("not needed")
-            override fun upsert(route: StoredLinkRoute) = Unit
-            override fun retire(routeId: String) = Unit
-            override fun finalize(routeId: String) = Unit
-            override fun remove(routeId: String) = Unit
-            override fun stop() = Unit
         }
     }
 }

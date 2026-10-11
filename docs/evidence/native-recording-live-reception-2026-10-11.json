@@ -1,0 +1,39 @@
+{
+  "qualification": "Native authority-signed live recording reception",
+  "source_base": "6519644f",
+  "suites": {
+    "LiveRecordingReceptionTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "b4fd03a3d4c10b36f702574a677797993db229a4631eca5900ba2213e33283dd"
+    },
+    "RoomMeetingTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "38be09c40178dc0f50ef64a874656dd1cd617024586fd060dba0768cecea2c28"
+    },
+    "RoomWorkRecordingTest": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "5b9ef32106e3544889c45b20d76a0813e7987c80040815e5284cc3975e0f4a01"
+    },
+    "RoomSessionTest": {
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "188315c1a42244a5a20035d4f1e8e10f29cddc8f19b07baa3d194514c2d289a5"
+    }
+  },
+  "log_sha256": "4bccca9a146299bb83d647c646050f289dc29a327ed73c7fd2c2ec4c2b3886a4",
+  "limits": [
+    "JVM receiver tests, not relay or physical capture qualification",
+    "Profile 3 remains unadvertised until live publishing and compatibility fencing are complete"
+  ]
+}

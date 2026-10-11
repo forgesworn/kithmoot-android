@@ -28,11 +28,13 @@ class QuietStateJsonTest {
             queued = listOf(event),
             boxPending = setOf(event.id),
             keyFingerprint = "4".repeat(64),
+            offeredThroughSlot = 123L,
         )))
 
         assertEquals(listOf(event), restored?.queued)
         assertEquals(setOf(event.id), restored?.boxPending)
         assertEquals("4".repeat(64), restored?.keyFingerprint)
+        assertEquals(123L, restored?.offeredThroughSlot)
     }
 
     @Test
@@ -42,6 +44,7 @@ class QuietStateJsonTest {
         }
 
         assertEquals(emptySet(), quietStateFromJson(old)?.boxPending)
+        assertEquals(-1L, quietStateFromJson(old)?.offeredThroughSlot)
     }
 
     @Test
@@ -56,5 +59,12 @@ class QuietStateJsonTest {
         }
 
         assertNull(quietStateFromJson(invalid))
+    }
+
+    @Test fun `invalid quiet slot markers fail closed`() {
+        for (marker in listOf(JsonPrimitive(-2), JsonPrimitive("123"))) {
+            val invalid = buildJsonObject { put("offeredThroughSlot", marker) }
+            assertNull(quietStateFromJson(invalid))
+        }
     }
 }

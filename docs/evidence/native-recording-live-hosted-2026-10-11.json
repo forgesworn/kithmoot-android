@@ -1,0 +1,42 @@
+{
+  "source_commit": "4b04ac9b4a676bd95967145f4c16a15e38f23d10",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38146188279",
+  "conclusion": "success",
+  "passed_jobs": [
+    "verify",
+    "recovery-emulator",
+    "signing-lineage-emulator (33)",
+    "signing-lineage-emulator (35)",
+    "recording-private-node-emulator (default)",
+    "recording-private-node-emulator (google_apis)"
+  ],
+  "google_apis_cases": {
+    "short": {
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "9153a0ed268bdfd3ee5a8a782b0a37c631f9b87f6aa59a6afb77275079791d74"
+    },
+    "maximum": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "7bbfcbd4b00d99d18cb0725228fd49d5e0603fbfb0131c3cd312d75318ea7cf1"
+    },
+    "maximum-slow": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "6647e8d4d9302617a6cd6bf40f8ac72be8cfb0b9178035f16925177c43e7d08c"
+    }
+  },
+  "google_https_contract_tests": 4,
+  "google_https_instrumentation_sha256": "426ab1545f166c6c92591cc324d3ffe0319a4fce17a594423aff6d9ac227c0c1",
+  "default_evidence": "native-recording-default-node-2026-10-11.json",
+  "limits": [
+    "Automated Android build, lint, tests and emulator transfer qualification",
+    "No physical 45-minute capture, frame-level lifecycle or Android-desktop runtime acceptance",
+    "Launcher-readiness helper was committed after this tested source and requires its own hosted run",
+    "No signed recording production release published"
+  ]
+}

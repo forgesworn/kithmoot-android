@@ -1,0 +1,75 @@
+{
+  "qualification": "Native quiet recording live warning integration",
+  "source_base": "8c428d42",
+  "tests": 85,
+  "suites": {
+    "dev.forgesworn.kithmoot.session.RoomSessionTest": {
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f0d7ab06c73d0dd88939129ed750f4364f6950f5cde74072ff56061762c35111"
+    },
+    "dev.forgesworn.kithmoot.session.LiveRecordingPublicationTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "e2245efc54825454bd180a118d21105433cfe80a6bc236006f2c7fddb055fc84"
+    },
+    "dev.forgesworn.kithmoot.session.RoomWorkLiveRecordingTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "b0195f610e8a39e1915a97e011524be85a5ee42c3ff597e6e499940d52075ecc"
+    },
+    "dev.forgesworn.kithmoot.session.LiveRecordingReceptionTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "4313df3d445b9e777ad5bf6d8919fd1cc7447aaaf6660ef04a3722c477623b29"
+    },
+    "dev.forgesworn.kithmoot.session.RoomWorkRecordingTest": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "dc1ae40f45e90fefc231ac3866153b85d247404d52cc42f84fdbe174fe94124b"
+    },
+    "dev.forgesworn.kithmoot.media.recording.RecordingVideoAuthorityTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "ed7cd8a6501bb6be49726a553071ad8220600044fe5d05269cff8f155b256e58"
+    },
+    "dev.forgesworn.kithmoot.session.RoomMeetingTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "034a7463b71c59a3dedcf5727c6092b5ea395440c27d9f4c6b7b303db16371ed"
+    },
+    "dev.forgesworn.kithmoot.media.recording.RecordingVideoPlanTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "d6a60794750d7722a7dbe2df42eaa67e6e8dc860bef16e3bf172314b16741fa8"
+    }
+  },
+  "log_sha256": "2e9938096be2216f700c7be4375a5092cceeac791c2e9413ce5550fa5f7c3d36",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "6192828325cab0ad397fbf0b8e41b56c98bd7f11b23cb20e8881072b0da3ee97",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "476dfaef36cca77ece924503d75b7f47e92b7335c52c0f5f17558ef9a908ec0c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "91bc0ca11bb2709c39a1cd237f8bb0b5c077b648e92c3c993155db2935641649"
+  },
+  "limits": [
+    "JVM startup/refresh/Stop/controller-recovery and roster fixtures",
+    "No new physical capture or cross-client runtime qualification",
+    "Native frame-level media fencing and lifecycle acceptance still need runtime evidence",
+    "Web recording startup still uses its existing control route; receiver advertises profile 3 only with a pinned authority"
+  ]
+}

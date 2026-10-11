@@ -1,0 +1,63 @@
+{
+  "production_ready": false,
+  "base_commit": "d998dc1ce78f195ece51d924d5b8a90b9603b6c7",
+  "scope": "Exact prepared-message restoration into a newly constructed session after an interrupted offer; stale-epoch refusal and truthful UI delivery state. JVM restoration is not Android process-kill, Keystore or physical-device qualification.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "803a7ff6080eac2f9c555b85e49b1e0cf21d00726a6b7f76faaf8027d20e3ca4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "79d1ec3e66f6f72fbd3c6de30b4693ab3f62ee81672ada6066fc2146a9aba175",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChatTest.kt": "f631d45bea04b0baddee50ea901bf89dc5c7499125b8f15b3b57d67f8f703e83"
+  },
+  "jvm": {
+    "tests": 2024,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "focused_prepared_send": {
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "report_sha256": "0baba107864417eeb114deef80c71f983f3262e08e291f8ca0d386f08765d422"
+  },
+  "build": {
+    "app_unit_debug_and_instrumentation": true,
+    "elapsed": "1m 29s",
+    "lint_or_release_included": false
+  },
+  "runtime": {
+    "https_upload_send_tests": 2,
+    "failures": 0,
+    "elapsed_seconds": 9.53,
+    "physical": false,
+    "serial": "emulator-5586",
+    "report_sha256": "c34ce380187e7a1aef54f50893289f20caa50aee4763129d7bb20b6ce19dbf49"
+  },
+  "proved": [
+    "An interrupted offered message remains UNKNOWN in restored outbox storage",
+    "A newly constructed session retries the restored exact signed event, confirms it and retains one recording descriptor",
+    "An old-epoch prepared event is retained as MOVED without any offer or replacement; a retry preserves that row",
+    "Non-retaining Send rejects the old secure state before publication",
+    "Durable publication rechecks the exact epoch at its transport guard",
+    "Existing HTTPS consent, upload, explicit Send and redirect checks pass on the rebuilt APK"
+  ],
+  "remaining": [
+    "Android process interruption and rekey across the full recording owner UI",
+    "Independent recipient through a real node",
+    "Signed stop-notice recovery across close/restart",
+    "Production-representative live browser/native video",
+    "Background reliability under load",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Final hosted CI and signed production delivery"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "7ba049ad0e2442b2ecb9085583b3056adfd1a9e115e0cbe22f9d895b1f82aece"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "623992a004be479c8c814163d80875fc54559f10c10c97bb95a45559e358525a"
+    }
+  ]
+}

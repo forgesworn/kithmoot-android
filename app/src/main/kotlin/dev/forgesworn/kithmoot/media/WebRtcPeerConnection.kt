@@ -130,12 +130,12 @@ class WebRtcPeerConnection(
      * [withTransceiver] gives.
      */
     fun capCameraSenders(maxBitrateBps: Int) {
-        runCatching {
+        synchronized(connection) { runCatching {
             for (transceiver in connection.transceivers) {
                 val track = transceiver.sender.track() ?: continue
                 if (track is VideoTrack && isCameraTrackId(track.id())) capSender(transceiver.sender, maxBitrateBps)
             }
-        }
+        } }
     }
 
     /**
@@ -146,10 +146,10 @@ class WebRtcPeerConnection(
      * calls is a use-after-free waiting for the next remote track event. Every
      * native object's life begins and ends inside this method.
      */
-    private fun withTransceiver(mid: String, action: (RtpTransceiver) -> Boolean): Boolean = runCatching {
-        val transceiver = connection.transceivers.firstOrNull { it.mid == mid } ?: return false
+    private fun withTransceiver(mid: String, action: (RtpTransceiver) -> Boolean): Boolean = synchronized(connection) { runCatching {
+        val transceiver = connection.transceivers.firstOrNull { it.mid == mid } ?: return@synchronized false
         action(transceiver)
-    }.getOrDefault(false)
+    }.getOrDefault(false) }
 
     override fun localDescription(): SdpData? = runCatching {
         connection.localDescription?.let { SdpData(it.type.canonicalForm(), it.description) }
@@ -158,7 +158,7 @@ class WebRtcPeerConnection(
     override fun restartIce(): Boolean = runCatching { connection.restartIce(); true }.getOrDefault(false)
 
     override fun transceivers(): List<String> =
-        runCatching { connection.transceivers.mapNotNull { it.mid } }.getOrDefault(emptyList())
+        synchronized(connection) { runCatching { connection.transceivers.mapNotNull { it.mid } }.getOrDefault(emptyList()) }
 
     /**
      * One statistics report, reduced to the two counters the ladder reads.

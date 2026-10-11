@@ -1,0 +1,46 @@
+{
+  "production_ready": false,
+  "base_commit": "cc3f499859d4700201ba5fcf9161481bc130085b",
+  "scope": "Quiet slot durable receipts and persistence-before-removal. Does not implement guarded recording publication or change ordinary queued-chat confirmation semantics.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "e782ad326f53c69fa0e67440b580c57f3ab3afb314ca7844d433fa9d937ea068",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietTransportTest.kt": "f9ca19d732a1ea43ccface9949cc9920f7e78404658518402344ae12c65d1fb6",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietCadenceTimerTest.kt": "7d7fbd8d1e90535b181bc236be74a5518622ea3a88907471f74a8ae889b988d3"
+  },
+  "verification": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2036,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debug_lint": true,
+    "elapsed": "5m 13s",
+    "log_sha256": "eda961c9079ba92dc82ee6d78b93a7f45cc7176a05a20510cb4344996b22feff"
+  },
+  "cases": [
+    "Refused receipt keeps exact wrap and pending inner event; acceptance retries without another counter",
+    "Unsupported confirmation never falls back to fire-and-forget",
+    "Failed queue persistence after acceptance keeps exact wrap and event for retry",
+    "Production timer retries refused confirmation at its next one-second wake"
+  ],
+  "prior_failure": {
+    "scope": "Timer fixture intercepted fire-and-forget rather than the confirmed publication now used by the slot driver. Updated fixture to refuse the first receipt, preserving exact-wrap and retry-timing assertions.",
+    "log_sha256": "cd5a9d379c64a3ad85e562ecbbaab82a8f7809aa88a678330e781c2b434a1052"
+  },
+  "remaining": [
+    "Delivery-aware guarded recording On/Off and prepared Send through quiet transport",
+    "Quiet cadence delegation and recording receipt semantics",
+    "Complete signed-room UI and independent recipient journey",
+    "Physical endurance, interruptions, provider exports and load reliability",
+    "Final hosted CI, signed APK and production delivery"
+  ],
+  "apk_built": false,
+  "physical": false
+}

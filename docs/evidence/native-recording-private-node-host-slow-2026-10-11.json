@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "android": false,
+  "physical": false,
+  "scope": "Independent Python envelope and host TLS streaming against real private daemon; no native UI/capture proof",
+  "sample_bytes": 268435456,
+  "ciphertext_bytes": 269488200,
+  "source_sha256": "394bba9c08c504ec8f5e6204d71af3eb3b80df9419ac823d80e831f82747392a",
+  "ciphertext_sha256": "d2da8fa4963a1261d335997b9ac649a8c4816390e14b900c2cc3e13852e306cd",
+  "daemon_sha256": "7f12e5677d4b1842a0054e6fb761fb611d44d93e6720c2387a5fce199dce566f",
+  "driver_sha256": "94a6010ca0e4aa09c13369322c8c072ccafeb8805f13990edef7ccdda9247816",
+  "chunk_delay_seconds": 0.08,
+  "upload_seconds": 357.86522383405827,
+  "authorisation_expired_at_receipt": true,
+  "proxy": {
+    "puts": 1,
+    "gets": 1,
+    "responses": [
+      "PUT 201",
+      "GET 200"
+    ],
+    "sha256": "d2da8fa4963a1261d335997b9ac649a8c4816390e14b900c2cc3e13852e306cd",
+    "size": 269488200
+  },
+  "cleanup": {
+    "daemon_stopped": true,
+    "proxy_stopped": true,
+    "temporary_data_removed": true
+  },
+  "production_ready": false,
+  "source_base_commit": "693cfba56a6c7dc25f37c56786f5e202d278c299",
+  "proxy_source_sha256": "d9f8ca0d8a45b6cf24f2a5313763e8055754fd172cc753720b1f3ccf0eb14378",
+  "limitations": [
+    "Python-generated FSWNENC2 envelope, not native Android sealing",
+    "Host TLS streaming, not Android Upload/Send/Show/Play",
+    "Authorisation was offered before expiry; this does not prove expired new offers are rejected",
+    "Synthetic padded MP4, not 45-minute recording or physical endurance"
+  ]
+}

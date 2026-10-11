@@ -1,0 +1,56 @@
+{
+  "production_ready": false,
+  "source_commit": "a1f0786f2b06a097b3cb9afd77c8967c2422e172",
+  "ci_run": 38133007586,
+  "ci_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38133007586",
+  "verify": {
+    "status": "passed",
+    "unit_results": {
+      "protocol": {
+        "suites": 71,
+        "tests": 436,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_debug": {
+        "suites": 247,
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_release": {
+        "suites": 247,
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "lint": [
+      "debug",
+      "release"
+    ],
+    "apk_builds": [
+      "debug",
+      "debugAndroidTest",
+      "release"
+    ],
+    "counts_sha256": "ab318bce4c9cade8c9d88cedd7558c79a4dc33526d6c6d363035414a069d68d0"
+  },
+  "recovery_emulator": {
+    "status": "failed",
+    "test": "ArtworkPickerUiTest.local_media_preview_stages_an_offline_reference_without_storage_or_send",
+    "failure": "Stickers semantics node absent immediately after closing keyboard and opening tray",
+    "recording_restart_stages": "not_reached",
+    "failed_log_sha256": "1ab1986cef03c43ac039bf866f87377826a39671edd17e31a888ff810d0c654b"
+  },
+  "signing_lineage_api_33": {
+    "status": "passed"
+  },
+  "signing_lineage_api_35": {
+    "status": "passed"
+  },
+  "scope": "Hosted verify gate only. This does not qualify restart runtime, physical capture, long/slow transfer, quiet capacity or production distribution."
+}

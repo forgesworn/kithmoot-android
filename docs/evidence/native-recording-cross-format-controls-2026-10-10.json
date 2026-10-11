@@ -1,0 +1,117 @@
+{
+  "production_ready": false,
+  "scope": "Cross-format recipient viewer with simultaneous visible clock/Pause and decoded-video screen assertions; final full CI and release still required",
+  "build_successful": true,
+  "build_elapsed": "1m 18s",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingAttachmentRequest.kt": "7e1588e806286fbe425fb59a2eb5b65d7728f580f51d0ef4f342cdbfc896c096",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RecordingAttachmentViewer.kt": "6d2cfc9ea7ee1a2f1643b421ff119b554528e14480bc58e9f3f6b4471e57a288",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "4e8007d9fb1d8245bf0ff223fe2ee046ca53bb23c9cbcfcc82304971f7b5f0f1",
+    "app/src/androidTest/assets/recording/README.md": "76bed0daf5802dc3785bce8b65b78e6f44f96e6707ddccac22a41d5bcddedf9d",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.ogg.enc": "7f57d675e815c185b3519d7d6a518f8f9a9e9f83ed926f6baedf084622ba0729",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.ogg.json": "3b49f5bb8d087f7cde5ee4e695ff3c9184e94877d6882e9195b33c91fac83dee",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.webm.enc": "bc8d62ef6401df54ffb9ea2d564fd91f6f67779e859feb5951abb0a2f6e7df03",
+    "app/src/androidTest/assets/recording/synthetic-browser-audio.webm.json": "ae281254bdc8fe9f193fa52527e3fd21ae8871e85b26583706c80bba7e217b0e",
+    "app/src/androidTest/assets/recording/synthetic-browser-video.webm.enc": "f0abaab6d5105cb4bb194f1a1751f1a0731eccb49b2f246194a34618e52540dc",
+    "app/src/androidTest/assets/recording/synthetic-browser-video.webm.json": "f0c2de4b376135b2d36b3df44469421acd0207e3d3754a7c0d37ba4bd723f3f8"
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "4f4b9bb83ee36104289ede333d65ce8f3ebdbd82613a3ebf19c707dbad7a67ae"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "a2a6dac07ec10d6015ba185ec1a605d16eff92f68a8b90b0033c1adf81b82de5"
+    }
+  ],
+  "runtime": {
+    "qualified": false,
+    "tests": 14,
+    "failures": 1,
+    "serial": "emulator-5586",
+    "report": "app/build/reports/native-recording-cross-format-final/instrumentation.txt",
+    "report_sha256": "055bcc2307207643c199b99d8566511a2cd675ad4abb901739cd9fe77436ce74",
+    "all_four_playback_cases_passed": true,
+    "failure": "RecordingOwnerUiTest timed out waiting for hidden app pauses original video capture; background paused/idle state not proven",
+    "isolated_owner_rerun": "failed",
+    "physical": false,
+    "live_browser_call_included": false
+  },
+  "interrupted_run": {
+    "report": "app/build/reports/native-recording-cross-format-controls/instrumentation.txt",
+    "report_sha256": "2fca689c266b59c4194420340380da980c86d178f62234fb9509a277b834ba31",
+    "result": "Process crashed during RecordingOwnerUiTest before playback cases",
+    "android_cause": "ActivityManager stop dev.forgesworn.kithmoot due to installPackageLI; process killed by signal 9",
+    "installer_identified": false,
+    "retry_same_build": true
+  },
+  "second_interrupted_run": {
+    "report": "app/build/reports/native-recording-cross-format-controls-retry/instrumentation.txt",
+    "android_cause": "ActivityManager stop due to start instr; concurrent InvitationAdmissionUiTest instrumentation replaced recording run",
+    "qualification_action": "Separate read-only disposable emulator instance on emulator-5586"
+  },
+  "fresh_emulator_startup_failure": {
+    "report": "app/build/reports/native-recording-cross-format-isolated/instrumentation.txt",
+    "report_sha256": "cc376fcd260b55a01f82c04af5e0a9ead88516f600131a38bdea1a3e05b10a8d",
+    "android_cause": "Process failed to complete startup during fresh emulator boot; concurrent system-app ANRs and CPU pressure avg10 90.75",
+    "test_cases_started": 0,
+    "result": "Not qualified"
+  },
+  "focused_playback_runtime": {
+    "qualified": true,
+    "tests": 4,
+    "failures": 0,
+    "elapsed_seconds": 62.208,
+    "serial": "emulator-5586",
+    "report": "app/build/reports/native-recording-cross-format-playback/instrumentation.txt",
+    "report_sha256": "a03d4da3ab74f8af2a5bb0d519ded5cf8e1b7353bc17520bd614becebb4dec25",
+    "actual_viewer": true,
+    "native_playback_advances": true,
+    "webm_video_coloured_frames_visible": true,
+    "explicit_play": true,
+    "background_pauses": true,
+    "return_remains_paused": true,
+    "close_removes_plaintext": true,
+    "webm_codec_parameters": true,
+    "webm_without_declared_duration": true,
+    "ogg_opus": true,
+    "real_room_delivery": false,
+    "physical": false
+  },
+  "isolated_owner_runtime": {
+    "qualified": false,
+    "tests": 1,
+    "failures": 1,
+    "report": "app/build/reports/native-recording-cross-format-owner/instrumentation.txt",
+    "report_sha256": "f75893bc3fd1f5450efb59f6593fdc7cfc69b91d4a919ebe8f68449d8631318d",
+    "same_apk": true,
+    "failure": "Background paused and idle state not reached",
+    "diagnostic_test_prepared_outside_frozen_source": true
+  },
+  "settled_runtime": {
+    "qualified": true,
+    "tests": 14,
+    "failures": 0,
+    "elapsed_seconds": 43.439,
+    "serial": "emulator-5586",
+    "report": "app/build/reports/native-recording-cross-format-settled/instrumentation.txt",
+    "report_sha256": "f22c321f7515b216c8c7891e8798c6cf269483d5c68ee0170b3ee447bae2028d",
+    "app_apk_sha256": "4f4b9bb83ee36104289ede333d65ce8f3ebdbd82613a3ebf19c707dbad7a67ae",
+    "test_apk_sha256": "ca369227386e813513d6ac1bc67bbc99c5504de497bd2c36a23b26e4c1bfa974",
+    "diagnostic_owner_source_sha256": "7a90c5e61d8b716868ac8ae7575e951c23320bdf29f750f5ed8e361b6d656f78",
+    "concurrent_gradle_build": false,
+    "physical": false,
+    "live_browser_call_included": false
+  },
+  "open": [
+    "Background-pause failures under concurrent build load need root-cause investigation",
+    "Sender Add/Upload/Send",
+    "Durable private-node deletion authorisation",
+    "Recording stop notice across close and restart",
+    "Live browser/native video capture",
+    "Hosted CI",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Signed production delivery"
+  ]
+}

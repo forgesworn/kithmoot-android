@@ -1,0 +1,43 @@
+{
+  "source": "6fbeb49a4eefd918dbc2a7a548dec59fe7883a20",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38136850309",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "recovery-emulator",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "verify",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "https_contract_tests": {
+    "tests": 4,
+    "passed": true,
+    "report_sha256": "cc3eaf535dd2c36fb8ca016b39e9ab02fcf2a0512651b3274b1dbcd302ac7676"
+  },
+  "private_node_failure": "Runner missing rg at the post-instrumentation assertion; real-node UI stages were not reached.",
+  "corrective_commit": "815e765fc28151d358f76bee98ec78aaee9e516b",
+  "limits": [
+    "No large or slow Android real-node result on this run",
+    "No physical-device or production-distribution qualification"
+  ]
+}
