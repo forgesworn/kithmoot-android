@@ -5,6 +5,17 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
+The latest [live capture receipt](evidence/native-recording-correlated-browser-followup-2026-10-11.json)
+records both real native/browser audio and video exports passing on `38325cdc`,
+including camera replacement, both speakers' decoded tones and encrypted export
+round trips. The full local suite finished 19/20: cancellation assertions passed,
+but subsequent room teardown exceeded its 60-second wait and took about 122 seconds.
+The synthetic producer now uses bulk plane writes instead of creating a buffer
+slice for every pixel. Recording assertions and the PCM queue bound are unchanged.
+Hosted Session qualification also remains open: its latest job failed during
+emulator home launch, before instrumentation. Physical endurance, per-source
+permission revocation, full Send recovery and final production delivery remain open.
+
 The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
 records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.
 The new real-node job passed its four HTTPS contract tests, then stopped at

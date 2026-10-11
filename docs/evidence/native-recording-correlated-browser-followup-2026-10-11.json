@@ -52,13 +52,39 @@
     "change": "Three bulk plane writes replace per-pixel plane getters, retaining 320x240 pixels, Y/U/V values 160/90/130 and 66 ms schedule",
     "evidence": "javap on the installed io.github.webrtc-sdk Android 144.7559.12 classes confirms each getDataY/U/V calls ByteBuffer.slice; old loop called getters 115200 times per frame",
     "sdk_bytecode_sha256": "898cf474e01dcd8f7b64bde2e1779f6f8a37eca8e8c670a6546cfafe0c937f2d",
-    "scope": "Synthetic fixture optimisation; production PCM queue bound and recording assertions unchanged; compile passed and runtime pending",
+    "scope": "Synthetic fixture optimisation; production PCM queue bound and recording assertions unchanged. Short live audio/video exports passed; full suite and physical/endurance qualification remain open.",
     "build": {
       "result": "passed",
       "duration_seconds": 58,
       "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
       "test_apk_sha256": "589494d213ce6355cc7afa1800432a3dedac21b469ced2b3c920f95983d048c9"
     },
-    "next_runtime_setup": "Owned Android 35 ARM64 AVD with host GPU and 2048 MiB RAM, reducing host memory pressure; explicit messaging stop/disable after boot before qualification"
+    "next_runtime_setup": "Owned Android 35 ARM64 AVD with host GPU and 2048 MiB RAM, reducing host memory pressure; explicit messaging stop/disable after boot before qualification",
+    "runtime": {
+      "result": "19 passed, 1 failed",
+      "tests": 20,
+      "skipped": 0,
+      "source_commit": "38325cdc",
+      "browser_commit": "6fdc629f2137f0ba682764ea55bb9f9068238950",
+      "instrumentation_sha256": "0575450d258c36bc7a6425d3ae72825c9279eaa450ae22279482f564a7acfcfe",
+      "live_audio": "passed: both 440 Hz remote and 660 Hz local tones decoded, camera replacement and encrypted export roundtrip",
+      "live_video": "passed: both tones decoded, camera replacement, native/browser gallery pictures and encrypted export roundtrip",
+      "export_metrics": {
+        "audio_samples": 262144,
+        "video_frames": 82,
+        "bytes": 358297
+      },
+      "remaining_failure": "Cancellation test assertions passed; @After room teardown exceeded 60-second wait. Device log records teardownMs=121979",
+      "device_log_sha256": "0c9623ade1dbbb32b4592a9b5a83ceac9f8ad64932c0a78d106cb71b5019232c"
+    }
+  },
+  "hosted_session_follow_up": {
+    "run": 38161227634,
+    "source_commit": "fe426a68",
+    "job": 114538134882,
+    "result": "failed before instrumentation",
+    "failure": "Emulator readiness resolved com.android.sdksetup/.DefaultActivity; am start -W returned exit 1, whose captured stdout/stderr were not retained",
+    "log_sha256": "6cf0a1347bb9d100cbc191323064eedfdd5e761cd44048056163125f504311da",
+    "limits": "This does not qualify or disprove native/browser Session warning delivery; emulator launch failure needs diagnostics and correction"
   }
 }

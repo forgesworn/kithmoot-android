@@ -24,8 +24,20 @@ def check(adb, serial, reports):
     receipt.unlink(missing_ok=True)
 
     def shell(*args):
-        return subprocess.run([adb, "-s", serial, "shell", *args], check=True,
-                              capture_output=True, text=True, timeout=15).stdout.strip()
+        command = [adb, "-s", serial, "shell", *args]
+        try:
+            result = subprocess.run(command, check=True, capture_output=True,
+                                    text=True, timeout=15)
+        except subprocess.CalledProcessError as error:
+            # A failed home launch used to lose its actual Android error and
+            # leave only the command's exit code in the hosted job log.
+            (reports / "launcher-command-failure.json").write_text(json.dumps({
+                "arguments": list(args), "returncode": error.returncode,
+                "stdout": (error.stdout or "")[-8192:],
+                "stderr": (error.stderr or "")[-8192:],
+            }, indent=2) + "\n")
+            raise
+        return result.stdout.strip()
 
     if shell("getprop", "ro.kernel.qemu") != "1" or shell("getprop", "sys.boot_completed") != "1":
         raise ValueError("The selected disposable emulator has not booted")
