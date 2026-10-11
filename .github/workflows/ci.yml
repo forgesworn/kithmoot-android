@@ -54,6 +54,28 @@ jobs:
         run: |
           python3 scripts/prepare-mesh-radio.py
 
+      - name: Check out the pinned browser recording implementation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 418d00a0b044b86910c8f0ceb9ba4ca5077eb63d
+          path: build/browser-recording-reference
+          persist-credentials: false
+
+      - name: Use Node 24 for browser interoperability assets
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: build/browser-recording-reference/package-lock.json
+
+      - name: Prepare actual browser Peer and recording Session assets
+        run: |
+          npm ci --prefix build/browser-recording-reference
+          npm run build:context --prefix build/browser-recording-reference
+          node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
+          node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
+
       - name: Check release helper syntax
         run: |
           bash -n scripts/*.sh
@@ -224,6 +246,66 @@ jobs:
             app/build/reports/native-recording-stop-restart/
             app/build/reports/native-recording-stop-ui-restart/
             app/build/reports/native-recording-send-ui-restart/
+          if-no-files-found: warn
+          retention-days: 7
+
+  recording-call-emulator:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [capture, session]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install the Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Download exact recording APK inputs from verify
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
+      - name: Install recording report tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Qualify full capture and live native/browser Session warnings
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        env:
+          ANDROID_SERIAL: emulator-5554
+          KITHMOOT_RECORDING_SUITE: ${{ matrix.suite }}
+          KITHMOOT_RECORDING_REPORTS: app/build/reports/native-recording-${{ matrix.suite }}
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports "$KITHMOOT_RECORDING_REPORTS"
+            if [ "$KITHMOOT_RECORDING_SUITE" = capture ]; then bash scripts/check-recording-emulator.sh full; else bash scripts/check-recording-session-interop-emulator.sh; fi
+      - name: Keep full capture and Session interoperability reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: recording-call-emulator-reports-${{ matrix.suite }}
+          path: app/build/reports/native-recording-${{ matrix.suite }}/
           if-no-files-found: warn
           retention-days: 7
 
