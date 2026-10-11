@@ -7,12 +7,8 @@
       ":app:assembleDebug",
       ":app:assembleDebugAndroidTest"
     ],
-    "log_sha256": "b7f2177419036b5954e48f2e054392b4ccc30f2565825dec58e3652dfd348e95"
-  },
-  "runtime": {
-    "status": "not_started",
-    "physical": false,
-    "reason": "First driver refused missing emulator. Restarted selected emulator did not confirm boot and reported hung QEMU CPU threads. No test-stage pass is claimed."
+    "log_sha256": "b7f2177419036b5954e48f2e054392b4ccc30f2565825dec58e3652dfd348e95",
+    "production_source_head": "54f30a8c533a6088a5ec6144a12b13e6972e4baa"
   },
   "source_sha256": {
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingSendRecoveryUiTest.kt": "03f2372561a2de2d5945c0a3289588ca742c023c4700b8a8749e054d25fc714b",
@@ -30,5 +26,94 @@
       "bytes": 5180998
     }
   },
-  "hosted": "pending candidate integration and push"
+  "hosted": {
+    "head": "9804acb73ed39250672632fac65dbd1d82b388d8",
+    "run_id": 38128930524,
+    "verify": "passed",
+    "counts": {
+      "protocol": {
+        "tests": 427,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_debug": {
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_release": {
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "lint_debug": "passed",
+    "lint_release": "passed",
+    "debug_apk": "passed",
+    "release_apk": "passed",
+    "signing_api_33": "passed",
+    "signing_api_35": "passed",
+    "recovery": "failed",
+    "source_hashes_match_run_head": true,
+    "stop_ui_stages": {
+      "prepare": {
+        "passed": true,
+        "elapsed_seconds": 24.602,
+        "report_sha256": "df0df82738811186cd9945c4c620bfaf1f06d674736910f5046d5f1c26bb21cf"
+      },
+      "verify": {
+        "passed": true,
+        "elapsed_seconds": 5.413,
+        "report_sha256": "2ae36bdb1597fcdf73bb7580674279604738213d55415f6907bf9d1b2a5cd851"
+      },
+      "cleanup": {
+        "passed": true,
+        "elapsed_seconds": 3.093,
+        "report_sha256": "09aa9a044d45d10ae9d006c2162f6aa4f8ce8a18302cc6b102dc520894b581d7"
+      }
+    },
+    "send_ui_stages": {
+      "prepare": {
+        "passed": false,
+        "elapsed_seconds": 83.991,
+        "report_sha256": "a36d4dc9e33e2a7a9a50dd39ad6ac0b746ad710eea73ce02ec071463b3f19b59"
+      },
+      "cleanup": {
+        "passed": true,
+        "elapsed_seconds": 1.324,
+        "report_sha256": "9b701581a8f6370106d9889c97b5761ea793f40a446000d959d52474d4c9cef6"
+      },
+      "verify": {
+        "status": "not_run"
+      }
+    },
+    "failure": "Prepare reached retained UNKNOWN signed event, then hashed the stale .capture path. LocalRecordingStore.complete returns the renamed completed export. Fixture API error; no Send restart pass claimed."
+  },
+  "local_runtime": {
+    "status": "not_started",
+    "physical": false,
+    "reason": "First driver refused missing emulator. Restarted selected emulator did not confirm boot and reported hung QEMU CPU threads. No test-stage pass is claimed."
+  },
+  "correction": {
+    "status": "applied",
+    "change": "Use the File returned by complete(source), require it matches export state and has the completed m4a extension; retain identical-message and export-byte assertions.",
+    "source_sha256": "50567a0c9f671b9ed74c1a8ed2614677bd3bf3f6203087854dca7a00f9370420",
+    "rebuild": "passed",
+    "rebuild_elapsed_seconds": 582,
+    "rebuild_log_sha256": "9a5c6db5d2f1313738f6af786358ee5f5c86ae61b39a7e2343a0b22b9bb41c83",
+    "apks": {
+      "app/build/outputs/apk/debug/app-debug.apk": {
+        "sha256": "aeaee886e835d0ec64ec680f37956ecfe830a0364166bf3a1c1453f10358479a",
+        "bytes": 117733339
+      },
+      "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+        "sha256": "dfee09619853d43db3ecb93e77783fad87f9886b71f6d678c38afa71efa2994d",
+        "bytes": 5211775
+      }
+    },
+    "runtime": "not_started_emulator_boot_unconfirmed"
+  }
 }

@@ -1,0 +1,97 @@
+{
+  "production_ready": false,
+  "base_commit": "9804acb73ed39250672632fac65dbd1d82b388d8",
+  "scope": "Host-loopback TLS streaming fixture and opt-in private-node UI driver; no Android large-upload or physical qualification yet.",
+  "source_sha256": {
+    "scripts/recording_private_node_proxy.py": "d9f8ca0d8a45b6cf24f2a5313763e8055754fd172cc753720b1f3ccf0eb14378",
+    "scripts/test_recording_private_node_proxy.py": "a9a74b0c02156f73d59cd9f15125ccac50e961cc0032807b30841641b312025d",
+    "scripts/check-recording-private-node-emulator.py": "28866ba22973ced3034beb35c1847254e025c79724ac2b7cd8310775587a389b",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "529d761632f25c172b8039fe0280e444e7415a3b1f749698162dfd2cdb7ad70b",
+    ".github/workflows/ci.yml": "2441cb8fcfb6af6e8558f6838e2ab9336b7da5605b7339cdd00628afe55a79df"
+  },
+  "socket_tests": {
+    "passed": true,
+    "tests": 4,
+    "failures": 0,
+    "elapsed_seconds": 3.281,
+    "bytes_uploaded_and_downloaded": 8388608,
+    "real_wildbloom_daemon": false,
+    "report_sha256": "df08253604e2f3e62568acd1da76fc5045f0651556941aed17779f5f22ee0d82",
+    "checks": [
+      "TLS upload/download byte identity and unchanged backend status/body",
+      "Oversized declared input refused before backend offer",
+      "Corrupted digest cannot produce successful receipt",
+      "GET signer authorisation refused before backend offer"
+    ]
+  },
+  "android_build": {
+    "status": "passed",
+    "elapsed_seconds": 1939,
+    "tasks": [
+      ":app:assembleDebug",
+      ":app:assembleDebugAndroidTest"
+    ],
+    "log_sha256": "48665ede37677739c6e4020e74c92b90717a7a9a700ad041014a28abac24fa4c"
+  },
+  "android_host_mode_runtime": {
+    "status": "not_started",
+    "physical": false,
+    "reason": "Selected disposable emulator did not confirm boot in the 180-second observation; no Android runtime pass claimed."
+  },
+  "configuration": {
+    "chunk_bytes": 65536,
+    "host_bind": "127.0.0.1",
+    "device_mapping": "Explicit selected emulator only; refuses existing reverse mapping",
+    "max_plaintext_bytes": 268435456,
+    "max_ciphertext_bytes": 272629760,
+    "quota_bytes": 545259520,
+    "max_chunk_delay_seconds": 0.1,
+    "production_tls_trust_unchanged": true
+  },
+  "remaining": [
+    "Android host-mode build and short-clip regression",
+    "Real daemon large and slow uploads through actual UI",
+    "Independent-device and physical endurance acceptance"
+  ],
+  "send_fixture_corrected_build": {
+    "status": "passed",
+    "elapsed_seconds": 582,
+    "log_sha256": "9a5c6db5d2f1313738f6af786358ee5f5c86ae61b39a7e2343a0b22b9bb41c83"
+  },
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "aeaee886e835d0ec64ec680f37956ecfe830a0364166bf3a1c1453f10358479a",
+      "bytes": 117733339
+    },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "sha256": "dfee09619853d43db3ecb93e77783fad87f9886b71f6d678c38afa71efa2994d",
+      "bytes": 5211775
+    }
+  },
+  "cleanup_probe": {
+    "passed": true,
+    "scope": "Synthetic ADB subprocess failure; no Android runtime or daemon upload",
+    "original_error_preserved": true,
+    "timeout_recorded": true,
+    "remaining_cleanup_attempted": true,
+    "proxy_listener_released": true,
+    "report_sha256": "9170bb166d099de40196ef3fe439e84fe33f43a5bbcf120c84e6eb72d2ed43fb"
+  },
+  "large_sample_fixture": {
+    "synthetic": true,
+    "size": 268435456,
+    "sha256": "394bba9c08c504ec8f5e6204d71af3eb3b80df9419ac823d80e831f82747392a",
+    "scope": "Three-second FFmpeg AAC/H264 clip with MP4 free-box padding to exercise the plaintext size cap; not a 45-minute native recording.",
+    "independently_decoded": true,
+    "streams": [
+      {
+        "codec": "h264",
+        "duration": "3.000000"
+      },
+      {
+        "codec": "aac",
+        "duration": "3.000000"
+      }
+    ]
+  }
+}

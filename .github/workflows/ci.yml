@@ -61,6 +61,7 @@ jobs:
           python3 scripts/check-recovery-runner.py
           python3 scripts/check-sharing-restart-runner.py
           python3 scripts/test-pull-recovery-proof.py
+          python3 scripts/test_recording_private_node_proxy.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs

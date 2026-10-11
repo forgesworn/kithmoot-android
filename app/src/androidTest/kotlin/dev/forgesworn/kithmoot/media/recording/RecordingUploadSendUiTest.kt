@@ -80,6 +80,7 @@ class RecordingUploadSendUiTest {
     private val redirectOffers = AtomicInteger()
     private var redirectTarget: MockWebServer? = null
     private val realNode get() = InstrumentationRegistry.getArguments().getString("recordingRealNode") == "true"
+    private val hostProxy get() = InstrumentationRegistry.getArguments().getString("recordingHostProxy") == "true"
     private val nodeClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .retryOnConnectionFailure(false).build()
     private val origin get() = "https://127.0.0.1:39847"
@@ -90,6 +91,7 @@ class RecordingUploadSendUiTest {
         Assume.assumeTrue("Run the guarded TLS fixture driver", name != null)
         require(requireNotNull(name).matches(Regex("recording-ui-network-[0-9a-f]{12}")))
         fixture = File(app.noBackupFilesDir, name)
+        require(!hostProxy || realNode) { "Host streaming requires the guarded private-node driver" }
         val keys = KeyStore.getInstance("PKCS12").apply {
             File(fixture, "fixture.p12").inputStream().use { load(it, "synthetic-test-only".toCharArray()) }
         }
@@ -103,7 +105,7 @@ class RecordingUploadSendUiTest {
         tls = SSLContext.getInstance("TLS").apply { init(km.keyManagers, tm.trustManagers, null) }
         http = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, tm.trustManagers.filterIsInstance<X509TrustManager>().single())
             .protocols(listOf(Protocol.HTTP_1_1)).build()
-        server = MockWebServer().apply {
+        if (!hostProxy) server = MockWebServer().apply {
             useHttps(tls.socketFactory, false); protocols = listOf(Protocol.HTTP_1_1)
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -219,7 +221,7 @@ class RecordingUploadSendUiTest {
         val choice = requireNotNull(model.room.value.recordingStorageChoice)
         allowedKey = choice.publicKey
         assertNotEquals(model.start.value.account?.pubkey, allowedKey)
-        assertEquals(0, puts.get()); assertFalse(ui.enabled("Upload"))
+        assertEquals(0, putCount()); assertFalse(ui.enabled("Upload"))
         if (realNode) {
             File(fixture, "storage-public-key.txt").writeText(requireNotNull(allowedKey))
             ui.await("operator explicitly authorises the storage key on its private node", timeoutMs = 120_000) {
@@ -228,7 +230,44 @@ class RecordingUploadSendUiTest {
         }
         ui.click("Allow this encrypted recording to be uploaded to $origin")
         ui.click("Upload")
-        ui.await("HTTPS request completed") { !model.room.value.recordingUploadRunning && puts.get() == 1 }
+        ui.await("HTTPS request completed", timeoutMs = if (hostProxy) 660_000 else 60_000) {
+            !model.room.value.recordingUploadRunning && putCount() == 1
+        }
+        if (hostProxy) {
+            assertNull("Private daemon Upload must succeed", model.room.value.chatSendError)
+            val stats = hostStats()
+            val draft = app.recordingShareDrafts.list(requireNotNull(room)).single()
+            val attachment = requireNotNull(draft.uploaded)
+            uploadedHash = stats.getString("sha256")
+            assertEquals(draft.sealed.hash, uploadedHash)
+            assertEquals(attachment.sha256, uploadedHash)
+            assertEquals(draft.sealed.file.length(), stats.getLong("size"))
+            assertEquals(attachment.size, stats.getLong("size"))
+        }
+    }
+
+    private fun hostStats(): JSONObject = http.newCall(Request.Builder()
+        .url("$origin/__fixture/${fixture.name}").build()).execute().use { response ->
+        check(response.code == 200) { "Host fixture statistics unavailable" }
+        JSONObject(requireNotNull(response.body).string())
+    }
+
+    private fun putCount(): Int = if (hostProxy) hostStats().getInt("puts") else puts.get()
+    private fun getCount(): Int = if (hostProxy) hostStats().getInt("gets") else gets.get()
+    private fun uploadedSize(): Long = if (hostProxy) hostStats().getLong("size")
+        else requireNotNull(uploadedBytes).size.toLong()
+
+    private fun digest(file: File): ByteArray {
+        val checksum = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { source ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = source.read(buffer)
+                if (count < 0) break
+                checksum.update(buffer, 0, count)
+            }
+        }
+        return checksum.digest()
     }
 
     private fun originalChatWrites(): List<NostrEvent> {
@@ -257,10 +296,10 @@ class RecordingUploadSendUiTest {
         }
         val message = model.room.value.chat.single { it.attachments.isNotEmpty() }
         assertEquals(requireNotNull(room), model.room.value.roomId)
-        assertNotEquals(message.device, requireNotNull(uploadedAuth).pubkey)
+        assertNotEquals(message.device, requireNotNull(if (hostProxy) allowedKey else uploadedAuth?.pubkey))
         assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
         assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
-        assertEquals(1, puts.get()); assertEquals(0, redirectOffers.get())
+        assertEquals(1, putCount()); assertEquals(0, redirectOffers.get())
     }
 
 
@@ -293,7 +332,7 @@ class RecordingUploadSendUiTest {
             if (realNode) assertNull("Private daemon Upload must succeed", model.room.value.chatSendError)
             ui.await("uploaded receipt enables explicit Send") { ui.hasText("Send recording") }
             assertTrue(recipient.chat.value.none { it.attachments.isNotEmpty() })
-            assertEquals(0, gets.get())
+            assertEquals(0, getCount())
             ui.click("Send recording")
             ui.await("independent relay subscription receives recording") {
                 recipient.chat.value.any { it.attachments.any { a -> a.sha256 == uploadedHash } }
@@ -303,9 +342,9 @@ class RecordingUploadSendUiTest {
             assertNotEquals(identity.devicePubkey, received.device)
             val attachment = received.attachments.single()
             assertEquals(uploadedHash, attachment.sha256)
-            assertEquals(requireNotNull(uploadedBytes).size.toLong(), attachment.size)
+            assertEquals(uploadedSize(), attachment.size)
             assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
-            assertEquals(0, gets.get())
+            assertEquals(0, getCount())
             activity.scenario.onActivity { owner -> owner.setContent {
                 KithMootTheme {
                     CompositionLocalProvider(LocalRecordingAttachmentHttpClient provides http) {
@@ -317,14 +356,14 @@ class RecordingUploadSendUiTest {
             val show = "Show recording: ${attachment.name ?: "Recording"}"
             ui.await("received recording card") { ui.hasText(show) }
             SystemClock.sleep(600)
-            assertEquals("Receiving and rendering must not fetch", 0, gets.get())
+            assertEquals("Receiving and rendering must not fetch", 0, getCount())
             ui.click(show)
-            ui.await("TLS download authenticates and prepares native playback") { ui.enabled("Play recording") && hasClock(0) }
-            assertEquals(1, gets.get())
+            ui.await("TLS download authenticates and prepares native playback", timeoutMs = if (hostProxy) 660_000 else 60_000) { ui.enabled("Play recording") && hasClock(0) }
+            assertEquals(1, getCount())
             val plaintext = app.recordingPlaybackCache.walkTopDown().filter { it.isFile }.toList()
             assertTrue("Authenticated original MP4 exists only in private playback cache", plaintext.any {
-                MessageDigest.getInstance("SHA-256").digest(it.readBytes()).contentEquals(
-                    MessageDigest.getInstance("SHA-256").digest(File(fixture, "sample.mp4").readBytes()))
+                digest(it).contentEquals(
+                    digest(File(fixture, "sample.mp4")))
             })
             SystemClock.sleep(600)
             assertTrue("Show does not autoplay", hasClock(0) && ui.hasText("Play recording"))
@@ -348,7 +387,7 @@ class RecordingUploadSendUiTest {
             ui.click("Close recording")
             ui.await("recipient chat restored") { ui.hasText(show) }
             ui.await("private plaintext removed on close") { app.recordingPlaybackCache.listFiles()?.isEmpty() == true }
-            assertEquals(1, gets.get()); assertEquals(1, puts.get())
+            assertEquals(1, getCount()); assertEquals(1, putCount())
             assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
         } finally {
             activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme { KithMootApp(model) } } }
@@ -372,7 +411,7 @@ class RecordingUploadSendUiTest {
             app.recordingShareDrafts.list(requireNotNull(room)).isEmpty() && !model.room.value.mediaBusy
         }
         assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
-        assertEquals(0, gets.get())
+        assertEquals(0, getCount())
         fun recipientIntent(action: String? = null) = Intent(app, RecordingRecipientFixtureActivity::class.java)
             .putExtra(RecordingRecipientFixtureActivity.FIXTURE, fixture.name)
             .setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -392,18 +431,18 @@ class RecordingUploadSendUiTest {
             assertNotEquals(ready.getString("participant"), received.getString("participant"))
             assertNotEquals(ready.getString("device"), received.getString("device"))
             assertEquals(uploadedHash, received.getString("sha256"))
-            assertEquals(requireNotNull(uploadedBytes).size.toLong(), received.getLong("size"))
+            assertEquals(uploadedSize(), received.getLong("size"))
             val name = model.room.value.chat.single { it.attachments.isNotEmpty() }.attachments.single().name ?: "Recording"
             val show = "Show recording: $name"
             ui.await("production received chat card in separate process") { ui.hasText(show) }
             SystemClock.sleep(600)
-            assertEquals("Receiving and rendering must not fetch", 0, gets.get())
+            assertEquals("Receiving and rendering must not fetch", 0, getCount())
             ui.click(show)
-            ui.await("separate process authenticates and prepares MP4") { ui.enabled("Play recording") && hasClock(0) }
-            assertEquals(1, gets.get())
-            val expected = MessageDigest.getInstance("SHA-256").digest(File(fixture, "sample.mp4").readBytes())
+            ui.await("separate process authenticates and prepares MP4", timeoutMs = if (hostProxy) 660_000 else 60_000) { ui.enabled("Play recording") && hasClock(0) }
+            assertEquals(1, getCount())
+            val expected = digest(File(fixture, "sample.mp4"))
             assertTrue(cache.walkTopDown().filter { it.isFile }.any {
-                MessageDigest.getInstance("SHA-256").digest(it.readBytes()).contentEquals(expected)
+                digest(it).contentEquals(expected)
             })
             SystemClock.sleep(600)
             assertTrue("Show does not autoplay", hasClock(0) && ui.hasText("Play recording"))
@@ -428,7 +467,7 @@ class RecordingUploadSendUiTest {
             ui.click("Close recording")
             ui.await("separate recipient chat restored") { ui.hasText(show) }
             ui.await("separate recipient removes private plaintext on Close") { cache.listFiles()?.isEmpty() == true }
-            assertEquals(1, gets.get()); assertEquals(1, puts.get())
+            assertEquals(1, getCount()); assertEquals(1, putCount())
             ui.click("Close recipient fixture")
             ui.await("sender room returns") { ui.hasText("Synthetic HTTPS recording") }
             assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
@@ -450,7 +489,7 @@ class RecordingUploadSendUiTest {
             start(InetAddress.getByName("127.0.0.1"), 39848)
         }
         chooseAndUpload()
-        assertEquals(0, redirectOffers.get()); assertEquals(1, puts.get())
+        assertEquals(0, redirectOffers.get()); assertEquals(1, putCount())
         assertFalse(ui.hasText("Send recording"))
         assertNotNull(model.room.value.chatSendError)
         val draft = app.recordingShareDrafts.list(requireNotNull(room)).single()

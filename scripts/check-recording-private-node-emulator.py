@@ -19,6 +19,8 @@ import tempfile
 import time
 import urllib.request
 
+from recording_private_node_proxy import RecordingNodeProxy
+
 
 def required(name):
     value = os.environ.get(name)
@@ -64,8 +66,17 @@ def main():
     adb = str(Path(required("ANDROID_HOME")) / "platform-tools/adb")
     binary = Path(required("KITHMOOT_WILDBLOOM_BINARY")).resolve()
     sample = Path(required("KITHMOOT_RECORDING_SAMPLE")).resolve()
+    host_mode = os.environ.get("KITHMOOT_RECORDING_HOST_PROXY", "0")
+    if host_mode not in ("0", "1"):
+        raise RuntimeError("Choose host proxy mode 0 or 1")
+    host_mode = host_mode == "1"
+    delay = float(os.environ.get("KITHMOOT_RECORDING_PROXY_CHUNK_DELAY", "0"))
+    if not 0 <= delay <= 0.1 or (delay and not host_mode):
+        raise RuntimeError("Choose a host-proxy chunk delay between 0 and 0.1 seconds")
     if not binary.is_file() or not os.access(binary, os.X_OK) or not sample.is_file():
         raise RuntimeError("Compiled private-node daemon and synthetic MP4 are required")
+    if host_mode and not 0 < sample.stat().st_size <= 256 * 1024 * 1024:
+        raise RuntimeError("Synthetic sample must fit the production plaintext recording limit")
     root = Path(__file__).resolve().parent.parent
     reports = Path(os.environ.get("KITHMOOT_RECORDING_REPORTS",
                                   str(root / "app/build/reports/native-recording-private-node"))).resolve()
@@ -85,6 +96,8 @@ def main():
     fixture_path = "no_backup/" + fixture
     daemon = None
     instrumentation = None
+    proxy = None
+    reverse_created = False
     with tempfile.TemporaryDirectory(prefix="kithmoot-private-node-ui-") as scratch_name:
         scratch = Path(scratch_name)
         config = scratch / "openssl.cnf"
@@ -117,11 +130,21 @@ extendedKeyUsage = serverAuth
             with socket.socket() as reservation:
                 reservation.bind(("127.0.0.1", 0))
                 backend_port = reservation.getsockname()[1]
+            if host_mode:
+                mappings = device("reverse", "--list").stdout.decode().splitlines()
+                if any(len(line.split()) >= 2 and line.split()[-2] == "tcp:39847" for line in mappings):
+                    raise RuntimeError("Refusing to replace an existing device reverse mapping")
+                proxy = RecordingNodeProxy(backend_port, fixture, scratch / "cert.pem", scratch / "key.pem",
+                                           chunk_delay=delay)
+                proxy.start()
+                device("reverse", "tcp:39847", "tcp:39847")
+                reverse_created = True
             (reports / "fixture.json").write_text(json.dumps({"fixture": fixture}) + "\n")
             with (reports / "instrumentation.txt").open("wb") as log:
                 instrumentation = subprocess.Popen([
                     adb, "-s", serial, "shell", "am", "instrument", "-w", "-r",
                     "-e", "recordingNetworkFixture", fixture, "-e", "recordingRealNode", "true",
+                    "-e", "recordingHostProxy", "true" if host_mode else "false",
                     "-e", "recordingNodePort", str(backend_port),
                     "-e", "class", "dev.forgesworn.kithmoot.media.recording.RecordingUploadSendUiTest#"
                     "separate_process_recipient_receives_and_plays_without_sender_memory",
@@ -147,8 +170,10 @@ extendedKeyUsage = serverAuth
                     daemon = subprocess.Popen([
                         str(binary), "--no-tor", "--bind", f"127.0.0.1:{backend_port}",
                         "--public-url", "https://127.0.0.1:39847", "--allow-pubkey", public_key,
-                        "--data-dir", str(scratch / "node-data"), "--quota-bytes", "4194304",
-                        "--max-blob-bytes", "2097152", "--repair-interval", "0"],
+                        "--data-dir", str(scratch / "node-data"), "--quota-bytes",
+                        str(520 * 1024 * 1024 if host_mode else 4194304),
+                        "--max-blob-bytes", str(260 * 1024 * 1024 if host_mode else 2097152),
+                        "--repair-interval", "0"],
                         env=env, stdout=daemon_log, stderr=subprocess.STDOUT)
                     ready = False
                     deadline = time.monotonic() + 15
@@ -162,13 +187,14 @@ extendedKeyUsage = serverAuth
                     if not ready:
                         raise RuntimeError("Private daemon did not become ready")
                     device("shell", "run-as", "dev.forgesworn.kithmoot", "touch", fixture_path + "/node-ready")
-                    instrumentation.wait(timeout=180)
+                    instrumentation.wait(timeout=1500 if host_mode else 180)
             output = (reports / "instrumentation.txt").read_text()
             if instrumentation.returncode != 0 or not re.search(r"^OK \(1 tests?\)$", output, re.M) or re.search(
                     r"FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3", output):
                 raise RuntimeError("Real-node recipient UI failed; inspect instrumentation report")
-            responses = device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
-                               fixture_path + "/node-responses.txt").stdout.decode().splitlines()
+            responses = proxy.snapshot()["responses"] if host_mode else device(
+                "shell", "run-as", "dev.forgesworn.kithmoot", "cat",
+                fixture_path + "/node-responses.txt").stdout.decode().splitlines()
             if responses != ["PUT 201", "GET 200"]:
                 raise RuntimeError("Expected one real-node PUT 201 then GET 200")
             sender_pid = int(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
@@ -180,6 +206,8 @@ extendedKeyUsage = serverAuth
             result = {"passed": True, "physical": False, "serial": serial,
                       "real_wildbloom_daemon": True, "separate_recipient_process": True,
                       "sender_pid": sender_pid, "recipient_pid": recipient["pid"],
+                      "host_streaming_proxy": host_mode, "sample_bytes": sample.stat().st_size,
+                      "proxy_chunk_delay_seconds": delay,
                       "responses": responses, "sample_sha256": digest(sample),
                       "daemon_sha256": digest(binary), "report_sha256": digest(reports / "instrumentation.txt")}
             (reports / "result.json").write_text(json.dumps(result, indent=2) + "\n")
@@ -187,28 +215,51 @@ extendedKeyUsage = serverAuth
         finally:
             active_error = sys.exc_info()[0] is not None
             cleanup_codes = {}
+            cleanup_errors = []
+
+            def attempt(label, action):
+                try:
+                    return action()
+                except Exception as error:
+                    cleanup_errors.append({"action": label, "error": type(error).__name__})
+                    return -1
+
+            def stop_process(process):
+                if process.poll() is not None:
+                    return
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=10)
+
             if instrumentation is not None:
                 # ADB may exit while its on-device instrumentation still runs.
-                cleanup_codes["app_force_stop"] = subprocess.run(
+                cleanup_codes["app_force_stop"] = attempt("app_force_stop", lambda: subprocess.run(
                     [adb, "-s", serial, "shell", "am", "force-stop", "dev.forgesworn.kithmoot"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode
-                if instrumentation.poll() is None:
-                    instrumentation.terminate()
-                    instrumentation.wait(timeout=10)
-            if daemon is not None and daemon.poll() is None:
-                daemon.terminate()
-                try:
-                    daemon.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    daemon.kill()
-                    daemon.wait()
-            cleanup_codes["fixture_removed"] = subprocess.run(
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode)
+                attempt("instrumentation_stopped", lambda: stop_process(instrumentation))
+            if daemon is not None:
+                attempt("daemon_stopped", lambda: stop_process(daemon))
+            if proxy is not None:
+                attempt("proxy_report", lambda: (reports / "proxy.json").write_text(
+                    json.dumps(proxy.snapshot(), indent=2) + "\n"))
+                attempt("proxy_stopped", proxy.close)
+            if reverse_created:
+                cleanup_codes["reverse_removed"] = attempt("reverse_removed", lambda: subprocess.run(
+                    [adb, "-s", serial, "reverse", "--remove", "tcp:39847"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode)
+            cleanup_codes["fixture_removed"] = attempt("fixture_removed", lambda: subprocess.run(
                 [adb, "-s", serial, "shell", "run-as", "dev.forgesworn.kithmoot", "rm", "-rf", fixture_path],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10).returncode)
             cleanup = {"device_exit_codes": cleanup_codes,
-                       "daemon_stopped": daemon is None or daemon.poll() is not None}
-            (reports / "cleanup.json").write_text(json.dumps(cleanup, indent=2) + "\n")
-            if not active_error and (any(cleanup_codes.values()) or not cleanup["daemon_stopped"]):
+                       "errors": cleanup_errors,
+                       "daemon_stopped": daemon is None or daemon.poll() is not None,
+                       "proxy_stopped": proxy is None or not proxy.thread.is_alive()}
+            attempt("cleanup_report", lambda: (reports / "cleanup.json").write_text(json.dumps(cleanup, indent=2) + "\n"))
+            if not active_error and (cleanup_errors or any(cleanup_codes.values()) or
+                                     not cleanup["daemon_stopped"] or not cleanup["proxy_stopped"]):
                 raise RuntimeError("Private fixture cleanup incomplete; inspect cleanup report")
 
 

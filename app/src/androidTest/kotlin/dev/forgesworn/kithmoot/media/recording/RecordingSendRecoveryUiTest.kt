@@ -123,14 +123,16 @@ class RecordingSendRecoveryUiTest {
             val room = model.room.value.roomId
             // Retain scoped cleanup ownership before any capture/upload work.
             marker.writeText(JSONObject().put("room", room).toString())
-            val export = app.recordings.begin(RecordingFormat.AUDIO, RecordingOrigin(room, "cd".repeat(16), title))
-            val audio = AacRecordingFile(export)
+            val source = app.recordings.begin(RecordingFormat.AUDIO, RecordingOrigin(room, "cd".repeat(16), title))
+            val audio = AacRecordingFile(source)
             try {
                 repeat(100) { audio.write(ShortArray(960)) }
                 audio.close()
-                assertTrue(export.isFile && export.length() > 0)
+                assertTrue(source.isFile && source.length() > 0)
             } catch (error: Throwable) { audio.discard(); throw error }
-            app.recordings.complete(export)
+            val export = app.recordings.complete(source)
+            assertEquals(export, app.recordings.export.value)
+            assertTrue(export.isFile && export.extension == "m4a")
             ui.click("Add to original chat")
             ui.await("encrypted draft offered") { ui.hasText("Upload recording") }
             ui.click("Upload recording"); ui.replace("Recording storage server", origin)

@@ -393,10 +393,38 @@ adds an actual Add/Upload/Send journey using synthetic native AAC and a scoped
 TLS contract fixture. Its relay withholds both acknowledgements and history
 echoes. After explicit process death, the test reopens the saved original room,
 clicks Retry, and requires the identical signed message, one attachment, no
-second upload and an unchanged local export. The debug and instrumentation
-APKs build successfully. Local runtime could not start because the selected
+second upload and an unchanged local export. The initial candidate's debug and
+instrumentation APKs built successfully. Local runtime could not start because the selected
 emulator was unavailable and its replacement did not finish booting. Hosted
-qualification is pending; quiet Send, rekey and physical acceptance remain open.
+verify and API 33/35 signing passed on integrated head `9804acb7`, as did all
+three saved-room Stop recovery stages. Send prepare reached UNKNOWN but failed
+when its fixture hashed the temporary capture path after `complete()` renamed
+the file. Cleanup passed; restart verification did not run. The fixture must
+retain the completed File returned by `complete()`. Corrective runtime, quiet
+Send, rekey and physical acceptance remain open.
+
+### Large-file private-node fixture candidate
+
+The [host-streaming candidate receipt](evidence/native-recording-host-streaming-2026-10-11.json)
+records an explicit `KITHMOOT_RECORDING_HOST_PROXY=1` private-node UI driver
+mode. A host loopback TLS proxy streams ciphertext in 64 KiB chunks to the
+temporary allowlisted Wildbloom daemon and preserves its responses. The selected
+emulator uses a scoped reverse tunnel; the driver refuses an existing mapping
+and removes only its own. Node limits in this mode allow 260 MiB ciphertext
+within a 520 MiB temporary quota. The default short-clip mode retains its
+existing 2 MiB blob limit.
+
+The test app skips its buffering proxy in host mode, checks the host's request
+counts against the actual uploaded descriptor, and hashes plaintext playback
+files incrementally. Optional `KITHMOOT_RECORDING_PROXY_CHUNK_DELAY` values up
+to 0.1 seconds exercise slower transfers. Fixture cleanup attempts every
+resource even after an ADB timeout, preserving an earlier failure.
+
+Four socket tests pass, including an 8 MiB byte-identical upload/download and
+exact backend response, oversized-input refusal, bad-digest rejection and
+refusal to forward download signer authorisation. These use a synthetic backend,
+not Wildbloom. Android host-mode build/runtime, large/slow daemon uploads and
+physical endurance remain unqualified.
 
 ## Live browser/native adapter export qualification
 
