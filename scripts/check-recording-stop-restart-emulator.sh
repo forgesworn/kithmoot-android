@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Synthetic signed stop recovery through actual Keystore storage and process death.
 set -euo pipefail
+command -v grep >/dev/null || { echo 'grep is required to verify instrumentation results.' >&2; exit 2; }
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 : "${ANDROID_SERIAL:?Choose a disposable emulator explicitly}"
 case "$ANDROID_SERIAL" in emulator-[0-9]*) ;; *) echo 'Disposable emulator required.' >&2; exit 2 ;; esac
@@ -19,8 +20,8 @@ run_stage() {
     -e recordingStopRestartFixture "$fixture" -e recordingStopRestartStage "$stage" \
     -e class dev.forgesworn.kithmoot.media.recording.RecordingStopRestartAndroidTest \
     dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/$stage.txt"
-  rg -q '^OK \(1 tests?\)' "$reports/$stage.txt"
-  ! rg -q 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3' "$reports/$stage.txt"
+  grep -Eq '^OK \(1 tests?\)' "$reports/$stage.txt"
+  ! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3' "$reports/$stage.txt"
 }
 trap 'run_stage cleanup' EXIT
 run_stage prepare
