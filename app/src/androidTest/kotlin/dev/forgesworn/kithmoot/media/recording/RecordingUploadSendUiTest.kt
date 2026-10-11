@@ -37,6 +37,8 @@ import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.mockwebserver.*
 import org.junit.*
 import org.junit.Assert.*
@@ -50,7 +52,8 @@ import javax.net.ssl.*
 
 /** Real controls, TLS socket and signed relay publication. The driver provides
  * a temporary test certificate and an independently qualified synthetic MP4.
- * This is a Blossom-contract fixture, not a running Wildbloom daemon. */
+ * Default mode uses a Blossom-contract fixture. The guarded real-node driver
+ * forwards unchanged requests through TLS to its explicitly allowlisted daemon. */
 class RecordingUploadSendUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
@@ -71,6 +74,9 @@ class RecordingUploadSendUiTest {
     private val puts = AtomicInteger()
     private val redirectOffers = AtomicInteger()
     private var redirectTarget: MockWebServer? = null
+    private val realNode get() = InstrumentationRegistry.getArguments().getString("recordingRealNode") == "true"
+    private val nodeClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+        .retryOnConnectionFailure(false).build()
     private val origin get() = "https://127.0.0.1:39847"
 
     @Before fun setup() {
@@ -99,7 +105,7 @@ class RecordingUploadSendUiTest {
                     if (request.method == "GET" && uploadedHash != null && request.path == "/$uploadedHash.bin") {
                         gets.incrementAndGet()
                         check(request.getHeader("Authorization") == null)
-                        return MockResponse().setResponseCode(200)
+                        return if (realNode) forwardToNode(request, null) else MockResponse().setResponseCode(200)
                             .setBody(okio.Buffer().write(requireNotNull(uploadedBytes)))
                     }
                     if (request.method != "PUT" || request.path != "/upload") return MockResponse().setResponseCode(404)
@@ -116,7 +122,8 @@ class RecordingUploadSendUiTest {
                         check(bytes.size > 73 && bytes.copyOfRange(0, 8).contentEquals("FSWNENC2".toByteArray()))
                         check(hash == request.getHeader("X-SHA-256") && auth.tagValue("x") == hash)
                         uploadedHash = hash; uploadedAuth = auth; uploadedBytes = bytes
-                        if (redirect) MockResponse().setResponseCode(307).setHeader("Location", "https://127.0.0.1:39848/upload")
+                        if (realNode) forwardToNode(request, bytes)
+                        else if (redirect) MockResponse().setResponseCode(307).setHeader("Location", "https://127.0.0.1:39848/upload")
                         else MockResponse().setResponseCode(201).setHeader("Content-Type", "application/json")
                             .setBody("""{"url":"$origin/$hash.bin","sha256":"$hash","size":${bytes.size}}""")
                     } catch (_: Exception) { MockResponse().setResponseCode(403) }
@@ -168,6 +175,21 @@ class RecordingUploadSendUiTest {
         redirectTarget?.close()
         if (::server.isInitialized) server.close()
         if (::relay.isInitialized) relay.close()
+        nodeClient.dispatcher.executorService.shutdown(); nodeClient.connectionPool.evictAll()
+    }
+
+    /** Actual daemon response is forwarded, never replaced by a fixture receipt. */
+    private fun forwardToNode(request: RecordedRequest, bytes: ByteArray?): MockResponse {
+        val builder = Request.Builder().url("http://10.0.2.2:${requireNotNull(InstrumentationRegistry.getArguments().getString("recordingNodePort")).toInt().also { require(it in 1024..65535) }}${request.path}")
+            .method(requireNotNull(request.method), bytes?.toRequestBody())
+        for (name in request.headers.names()) if (!name.equals("Content-Length", true) &&
+            !name.equals("Connection", true)) builder.header(name, requireNotNull(request.getHeader(name)))
+        return nodeClient.newCall(builder.build()).execute().use { response ->
+            File(fixture, "node-responses.txt").appendText("${request.method} ${response.code}\n")
+            MockResponse().setResponseCode(response.code)
+                .setHeaders(response.headers)
+                .setBody(okio.Buffer().write(response.body?.bytes() ?: byteArrayOf()))
+        }
     }
 
     private fun chooseAndUpload() {
@@ -177,6 +199,12 @@ class RecordingUploadSendUiTest {
         allowedKey = choice.publicKey
         assertNotEquals(model.start.value.account?.pubkey, allowedKey)
         assertEquals(0, puts.get()); assertFalse(ui.enabled("Upload"))
+        if (realNode) {
+            File(fixture, "storage-public-key.txt").writeText(requireNotNull(allowedKey))
+            ui.await("operator explicitly authorises the storage key on its private node", timeoutMs = 120_000) {
+                File(fixture, "node-ready").isFile
+            }
+        }
         ui.click("Allow this encrypted recording to be uploaded to $origin")
         ui.click("Upload")
         ui.await("HTTPS request completed") { !model.room.value.recordingUploadRunning && puts.get() == 1 }
@@ -241,6 +269,7 @@ class RecordingUploadSendUiTest {
             pool.start()
             runBlocking { recipient.join() }
             chooseAndUpload()
+            if (realNode) assertNull("Private daemon Upload must succeed", model.room.value.chatSendError)
             ui.await("uploaded receipt enables explicit Send") { ui.hasText("Send recording") }
             assertTrue(recipient.chat.value.none { it.attachments.isNotEmpty() })
             assertEquals(0, gets.get())

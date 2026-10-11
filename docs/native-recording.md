@@ -11,7 +11,10 @@ unit tests, both lint variants and both APK builds locally; see the
 The subsequent [independent-recipient receipt](evidence/native-recording-independent-recipient-2026-10-11.json)
 qualifies the complete received chat-card Show/Play path against a temporary
 TLS Blossom-contract fixture. It does not qualify a real Wildbloom node or a
-separate recipient app process.
+separate recipient app process. The later
+[real-node UI receipt](evidence/native-recording-real-node-ui-2026-10-11.json)
+now qualifies that UI journey against an actual private Wildbloom daemon, still
+with both participants in one app process.
 
 Quiet announcement timing/heartbeat capacity, full room/restart/rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
@@ -48,6 +51,32 @@ changed to require positive progress and Pause in one accessibility snapshot.
 The earlier native-audio observer failure is retained in the receipt. The fixture serves the actual
 uploaded encrypted bytes but is not a Wildbloom daemon. Real-node, separate-app,
 live capture and physical acceptance remain separate gates.
+
+## Private Wildbloom node through native UI
+
+The guarded `scripts/check-recording-private-node-emulator.py` driver requires
+an explicitly selected disposable emulator, synthetic MP4 and compiled daemon.
+It reads the public storage key created by Get storage key and explicitly
+allowlists it on a temporary private daemon before permitting the fixture UI to
+continue with consent and Upload. The daemon binds host loopback; a temporary
+TLS proxy forwards the original authorisation and bytes and returns the actual
+daemon response. It does not manufacture success receipts.
+
+The complete sender Upload/Send and received production chat-card Show/Play
+journey passed with one daemon PUT 201 and GET 200. Authenticated private-cache
+bytes match the original MP4; native playback advances and renders camera
+pixels; Show does not autoplay, background return remains paused and Close
+removes plaintext. Cleanup confirms the daemon stopped and the owned emulator
+fixture was removed. Both participants share one app process and the video is
+synthetic. Node limits are 2 MiB per blob and 4 MiB quota for this small fixture;
+this does not qualify production-size or slow uploads.
+
+The contract regression checks also passed (three tests in 16.455 seconds).
+The full local task list passed incrementally in 50s, reusing the unchanged JVM
+and app-build results. Preceding hosted head `dd2b30c5` passed verify, recovery
+and signing-lineage gates on SDK 33 and 35; the new instrumentation source
+requires its own hosted run. See the [real-node receipt](evidence/native-recording-real-node-ui-2026-10-11.json)
+for hashes, configuration and the preserved failed ADB/reverse-map attempt.
 
 ## Private recording drafts
 
