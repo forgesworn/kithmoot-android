@@ -84,9 +84,11 @@ class RecordingRecipientFixtureActivity : ComponentActivity() {
         } }
         scope.launch {
             connection.start(); recipient.join()
-            File(fixture, "recipient-ready.json").writeText(JSONObject()
+            val ready = File(fixture, "recipient-ready.tmp")
+            ready.writeText(JSONObject()
                 .put("pid", Process.myPid()).put("participant", who.participant)
                 .put("device", who.devicePubkey).put("room", room.roomId).toString())
+            check(ready.renameTo(File(fixture, "recipient-ready.json")))
             recipient.chat.collect { messages ->
                 val received = messages.firstOrNull { it.attachments.isNotEmpty() } ?: return@collect
                 val attachment = received.attachments.single()
