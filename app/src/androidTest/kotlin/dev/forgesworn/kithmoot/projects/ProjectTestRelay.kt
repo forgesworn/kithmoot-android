@@ -21,7 +21,7 @@ internal fun resetProjectTestVault(context: Context, signer: ParticipantSigner) 
 }
 
 /** Disposable loopback relay. No production account or external relay is used. */
-internal class ProjectTestRelay : AutoCloseable {
+internal class ProjectTestRelay(port: Int = 0) : AutoCloseable {
     private val server = MockWebServer()
     val events = CopyOnWriteArrayList<NostrEvent>()
     val writes = CopyOnWriteArrayList<NostrEvent>()
@@ -65,7 +65,8 @@ internal class ProjectTestRelay : AutoCloseable {
                 override fun onClosed(socket: WebSocket, code: Int, reason: String) { sockets.remove(socket) }
             })
         }
-        server.start()
+        require(port in 0..65535)
+        server.start(port)
     }
     override fun close() { sockets.keys.forEach { it.close(1001, "Synthetic relay closing") }; server.close() }
     private fun matches(filter: JsonObject, event: NostrEvent): Boolean =

@@ -19,6 +19,9 @@ The later [separate-process receipt](evidence/native-recording-recipient-process
 qualifies the production chat-card/player journey in a recipient process with
 its own identity and relay socket. Both processes share one debug installation
 and emulator filesystem; independent-device acceptance remains open.
+The [saved-stop UI recovery receipt](evidence/native-recording-saved-stop-ui-recovery-2026-10-11.json)
+qualifies reopening the original saved room after process death and confirming
+its exact retained Off through the production Retry stop notice control.
 
 The [startup cancellation receipt](evidence/native-recording-start-cancellation-2026-10-11.json)
 qualifies cancelling a pending announcement through the native room controls,
@@ -28,7 +31,7 @@ The [scheduled-wait and local-export receipt](evidence/native-recording-cadence-
 qualifies transport-aware announcement waits and local Save/Discard while a
 stop acknowledgement remains pending. Quiet heartbeat capacity remains open.
 
-Quiet heartbeat capacity and delegated confirmation, full room/restart/rekey journeys,
+Quiet heartbeat capacity and delegated confirmation, prepared-Send restart/rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
 hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
@@ -83,6 +86,29 @@ This does not change quiet routing, confirmation timeouts or heartbeat cadence.
 Cadence-aware waiting/deadlines, quiet key capacity and actual delegated delivery
 remain open. Call-dock cancellation is implemented; the new automated UI journey
 runs through the main room controls. Physical acceptance remains separate.
+
+## Saved-room stop recovery through the UI
+
+The guarded `scripts/check-recording-stop-ui-restart-emulator.sh` requires an
+explicit booted disposable emulator and force-stops between prepare and verify.
+Production MainActivity creates the room, joins its call, records briefly and
+finishes a local export while the loopback relay withholds the Off receipt.
+The exact signed Off remains in the application's Keystore-backed journal.
+
+A new process restores the saved account and room, keeps the export's filename
+and SHA-256, opens the original room through its unique visible name and shows
+Retry stop notice. The actual control confirms the exact retained authority
+signature in a verified relay event and clears the pending journal. Export
+bytes remain unchanged. Preparation, verification and cleanup pass; reports
+and earlier failures are retained in the receipt. Hosted recovery CI now runs
+this driver alongside the lower-level current-epoch stop-journal check.
+
+The first fixture listener must request its selected nonzero port so both
+processes can reuse it. Each run has a unique title: an earlier duplicate name
+opened an old cached bookmark rather than the prepared room. The test checks
+the original room ID before examining stop state. This is a short stopped
+recording followed by process death; it does not qualify a crash during active
+capture, rekey, physical interruption or long-recording export.
 
 ## Independent recipient Show and Play
 
