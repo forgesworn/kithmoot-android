@@ -225,6 +225,11 @@ class QuietTransport(
         pastBackfill?.cancel(); pastBackfill = null
     }
 
+    override fun guardedConfirmationTimeoutMs(kind: Int): Long = if (kind in quietKinds) {
+        // An occupied current slot plus the next slot's random offset can
+        // require almost two intervals. This is a wait hint, not a delivery receipt.
+        intervalSeconds.coerceAtMost((Long.MAX_VALUE - 15_000) / 2_000) * 2_000 + 15_000
+    } else inner.guardedConfirmationTimeoutMs(kind)
     override fun describe(): List<String> = inner.describe()
     override fun circleRelays(): Set<String> = inner.circleRelays()
 

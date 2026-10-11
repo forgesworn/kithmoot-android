@@ -5922,9 +5922,6 @@ class RoomViewModel @JvmOverloads constructor(
         val (owner, capture) = stopped.first ?: return
         recordingApplication.recordingExports.launch {
             try {
-                runCatching { owner.work.stopRecording(owner.id) }.onFailure {
-                    if (roomWork === owner.work) note("Capture stopped locally. The room's stop notice could not be confirmed.")
-                }
                 check(capture != null) { "Recording capture was interrupted" }
                 recordingApplication.recordings.complete(capture.finish())
             } catch (error: Exception) {
@@ -5933,6 +5930,10 @@ class RoomViewModel @JvmOverloads constructor(
                 if (roomWork === owner.work) note("Recording could not be exported: ${error.message ?: "capture failed"}")
             } finally {
                 if (roomWork === owner.work) _room.update { it.copy(nativeRecordingBusy = false) }
+            }
+            // Save/Discard and encoder cleanup never depend on a relay slot.
+            runCatching { owner.work.stopRecording(owner.id) }.onFailure {
+                if (roomWork === owner.work) note("Capture stopped locally. The room's stop notice could not be confirmed.")
             }
         }
     }

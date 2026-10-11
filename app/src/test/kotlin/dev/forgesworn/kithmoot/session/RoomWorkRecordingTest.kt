@@ -8,6 +8,8 @@ import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
+import dev.forgesworn.kithmoot.relay.HybridRoomTransport
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -24,6 +26,9 @@ class RoomWorkRecordingTest {
     private val host=PrimaryIdentity.create(room,1000,100,ByteArray(32) {1},ByteArray(32) {4})
     private class Transport:RoomTransport {
         val sent=mutableListOf<NostrEvent>()
+        var waitHint=15_000L
+        val timeouts=mutableListOf<Long>()
+        override fun guardedConfirmationTimeoutMs(kind:Int)=waitHint
         var rejectAt=Int.MAX_VALUE
         var stored=emptyList<NostrEvent>()
         var beforeGuard:(()->Unit)?=null
@@ -36,6 +41,7 @@ class RoomWorkRecordingTest {
             return sent.size!=rejectAt
         }
         override suspend fun publishConfirmedGuarded(event:NostrEvent,generation:Long,stillAllowed:()->Boolean,timeoutMs:Long):Boolean {
+            timeouts+=timeoutMs
             waitBeforeGuard?.invoke()
             beforeGuard?.invoke()
             if(!stillAllowed())throw PublicationNotOfferedException()
@@ -56,6 +62,59 @@ class RoomWorkRecordingTest {
         override fun read()=bytes?.clone()
         override fun write(value:ByteArray) { check(!fail) { "Synthetic stop journal failure" };bytes=value.clone() }
         override fun reset() {bytes=null}
+    }
+
+    @Test fun quiet_recording_survives_immediate_timeout_and_confirms_details_on_and_off_in_separate_slots()=runTest {
+        var clock=200L
+        val inner=Transport()
+        val quiet=QuietTransport(inner,key,host.participant,listOf(host.participant),0,backgroundScope,
+            ticking=false,slotOffset={299},now={clock})
+        val cadence=CadenceRoomTransport(quiet,backgroundScope,{null},{},{_,_->error("No delegation")},{},
+            ownershipGeneration={0},now={clock})
+        val route=HybridRoomTransport(Transport(),cadence)
+        assertEquals(615_000L,route.guardedConfirmationTimeoutMs(KIND_CHAT))
+        assertEquals(15_000L,route.guardedConfirmationTimeoutMs(9999))
+        val work=RoomWork(room,key,host,route,storage,backgroundScope,now={clock},nowMs={clock*1000},
+            authority=authority,authoritySecretKey=sk,recordingStops=RecordingStopJournal(StopStorage()))
+        val start=async {work.startRecording("audio")}
+        runCurrent();advanceTimeBy(20_000);runCurrent()
+        assertFalse(start.isCompleted,"A quiet slot must not inherit the immediate 15-second timeout")
+        clock=299;quiet.tick();runCurrent()
+        assertEquals(1,inner.sent.size);assertFalse(start.isCompleted)
+        clock=599;quiet.tick();runCurrent()
+        val on=start.await();assertEquals(2,inner.sent.size)
+        assertTrue(assertNotNull(work.meeting.state.value.recording).notice.on)
+        val stop=async {work.stopRecording(on.id)};runCurrent()
+        assertFalse(stop.isCompleted)
+        clock=899;quiet.tick();runCurrent();stop.await()
+        assertEquals(3,inner.sent.size);assertNull(work.recordingStopPending.value)
+        assertFalse(assertNotNull(work.meeting.state.value.recording).notice.on)
+        work.close();quiet.stop()
+    }
+
+    @Test fun room_deadline_caps_the_scheduled_recording_wait()=runTest {
+        val t=Transport().apply {waitHint=615_000}
+        val work=RoomWork(room,key,host,t,storage,backgroundScope,now={200},nowMs={200_000},
+            authority=authority,authoritySecretKey=sk,ends=240)
+        val on=work.startRecording("audio");work.stopRecording(on.id)
+        assertEquals(listOf(40_000L,40_000L,40_000L),t.timeouts);work.close()
+    }
+
+    @Test fun scheduled_wait_is_bounded_by_notice_freshness_and_stop_by_credential_expiry()=runTest {
+        val t=Transport().apply {waitHint=Long.MAX_VALUE}
+        val work=work(t,stops=RecordingStopJournal(StopStorage()))
+        val on=work.startRecording("audio")
+        assertEquals(listOf(600_000L,600_000L),t.timeouts)
+        work.stopRecording(on.id)
+        assertEquals(800_000L,t.timeouts.last());work.close()
+    }
+
+    @Test fun recording_uses_scheduled_wait_hint_and_preserves_immediate_default()=runTest {
+        val t=Transport().apply {waitHint=45_000}
+        val work=work(t);work.startRecording("audio")
+        assertEquals(listOf(45_000L,45_000L),t.timeouts);work.close()
+        val immediate=Transport();val normal=work(immediate);normal.startRecording("audio")
+        assertEquals(listOf(15_000L,15_000L),immediate.timeouts);normal.close()
     }
 
     @Test fun cancelled_owner_before_start_arms_nothing_and_offers_nothing()=runTest {

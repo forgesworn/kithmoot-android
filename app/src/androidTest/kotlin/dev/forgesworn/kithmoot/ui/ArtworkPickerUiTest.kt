@@ -86,6 +86,7 @@ class ArtworkPickerUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             mount(scenario)
             ui.onNodeWithText("Say something").performTextInput("Unsent ")
+            waitForKeyboard(scenario)
             ui.onNodeWithContentDescription("Emoji").performClick()
             ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
             ui.onNodeWithContentDescription("Search artwork").performClick()
@@ -112,8 +113,11 @@ class ArtworkPickerUiTest {
             waitForKeyboard(scenario)
             ui.onNodeWithTag("artwork-search").performTextInput("unicorn")
             ui.onNodeWithContentDescription("🦄 unicorn").performClick()
-            ui.onNodeWithText("Unsent 🦄🦄").assertExists()
             ui.onNodeWithContentDescription("Close artwork picker").assertIsDisplayed()
+            // The compact search layout hides the composer above the IME.
+            // Close the tray before checking the retained original Unicode.
+            ui.onNodeWithContentDescription("Close artwork picker").performClick()
+            ui.onNodeWithText("Unsent 🦄🦄").assertIsDisplayed()
         }
     }
 

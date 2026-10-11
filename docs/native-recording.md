@@ -20,11 +20,35 @@ The [startup cancellation receipt](evidence/native-recording-start-cancellation-
 qualifies cancelling a pending announcement through the native room controls,
 with ownership fencing and exact Off retry.
 
+The [scheduled-wait and local-export receipt](evidence/native-recording-cadence-local-export-2026-10-11.json)
+qualifies transport-aware announcement waits and local Save/Discard while a
+stop acknowledgement remains pending. Quiet heartbeat capacity remains open.
+
 Quiet announcement timing/heartbeat capacity, full room/restart/rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
 hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
 source and APK hashes.
+
+## Scheduled announcements and local export
+
+Recording control publication uses the transport's guarded confirmation wait
+hint. Quiet transport allows up to two scheduled intervals plus the normal
+acknowledgement wait; cadence and hybrid wrappers preserve that hint. The
+caller caps every wait at the room and credential deadlines. On and capture
+details also retain one refresh interval before notice staleness. This changes
+waiting, not quiet routing, slots, counter allocation or delivery requirements.
+
+Stopping detaches capture immediately and finishes the local export before
+waiting for the signed Off acknowledgement. Save/Discard remains available
+while that acknowledgement is pending. The retained exact Off still prevents
+another recording from starting until its stop is confirmed.
+
+Twenty-one RoomWork tests cover the actual Quiet/Cadence/Hybrid wrapper stack,
+waits beyond the immediate timeout and credential/room/freshness limits. All
+17 local capture/playback emulator checks pass, including local export while
+the relay withholds the stop receipt, followed by explicit Retry stop notice.
+This does not qualify hour-long quiet counter capacity or delegated delivery.
 
 ## Cancel while announcing recording
 

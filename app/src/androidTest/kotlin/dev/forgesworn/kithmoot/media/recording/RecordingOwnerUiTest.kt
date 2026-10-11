@@ -71,6 +71,36 @@ class RecordingOwnerUiTest {
         if (::relay.isInitialized) relay.close()
     }
 
+    @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
+        ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
+        ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }
+        ui.click("Start call"); ui.await("original call joined") { model.room.value.onCall }
+        recordingRoom = model.room.value.roomId
+        ui.click("Record call"); ui.click("Start recording")
+        ui.await("signed On and capture installed") { model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy }
+        SystemClock.sleep(600)
+        relay.acknowledge = false
+        ui.click("Stop recording")
+        ui.await("local file ready despite unconfirmed relay stop", timeoutMs = 10_000) {
+            app.recordings.export.value?.isFile == true && !model.room.value.nativeRecordingBusy &&
+                !model.room.value.nativeRecording && model.room.value.recordingStopPending
+        }
+        assertTrue(ui.hasText("Recording ready"))
+        val export = requireNotNull(app.recordings.export.value)
+        assertTrue(export.length() > 0)
+        // The withheld receipt must not gate the independent local Save dialog.
+        ui.await("local Save/Discard available while Off is pending") { ui.enabled("Save") && ui.enabled("Discard") }
+        assertTrue(model.room.value.recordingStopPending)
+        ui.click("Later")
+        // The ordinary acknowledgement timeout ends this fixture's stop attempt;
+        // keep the export independent of subsequent exact-stop retry.
+        SystemClock.sleep(15_500)
+        relay.acknowledge = true
+        ui.click("Retry stop notice")
+        ui.await("stop confirmed independently") { !model.room.value.recordingStopPending && !model.room.value.recordingStopRetrying }
+        assertEquals(export,app.recordings.export.value)
+    }
+
     @Test fun cancel_waiting_announcement_prevents_capture_and_retains_stop_until_confirmed() {
         ui.click("New room"); ui.replace("Room name (optional)", "Synthetic cancelled recorder"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }

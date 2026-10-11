@@ -28,6 +28,7 @@ import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
 import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.signRecordingNotice
 import dev.forgesworn.kithmoot.protocol.signRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.decodeRecordingOp
 import dev.forgesworn.kithmoot.protocol.encodeRecordingOp
 import dev.forgesworn.kithmoot.protocol.encodeRecordingCaptureOp
 import dev.forgesworn.kithmoot.protocol.withMeetingMode
@@ -417,10 +418,18 @@ class RoomWork(
         val credentialDeadline=identity.credential.tagValue("expiration")?.toLongOrNull()?:0L
         val event=encodeChatEvent(body,identity.participant,identity.credential,id,key,
             identity.deviceSecretKey,sentAt,channel="control",credentialRoomId=roomId,roomEnds=ends)
+        val remainingSeconds=minOf(credentialDeadline-sentAt,ends?.minus(sentAt)?:Long.MAX_VALUE)
+        val credentialBudget=remainingSeconds.coerceIn(0,Long.MAX_VALUE/1000)*1000
+        // An On/capture announcement must leave at least one refresh interval
+        // before it becomes stale. Off still needs its real room/credential deadline.
+        val freshnessBudget=if(decodeRecordingOp(body)?.notice?.on==false) Long.MAX_VALUE
+            else (dev.forgesworn.kithmoot.protocol.RECORDING_STALE_SECONDS-RECORDING_REPOST_SECONDS)*1000
+        val timeout=minOf(transport.guardedConfirmationTimeoutMs(event.kind).coerceAtLeast(1),
+            credentialBudget,freshnessBudget).coerceAtLeast(1)
         check(transport.publishConfirmedGuarded(event,generation,{
             stillAllowed() && !closed && trafficRoomId==id && now()<credentialDeadline && (ends==null||now()<ends) &&
                 (recordingStops==null||recordingStops.generation(roomId)==recordingStopGeneration)
-        })) {"No relay confirmed the recording notice"}
+        },timeout)) {"No relay confirmed the recording notice"}
         receiveMeeting(body,identity.participant,sentAt)
     }
     /** The policy a change starts from: the room's own, or none at all. */
