@@ -615,6 +615,16 @@ before storage, including failed writes. Revisions are scoped to the original
 room/device; receipt status updates and other rooms/devices do not revoke the
 phone's snapshot. Confirmation through delegated delivery remains open.
 
+The [Link dispatch receipt](evidence/native-recording-link-dispatch-2026-10-11.json)
+records 443 protocol and 85 focused app tests passing after integrating main's
+rekey recovery and private project-logo fixes. Link's serial worker refuses a
+cancelled queued request and checks its authorisation before and after native
+engine startup. Cadence requests recheck the original room's active route at
+dispatch, and cancellation propagates through their derived futures to Link.
+This does not retract a request already offered to the native engine or prove
+delivery by a delegated node. Guarded recording on delegated schedules remains
+disabled until its delivery and ownership requirements are qualified.
+
 Quiet-room recording also has a capacity constraint to resolve: the protocol
 allows eight drop keys per device per hour, while current recording startup
 and five-minute refreshes each send two control events. These notices cannot

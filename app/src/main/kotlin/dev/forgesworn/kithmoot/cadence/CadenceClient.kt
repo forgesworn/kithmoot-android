@@ -21,6 +21,12 @@ import kotlinx.serialization.json.long
 data class CadenceStatusResult(val answer: CadenceStatusAnswer, val path: LinkPathState)
 data class CadenceLeaseResult(val lease: StoredCadenceLease, val path: LinkPathState)
 
+/** Cancellation reaches the queued Link request; an in-flight offer cannot be retracted. */
+private fun <T, R> CompletableFuture<T>.thenApplyCancellable(transform: (T) -> R): CompletableFuture<R> =
+    thenApply { transform(it) }.also { mapped ->
+        mapped.whenComplete { _, _ -> if (mapped.isCancelled) cancel(true) }
+    }
+
 /** All cadence control stays inside one consented, pinned ForgeSworn Link route. */
 class CadenceClient(private val link: LinkJsonTransport, private val consents: LinkConsentVault) {
     fun status(
@@ -32,7 +38,7 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
     ): CompletableFuture<CadenceStatusResult> {
         val body = BoxCadence.statusBody(scope, requestId, now)
         val signed = BoxCadence.sign(scope.nodeId, "POST", "/cadence/v1/status", body, identity.deviceSecretKey, now)
-        return request(accountPubkey, scope, identity, signed).thenApply { response ->
+        return request(accountPubkey, scope, identity, signed).thenApplyCancellable { response ->
             CadenceStatusResult(BoxCadence.parseStatus(response.status, response.body), response.path)
         }
     }
@@ -165,7 +171,7 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         current: StoredCadenceLease,
         now: Long,
         vault: CadenceLeaseVault,
-    ): CompletableFuture<CadenceLeaseResult> = request(accountPubkey, scope, identity, signed).thenApply { response ->
+    ): CompletableFuture<CadenceLeaseResult> = request(accountPubkey, scope, identity, signed).thenApplyCancellable { response ->
         CadenceLeaseResult(vault.accept(current, BoxCadence.parseReceipt(response.status, response.body), now), response.path)
     }
 
@@ -180,8 +186,9 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         val routeId = requireNotNull(consents.activeRoute(accountPubkey, scope.room, canonicalUrl)) {
             "cadence requires active room consent for this Link route"
         }
-        link.request(LinkJsonRequest(routeId, signed.method, signed.path, signed.authorization, signed.body))
-            .thenApply { response ->
+        link.request(LinkJsonRequest(routeId, signed.method, signed.path, signed.authorization, signed.body,
+            stillAllowed = { consents.activeRoute(accountPubkey, scope.room, canonicalUrl) == routeId }))
+            .thenApplyCancellable { response ->
                 check(consents.activeRoute(accountPubkey, scope.room, canonicalUrl) == routeId) {
                     "cadence consent changed while the request was in flight"
                 }

@@ -57,6 +57,25 @@ class CadenceClientTest {
         assertTrue(received?.body?.toString(Charsets.UTF_8)?.contains("\"device\":\"$device\"") == true)
     }
 
+    @Test fun cancellationReachesTheQueuedLinkRequest() {
+        val fixture = fixture()
+        val pending = CompletableFuture<LinkJsonResponse>()
+        val result = CadenceClient(LinkJsonTransport { pending }, fixture.consents)
+            .status(fixture.identity.participant, fixture.scope, "11".repeat(16), fixture.identity, fixture.now)
+        assertTrue(result.cancel(true))
+        assertTrue(pending.isCancelled)
+    }
+
+    @Test fun dispatchGuardRejectsConsentWithdrawnAfterQueueing() {
+        val fixture = fixture()
+        var request: LinkJsonRequest? = null
+        CadenceClient(LinkJsonTransport { request = it; CompletableFuture() }, fixture.consents)
+            .status(fixture.identity.participant, fixture.scope, "11".repeat(16), fixture.identity, fixture.now)
+        assertTrue(request!!.stillAllowed())
+        fixture.consents.remove(fixture.identity.participant, fixture.scope.room, "cc".repeat(32))
+        assertFalse(request!!.stillAllowed())
+    }
+
     @Test fun withdrawnConsentRejectsALateStatusResult() {
         val now = 1_800_000_000L
         val room = "42".repeat(32)
