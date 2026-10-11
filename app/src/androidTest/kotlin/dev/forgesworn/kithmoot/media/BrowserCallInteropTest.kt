@@ -239,6 +239,12 @@ class BrowserCallInteropTest {
         val nativeAudio = AtomicInteger(); val nativeEnergy = AtomicReference(0.0)
         val incoming = Channel<JsonObject>(Channel.UNLIMITED)
         val scheduler = Executors.newSingleThreadScheduledExecutor()
+        // Explicit diagnostic runs only: sampling can affect timing and must
+        // never be used as capture qualification. No media or SDP is logged.
+        val writerDiagnostics = if (captureVideo && InstrumentationRegistry.getArguments()
+                .getString("recordingWorkerDiagnostics") == "true")
+            Executors.newSingleThreadScheduledExecutor() else null
+        val diagnosticWriter = AtomicReference<Thread?>(null)
         val recording = AtomicReference<dev.forgesworn.kithmoot.media.recording.CallAudioCapture?>(null)
         val recordingScene = AtomicReference<RecordingVideoScene?>(null)
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
@@ -452,6 +458,16 @@ class BrowserCallInteropTest {
                 capture.setInputs(remoteTracksFor("synthetic-browser", pc, received.values.toList())
                     .filter { it.receiving }.mapNotNull { it.track as? org.webrtc.AudioTrack }.associateWith { 1.0 }, local = true)
                 recording.set(capture)
+                val traceStart = SystemClock.elapsedRealtime()
+                writerDiagnostics?.scheduleAtFixedRate({
+                    val worker = diagnosticWriter.get() ?: Thread.getAllStackTraces().keys
+                        .singleOrNull { it.name == "KithMootRecording" }
+                        ?.also(diagnosticWriter::set)
+                    worker?.let {
+                        android.util.Log.i("KithMootRecordingTrace", "elapsedMs=${SystemClock.elapsedRealtime() - traceStart} " +
+                            "state=${it.state} stack=${it.stackTrace.take(16).joinToString(" <- ")}")
+                    }
+                }, 0, 200, TimeUnit.MILLISECONDS)
             }
             val originalCamera = expectedCamera.get()
             val beforeFrames = nativeVideo.get()
@@ -524,6 +540,8 @@ class BrowserCallInteropTest {
             assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
             assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, manager.communicationDevice?.type)
         } finally {
+            writerDiagnostics?.shutdownNow()
+            writerDiagnostics?.awaitTermination(2, TimeUnit.SECONDS)
             recording.getAndSet(null)?.discard()
             recordingScene.getAndSet(null)?.dispose()
             ready.set(false); scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
