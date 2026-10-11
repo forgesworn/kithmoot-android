@@ -51,7 +51,7 @@ class RoomWorkLogoTest {
 
     @Test fun `received images and removals update metadata once without ordinary chat`() = runTest {
         val transport = Transport(); val changes = mutableListOf<RoomLogoRecord?>()
-        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 }, onRoomLogo = { changes += it })
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 }, onRoomLogo = { logo, _ -> changes += logo })
         work.open()
         val event = control(image)
         transport.incoming.emit(event); runCurrent()
@@ -105,11 +105,32 @@ class RoomWorkLogoTest {
         work.close()
     }
 
+    @Test fun `cancelling the editor before dispatch sends no logo`() = runTest {
+        val transport = Transport(); transport.gate = CompletableDeferred()
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 }, nowMs = { 200_000 })
+        work.open()
+        var editorOpen = true
+        val writing = async { runCatching { work.replaceRoomLogo(image) { editorOpen } } }
+        transport.waiting.await(); editorOpen = false; transport.gate!!.complete(Unit)
+        assertIs<IllegalStateException>(writing.await().exceptionOrNull())
+        assertEquals(1, transport.sent.size, "Only discovery was sent")
+        assertNull(work.roomLogo()); work.close()
+    }
+
+    @Test fun `an already invalid editor does not enter publication`() = runTest {
+        val transport = Transport()
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 })
+        work.open()
+        assertFailsWith<IllegalStateException> { work.replaceRoomLogo(null) { false } }
+        assertFalse(transport.waiting.isCompleted); assertEquals(1, transport.sent.size)
+        work.close()
+    }
+
     @Test fun `a removed epoch logo disappears and is not carried into the new epoch`() = runTest {
         val transport = Transport(); val changes = mutableListOf<RoomLogoRecord?>()
         val rekeys = mutableMapOf<Int, Long>()
         val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 1_000 },
-            rekeyedAt = { rekeys[it] }, onRoomLogo = { changes += it })
+            rekeyedAt = { rekeys[it] }, onRoomLogo = { logo, _ -> changes += logo })
         work.open(); transport.incoming.emit(control(image, 900_000)); runCurrent()
         assertNotNull(work.roomLogo())
         rekeys[1] = 200; work.rekey(nextRoom, nextKey, 1)
@@ -120,9 +141,12 @@ class RoomWorkLogoTest {
 
     @Test fun `a cached removal survives rekey and a carried copy retains its original order`() = runTest {
         val transport = Transport(); val kept = RoomLogoRecord(null, id, 100_000, 100)
+        val changes = mutableListOf<Pair<RoomLogoRecord?, Int>>()
         val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 },
-            initialRoomLogo = kept, initialRoomLogoEpoch = 0)
+            initialRoomLogo = kept, initialRoomLogoEpoch = 0, onRoomLogo = { logo, epoch -> changes += logo to epoch })
         work.open(); work.rekey(nextRoom, nextKey, 1)
+        assertEquals(listOf(0, 1), changes.map { it.second })
+        assertTrue(changes.all { it.first?.id == kept.id })
         assertTrue(work.carryLogoIfDue())
         val carried = assertNotNull(decodeChatEvent(transport.sent.last(), nextRoom, nextKey, 200,
             channel = "control", credentialRoomId = room))
@@ -130,6 +154,18 @@ class RoomWorkLogoTest {
         val op = assertNotNull(decodeRoomLogoOp(carried.body))
         assertEquals(100_000, op.at); assertEquals(id, op.id); assertTrue(op.carried)
         assertFalse(work.carryLogoIfDue())
+        work.close()
+    }
+
+    @Test fun `opening after rekey reports an invalidated cached seed with the current epoch`() = runTest {
+        val transport = Transport(); val changes = mutableListOf<Pair<RoomLogoRecord?, Int>>()
+        val kept = RoomLogoRecord(image, id, 900_000, 900)
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 1_000 },
+            initialEpoch = 1, initialRoomLogo = kept, initialRoomLogoEpoch = 0,
+            rekeyedAt = { 200 }, onRoomLogo = { logo, epoch -> changes += logo to epoch })
+        work.open()
+        assertEquals(listOf<Pair<RoomLogoRecord?, Int>>(null to 1), changes)
+        assertNull(work.roomLogo()); assertFalse(work.carryLogoIfDue())
         work.close()
     }
 }

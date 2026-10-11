@@ -65,7 +65,9 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     val startsAt: Long? = null,
     /** The other member of a two-person policy this saved identity belongs to. */
     val privatePeer: String? = null,
-    val route: RoomRoute = RoomRoute.INTERNET)
+    val route: RoomRoute = RoomRoute.INTERNET,
+    val logo: LogoImage? = null,
+    internal val logoScope: String? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -200,7 +202,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
             ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
             pinned = pinned, destruct = destruct, startsAt = startsAt, route = route,
-            privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant))
+            privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant),
+            logo = sharedLogo?.record?.image.takeUnless { ended },
+            logoScope = "${participant}:${devicePubkey}".takeUnless { ended || anonymous || policy?.quiet == true ||
+                dev.forgesworn.kithmoot.session.isDmPolicy(policy) })
     }
 
     fun withRoute(route: RoomRoute): SavedRoom = changed {
@@ -351,13 +356,29 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             put("at", record.at)
         })
     }.also { it.validate() }
+
+    /** Temporary, anonymous and person-identity rooms never persist artwork. */
+    val canKeepLogo: Boolean get() = !anonymous && ends == null && !destruct && !retired && !movedOn &&
+        policy?.quiet != true && !dev.forgesworn.kithmoot.session.isDmPolicy(policy)
+    val sharedLogo: SavedRoomLogo? get() = if (canKeepLogo) SavedRoomLogo.read(json["sharedLogo"]) else null
+
+    /** Invalid optional images fall back without making admission data unreadable. */
+    fun withSharedLogo(record: RoomLogoRecord?, epoch: Int = 0): SavedRoom = changed {
+        if (record == null || !canKeepLogo) remove("sharedLogo") else {
+            val value = SavedRoomLogo(record.copy(by = null), epoch)
+            require(SavedRoomLogo.read(value.toJson()) != null) { "Invalid room logo cache" }
+            put("sharedLogo", value.toJson())
+        }
+    }
     fun inProject(project: String?): SavedRoom = changed {
         val clean = project?.trim()?.take(48).orEmpty()
         if (clean.isEmpty()) remove("project") else put("project", clean)
     }
     /** Learnt that the room self-destructs: from its closing rekey, or a
      *  later copy of its invitation. Sticky, so there is no way back. */
-    fun withDestruct(): SavedRoom = if (destruct) this else changed { put("destruct", true) }.also { it.validate() }
+    fun withDestruct(): SavedRoom = if (destruct && "sharedLogo" !in json) this else changed {
+        put("destruct", true); remove("sharedLogo")
+    }.also { it.validate() }
     /** Lifetime learned from another admitted copy. Never extend an end or undo destruction. */
     fun withRoomLifetime(end: Long?, selfDestruct: Boolean, start: Long?): SavedRoom {
         if (invitation?.invitation?.persistent != true) return this
@@ -369,6 +390,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             nextEnd?.let { put("ends", it) }
             nextStart?.let { put("startsAt", it) }
             if (nextDestruct) put("destruct", true)
+            if (nextEnd != null || nextDestruct) remove("sharedLogo")
         }.also { it.validate() }
     }
 
@@ -494,6 +516,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 previous.json["sharedName"]?.let { this["sharedName"] = it }
                 put("name", cleanName(shared.name, id))
             }
+            if (id == previous.id && participant == previous.participant && devicePubkey == previous.devicePubkey &&
+                ends == null && previous.ends == null && !destruct && !previous.destruct && canKeepLogo && sharedLogo == null) {
+                previous.sharedLogo?.let { put("sharedLogo", it.toJson()) }
+            } else if (!canKeepLogo || previous.ends != null || previous.destruct) remove("sharedLogo")
             put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
             if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
                 put("retired", true)

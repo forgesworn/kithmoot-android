@@ -546,6 +546,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                         latestMessageAt = state.latestMessageTimes[room.id])
                     RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
                         pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
+                        logo = room.logo,
                         privatePeer = room.privatePeer.takeIf { state.publicProfiles },
                         profile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null,
                         countdown = if (showsCountdown(room, now)) ({

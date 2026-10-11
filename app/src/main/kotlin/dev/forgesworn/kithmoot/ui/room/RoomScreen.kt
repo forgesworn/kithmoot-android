@@ -125,6 +125,7 @@ fun RoomScreen(
     onDismissInvitationAdmission: (String) -> Unit = {},
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
+    onEditRoomLogo: () -> RoomLogoEditScope? = { null },
     accountMenu: @Composable () -> Unit = {},
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
@@ -241,6 +242,8 @@ fun RoomScreen(
     var inviteOpen by inviteState
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    var logoEdit by remember(state.roomId, state.selfParticipant, state.selfDevice) { mutableStateOf<RoomLogoEditScope?>(null) }
+    if (!lockedCallOnly && !inPictureInPicture) logoEdit?.let { edit -> RoomLogoEditor(edit) { logoEdit = null } }
     var sharingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     if (sharingOpen && !lockedCallOnly) state.sharing?.let {
         RoomSharingSheet(it, onSelectSharingParticipant, onStartRoomSharing, onStopRoomSharing, { sharingOpen = false })
@@ -369,6 +372,14 @@ fun RoomScreen(
             Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
+                if (!state.privateConversation && !state.anonymous && !state.quiet && state.movedOn == null && !state.conferenceEnded) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
+                        TextButton(onClick = { onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
+                            Text(if (state.logo == null) "Choose room logo" else "Change room logo")
+                        }
+                    }
+                }
                 // Any member may rename the room, and the name changes for
                 // everybody in it: there is no private nickname beside it. Not
                 // in a two-person room, whose title is the other person, nor in
@@ -743,6 +754,12 @@ private fun Header(
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onLeave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Leave room") }
+            if (!state.privateConversation && !state.quiet && !state.anonymous) {
+                val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo
+                PrivateLogo(logo,
+                    state.name.ifBlank { "Room" }, Modifier.size(28.dp))
+                Spacer(Modifier.width(8.dp))
+            }
             Column(Modifier.weight(1f).clickable(onClickLabel = "Room details", onClick = onDetails).padding(vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.name.ifBlank { "Room" }, Modifier.weight(1f, fill = false), maxLines = 1,

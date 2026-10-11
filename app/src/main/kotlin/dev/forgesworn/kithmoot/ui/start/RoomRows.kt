@@ -34,6 +34,7 @@ internal data class HomeRoom(
     /** When this device first knew the room, for scaling the countdown. */
     val startsAt: Long? = null,
     val privatePeer: String? = null,
+    val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -72,6 +73,8 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
             destruct = room.destruct, startsAt = room.startsAt,
             privatePeer = room.privatePeer.takeIf { !room.anonymous && (room.account == null || room.account == account) },
+            logo = room.logo.takeIf { !room.anonymous && !room.ended && room.privatePeer == null &&
+                (room.account == null || room.account == account) },
         )
     }
     if (!signedIn) return fromSaved

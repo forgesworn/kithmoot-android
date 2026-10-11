@@ -1,8 +1,8 @@
 # Private room logo controls
 
-G15 remains open. The bounded inline image reader is on main via PR #242.
-This revision integrates room overrides into encrypted control chat and the
-native room metadata follower. It does not add a phone editor or render logos.
+G15 remains open. The bounded inline image reader is on main via PR #242;
+encrypted control chat and the native metadata follower landed in PR #243.
+The [room logo display](room-logo-display.md) adds the local cache and renderer.
 
 ## Wire boundary
 
@@ -48,7 +48,7 @@ removed-epoch invalidation and delayed writes across closing or rekeying.
 This is automated protocol/session evidence, not a published APK or physical
 phone acceptance.
 
-Still required: encrypted saved-room cache and expiry cleanup integration,
-ViewModel/Compose rendering with decode fallback, the local crop editor and
-permission/cancellation handling, project companion journal support,
-account recovery and cross-client device acceptance. G15 is not complete.
+The cache and renderer have their own qualification in the display document.
+Still required: the local crop editor and permission/cancellation handling,
+project companion journal support, account recovery and cross-client device
+acceptance. G15 is not complete.

@@ -902,6 +902,7 @@ fun KithMootApp(
                     onAnswerInvitationAdmission = model::answerInvitationAdmission,
                     onDismissInvitationAdmission = model::dismissInvitationAdmission,
                     onRenameRoom = model::renameRoomForEveryone,
+                    onEditRoomLogo = model::openRoomLogoEditor,
                     onOpenCards = { cardsOpen = true },
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
