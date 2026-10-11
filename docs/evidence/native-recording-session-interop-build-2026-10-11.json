@@ -1,0 +1,54 @@
+{
+  "qualification": "Actual native/browser live warning harness build",
+  "source_commit": "537c2996c388a70b2221e1c5e8a67ba8b0623fe6",
+  "browser_source_commit": "418d00a0b044b86910c8f0ceb9ba4ca5077eb63d",
+  "unit_suites": {
+    "dev.forgesworn.kithmoot.media.recording.RecordingVideoAuthorityTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "3129a9f560c0b4dcd5888d8bd2dc4786270933dab4199362eb061a5ecb159814"
+    },
+    "dev.forgesworn.kithmoot.media.recording.RecordingVideoPlanTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "e8ba68034665bb9bdd09939f3255f11aab1387a4eafd542e86813f4be50c4fe4"
+    }
+  },
+  "unit_tests": 11,
+  "build": "debug and instrumentation APKs passed",
+  "build_log_sha256": "87feb3b7157384790060ebd101c08e51f1ec77ef3b37176fa63e17cae6d3a96f",
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "7cddd12c0d10154a805bb9503fb659e529856114ff1772b426c97ae061687cc4"
+  },
+  "browser_source_sha256": {
+    "src/session.ts": "67ce6d2ebe559801f204c3374782450d2d9ade94210bb2218dc218a4c510f8e0",
+    "src/relay-pool.ts": "601c632368ee285e97c8762a42dcc4f2da018047e23a1f120052fcf68af98d5c",
+    "src/identity.ts": "d58d08238826a693ff43d05c2188e7971f17965aff449cb8608500201e7880e5",
+    "src/meeting.ts": "bdb94dc8cdbf29d9108f0093bd428e3ef4e870e2545557a21d844a45a08602c7"
+  },
+  "runtime": {
+    "result": "passed",
+    "tests": 1,
+    "duration_seconds": 12.228,
+    "emulator": "Android 35 Google APIs ARM64, host GPU, 4096 MiB, clean synthetic test data",
+    "transport": "actual Android and browser relay pools over disposable loopback WebSocket relay",
+    "assertions": [
+      "Native signed On and Off reach browser RoomSession",
+      "Browser rejects a root-invalid capture signature on a credential-authenticated presence event",
+      "Browser processes an exact older-On replay and retains newer Off",
+      "Browser signed On and Off reach native RoomSession with exact recorder identity and Off without capture"
+    ],
+    "log_sha256": "f77d3a7330c2427cc2829ca0fafd4c191bb9446b5a229d5fe556df4b0def6bf2"
+  },
+  "hosted_gates": "Draft matrix independently runs the full 20-case capture suite and real relay-socket native/browser Session warning case using exact verify APKs",
+  "limits": [
+    "Current hosted run covers the earlier 9bcfa488 head; new harness is committed locally and not pushed yet",
+    "Video PCM queue performance, source permission revocation, quiet Send/rekey/restart, physical endurance and signed production delivery remain open",
+    "This qualifies session warning state delivery; it does not qualify physical notification visibility or the live media queue"
+  ]
+}
