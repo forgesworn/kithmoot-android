@@ -150,7 +150,9 @@ class ArtworkPickerUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             mount(scenario, offline = true)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
+            waitForKeyboard(scenario)
             ui.onNodeWithContentDescription("Emoji").performClick()
+            ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")
             ui.onNodeWithText("GIFs").performClick()
