@@ -48,6 +48,11 @@ hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
 source and APK hashes.
 
+The [latest hosted verify receipt](evidence/native-recording-a1-hosted-verify-2026-10-11.json)
+records 436 protocol tests and 2,104 app tests in each build variant, with no
+failures or skips, both lints and all APK builds passing on `a1f0786f`. Recovery
+and API 33/35 signing jobs were still running at this observation.
+
 ## Scheduled announcements and local export
 
 Recording control publication uses the transport's guarded confirmation wait
@@ -399,9 +404,10 @@ emulator was unavailable and its replacement did not finish booting. Hosted
 verify and API 33/35 signing passed on integrated head `9804acb7`, as did all
 three saved-room Stop recovery stages. Send prepare reached UNKNOWN but failed
 when its fixture hashed the temporary capture path after `complete()` renamed
-the file. Cleanup passed; restart verification did not run. The fixture must
-retain the completed File returned by `complete()`. Corrective runtime, quiet
-Send, rekey and physical acceptance remain open.
+the file. Cleanup passed; restart verification did not run. The corrected
+fixture now retains the completed File returned by `complete()`
+and its debug and instrumentation APKs build successfully. Corrective runtime,
+quiet Send, rekey and physical acceptance remain open.
 
 ### Large-file private-node fixture candidate
 
@@ -423,8 +429,10 @@ resource even after an ADB timeout, preserving an earlier failure.
 Four socket tests pass, including an 8 MiB byte-identical upload/download and
 exact backend response, oversized-input refusal, bad-digest rejection and
 refusal to forward download signer authorisation. These use a synthetic backend,
-not Wildbloom. Android host-mode build/runtime, large/slow daemon uploads and
-physical endurance remain unqualified.
+not Wildbloom. The Android host-mode debug and instrumentation APKs build
+successfully; the receipt records the archived APK hashes.
+Host-mode runtime, large/slow daemon uploads and physical endurance remain
+unqualified.
 
 ## Live browser/native adapter export qualification
 
