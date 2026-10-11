@@ -125,13 +125,18 @@ class BrowserCallInteropTest {
             ),
             roomId = "33".repeat(32),
             send = { signal ->
-                val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) } }
+                val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) }; signal.seq?.let { put("seq", it) }; signal.re?.let { put("re", it) } }
                 withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
             },
         )
         scope.launch {
             for (body in incoming) runCatching {
-                link.onRemoteSignal(body.getValue("type").jsonPrimitive.content, body["sdp"]?.jsonPrimitive?.content, body["candidate"]?.jsonPrimitive?.content)
+                link.onRemoteSignal(SignalEnvelope("", body.getValue("type").jsonPrimitive.content,
+                    body.getValue("roomId").jsonPrimitive.content,
+                    sdp = body["sdp"]?.jsonPrimitive?.content,
+                    candidate = body["candidate"]?.jsonPrimitive?.content,
+                    seq = body["seq"]?.jsonPrimitive?.longOrNull,
+                    re = body["re"]?.jsonPrimitive?.longOrNull))
             }.onFailure { failure.set(it.toString()) }
         }
         // Frame-counting plumbing only, unrelated to the regression check
@@ -344,13 +349,18 @@ class BrowserCallInteropTest {
             connection = WebRtcPeerConnection(pc, ::bindReceivedVideo),
             roomId = "33".repeat(32),
             send = { signal ->
-                val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) } }
+                val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) }; signal.seq?.let { put("seq", it) }; signal.re?.let { put("re", it) } }
                 withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
             },
         )
         scope.launch {
             for (body in incoming) runCatching {
-                link.onRemoteSignal(body.getValue("type").jsonPrimitive.content, body["sdp"]?.jsonPrimitive?.content, body["candidate"]?.jsonPrimitive?.content)
+                link.onRemoteSignal(SignalEnvelope("", body.getValue("type").jsonPrimitive.content,
+                    body.getValue("roomId").jsonPrimitive.content,
+                    sdp = body["sdp"]?.jsonPrimitive?.content,
+                    candidate = body["candidate"]?.jsonPrimitive?.content,
+                    seq = body["seq"]?.jsonPrimitive?.longOrNull,
+                    re = body["re"]?.jsonPrimitive?.longOrNull))
             }.onFailure { failure.set(it.toString()) }
         }
         val bridge = object {
