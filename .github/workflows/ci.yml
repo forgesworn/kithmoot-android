@@ -316,8 +316,10 @@ jobs:
           disable-spellchecker: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           script: |
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/short.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/https-contract bash scripts/check-recording-upload-send-emulator.sh
             KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/short.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/short python3 scripts/check-recording-private-node-emulator.py
             KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/maximum.mp4 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/maximum python3 scripts/check-recording-private-node-emulator.py
+            KITHMOOT_RECORDING_SAMPLE=build/recording-private-node/maximum.mp4 KITHMOOT_RECORDING_PROXY_CHUNK_DELAY=0.08 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-private-node/maximum-slow python3 scripts/check-recording-private-node-emulator.py
 
       - name: Keep real private-node Android reports
         if: always()

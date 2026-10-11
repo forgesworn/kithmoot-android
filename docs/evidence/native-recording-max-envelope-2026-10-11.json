@@ -1,0 +1,29 @@
+{
+  "production_ready": false,
+  "candidate_commit": "9705bd565bca63572bcdd2a10120e0b195506c0b",
+  "production_source_base": "693cfba56a6c7dc25f37c56786f5e202d278c299",
+  "source_sha256": {
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/FileAttachmentTest.kt": "e019499829aacc10bc6ccdb474b39738a8d08f4a7541a00d4ad32a890b81b30b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/FileAttachment.kt": "81c5ce4f163b00acfd4926ba1840ecab148109dea46f71da72ddf1b10c2cf96f"
+  },
+  "tests": 7,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "normal_build": {
+    "passed": true,
+    "elapsed_seconds": 1061,
+    "test_seconds": 34.268,
+    "log_sha256": "2c108dedb0f067d700a56d10cd537bdb730a645a4ddcd27525d7efc43943b86f"
+  },
+  "constrained_test_fork": {
+    "passed": true,
+    "max_heap_mib": 128,
+    "elapsed_seconds": 159,
+    "test_seconds": 74.487,
+    "init_sha256": "021883a463e84fcac8999426cb3642e7f56015948878a0b480b85a52092da872",
+    "log_sha256": "77d1f9e12fb0285e644876abe6d8b89608181689080a3ec7f645581564170c4f",
+    "report_sha256": "62dbaf4b2517bdd69488d615d14514c5b63a5ef4b627f4c20b621cca4805a61b"
+  },
+  "scope": "Production JVM seal/open functions on a sparse 256 MiB synthetic byte source; ciphertext fits 260 MiB, plaintext hash matches, and 256 MiB plus one byte is refused before output creation. Not a playable recording, Android runtime, RSS measurement or physical endurance."
+}

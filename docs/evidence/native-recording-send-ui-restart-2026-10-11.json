@@ -115,5 +115,53 @@
       }
     },
     "runtime": "not_started_emulator_boot_unconfirmed"
+  },
+  "corrective_hosted": {
+    "source_commit": "693cfba56a6c7dc25f37c56786f5e202d278c299",
+    "run_id": 38134396294,
+    "ci_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38134396294",
+    "all_four_gates": "passed",
+    "send_ui_stages": {
+      "prepare": {
+        "passed": true,
+        "elapsed_seconds": 85.875,
+        "report_sha256": "a861f734e8b09dc61dc169772c5bb00c7d22d623d0675f990de118c6af3d2b0c"
+      },
+      "verify": {
+        "passed": true,
+        "elapsed_seconds": 80.542,
+        "report_sha256": "2422b4f51d6e95d7707ac480bb641ce70e8ee221d9de253e78123b8c88ce01f6"
+      },
+      "cleanup": {
+        "passed": true,
+        "elapsed_seconds": 1.564,
+        "report_sha256": "5710145a180423c893005d7d011226b7926519008c1c8418bb5be87528ad5d8d"
+      }
+    },
+    "source_sha256": {
+      "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingSendRecoveryUiTest.kt": "50567a0c9f671b9ed74c1a8ed2614677bd3bf3f6203087854dca7a00f9370420",
+      "scripts/check-recording-upload-send-emulator.sh": "add43af5383e413e8c8112d34182e5f23bd8091db99f53610d23323352e35ee2"
+    },
+    "scope": "Actual retaining-chat Add/Upload/Send; unknown signed event survives forced process death and original-room UI Retry republishes identical ciphertext with no second upload and unchanged export. TLS contract fixture; quiet Send, rekey, active capture interruption and physical acceptance remain unqualified.",
+    "unit_counts": {
+      "protocol": {
+        "tests": 436,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_debug": {
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app_release": {
+        "tests": 2104,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
   }
 }

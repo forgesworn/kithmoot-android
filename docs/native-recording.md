@@ -42,19 +42,19 @@ The [scheduled-wait and local-export receipt](evidence/native-recording-cadence-
 qualifies transport-aware announcement waits and local Save/Discard while a
 stop acknowledgement remains pending. Quiet heartbeat capacity remains open.
 
-Quiet heartbeat capacity and delegated confirmation, prepared-Send restart/rekey journeys,
+Quiet heartbeat capacity and delegated confirmation, quiet Send and rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
 hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
 source and APK hashes.
 
-The [latest hosted verify receipt](evidence/native-recording-a1-hosted-verify-2026-10-11.json)
+The [integrated a1 hosted verify receipt](evidence/native-recording-a1-hosted-verify-2026-10-11.json)
 records 436 protocol tests and 2,104 app tests in each build variant, with no
 failures or skips, both lints and all APK builds passing on `a1f0786f`. Recovery
 failed before recording restart stages because the artwork-picker test clicked
 a media tab during the keyboard transition. API 33/35 signing passed. The
-fixture now waits for the actual visible tab; its corrective runtime remains
-required.
+fixture now waits for the actual visible tab; the corrective hosted result is
+recorded below.
 
 ## Scheduled announcements and local export
 
@@ -409,8 +409,24 @@ three saved-room Stop recovery stages. Send prepare reached UNKNOWN but failed
 when its fixture hashed the temporary capture path after `complete()` renamed
 the file. Cleanup passed; restart verification did not run. The corrected
 fixture now retains the completed File returned by `complete()`
-and its debug and instrumentation APKs build successfully. Corrective runtime,
-quiet Send, rekey and physical acceptance remain open.
+and its debug and instrumentation APKs build successfully. At that observation,
+corrective runtime, quiet Send, rekey and physical acceptance remained open.
+
+The corrected hosted run on `693cfba5` passes all four gates. Send preparation,
+forced-process restart verification and cleanup pass in 85.875, 80.542 and
+1.564 seconds. The verification checks a new process ID, the original saved
+room, the actual Retry control, identical verified signed ciphertext, one
+attachment, no second upload and the unchanged local export. This qualifies
+the retaining-chat restart journey against its TLS contract fixture; quiet
+Send, rekey and active-capture/physical interruption remain open.
+
+The [maximum-envelope receipt](evidence/native-recording-max-envelope-2026-10-11.json)
+qualifies native production JVM sealing/opening at the full 256 MiB limit. All
+seven file-attachment tests pass again with a 128 MiB test-fork heap. The
+maximum source authenticates to identical plaintext within the ciphertext cap;
+a source one byte larger is refused before output creation. This is a sparse
+synthetic byte source, not a playable recording or Android/physical endurance
+proof.
 
 ### Large-file private-node fixture candidate
 
@@ -458,7 +474,8 @@ CI now includes a separate real private-node Android job after `verify`. It
 builds daemon commit `4474ce194888b039f14cf7001e2eab43305b2c9c` with its locked
 dependencies, downloads the exact debug and instrumentation APKs from verify,
 and runs the production Upload/Send/recipient Show/Play journey with both a
-short clip and a 256 MiB padded synthetic MP4. Its report artifact retains
+short clip and a 256 MiB padded synthetic MP4, then repeats the maximum-size
+journey with an 80 ms delay per 64 KiB chunk in both directions. Its artifact retains
 source/binary digests, responses, independent process IDs and cleanup results.
 The job is a qualification candidate until its runtime passes; these are
 three-second synthetic tracks, not 45-minute capture or physical acceptance.
