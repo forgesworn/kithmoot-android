@@ -40,14 +40,32 @@ def check(adb, serial, reports):
     deadline = time.monotonic() + 30
     stable = 0
     probes = 0
+    restarted = False
     while time.monotonic() < deadline:
         windows = shell("dumpsys", "window")
         (reports / "launcher-window.txt").write_text(windows)
         probes += 1
+        focus = re.search(r"mCurrentFocus=(.*)", windows)
+        if (not restarted and focus and
+                "application not responding: " + package in focus.group(1).lower()):
+            # A cold emulator can ANR its launcher before our app starts.
+            # Keep the failure evidence and recover this owned launcher once;
+            # the restarted activity must still pass both focus checks.
+            (reports / "launcher-before-restart-window.txt").write_text(windows)
+            (reports / "launcher-before-restart-anr.txt").write_text(
+                shell("dumpsys", "activity", "lastanr"))
+            shell("am", "force-stop", "--user", "0", package)
+            shell("am", "start", "-W", "--user", "0", "-a", "android.intent.action.MAIN",
+                  "-c", "android.intent.category.HOME", "-n", home)
+            restarted = True
+            stable = 0
+            deadline = time.monotonic() + 30
+            continue
         stable = stable + 1 if focused_home(windows, package) else 0
         if stable >= 2:
             receipt.write_text(json.dumps({"passed": True, "serial": serial,
                                           "home": home, "probes": probes,
+                                          "launcher_restarted": restarted,
                                           "stable_focus_checks": stable}, indent=2) + "\n")
             return
         time.sleep(1)
