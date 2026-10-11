@@ -154,6 +154,7 @@ class ArtworkPickerUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             mount(scenario, offline = true)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
+            waitForKeyboard(scenario)
             ui.onNodeWithContentDescription("Emoji").performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
