@@ -43,8 +43,12 @@ rendered a placeholder because its camera frame had already been discarded.
 The next candidate retains scaled video for the bounded two-second PCM window,
 with a strict 32-frame cap and immediate source revocation. New checks cover
 matching earlier pictures, continued capture from the remaining authorised
-source, and releasing history as capture continues. Build and runtime checks
-are pending. This does not claim to solve the PCM worker overflow.
+source, and releasing history as capture continues. Candidate `3548a6dc`
+[build and 61 recording unit checks](evidence/native-recording-history-window-build-2026-10-11.json)
+passed. Its [six scene checks](evidence/native-recording-history-window-scene-2026-10-11.json)
+also passed without skips, including the previously failing delayed-writer
+picture check. The full 22-check live capture run is pending. This does not
+claim to solve the PCM worker overflow.
 
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
