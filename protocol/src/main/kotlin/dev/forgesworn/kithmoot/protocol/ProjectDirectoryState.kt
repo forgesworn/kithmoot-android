@@ -11,6 +11,10 @@ data class SharedProject(
     val joined: Boolean,
     val withdrawn: Boolean,
     val conflicted: Boolean,
+    val logo: LogoImage? = null,
+    val logoHeads: List<String> = emptyList(),
+    val logoVersion: Int = 0,
+    val logoConflicted: Boolean = false,
 ) {
     val key: String get() = reference.key
     val archived: Boolean get() = definition?.get("archived")?.jsonPrimitive?.booleanOrNull == true
