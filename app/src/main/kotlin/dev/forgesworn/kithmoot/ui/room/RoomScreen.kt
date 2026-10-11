@@ -667,6 +667,12 @@ private fun Header(
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onLeave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Leave room") }
+            if (!state.privateConversation && !state.quiet && !state.anonymous) {
+                val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo
+                PrivateLogo(logo,
+                    state.name.ifBlank { "Room" }, Modifier.size(28.dp))
+                Spacer(Modifier.width(8.dp))
+            }
             Column(Modifier.weight(1f).clickable(onClickLabel = "Room details", onClick = onDetails).padding(vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.name.ifBlank { "Room" }, Modifier.weight(1f, fill = false), maxLines = 1,

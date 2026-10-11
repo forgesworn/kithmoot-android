@@ -503,6 +503,7 @@ data class RoomState(
     val callViewRequest: Int = 0,
     val roomId: String = "",
     val name: String = "",
+    val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
     val joinUrl: String = "",
     /** This room stays on its constrained Orbot/onion carrier. */
     val anonymous: Boolean = false,
@@ -895,6 +896,7 @@ class RoomViewModel @JvmOverloads constructor(
         ),
     )
     private val _room = MutableStateFlow(RoomState(background = backgrounds.load()))
+    private val roomLogos = (application as KithMootApplication).roomLogos
     val room: StateFlow<RoomState> = _room.asStateFlow()
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
     fun notificationReading(reading: Boolean) { if (chatOnly) return; notifications.reading = reading; notifications.refresh() }
@@ -1078,7 +1080,7 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 while (isActive) {
                     if (_start.value.account?.pubkey != account) break
-                    val records = savedRooms.list().filter { it.account == account && it.openedAt > 0 &&
+                    val records = savedRoomSummaries().filter { it.account == account && it.openedAt > 0 &&
                         !it.anonymous && !it.ended && it.endsAt == null && !it.destruct }
                     val ids = records.map { it.id }.toSet()
                     synchronized(workspaceLock) {
@@ -1385,7 +1387,7 @@ class RoomViewModel @JvmOverloads constructor(
                 kotlinx.coroutines.coroutineScope {
                     RoomRouteTransitions.stable {
                     // Re-read persisted routes after waiting for a mode change.
-                    val selected = _start.value.copy(savedRooms = savedRooms.list())
+                    val selected = _start.value.copy(savedRooms = savedRoomSummaries())
                     if (privateChatProfileScope(selected) != selection || stage.value != Stage.START) return@stable
                     val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
                     val transport = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope, writeRelays = emptySet())
@@ -1413,8 +1415,12 @@ class RoomViewModel @JvmOverloads constructor(
         // after this instance opened the room. Follow committed local lifetime
         // changes in every instance, even when a bookmark needs no further write.
         viewModelScope.launch(Dispatchers.IO) {
-            savedRooms.revision.collect {
-                try { reconcileOpenRoomLifetime() }
+            combine(savedRooms.revision,roomLogos.revision) { _, _ -> Unit }.collect {
+                try {
+                    reconcileOpenRoomLifetime()
+                    val rooms = savedRoomSummaries()
+                    _start.update { it.copy(savedRooms = rooms) }
+                }
                 catch (e: CancellationException) { throw e }
                 catch (_: RoomStorageException) { storageFailed() }
             }
@@ -1686,7 +1692,7 @@ class RoomViewModel @JvmOverloads constructor(
      *  device can open them. Never adds a room to the account on its own. */
     private suspend fun shareGroupAdmissions(bookmarks: RoomBookmarks) {
         val listed = bookmarks.state.value.rooms.associateBy { it.roomId }
-        for (summary in savedRooms.list()) {
+        for (summary in savedRoomSummaries()) {
             val bookmarked = listed[summary.id] ?: continue
             if (bookmarked.admission != null) continue
             val saved = savedRooms.get(summary.id) ?: continue
@@ -1699,7 +1705,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun importAccountRooms() {
         AccountWriteHold.process.personActed()
         changeRoomBookmarks { bookmarks ->
-            for (summary in savedRooms.list()) {
+            for (summary in savedRoomSummaries()) {
                 val saved = savedRooms.get(summary.id) ?: continue
                 accountBookmark(saved, bookmarks.identity)?.let { bookmarks.save(it) }
             }
@@ -1820,7 +1826,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     suspend fun availableProjectRooms(): List<ProjectRoomChoice> = withContext(Dispatchers.IO) {
         val actor = accountSigner?.pubkey ?: return@withContext emptyList()
-        savedRooms.list().mapNotNull { summary -> savedRooms.get(summary.id)?.takeIf {
+        savedRoomSummaries().mapNotNull { summary -> savedRooms.get(summary.id)?.takeIf {
             it.participant == actor && it.invitation?.invitation?.persistent == true && !it.retired && !it.movedOn
         }?.let { ProjectRoomChoice(it.id, dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(it.name) ?: "Room", it.joinUrl) } }
     }
@@ -2056,7 +2062,7 @@ class RoomViewModel @JvmOverloads constructor(
                     // releasing the account identity that owns it.
                     signedOutAccount?.let { account ->
                         try {
-                            savedRooms.list().filter { it.account == account }.forEach { room ->
+                            savedRoomSummaries().filter { it.account == account }.forEach { room ->
                                 savedRooms.get(room.id)?.let { saved ->
                                     dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), saved.id,
                                         saved.participant, saved.devicePubkey).outbox.clear()
@@ -2207,6 +2213,7 @@ class RoomViewModel @JvmOverloads constructor(
         val saved = runCatching { savedRooms.get(roomId) }.getOrNull() ?: return
         if (!saved.destruct || !(force || destructor.due(saved))) return
         if (!destructor.claim(roomId)) return
+        roomLogos.forget(roomId)
         val wasOnScreen = _room.value.roomId == roomId
         try {
             withContext(NonCancellable) { leaveForDestruct(roomId) }
@@ -2219,7 +2226,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (wasOnScreen && outcome.left.isEmpty()) _destructEffect.update { it + 1 }
                 sendOwedBookmarkTombstones()
             }
-            val rooms = runCatching { savedRooms.list() }.getOrNull()
+            val rooms = runCatching { savedRoomSummaries() }.getOrNull()
             _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
         } finally {
             destructor.release(roomId)
@@ -2291,7 +2298,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!destructSweep.tryLock()) return
         try {
             val now = epochSeconds()
-            val due = runCatching { savedRooms.list() }.getOrDefault(emptyList()).filter { it.destruct && !destructor.waiting(it.id, now) }
+            val due = runCatching { savedRoomSummaries() }.getOrDefault(emptyList()).filter { it.destruct && !destructor.waiting(it.id, now) }
             for (summary in due) selfDestruct(summary.id)
             sendOwedBookmarkTombstones()
         } finally { destructSweep.unlock() }
@@ -2334,6 +2341,8 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(roomName = value.take(80)) }
     }
 
+    private fun savedRoomSummaries() = roomLogos.decorate(savedRooms.list(), epochSeconds())
+
     fun refreshSavedRooms() {
         _start.update { it.copy(loadingRooms = true) }
         viewModelScope.launch(Dispatchers.IO) {
@@ -2347,7 +2356,7 @@ class RoomViewModel @JvmOverloads constructor(
                         if (accountSession === session) recoverCircleGrantCleanup(session.account.pubkey, session.signer)
                     }
                 }
-                val rooms = savedRooms.list()
+                val rooms = savedRoomSummaries()
                 val pendingNative = NativeRoomCreation.open(getApplication(), savedRooms).use { it.pending() }
                 sweepForgottenRooms()
                 val linked = activeLinkRooms()
@@ -2363,7 +2372,7 @@ class RoomViewModel @JvmOverloads constructor(
      * could not be read, which would sweep every room.
      */
     private fun sweepForgottenRooms() {
-        val saved = { savedRooms.list().mapTo(mutableSetOf()) { it.id }.apply { freshNearbyRoomId?.let { add(it) } } }
+        val saved = { savedRoomSummaries().mapTo(mutableSetOf()) { it.id }.apply { freshNearbyRoomId?.let { add(it) } } }
         runCatching { roomEpochs.retainOnly(saved) }
         runCatching { roomMembers.retainOnly(saved) }
     }
@@ -2654,7 +2663,7 @@ class RoomViewModel @JvmOverloads constructor(
                 _start.update { it.copy(error = e.message ?: "Bothy grant withdrawal is waiting to retry.") }
             }
         }
-        _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms()) }
+        _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms()) }
     }
 
     private fun completeRetiredLinkCleanup(consent: LinkConsent) {
@@ -2683,6 +2692,7 @@ class RoomViewModel @JvmOverloads constructor(
                 it.id, it.participant, it.devicePubkey).outbox.clear()
         }
         savedRooms.forget(id)
+        roomLogos.forget(id)
         // Its keys go with it. What cannot be erased now, the next load's sweep erases.
         runCatching { roomEpochs.forget(id) }
         roomMembers.forget(id)
@@ -2744,6 +2754,7 @@ class RoomViewModel @JvmOverloads constructor(
                 dev.forgesworn.kithmoot.storage.NativeSavedReset.inspect(getApplication()))
             dev.forgesworn.kithmoot.notifications.CallerNames.reset(getApplication())
             savedRooms.reset()
+            roomLogos.clear()
             runCatching { roomEpochs.reset() }
             roomMembers.reset()
         }
@@ -2820,7 +2831,7 @@ class RoomViewModel @JvmOverloads constructor(
                         "Bothy could not confirm the room grants. Your current relays are unchanged."
                     else "Bothy could not confirm grant withdrawal. Your current relays are unchanged and KithMoot kept the route to finish cleanup.")
                 }
-                _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), error = null, notice = message) }
+                _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), error = null, notice = message) }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy could not be connected.") } }
             finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
@@ -2848,7 +2859,7 @@ class RoomViewModel @JvmOverloads constructor(
                 } ?: throw RoomRecoveryException("This room is not connected through Bothy.")
                 if (consent.state == LinkConsentState.RETIRED) {
                     completeRetiredLinkCleanup(consent)
-                    _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
+                    _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
                     return@launch
                 }
                 if (consent.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING)) {
@@ -2866,7 +2877,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val retired = consent.copy(state = LinkConsentState.RETIRED)
                 linkConsents.put(retired)
                 completeRetiredLinkCleanup(retired)
-                _start.update { it.copy(savedRooms = savedRooms.list(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
+                _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), notice = "Bothy access was withdrawn from ${room.name}.") }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { _start.update { it.copy(error = e.message ?: "Bothy access could not be withdrawn; KithMoot kept the route for retry.") } }
             finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
@@ -2910,7 +2921,7 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 change()
-                val rooms = savedRooms.list()
+                val rooms = savedRoomSummaries()
                 val linked = activeLinkRooms()
                 _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), storageError = false, error = null) }
             } catch (_: RoomStorageException) { storageFailed() }
@@ -3497,7 +3508,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val draft = SavedRoom.create(base, who, url, relays, chosen.roomName, at,
                         host = null, authority = creation.authority, route = route)
                     val saved = NativeRoomCreation.open(getApplication(), savedRooms).use { it.begin(creation, draft, who.credential) }
-                    _start.update { it.copy(savedRooms = savedRooms.list(), unfinishedNativeRoom = null) }
+                    _start.update { it.copy(savedRooms = savedRoomSummaries(), unfinishedNativeRoom = null) }
                     openSaved(saved)
                 } finally { base.fill(0); invitation.bearer.fill(0) }
             } finally { creation.close() }
@@ -3508,7 +3519,7 @@ class RoomViewModel @JvmOverloads constructor(
         enter(label = "The unfinished room", opening = "Recovering the unfinished room…") {
             val saved = NativeRoomCreation.open(getApplication(), savedRooms).use { it.recover() }
                 ?: throw RoomRecoveryException("There is no unfinished room to recover.")
-            _start.update { it.copy(savedRooms = savedRooms.list(), unfinishedNativeRoom = null,
+            _start.update { it.copy(savedRooms = savedRoomSummaries(), unfinishedNativeRoom = null,
                 notice = "Room recovered. Open it when you are ready.") }
         }
     }
@@ -3656,7 +3667,7 @@ class RoomViewModel @JvmOverloads constructor(
                             }
                         } finally {
                             who?.let { identity -> savedRooms.forgetIfIdentity(context.roomId, identity.participant, identity.devicePubkey) }
-                            _start.update { it.copy(savedRooms = savedRooms.list()) }
+                            _start.update { it.copy(savedRooms = savedRoomSummaries()) }
                         }
                     }
                 } finally {
@@ -4269,7 +4280,7 @@ class RoomViewModel @JvmOverloads constructor(
                 onUnknown = { request -> askToLetIn(record.id, request.participant) },
             ).asDesk(Dispatchers.IO)
         }
-        val summaries = savedRooms.list()
+        val summaries = savedRoomSummaries()
         _start.update { it.copy(savedRooms = summaries) }
         roomBookmarks?.takeIf { route.internet }?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
             // Opening an account room is the person's own account action: sent now, the
@@ -4486,6 +4497,16 @@ class RoomViewModel @JvmOverloads constructor(
         val nip77Ready = route.internet && !anonymousProfile && record.viaAccount && accountSession?.account?.pubkey == who.participant &&
             ownRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
+        val storedLogoSeed = roomLogos.seed(record, epochSeconds())
+        val logoSeed = storedLogoSeed?.let { seed ->
+            val logos = dev.forgesworn.kithmoot.protocol.RoomLogoBook().apply { this.seed(seed.record, seed.epoch) }
+            logos.current(openedEpoch.epoch) { epoch -> roomEpochs.rekeyAt(record.id, epoch)?.createdAt }
+                ?.let { dev.forgesworn.kithmoot.storage.SavedRoomLogo(it, seed.epoch) }
+        }
+        if (storedLogoSeed != null && logoSeed == null) {
+            roomLogos.forget(record.id)
+            runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
+        }
         _room.value = RoomState(
             // The device's remembered choice, not the constructor's default:
             // this state becomes the camera's background when media starts.
@@ -4498,6 +4519,7 @@ class RoomViewModel @JvmOverloads constructor(
             } },
             mediaRunning = !route.nearby,
             name = record.name,
+            logo = logoSeed?.record?.image,
             joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
@@ -4587,7 +4609,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (freshNearby == null) live.join() else {
             freshNearby.join(live)
             savedRooms.saveNew(record)
-            _start.update { it.copy(savedRooms = savedRooms.list()) }
+            _start.update { it.copy(savedRooms = savedRoomSummaries()) }
         }
         if (nativeEntry != null) {
             val q = nativeEntry.binding.let { b -> dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
@@ -4626,7 +4648,7 @@ class RoomViewModel @JvmOverloads constructor(
                                             if (stored.nativeAuthority?.pin == hosting.binding.pin) stored.invitationRetired() else stored
                                         }
                                         if (attached()) savedRoom = repaired
-                                        _start.update { it.copy(savedRooms = savedRooms.list()) }
+                                        _start.update { it.copy(savedRooms = savedRoomSummaries()) }
                                     }
                                 }
                             } catch (cancel: CancellationException) { throw cancel }
@@ -4706,6 +4728,9 @@ class RoomViewModel @JvmOverloads constructor(
                     ends=record.ends,
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
+                    initialRoomLogo=logoSeed?.record,
+                    initialRoomLogoEpoch=logoSeed?.epoch,
+                    onRoomLogo={ shared,epoch -> onRoomLogoReceived(record,live,shared,epoch) },
                     rekeyedAt={ epoch -> rekeyTimes[epoch] ?: runCatching { roomEpochs.rekeyAt(record.id, epoch)?.createdAt }.getOrNull() },
                     onRoomName={ shared -> onRoomNameReceived(record.id, shared) },
                     onRename={ rename -> onRenameRead(derived.roomId, rename) },
@@ -7044,7 +7069,7 @@ class RoomViewModel @JvmOverloads constructor(
                     roomRelaysSigned = roomRelays.isNotEmpty(),
                 )
                 savedRooms.save(retained)
-                _start.update { it.copy(savedRooms = savedRooms.list()) }
+                _start.update { it.copy(savedRooms = savedRoomSummaries()) }
                 if (!live.sendInviteConfirmed(sealed)) {
                     throw RoomRecoveryException("The relays refused the private invitation; nobody was told its link.")
                 }
@@ -7382,13 +7407,38 @@ class RoomViewModel @JvmOverloads constructor(
      * with its order key, so an older link does not put the old name back.
      * Mirrors `adoptSharedRoomName` in the web client's `app/src/main.ts`.
      */
+    private fun onRoomLogoReceived(target: SavedRoom, expected: RoomSession,
+        shared: dev.forgesworn.kithmoot.protocol.RoomLogoRecord?, epoch: Int) {
+        fun current(): Boolean = session === expected && roomWork?.roomLogoEpoch() == epoch &&
+            savedRoom?.let { it.id == target.id && it.participant == target.participant && it.devicePubkey == target.devicePubkey } == true
+        if (!current()) return
+        val room = savedRoom ?: return
+        val accepted = roomLogos.remember(room, shared, epoch, epochSeconds())
+        _room.update { if (current() && it.roomId == target.id && !it.anonymous && !it.quiet && !it.privateConversation)
+            it.copy(logo = accepted?.record?.image) else it }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!current()) return@launch
+            persistLiveRoom(target.id, "The room logo could not be saved on this phone. It still shows here.") { stored ->
+                if (!current() || stored.participant != target.participant || stored.devicePubkey != target.devicePubkey) stored
+                else {
+                    val previous = stored.sharedLogo
+                    if (shared == null) {
+                        if (previous != null && previous.epoch >= epoch) stored else stored.withSharedLogo(null)
+                    } else if (previous != null && (previous.epoch > epoch || previous.epoch == epoch &&
+                            dev.forgesworn.kithmoot.protocol.compareRoomLogos(previous.record, shared) > 0)) stored
+                    else stored.withSharedLogo(shared, epoch)
+                }
+            }
+        }
+    }
+
     private fun onRoomNameReceived(roomId: String, shared: RoomNameRecord) {
         if (savedRoom?.id != roomId) return
         viewModelScope.launch(Dispatchers.IO) {
             if (savedRoom?.id != roomId) return@launch
             if (savedRoom?.sharedName?.let { it.id == shared.id && it.at == shared.at && it.name == shared.name } != true) {
                 persistLiveRoom(roomId, "The room's new name could not be saved on this phone. It still shows here.") { it.withSharedName(shared) }
-                runCatching { savedRooms.list() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
+                runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
             }
             notifications.rename(roomId, shared.name)
             withContext(Dispatchers.Main) {

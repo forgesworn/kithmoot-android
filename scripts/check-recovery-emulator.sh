@@ -114,6 +114,7 @@ for picture in chat viewer pip; do
   pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/chat-share-$picture.png"
 done
 run_tests artwork-picker 5 -e class dev.forgesworn.kithmoot.ui.ArtworkPickerUiTest
+run_tests room-logo-display 5 -e class dev.forgesworn.kithmoot.ui.RoomLogoUiTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest

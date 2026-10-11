@@ -43,7 +43,8 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
     open: () -> Unit, actions: List<ConversationAction>, pinned: Boolean = false, ended: Boolean = false, unread: Int = 0,
     /** The room's countdown pill, for a room with an end still to come. */
     countdown: (@Composable () -> Unit)? = null,
-    privatePeer: String? = null, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
+    privatePeer: String? = null, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null,
+    logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
     // "No messages yet" says nothing the row does not already show, so the
@@ -71,7 +72,7 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
             if (privatePeer != null && profile?.picture != null) {
                 dev.forgesworn.kithmoot.ui.room.ProfileAvatar(privatePeer, name, profile,
                     Modifier.size(40.dp).clearAndSetSemantics {})
-            } else RoomAvatar(roomId, name, ended)
+            } else RoomAvatar(roomId, name, ended, logo.takeIf { privatePeer == null })
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
                 if (stacked) {
                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurface)
@@ -117,14 +118,12 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
 /** A 40dp circle with the room's first letter or digit. Colour comes from the
  *  room id so a room looks the same on every device; an ended room goes muted. */
 @Composable
-private fun RoomAvatar(roomId: String, name: String, ended: Boolean) {
+private fun RoomAvatar(roomId: String, name: String, ended: Boolean, logo: dev.forgesworn.kithmoot.protocol.LogoImage?) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.5f
     val fill = if (ended) scheme.surfaceVariant else Color(avatarColour(roomId, dark))
     val text = if (ended) scheme.onSurfaceVariant else Color.White
-    Box(Modifier.size(40.dp).clip(CircleShape).background(fill).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-        Text(avatarLetter(name), color = text, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
-    }
+    dev.forgesworn.kithmoot.ui.room.PrivateLogo(logo.takeUnless { ended }, avatarLetter(name), Modifier.size(40.dp), fill, text)
 }
 
 @Composable
