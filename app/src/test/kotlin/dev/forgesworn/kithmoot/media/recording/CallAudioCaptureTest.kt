@@ -144,4 +144,38 @@ class CallAudioCaptureTest {
             assertNull(timeline())
         } finally { capture.discard(); directory.deleteRecursively() }
     }
+    @Test fun `frame permission revocation clears queued PCM and never rearms the old capture`() {
+        val directory = Files.createTempDirectory("capture-permission-").toFile()
+        var time = 0L
+        var allowed = true
+        val capture = CallAudioCapture(File(directory, "call.wav"), allowed = { allowed }, clock = { time })
+        try {
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(1234), 16, 48_000, 1, 480)
+            allowed = false
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            assertTrue(capture.permissionRevoked())
+            allowed = true
+            time = 10_000_000
+            capture.localSamples(pcm(7777), 16, 48_000, 1, 480)
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            assertEquals(44 + 960, data.capacity())
+            for (offset in 44 until data.capacity() step 2) assertEquals(0, data.getShort(offset).toInt())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
+    @Test fun `unreadable frame permission fails closed without exporting a callback buffer`() {
+        val directory = Files.createTempDirectory("capture-permission-error-").toFile()
+        var time = 0L
+        val capture = CallAudioCapture(File(directory, "call.wav"), allowed = { error("Owner unavailable") }, clock = { time })
+        try {
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            assertTrue(capture.permissionRevoked())
+            time = 10_000_000
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            for (offset in 44 until data.capacity() step 2) assertEquals(0, data.getShort(offset).toInt())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
 }

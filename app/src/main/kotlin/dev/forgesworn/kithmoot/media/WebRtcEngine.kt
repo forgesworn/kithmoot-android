@@ -270,11 +270,11 @@ class WebRtcEngine(
 
     /** The caller must first confirm the room's signed notice. No discovery,
      * upload or public metadata publication is initiated by local capture. */
-    fun startAudioRecording(file: File): CallAudioCapture =
+    fun startAudioRecording(file: File, stillAllowed: () -> Boolean = { true }): CallAudioCapture =
         synchronized(recordingLock) {
             check(callActive) { "Join the call before recording" }
             check(audioRecording == null) { "This device is already recording" }
-            val capture = CallAudioCapture(file, output = { AacRecordingFile(it) })
+            val capture = CallAudioCapture(file, output = { AacRecordingFile(it) }, allowed = stillAllowed)
             try {
                 capture.setInputs(recordingInputs, recordingLocalAllowed)
                 audioRecording = capture
@@ -282,11 +282,12 @@ class WebRtcEngine(
             } catch (error: Throwable) { capture.discard(); throw error }
         }
 
-    fun startVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>): CallAudioCapture =
+    fun startVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>, stillAllowed: () -> Boolean = { true }): CallAudioCapture =
         synchronized(recordingLock) {
             check(callActive && audioRecording == null) { "The original call is unavailable or already recording" }
-            val scene = RecordingVideoScene(plan)
-            val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) }) }
+            val permission = dev.forgesworn.kithmoot.media.recording.RecordingCapturePermission(stillAllowed)
+            val scene = RecordingVideoScene(plan, permission::allowed)
+            val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) }, allowed = permission::allowed) }
                 catch (error: Throwable) { scene.dispose(); throw error }
             try {
                 capture.setInputs(recordingInputs, recordingLocalAllowed)

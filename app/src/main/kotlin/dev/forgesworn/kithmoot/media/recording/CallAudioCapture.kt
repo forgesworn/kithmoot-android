@@ -18,8 +18,10 @@ import java.util.concurrent.TimeUnit
 class CallAudioCapture(
     private val file: File,
     output: (File) -> PcmFileOutput = { PcmWaveFile(it) },
+    allowed: () -> Boolean = { true },
     private val clock: () -> Long = System::nanoTime,
 ) {
+    private val permission = RecordingCapturePermission(allowed)
     private val mixer = PcmRecordingMixer()
     private val writer = output(file)
     private val worker = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "KithMootRecording").apply { isDaemon = true } }
@@ -41,7 +43,7 @@ class CallAudioCapture(
         try {
             writer.bindTimeline {
                 synchronized(this) {
-                    if (finished || stoppedAt != null || pausedAt != null || failure != null) null else frameNow()
+                    if (finished || stoppedAt != null || pausedAt != null || failure != null || !captureAllowed()) null else frameNow()
                 }
             }
         } catch (error: Throwable) { worker.shutdownNow(); writer.discard(); throw error }
@@ -99,7 +101,14 @@ class CallAudioCapture(
         }
     }
 
-    private fun refreshSources() = mixer.setSources(gains.keys + if (localAllowed) setOf(LOCAL) else emptySet())
+    private fun refreshSources() = mixer.setSources(if (captureAllowed()) gains.keys + if (localAllowed) setOf(LOCAL) else emptySet() else emptySet())
+
+    private fun captureAllowed(): Boolean {
+        val allowed = permission.allowed()
+        if (!allowed) mixer.clear()
+        return allowed
+    }
+    fun permissionRevoked(): Boolean = permission.revoked()
 
     /** Feed the post-mute, post-app-sound outgoing buffer, never a raw mic tap.
      * Copy happens synchronously before WebRTC reuses the buffer.
@@ -108,7 +117,7 @@ class CallAudioCapture(
         receive(LOCAL, buffer, bits, rate, channels, frames)
 
     @Synchronized private fun receive(source: String, buffer: ByteBuffer, bits: Int, rate: Int, channels: Int, frames: Int) {
-        if (finished || stoppedAt != null || failure != null || pausedAt != null) return
+        if (finished || stoppedAt != null || failure != null || pausedAt != null || !captureAllowed()) return
         val gain = if (source == LOCAL) { if (!localAllowed) return else 1.0 } else gains[source] ?: return
         try { mixer.offer(source, buffer, bits, rate, channels, frames, frameNow(), gain) }
         catch (error: Throwable) { fail(error) }
@@ -224,6 +233,7 @@ class CallAudioCapture(
     private fun fail(error: Throwable) { failure = error; mixer.clear() }
     private fun frameNow(): Long = (((pausedAt ?: stoppedAt ?: clock()) - began - omitted).coerceAtLeast(0) / 1000) * PcmRecordingMixer.SAMPLE_RATE / 1_000_000
     private fun takeUntil(frame: Long): ShortArray {
+        captureAllowed()
         check(frame - emitted <= PcmRecordingMixer.CAPACITY) { "Recording worker fell behind" }
         val count = (frame - emitted).coerceAtLeast(0).toInt()
         if (count == 0) return ShortArray(0)
@@ -232,6 +242,7 @@ class CallAudioCapture(
     }
 
     private fun writeSamples(samples: ShortArray) {
+        if (!synchronized(this) { captureAllowed() }) samples.fill(0)
         try { if (samples.isNotEmpty()) writer.write(samples) }
         catch (error: Throwable) { synchronized(this) { fail(error) }; throw error }
         finally { samples.fill(0) }

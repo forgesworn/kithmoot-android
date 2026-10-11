@@ -5750,6 +5750,7 @@ class RoomViewModel @JvmOverloads constructor(
         val work = roomWork?.takeIf { it.moderator } ?: return note("Only the room's authority can start recording.")
         val originalSession = session ?: return note("Join the call before recording.")
         val originalCall = originalSession.currentCall() ?: return note("Join the call before recording.")
+        val originalEpoch = originalSession.epochKeys().epoch
         val originalState = _room.value
         val liveWarnings = originalSession.requiresLiveRecordingWarnings
         if(liveWarnings && !originalSession.liveRecordingCompatible(originalCall.id))
@@ -5787,12 +5788,15 @@ class RoomViewModel @JvmOverloads constructor(
                     origin = origin,
                     discardAt = originalState.endsAt?.takeIf { originalState.destruct })
                 file = source
-                val recordingId = work.startRecording(layout?.wire ?: "audio",
+                val recordingNotice = work.startRecording(layout?.wire ?: "audio",
                     stillAllowed = { nativeRecordingGeneration == ticket && (layout == null || appVisible) &&
-                        originalSession.currentCall()?.id == origin.call && (!liveWarnings || originalSession.liveRecordingCompatible(origin.call)) },
-                    onArmed = { noticeId = it }).id
+                        originalSession.currentCall()?.id == origin.call &&
+                        (originalSession.epochState.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.epoch == originalEpoch &&
+                        (!liveWarnings || originalSession.liveRecordingCompatible(origin.call)) },
+                    onArmed = { noticeId = it })
+                val recordingId = recordingNotice.id
                 noticeId = recordingId
-                synchronized(nativeRecordingLock) {
+                val installedCapture = synchronized(nativeRecordingLock) {
                     check(nativeRecordingGeneration == ticket && engine === media && roomWork === work && session === originalSession &&
                         originalSession.currentCall()?.id == origin.call && _room.value.onCall && media.callActive && (layout == null || appVisible) &&
                         (!liveWarnings || originalSession.liveRecordingCompatible(origin.call)) &&
@@ -5803,13 +5807,25 @@ class RoomViewModel @JvmOverloads constructor(
                     val activeSpeaker = speaker?.select(snapshot.first, _room.value.speaking, android.os.SystemClock.elapsedRealtime())
                     val captureKey = activeSpeaker?.key ?: chosen
                     val captureName = activeSpeaker?.name ?: selectedName
-                    val capture = if (layout == null) media.startAudioRecording(source) else media.startVideoRecording(source,
-                        dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, snapshot.first, captureKey, captureName), snapshot.second)
+                    // Media callbacks must not acquire nativeRecordingLock.
+                    // The volatile generation and immutable flow snapshots
+                    // fence the original owner before the UI's stop loop runs.
+                    val captureAllowed = {
+                        nativeRecordingGeneration == ticket && media.callActive && originalSession.currentCall()?.id == origin.call &&
+                            (originalSession.epochState.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.epoch == originalEpoch &&
+                            (originalState.endsAt == null || epochSeconds() < originalState.endsAt) &&
+                            work.meeting.state.value.recording?.notice == recordingNotice &&
+                            (!liveWarnings || originalSession.liveRecordingCompatible(origin.call)) &&
+                            (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id == recordingId
+                    }
+                    val capture = if (layout == null) media.startAudioRecording(source, captureAllowed) else media.startVideoRecording(source,
+                        dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, snapshot.first, captureKey, captureName), snapshot.second, captureAllowed)
                     nativeRecordingOwner = NativeRecordingOwner(recordingId, media, work, source, capture, origin, layout, captureKey, captureName, speaker)
                     nativeRecordingStarting = false
                     nativeRecordingStartJob = null
                     installed = true
                     _room.update { it.copy(nativeRecording = true, nativeRecordingPaused = false, nativeRecordingBusy = false, nativeRecordingPreparing = false) }
+                    capture
                 }
                 viewModelScope.launch {
                     while (isActive) {
@@ -5819,7 +5835,7 @@ class RoomViewModel @JvmOverloads constructor(
                         refreshRecordingVideo(media, originalSession)
                         if (layout != null && !appVisible && !_room.value.nativeRecordingPaused) changeNativeRecordingPause(true)
                         val error = media.audioRecordingError()
-                        if (error != null || engine !== media || session !== originalSession ||
+                        if (error != null || installedCapture.permissionRevoked() || engine !== media || session !== originalSession ||
                             originalSession.currentCall()?.id != origin.call || !_room.value.onCall ||
                             (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id != noticeId) {
                             stopNativeRecording()

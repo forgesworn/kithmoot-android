@@ -21,7 +21,7 @@ import org.webrtc.VideoTrack
  * screen textures. The callback clock is the audio mixer's paused timeline.
  * Native sink attachment/removal always happens outside the callback monitor.
  */
-class RecordingVideoScene(initial: RecordingVideoPlan) {
+class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true }) {
     private data class Snapshot(val at: Long, val frame: VideoFrame)
     private class Input(val key: RecordingVideoKey, val track: VideoTrack, val width: Int, val height: Int) {
         lateinit var sink: VideoSink
@@ -112,7 +112,10 @@ class RecordingVideoScene(initial: RecordingVideoPlan) {
         held.forEach { runCatching { it.track.removeSink(it.sink) } }
     }
 
+    private fun captureAllowed(): Boolean = runCatching(allowed).getOrDefault(false)
+
     private fun receive(input: Input, frame: VideoFrame) {
+        if (!captureAllowed()) { synchronized(this) { input.clear() }; return }
         // Never call the audio clock while holding the video monitor: pause and
         // detachment acquire the audio monitor before updating this scene.
         val clock = synchronized(this) {
@@ -134,7 +137,7 @@ class RecordingVideoScene(initial: RecordingVideoPlan) {
             val buffer = try { i420.cropAndScale(0, 0, i420.width, i420.height, width, height) } finally { i420.release() }
             copied = VideoFrame(buffer, frame.rotation, frame.timestampNs)
             synchronized(this) {
-                if (!paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
+                if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
                     while (input.frames.size > 3) input.frames.removeFirst().frame.release()
                 }
@@ -167,6 +170,10 @@ class RecordingVideoScene(initial: RecordingVideoPlan) {
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         GLES20.glViewport(0, 0, width, height)
         GLES20.glClearColor(0.055f, 0.067f, 0.086f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        if (!captureAllowed()) {
+            inputs.values.forEach { it.clear() }
+            return
+        }
         val messages = plan.slots.map { slot ->
             val key = slot.source
             val input = key?.let(inputs::get)
