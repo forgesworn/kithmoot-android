@@ -374,13 +374,22 @@ class BrowserCallInteropTest {
             pc.addTrack(video, listOf("native")); pc.addTrack(audio, listOf("native"))
             routing.setActive(true)
             videoSource.capturerObserver.onCapturerStarted(true)
+            // Each SDK plane getter returns a fresh ByteBuffer slice. Calling
+            // it per pixel creates 115,200 wrappers per frame and can starve
+            // the real decoder/recording worker this fixture is qualifying.
+            val syntheticY = ByteArray(320 * 240) { 160.toByte() }
+            val syntheticU = ByteArray(160 * 120) { 90.toByte() }
+            val syntheticV = ByteArray(160 * 120) { 130.toByte() }
             scheduler.scheduleAtFixedRate({
                 val buffer = JavaI420Buffer.allocate(320, 240)
-                for (i in 0 until buffer.dataY.capacity()) buffer.dataY.put(i, 160.toByte())
-                for (i in 0 until buffer.dataU.capacity()) buffer.dataU.put(i, 90.toByte())
-                for (i in 0 until buffer.dataV.capacity()) buffer.dataV.put(i, 130.toByte())
+                buffer.dataY.put(syntheticY)
+                buffer.dataU.put(syntheticU)
+                buffer.dataV.put(syntheticV)
                 val frame = VideoFrame(buffer, 0, System.nanoTime())
-                videoSource.capturerObserver.onFrameCaptured(frame); capturedVideo.incrementAndGet(); frame.release()
+                try {
+                    videoSource.capturerObserver.onFrameCaptured(frame)
+                    capturedVideo.incrementAndGet()
+                } finally { frame.release() }
             }, 0, 66, TimeUnit.MILLISECONDS)
             val code = instrumentation.context.assets.open("browser-peer.js").bufferedReader().use { it.readText() }
             activity.scenario.onActivity {
