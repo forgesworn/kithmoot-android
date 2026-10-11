@@ -97,7 +97,7 @@ class RoomWork(
     initialRoomLogo:RoomLogoRecord?=null,
     /** Preserve the epoch a cached logo was accepted under. */
     initialRoomLogoEpoch:Int?=null,
-    private val onRoomLogo:(RoomLogoRecord?)->Unit={},
+    private val onRoomLogo:(RoomLogoRecord?,Int)->Unit={_,_->},
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -134,9 +134,11 @@ class RoomWork(
     private val logos=RoomLogoBook().apply { initialRoomLogo?.let { seed(it,initialRoomLogoEpoch) } }
     private val logoMessages=HashSet<String>()
     private var shownLogo:String?=null
+    private var logoAwaitingSeed=initialRoomLogo!=null
     private var logoCarry:Job?=null
     @Volatile private var logoCarryScheduled=false
     fun roomLogo():RoomLogoRecord?=synchronized(logos){logos.current(trafficEpoch,rekeyedAt)}
+    fun roomLogoEpoch():Int=trafficEpoch
     /** The room's shared name now, or null while nobody has renamed it. */
     fun roomName():RoomNameRecord?=synchronized(names){names.current(trafficEpoch,rekeyedAt)}
     private fun receive(message:ChatMessage,epoch:Int) {
@@ -293,12 +295,13 @@ class RoomWork(
         val next=synchronized(logos) {
             if(closed)return
             val record=logos.current(trafficEpoch,rekeyedAt)
-            val identity=record?.let { "${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
-            if(shownLogo==identity)return
+            val identity=record?.let { "$trafficEpoch:${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
+            if(!logoAwaitingSeed&&shownLogo==identity)return
+            logoAwaitingSeed=false
             shownLogo=identity
-            record
+            record to trafficEpoch
         }
-        runCatching { onRoomLogo(next) }
+        runCatching { onRoomLogo(next.first,next.second) }
     }
 
     /** Confirm a private room override or explicit removal in this epoch only. */

@@ -29,6 +29,7 @@ class KithMootApplication : Application() {
     val signerRelay = dev.forgesworn.kithmoot.account.SignerRelay()
 
     val savedRooms: RoomRepository by lazy { RoomRepository(EncryptedRoomStorage(this)) }
+    val roomLogos = dev.forgesworn.kithmoot.storage.RoomLogoMemory()
 
     /** The Nostr account this phone is signed in as, in its own vault. */
     val accounts: AccountStore by lazy { AccountStore(EncryptedRoomStorage(this, "kithmoot.account.v1")) }
