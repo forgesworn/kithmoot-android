@@ -20,5 +20,8 @@ Clips remain local until an explicit Save or Share. Unit tests cover two
 independent recorders without owner keys, failed-start recovery and older
 devices. The JVM independently verifies the TypeScript-signed profile 4
 fixtures for all layouts and Off. The emulator capture suite includes the
-actual non-owner Compose controls and AAC export. Physical phone acceptance
+actual non-owner Compose controls and AAC export. Android's dock keeps a live
+gallery of the original call above another chat or the rooms list, using the
+same video tracks and audio engine. Only the explicit Hide gallery control
+collapses it. Physical phone acceptance
 and production publication are separate checks.
