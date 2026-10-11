@@ -248,7 +248,10 @@ fun KithMootApp(
             onCancel = model::cancelGuestAdmission, onClose = model::closeGuestAdmission,
             onRetry = model::retryGuestAdmission,
             projectBrand = if (startState.anonymousMode || startState.account?.pubkey != workspaceAccountState.account?.pubkey) null
-                else dev.forgesworn.kithmoot.ui.room.currentInvitationProjectBrand(startState.joinUrl, workspaceAccountState))
+                else dev.forgesworn.kithmoot.ui.room.currentInvitationProjectBrand(startState.joinUrl, workspaceAccountState,
+                    guest.projectInvitation?.project)?.takeIf { brand -> guest.projectInvitation?.let {
+                        it.account == workspaceAccountState.account?.pubkey && it.project == brand.reference && it.room == brand.room
+                    } != false })
     }
     var nearbyInviteRequest by remember { mutableStateOf<Triple<String, String, dev.forgesworn.kithmoot.relay.RoomRoute>?>(null) }
     var nearbyCreateRequest by remember { mutableStateOf<dev.forgesworn.kithmoot.relay.RoomRoute?>(null) }

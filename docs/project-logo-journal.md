@@ -79,13 +79,13 @@ withholds it; another project cannot take over the existing call label. Leaving
 clears the captured context. Capturing an absent context prevents later sign-in
 or directory recovery from inventing a project for an already active call.
 
-The admission-dialog component can use an exact invitation fragment already
-held in the account's joined directory to supply a project label and inline
-artwork. Unknown links show no guessed project identity. This lookup performs
-no network request, creates no membership and grants no access. Shared-project
-links are persistent, while the current real guest preview opens for temporary
-links; connecting branded preview to the persistent-project entry journey
-remains open. The component's rendered-state tests do not close that gate.
+The [persistent project invitation preview](project-invitation-preview.md)
+connects external and pasted links to a real review screen when the current
+account already holds the exact invitation in a joined, unambiguous project.
+Its label and inline artwork come from that verified directory; unknown links
+show no guessed project identity. Review performs no invitation lookup, creates
+no membership and grants no access. Only **Open room** starts entry, with the
+reviewed account, project and authenticated room checked before saving.
 Quiet, private and anonymous rooms,
 anonymous browsing, ended rooms and another account's saved rooms withhold
 project artwork. Names remain visible beside the logo and the admission screen
@@ -93,5 +93,9 @@ explains that a logo is not proof of access.
 
 Source implementation, installed emulator checks, public APK availability and
 physical-phone acceptance remain separate evidence. This source change
-publishes no APK. Persistent-project invitation preview, closed-room catch-up, cross-client recovery and physical
-acceptance remain open; G15 is not complete.
+publishes no APK. The [closed-room artwork checks](closed-room-logo-catchup.md)
+qualify native post-admission history, removal and encrypted local cache
+restoration. Separate [room-artwork process-death checks](room-logo-process-recovery.md)
+qualify accepted images and removals after active SIGKILL. Independent
+browser/native replacement-device recovery, project-logo process recovery and
+physical acceptance remain open; G15 is not complete.

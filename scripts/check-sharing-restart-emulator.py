@@ -20,6 +20,8 @@ def main(profile="sharing"):
         "native-host": (APP + ".ui.NativeHostRestartTest", "native_host", "KITHMOOT_NATIVE_HOST", None),
         "native-rekey-before": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "before-handoff"),
         "native-rekey-after": (APP + ".epoch.NativeRekeyRestartTest", "native_rekey", "KITHMOOT_NATIVE_REKEY", "after-handoff"),
+        **{"room-logo-" + mode: (APP + ".ui.RoomLogoRestartTest", "room_logo", "KITHMOOT_ROOM_LOGO", mode)
+            for mode in ("image", "removal")},
         **{"native-retirement-" + mode: (APP + ".epoch.NativeRetirementRestartTest",
             "native_retirement", "KITHMOOT_NATIVE_RETIREMENT", mode) for mode in
             ("pending-original", "reserved-before-offer", "offered-before-archive", "archive-before-hint")},

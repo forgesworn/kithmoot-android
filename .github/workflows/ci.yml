@@ -195,6 +195,8 @@ jobs:
           script: |
             bash scripts/check-recovery-emulator.sh
             python3 scripts/check-sharing-restart-emulator.py
+            python3 scripts/check-room-logo-restart-emulator.py image
+            python3 scripts/check-room-logo-restart-emulator.py removal
             python3 scripts/check-native-host-restart-emulator.py
             python3 scripts/check-native-rekey-restart-emulator.py before-handoff
             python3 scripts/check-native-rekey-restart-emulator.py after-handoff
@@ -214,6 +216,7 @@ jobs:
           path: |
             app/build/reports/recovery-emulator/
             app/build/reports/sharing-restart-emulator/
+            app/build/reports/room-logo-*-restart-emulator/
             app/build/reports/native-host-restart-emulator/
             app/build/reports/native-rekey-before-restart-emulator/
             app/build/reports/native-rekey-after-restart-emulator/

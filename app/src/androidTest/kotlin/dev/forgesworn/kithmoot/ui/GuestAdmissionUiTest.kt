@@ -43,8 +43,8 @@ class GuestAdmissionUiTest {
     }
 
     private fun show(permission: PermissionAsker = PermissionAsker { it.onGranted() }, available: Boolean = true,
-        dark: Boolean = false, large: Boolean = false) {
-        gate.prepare("synthetic-invitation", "Guest preview workshop", "Rowan")
+        dark: Boolean = false, large: Boolean = false, review: ProjectInvitationReview? = null) {
+        gate.prepare("synthetic-invitation", "Guest preview workshop", review?.name ?: "Rowan", review)
         compose.setContent {
             val view by gate.view.collectAsState()
             val density = LocalDensity.current
@@ -64,6 +64,31 @@ class GuestAdmissionUiTest {
     }
 
     private fun action(text: String) = compose.onNode(hasText(text) and hasClickAction())
+
+    private fun persistentActionsWithLargeText(dark: Boolean) {
+        val account = dev.forgesworn.kithmoot.account.LocalSigner(ByteArray(32) { 2 }).pubkey
+        val review = ProjectInvitationReview(account, dev.forgesworn.kithmoot.account.npubOf(account), "Rowan",
+            dev.forgesworn.kithmoot.protocol.ProjectReference(account, "ab".repeat(32)), "cd".repeat(32))
+        show(dark = dark, large = true, review = review)
+        // The optional checks and full public key can scroll; entry must remain
+        // reachable without scrolling in either theme at 160 percent text size.
+        action("Open room").assertIsDisplayed()
+        action("Close invitation").assertIsDisplayed()
+        assertWholeControlInsideDisplay("Open room")
+        assertWholeControlInsideDisplay("Close invitation")
+        action("Preview camera").performScrollTo().performClick()
+        action("Open room").assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(review, attempts.single().projectInvitation)
+            assertEquals(GuestAdmissionPhase.OPENING, gate.view.value!!.phase)
+            assertFalse(devices.cameraLive)
+        }
+        action("Cancel opening").performScrollTo().performClick()
+        compose.onNodeWithText("Opening was cancelled").assertIsDisplayed()
+    }
+
+    @Test fun persistentProjectActionsStayVisibleWithLargeTextInLightTheme() = persistentActionsWithLargeText(false)
+    @Test fun persistentProjectActionsStayVisibleWithLargeTextInDarkTheme() = persistentActionsWithLargeText(true)
 
     private fun assertWholeControlInsideDisplay(text: String) {
         val node = action(text).fetchSemanticsNode()

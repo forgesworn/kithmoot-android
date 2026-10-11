@@ -909,6 +909,7 @@ class RoomViewModel @JvmOverloads constructor(
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
     private val guestAdmissionGate = GuestAdmissionGate()
+    private var projectPreviewAccount: AccountSession? = null
     val guestAdmission: StateFlow<GuestAdmissionView?> = guestAdmissionGate.view
 
     /** The remembered background, read before [_room] because the room's first
@@ -3094,14 +3095,14 @@ class RoomViewModel @JvmOverloads constructor(
     private fun openingLine(name: String?, fallback: String): String =
         "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
-    private suspend fun openSaved(saved: SavedRoom) {
+    private suspend fun openSaved(saved: SavedRoom, projectContext: ProjectReference? = null, guest: GuestAdmissionAttempt? = null) {
         if (saved.anonymous) holdForTorOnlyEntry()
         // Also reached outside runEnter (a room update retry), so the entry share is given back here too.
         try {
             val who = savedIdentity(saved)
             open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, saved.secondary,
                 saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
-                anonymous = saved.anonymous)
+                anonymous = saved.anonymous, projectContext = projectContext, guest = guest)
         } finally { releaseTorOnlyEntry() }
     }
 
@@ -3156,7 +3157,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
     private fun enter(label: String = "That room", opening: String = "Opening the room…", guest: GuestAdmissionAttempt? = null, block: suspend () -> Unit) {
-        if (guest == null) guestAdmissionGate.clear()
+        if (guest == null) { guestAdmissionGate.clear(); projectPreviewAccount = null }
         else if (!guestAdmissionGate.isCurrent(guest)) return
         // Whatever the person opens wins over reopening a parked room.
         parkedRoomId = null
@@ -3624,6 +3625,17 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Read only the verified directory owned by this instance's current account. */
+    private fun projectInvitationState(): StartState {
+        val state = _start.value
+        val directory = sharedProjects ?: borrowedAccountOwner?.takeIf {
+            it.accountSession === accountSession && it._start.value.account?.pubkey == state.account?.pubkey
+        }?.sharedProjects
+        return state.copy(projects = directory?.state?.value?.takeIf {
+            directory.identity == state.account?.pubkey && directory.identity == accountSigner?.pubkey
+        } ?: ProjectAccountSnapshot())
+    }
+
     /** Joins from a pasted or tapped link. The one entry point for both. */
     fun joinFromUrl(raw: String) {
         val url = raw.trim()
@@ -3634,16 +3646,19 @@ class RoomViewModel @JvmOverloads constructor(
         val preview = guestAdmission.value
         if (preview != null && _start.value.joinUrl == url && _start.value.busy) return
         val payload = runCatching { decodeInvitationUrl(url) }.getOrNull()
-        if (_stage.value == Stage.START && payload != null && !payload.invitation.persistent &&
+        val projectReview = projectInvitationReview(url, projectInvitationState())
+        if (_stage.value == Stage.START && payload != null && (!payload.invitation.persistent || projectReview != null) &&
             decodeInvitationPairingLink(url) == null && runCatching { savedRooms.findInvitation(url) }.getOrNull() == null) {
             guestAdmissionGate.clear()
             if (_start.value.busy) stopOpening()
             _start.update { it.copy(joinUrl = url, error = null, notice = null) }
-            guestAdmissionGate.prepare(url, payload.name?.take(120).orEmpty(),
-                if (_start.value.anonymousMode) "" else _start.value.account?.shownName.orEmpty())
+            projectPreviewAccount = if (projectReview == null) null else accountSession
+            guestAdmissionGate.prepare(url, projectReview?.roomName ?: payload.name?.take(120).orEmpty(),
+                projectReview?.name ?: if (_start.value.anonymousMode) "" else _start.value.account?.shownName.orEmpty(), projectReview)
             return
         }
         guestAdmissionGate.clear()
+        projectPreviewAccount = null
         enter(label = "The invitation", opening = "Opening the invitation…") { join(url) }
     }
 
@@ -3652,11 +3667,11 @@ class RoomViewModel @JvmOverloads constructor(
     fun requestGuestAdmission() {
         if (_stage.value != Stage.START) return
         val attempt = guestAdmissionGate.request() ?: return
-        enter(label = "The invitation", opening = "Sending your request…", guest = attempt) {
+        enter(label = "The invitation", opening = if (attempt.projectInvitation == null) "Sending your request…" else "Opening your room…", guest = attempt) {
             try {
                 ensureGuestAdmissionCurrent(attempt)
                 join(attempt.url, attempt)
-                if (session != null) guestAdmissionGate.finish(attempt)
+                if (session != null && guestAdmissionGate.finish(attempt)) projectPreviewAccount = null
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 guestAdmissionGate.phase(attempt, GuestAdmissionPhase.UNAVAILABLE, roomEntryFailureMessage(error))
@@ -3668,19 +3683,39 @@ class RoomViewModel @JvmOverloads constructor(
     fun cancelGuestAdmission() {
         if (_stage.value != Stage.START) return
         guestAdmissionGate.cancel()
+        projectPreviewAccount = null
         if (_start.value.busy) stopOpening()
     }
 
     fun closeGuestAdmission() {
         cancelGuestAdmission()
         guestAdmissionGate.clear()
+        projectPreviewAccount = null
     }
 
-    fun retryGuestAdmission() { if (!_start.value.busy) guestAdmissionGate.retry() }
+    fun retryGuestAdmission() {
+        if (_start.value.busy) return
+        guestAdmission.value?.projectInvitation?.let { review ->
+            if (!projectInvitationReviewStillMatches(review, _start.value.joinUrl, projectInvitationState())) {
+                guestAdmissionGate.unavailable("The reviewed account or project changed. Close this invitation and choose it again with the intended account.")
+                return
+            }
+            projectPreviewAccount = accountSession
+        }
+        guestAdmissionGate.retry()
+    }
 
     private suspend fun ensureGuestAdmissionCurrent(attempt: GuestAdmissionAttempt?) {
         currentCoroutineContext().ensureActive()
         if (attempt != null && !guestAdmissionGate.isCurrent(attempt)) throw CancellationException("Guest entry cancelled")
+        attempt?.projectInvitation?.let { review ->
+            if (accountSession == null || accountSession !== projectPreviewAccount ||
+                !projectInvitationReviewStillMatches(review, attempt.url, projectInvitationState())) {
+                guestAdmissionGate.phase(attempt, GuestAdmissionPhase.UNAVAILABLE,
+                    "The reviewed account or project changed. Review this invitation again before opening the room.")
+                throw CancellationException("Project invitation review changed")
+            }
+        }
     }
 
     /** Explicit nearby/local-identity choice; both stages keep the selected owner. */
@@ -3800,7 +3835,14 @@ class RoomViewModel @JvmOverloads constructor(
 
         if (invitation != null) {
             if (decodeInvitationPairingLink(url) == null) {
-                savedRooms.findInvitation(url)?.let { openSaved(it); return }
+                savedRooms.findInvitation(url)?.let { saved ->
+                    ensureGuestAdmissionCurrent(guest)
+                    guest?.projectInvitation?.let { review ->
+                        checkProjectRoomAdmission(review.room, saved.id)
+                        check(saved.participant == review.account) { "This room is saved under another identity." }
+                    }
+                    openSaved(saved, guest?.projectInvitation?.project, guest); return
+                }
             }
             joinInvitation(url, invitation, guest)
             return
@@ -3891,7 +3933,14 @@ class RoomViewModel @JvmOverloads constructor(
         // bookmark carries, without the signed invitation, which public relays
         // drop within a day or two. A room this phone already keeps opens as saved.
         val synced = if (anonymous || decodeInvitationPairingLink(url) != null) null else syncedGroupFor(payload.invitation)
-        if (synced != null) savedRooms.get(synced.room.roomId)?.let { synced.admission.secret.fill(0); openSaved(it); return }
+        if (synced != null) savedRooms.get(synced.room.roomId)?.let { saved ->
+            synced.admission.secret.fill(0); ensureGuestAdmissionCurrent(guest)
+            guest?.projectInvitation?.let { review ->
+                checkProjectRoomAdmission(review.room, saved.id)
+                check(saved.participant == review.account) { "This room is saved under another identity." }
+            }
+            openSaved(saved, guest?.projectInvitation?.project, guest); return
+        }
         var foundFurther = emptyList<String>()
         val admission = synced?.admission ?: try {
             requestAdmission(payload, relays, anonymous, guest) { foundFurther = it }
@@ -3935,6 +3984,8 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val derived = deriveRoom(secret)
+        try { guest?.projectInvitation?.let { checkProjectRoomAdmission(it.room, derived.roomId) } }
+        catch (error: Exception) { secret.fill(0); throw error }
         val at = epochSeconds()
         val pairing = decodeInvitationPairingLink(url)
         // The room's own relays: what its signed invitation names, else the
@@ -3987,6 +4038,9 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val primary = if (anonymous) localPrimary(derived.roomId, at) else primaryFor(derived.roomId, at)
+        if (guest?.projectInvitation?.account?.let { it != primary.participant } == true) {
+            secret.fill(0); throw RoomRecoveryException("This room is saved under another identity. Open it there, or forget it before joining with this account.")
+        }
         try { ensureGuestAdmissionCurrent(guest) }
         catch (cancelled: CancellationException) { secret.fill(0); throw cancelled }
         guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.ADMITTED) }
@@ -4001,13 +4055,16 @@ class RoomViewModel @JvmOverloads constructor(
             invitationHost = admission.delegate,
             policy = payload.policy,
             // The account's own name for the room, else the one its link carries.
-            localName = synced?.room?.name ?: payload.name.orEmpty(),
+            localName = guest?.projectInvitation?.let { projectInvitationReview(url, projectInvitationState(), it.project)?.roomName }
+                ?: synced?.room?.name ?: payload.name.orEmpty(),
             anonymous = anonymous,
             ends = admission.endsAt,
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
             expectedEpoch = admission.epoch,
             destruct = admission.destruct,
+            projectContext = guest?.projectInvitation?.project,
+            guest = guest,
         )
     }
 
@@ -4249,7 +4306,9 @@ class RoomViewModel @JvmOverloads constructor(
         startsAt: Long? = null,
         freshNearby: FreshNearbyEntry? = null,
         projectContext: ProjectReference? = null,
+        guest: GuestAdmissionAttempt? = null,
     ) = gate.withLock {
+        ensureGuestAdmissionCurrent(guest)
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
         }
@@ -4310,10 +4369,12 @@ class RoomViewModel @JvmOverloads constructor(
         oldSessionJob?.join()
         closingKeeper?.join(); closingKeeper = null
         closingNearby?.awaitClosed(); closingNearby = null
+        ensureGuestAdmissionCurrent(guest)
         val nativeEntry = if (record.nativeAuthority == null) null else NativeKeeperEntry.open(record, roomEpochs,
             { NativeKeeperVault.forSavedRoom(getApplication(), record).open() },
             { binding, initialise -> RoomRekeyVault(getApplication(), binding).open(initialise) })
         nativeKeeperEntry = nativeEntry
+        ensureGuestAdmissionCurrent(guest)
         if (freshNearby == null) savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only

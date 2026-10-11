@@ -62,6 +62,7 @@ internal fun GuestAdmissionDialog(
     var level by remember(view.id) { mutableFloatStateOf(0f) }
     var mediaNote by remember(view.id) { mutableStateOf<String?>(null) }
     val reviewing = view.phase == GuestAdmissionPhase.PREVIEW
+    val persistent = view.projectInvitation != null
     val currentReviewing by rememberUpdatedState(reviewing)
     val currentId by rememberUpdatedState(view.id)
     val normalPermission = rememberPermissionAsker { mediaNote = it }
@@ -100,25 +101,30 @@ internal fun GuestAdmissionDialog(
         GuestAdmissionPhase.UNAVAILABLE -> "This invitation is unavailable"
         GuestAdmissionPhase.REVOKED -> "This invitation was retired"
         GuestAdmissionPhase.ROOM_ENDED -> "This room has ended"
-        GuestAdmissionPhase.CANCELLED -> "Your request was cancelled"
-        GuestAdmissionPhase.ADMITTED -> "You have been admitted"
+        GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening was cancelled" else "Your request was cancelled"
+        GuestAdmissionPhase.ADMITTED -> if (persistent) "Opening your room" else "You have been admitted"
+        GuestAdmissionPhase.OPENING -> "Opening your room"
         else -> "Request to join"
     }
     val explanation = view.detail ?: when (view.phase) {
-        GuestAdmissionPhase.PREVIEW -> "Check your name and devices. Nothing is sent to this room until you request to join."
+        GuestAdmissionPhase.PREVIEW -> if (persistent) "Your joined project lists this room. Opening checks access; the logo is only a label."
+            else "Check your name and devices. Nothing is sent to this room until you request to join."
+        GuestAdmissionPhase.OPENING -> "Checking the invitation and your room identity. You can cancel while it opens."
         GuestAdmissionPhase.SIGNING -> "Confirm your account in your signer. You can cancel while it is open."
         GuestAdmissionPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
         GuestAdmissionPhase.WAITING -> "Your request reached a relay. Waiting for someone in the room to let you in."
         GuestAdmissionPhase.RECONNECTING -> "Your request is not confirmed. Checking the connection and retrying the same request."
-        GuestAdmissionPhase.ADMITTED -> "An authorised member admitted you. Opening the room…"
-        GuestAdmissionPhase.CANCELLED -> "The request has stopped on this device. A request already sent may still be visible to the host until it expires."
+        GuestAdmissionPhase.ADMITTED -> if (persistent) "The invitation was checked. Opening the room…" else "An authorised member admitted you. Opening the room…"
+        GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening stopped on this device. Review the invitation before trying again."
+            else "The request has stopped on this device. A request already sent may still be visible to the host until it expires."
         else -> "Review your details before trying again."
     }
 
     Dialog(onDismissRequest = { stopChecks(); onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         Surface(Modifier.sizeIn(maxWidth = usableWidth, maxHeight = usableHeight).fillMaxSize()
             .imePadding().padding(12.dp), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                 if (view.roomName.isNotBlank()) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
                 projectBrand?.let { brand ->
@@ -127,21 +133,25 @@ internal fun GuestAdmissionDialog(
                         dev.forgesworn.kithmoot.ui.room.PrivateLogo(brand.image, brand.projectName, Modifier.size(40.dp))
                         Column(Modifier.weight(1f)) {
                             Text(brand.projectName, style = MaterialTheme.typography.titleSmall)
-                            Text(brand.roomName, style = MaterialTheme.typography.bodySmall)
+                            if (brand.roomName != view.roomName) Text(brand.roomName, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    Text("This project comes from your joined project list. Its logo is a label, not proof of access.",
+                    if (!persistent) Text("This project comes from your joined project list. Its logo is a label, not proof of access.",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                Text("The label comes from the link. Room contents and call media are available only after admission.",
+                if (!persistent) Text("The label comes from the link. Room contents and call media are available only after admission.",
                     style = MaterialTheme.typography.bodySmall)
                 Text(explanation, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                OutlinedTextField(value = view.name, onValueChange = onName, enabled = reviewing,
-                    label = { Text("Name for your request") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(value = view.name, onValueChange = onName, enabled = reviewing, readOnly = persistent,
+                    label = { Text(if (persistent) "Joining as" else "Name for your request") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { request() }))
+                view.projectInvitation?.let { review -> androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(review.npub, style = MaterialTheme.typography.bodySmall)
+                } }
                 if (reviewing) {
-                    Text("Device checks are optional and stay on this phone. They stop before your request is sent.", style = MaterialTheme.typography.bodySmall)
+                    Text(if (persistent) "Device checks are optional and stay on this phone. They stop before the room opens."
+                        else "Device checks are optional and stay on this phone. They stop before your request is sent.", style = MaterialTheme.typography.bodySmall)
                     if (!devicesAvailable) Text("Leave your active call before checking devices here.", style = MaterialTheme.typography.bodySmall)
                     mediaNote?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -183,16 +193,24 @@ internal fun GuestAdmissionDialog(
                         Text("Microphone level", style = MaterialTheme.typography.bodySmall)
                         LinearProgressIndicator(progress = { level }, modifier = Modifier.fillMaxWidth())
                     }
-                    Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Request to join") }
-                    OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
+                    if (!persistent) {
+                        Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Request to join") }
+                        OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
+                    }
                 } else if (terminal) {
                     if (view.phase !in setOf(GuestAdmissionPhase.REVOKED, GuestAdmissionPhase.ROOM_ENDED)) Button(onClick = onRetry, enabled = !openingBusy,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Review and retry") }
                     OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Back to rooms") }
                 } else {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = { stopChecks(); onCancel() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Cancel request") }
+                    OutlinedButton(onClick = { stopChecks(); onCancel() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (persistent) "Cancel opening" else "Cancel request") }
                 }
+            }
+            if (persistent && reviewing) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Open room") }
+                OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
+            }
             }
         }
     }
