@@ -10,6 +10,7 @@ import android.opengl.Matrix
 import java.util.ArrayDeque
 import org.webrtc.GlRectDrawer
 import org.webrtc.GlUtil
+import org.webrtc.JavaI420Buffer
 import org.webrtc.VideoFrame
 import org.webrtc.VideoFrameDrawer
 import org.webrtc.VideoSink
@@ -42,6 +43,7 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     private var drawer: GlRectDrawer? = null
     private var overlayDrawer: GlRectDrawer? = null
     private var frameDrawer: VideoFrameDrawer? = null
+    private var videoShaderReady = false
     private var overlay: Bitmap? = null
     private var texture = 0
     private var overlayVersion = -1L
@@ -172,6 +174,25 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         // uploader supplies tightly packed planes and leaves pixel-store state
         // to its caller; the fresh encoder context defaults to four-byte rows.
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        if (!videoShaderReady) {
+            // Preparation runs before the capture clock opens, when no source
+            // frames can be retained yet. Compile and complete the I420 draw
+            // with synthetic pixels here rather than stalling the first PCM
+            // write while real call audio fills its bounded queue. The full
+            // viewport is cleared below; no warm-up frame is submitted to the
+            // encoder or borrowed from a participant's media.
+            val buffer = JavaI420Buffer.allocate(2, 2)
+            buffer.dataY.put(byteArrayOf(16, 16, 16, 16))
+            buffer.dataU.put(128.toByte())
+            buffer.dataV.put(128.toByte())
+            val warmup = VideoFrame(buffer, 0, 0)
+            try {
+                video.drawFrame(warmup, rgb, null, 0, 0, 2, 2)
+                GLES20.glFinish()
+                GlUtil.checkNoGLES2Error("Recording video preparation")
+                videoShaderReady = true
+            } finally { warmup.release() }
+        }
         GLES20.glViewport(0, 0, width, height)
         GLES20.glClearColor(0.055f, 0.067f, 0.086f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (!captureAllowed()) {
@@ -301,6 +322,7 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     /** Called by AvRecordingFile before releasing its current EGL context. */
     @Synchronized fun releaseGl() {
         frameDrawer?.release(); frameDrawer = null
+        videoShaderReady = false
         drawer?.release(); drawer = null
         overlayDrawer?.release(); overlayDrawer = null
         if (texture != 0) GLES20.glDeleteTextures(1, intArrayOf(texture), 0)
