@@ -12,6 +12,13 @@ the report assertion because the runner lacked `rg`; its real-node short,
 maximum and slow UI stages did not run. Commit `815e765f` installs that
 dependency. The corrective hosted run remains pending qualification.
 
+The [corrective run](https://github.com/forgesworn/kithmoot-android/actions/runs/38138788270)
+passed verify and API 33/35 signing checks, but all four HTTPS-contract tests
+failed during setup with a Pixel Launcher ANR dialog covering the app. Upload,
+Send and the real-node stages were not reached. The harness now captures bounded
+logcat, screenshot and last-ANR diagnostics on failure while preserving the
+original failure status. The cause of the launcher failure remains unqualified.
+
 The earlier integrated-main/cadence candidate passed 417 protocol and 2,070 app
 unit tests, both lint variants and both APK builds locally; see the
 [main/cadence receipt](evidence/native-recording-main-cadence-guarded-2026-10-11.json).

@@ -23,6 +23,29 @@ fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/kithmoot-ui-network.XXXXXX")"
 fixture_name="recording-ui-network-$(openssl rand -hex 6)"
 cleanup() {
   local status="$?"
+  if [[ "$status" != 0 ]]; then
+    # Preserve the original failure and the selected emulator's runtime state;
+    # a system ANR must not be mistaken for a recording/transfer result.
+    python3 - "$adb_bin" "$ANDROID_SERIAL" "$reports" <<'PY' || true
+import json, subprocess, sys
+from pathlib import Path
+adb, serial, folder = sys.argv[1:]
+reports = Path(folder)
+results = {}
+for name, args in [
+    ("failure-logcat.txt", ["logcat", "-d", "-t", "6000"]),
+    ("failure-screen.png", ["exec-out", "screencap", "-p"]),
+    ("failure-last-anr.txt", ["shell", "dumpsys", "activity", "lastanr"]),
+]:
+    try:
+        with (reports / name).open("wb") as output, (reports / (name + ".error.txt")).open("wb") as error:
+            results[name] = subprocess.run([adb, "-s", serial, *args], stdout=output,
+                                          stderr=error, timeout=10).returncode
+    except Exception as error:
+        results[name] = type(error).__name__
+(reports / "failure-diagnostics.json").write_text(json.dumps(results, indent=2) + "\n")
+PY
+  fi
   if [[ "$restart_mode" == 1 ]]; then
     run_restart_stage cleanup || status=1
   fi
