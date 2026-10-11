@@ -1,0 +1,36 @@
+{
+  "source_commit": "4b04ac9b4a676bd95967145f4c16a15e38f23d10",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38146188279",
+  "job": "recording-private-node-emulator (default)",
+  "passed": true,
+  "cases": {
+    "short": {
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "85a53342177a7c2b7b71c8199a17f4bd8c6e384bb8640f5333af727877636096",
+      "cleanup_sha256": "69ef16434396ca5b1c94b84654eec6917c81a37ffc4b8a43f7b0c5b097545f70"
+    },
+    "maximum": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "fd53e40eba381ad7b622a7b3758a720d74d771e9cdfb6373b2ba7f490c466222",
+      "cleanup_sha256": "69ef16434396ca5b1c94b84654eec6917c81a37ffc4b8a43f7b0c5b097545f70"
+    },
+    "maximum-slow": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "d485036422ede4c508fb73fda100116f1857f18174c4a10603504eee2220f878",
+      "cleanup_sha256": "69ef16434396ca5b1c94b84654eec6917c81a37ffc4b8a43f7b0c5b097545f70"
+    }
+  },
+  "https_contract_tests": 4,
+  "https_instrumentation_sha256": "560318b616e3ef473e75d0fce1bb425810964d72d05764c6060ca058b990efb6",
+  "limits": [
+    "Default emulator transfer and HTTPS contract only; Google APIs matrix still running when this receipt was written",
+    "Synthetic files with real private node and separate recipient process; no physical recording endurance",
+    "Local capture frame fencing, Android-desktop runtime and final signed distribution remain open"
+  ]
+}
