@@ -40,6 +40,7 @@ internal fun GuestAdmissionDialog(
     onRetry: () -> Unit,
     devicePreview: GuestDevicePreview? = null,
     permissionAsker: PermissionAsker? = null,
+    projectBrand: dev.forgesworn.kithmoot.account.ProjectRoomBrand? = null,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -49,6 +50,10 @@ internal fun GuestAdmissionDialog(
     val usableWidth = with(LocalDensity.current) { (metrics.bounds.width() - systemInsets.left - systemInsets.right).toDp() }
     val owner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val scroll = rememberScrollState()
+    // A decision changes the screen's next action. Keep its explanation in
+    // view instead of retaining the device-check button's old scroll position.
+    LaunchedEffect(view.id, view.phase) { scroll.scrollTo(0) }
     val checks = remember(view.id, devicePreview) { devicePreview ?: GuestDeviceChecks(context.applicationContext) }
     val previewView = remember(view.id) { PreviewView(context) }
     var permissionGeneration by remember(view.id) { mutableIntStateOf(0) }
@@ -113,9 +118,21 @@ internal fun GuestAdmissionDialog(
     Dialog(onDismissRequest = { stopChecks(); onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         Surface(Modifier.sizeIn(maxWidth = usableWidth, maxHeight = usableHeight).fillMaxSize()
             .imePadding().padding(12.dp), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                 if (view.roomName.isNotBlank()) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
+                projectBrand?.let { brand ->
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        dev.forgesworn.kithmoot.ui.room.PrivateLogo(brand.image, brand.projectName, Modifier.size(40.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(brand.projectName, style = MaterialTheme.typography.titleSmall)
+                            Text(brand.roomName, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text("This project comes from your joined project list. Its logo is a label, not proof of access.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Text("The label comes from the link. Room contents and call media are available only after admission.",
                     style = MaterialTheme.typography.bodySmall)
                 Text(explanation, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -126,6 +143,8 @@ internal fun GuestAdmissionDialog(
                 if (reviewing) {
                     Text("Device checks are optional and stay on this phone. They stop before your request is sent.", style = MaterialTheme.typography.bodySmall)
                     if (!devicesAvailable) Text("Leave your active call before checking devices here.", style = MaterialTheme.typography.bodySmall)
+                    mediaNote?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(enabled = devicesAvailable, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), onClick = {
                             if (cameraOn) { checks.stopCamera(); cameraOn = false }
@@ -164,7 +183,6 @@ internal fun GuestAdmissionDialog(
                         Text("Microphone level", style = MaterialTheme.typography.bodySmall)
                         LinearProgressIndicator(progress = { level }, modifier = Modifier.fillMaxWidth())
                     }
-                    mediaNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Request to join") }
                     OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
                 } else if (terminal) {

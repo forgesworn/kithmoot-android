@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import dev.forgesworn.kithmoot.account.AccountRoom
+import dev.forgesworn.kithmoot.account.ProjectAccountSnapshot
+import dev.forgesworn.kithmoot.account.soleProjectRoomBrands
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.protocol.conferenceEnded
@@ -63,8 +65,10 @@ internal fun roomLabel(name: String?, id: String): String {
 
 /** One list of [HomeRoom]: every room saved on this phone, plus, when signed
  *  in, every account bookmark not already saved here. No second list. */
-internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null): List<HomeRoom> {
+internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null,
+    projects: ProjectAccountSnapshot = ProjectAccountSnapshot()): List<HomeRoom> {
     val savedIds = saved.map { it.id }.toSet()
+    val inherited = if (signedIn && account != null) soleProjectRoomBrands(projects) else emptyMap()
     val fromSaved = saved.map { room ->
         HomeRoom(
             id = room.id, label = roomLabel(room.name, room.id), source = RoomSource.PHONE,
@@ -73,22 +77,23 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
             destruct = room.destruct, startsAt = room.startsAt,
             privatePeer = room.privatePeer.takeIf { !room.anonymous && (room.account == null || room.account == account) },
-            logo = room.logo.takeIf { !room.anonymous && !room.ended && room.privatePeer == null &&
+            logo = (room.logo ?: inherited[room.id]?.image.takeIf { room.account == account && account != null }).takeIf { !room.anonymous && !room.quiet && !room.ended && room.privatePeer == null &&
                 (room.account == null || room.account == account) },
         )
     }
     if (!signedIn) return fromSaved
     val fromBookmarks = bookmarks.filter { it.roomId !in savedIds }.map { bookmark ->
+        val decoded = runCatching { dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(bookmark.link)?.let { true to it.policy }
+            ?: (true to dev.forgesworn.kithmoot.protocol.decodeJoinUrl(bookmark.link).policy) }.getOrNull()
+        val policy = decoded?.second
+        val peer = runCatching { account?.let { self -> dev.forgesworn.kithmoot.session.dmPeer(policy, self) } }.getOrNull()
         HomeRoom(
             id = bookmark.roomId, label = roomLabel(bookmark.name, bookmark.roomId), source = RoomSource.ACCOUNT,
             openedAt = bookmark.openedAt, project = null, account = null, anonymous = false,
             secondary = false, ended = false, canShareInvite = false,
             endsAt = bookmark.endsAt, destruct = bookmark.destruct, startsAt = bookmark.startsAt,
-            privatePeer = account?.let { self -> runCatching {
-                val policy = dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(bookmark.link)?.policy
-                    ?: dev.forgesworn.kithmoot.protocol.decodeJoinUrl(bookmark.link).policy
-                dev.forgesworn.kithmoot.session.dmPeer(policy, self)
-            }.getOrNull() },
+            privatePeer = peer,
+            logo = inherited[bookmark.roomId]?.image.takeIf { decoded != null && peer == null && policy?.quiet != true },
         )
     }
     return fromSaved + fromBookmarks

@@ -111,6 +111,8 @@ run_tests artwork-picker 5 -e class dev.forgesworn.kithmoot.ui.ArtworkPickerUiTe
 run_tests room-logo-display 5 -e class dev.forgesworn.kithmoot.ui.RoomLogoUiTest
 run_tests room-logo-editor 9 -e class dev.forgesworn.kithmoot.ui.RoomLogoEditorTest
 run_tests project-logo-editor 6 -e class dev.forgesworn.kithmoot.ui.ProjectLogoEditorTest
+run_tests contextual-project-logo 5 -e class dev.forgesworn.kithmoot.ui.ContextualProjectLogoUiTest
+run_tests guest-admission-preview 8 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
@@ -131,7 +133,7 @@ run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAdd
 
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png"
 
-run_tests shared-projects-ui 3 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
+run_tests shared-projects-ui 4 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
 for picture in three-shared-projects project-room-admission restored-project-membership project-room-assignment; do
   pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png"
 done
