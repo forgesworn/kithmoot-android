@@ -653,8 +653,19 @@ or a signed Off without capture details. Both signatures are required; device
 presence alone is not recording authority. Independent Kotlin and TypeScript
 codecs passed 446 protocol tests and 49 focused web tests, with web type-checking.
 Profile-2 and absent-field encoding remains unchanged. This field is not yet
-advertised by either client: live publication/receipt, compatibility preflight,
-capture fencing and cross-client runtime qualification remain to be wired.
+advertised by either client. Native presence reception now verifies the complete
+pair, rejects same-version conflicts and older On replays after Off, and feeds
+the ordinary meeting warning. The 61 focused JVM receiver/meeting/session tests
+passed; live publication, compatibility preflight, capture fencing and
+cross-client runtime qualification remain open.
+
+Hosted run 38140631224 passed every job on source c913d468, including the real
+private Wildbloom fixture's Upload, Send, recipient Show and Play journeys for
+short, 256 MiB and throttled 256 MiB synthetic MP4s. Each run used a separate
+recipient process and verified cleanup. These emulator transfers do not prove
+45-minute live capture, physical-device acceptance or later profile-3 changes.
+The exact report hashes are retained in
+`docs/evidence/native-recording-private-node-hosted-2026-10-11.json`.
 
 The slot driver now requests durable publication confirmation through every
 underlying transport, including hybrid wrappers; it no longer substitutes a

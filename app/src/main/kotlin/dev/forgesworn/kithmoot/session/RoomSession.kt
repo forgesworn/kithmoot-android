@@ -35,6 +35,8 @@ import dev.forgesworn.kithmoot.protocol.KindredTier
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.RosterEntry
+import dev.forgesworn.kithmoot.protocol.LiveRecordingState
+import dev.forgesworn.kithmoot.protocol.verifyLiveRecordingState
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.SignalGuard
@@ -76,6 +78,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -141,6 +144,7 @@ data class LocalRoles(
  * `RemoteAnnotation` (`src/mesh.ts`).
  */
 data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
+data class ReceivedLiveRecording(val state: LiveRecordingState, val sentAt: Long)
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
@@ -643,6 +647,10 @@ class RoomSession(
 
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
+
+    private val _liveRecording = MutableStateFlow<ReceivedLiveRecording?>(null)
+    /** Latest complete authority-verified warning received in authenticated presence. */
+    val liveRecording: StateFlow<ReceivedLiveRecording?> = _liveRecording.asStateFlow()
 
     private val _signals = MutableSharedFlow<UnwrappedSignal>(replay = 0, extraBufferCapacity = 256)
 
@@ -1396,6 +1404,22 @@ class RoomSession(
                 roster[entry.device] = entry
                 seenAt[entry.device] = now()
                 respond = respondedTo.add(entry.device)
+            }
+        }
+        if (!entry.left && entry.recordingProfile == 3) entry.liveRecording?.let { state ->
+            val root = authority
+            if (root != null && verifyLiveRecordingState(room.roomId, state, root)) {
+                _liveRecording.update { before ->
+                    val previous = before?.state?.recording?.notice
+                    val next = state.recording.notice
+                    when {
+                        previous != null && previous.version > next.version -> before
+                        before != null && previous != null && previous.version == next.version &&
+                            (previous != next || before.state.capture?.notice != state.capture?.notice) -> before
+                        before != null && previous?.version == next.version -> ReceivedLiveRecording(state, maxOf(before.sentAt, entry.updatedAt))
+                        else -> ReceivedLiveRecording(state, entry.updatedAt)
+                    }
+                }
             }
         }
         recompute()

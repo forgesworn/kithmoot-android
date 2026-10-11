@@ -127,6 +127,14 @@ class RoomWork(
     val error=mutableError.asStateFlow()
     private val catalogues=linkedMapOf<String,Pair<Long,List<AvailableAssignmentAction>>>()
     private var collector:Job?=null
+    private var liveRecordingCollector:Job?=null
+    fun followLiveRecording(source:kotlinx.coroutines.flow.StateFlow<ReceivedLiveRecording?>) {
+        check(!closed) {"This room has closed"}
+        liveRecordingCollector?.cancel()
+        liveRecordingCollector=scope.launch {
+            source.collect { received -> if(received!=null&&!closed)receiveLiveRecording(received) }
+        }
+    }
     private val discoveryMutex=Mutex()
     @Volatile private var closed=false
     // Room relays: kept in memory only, the way the web client keeps them -
@@ -390,6 +398,17 @@ class RoomWork(
         val recordingBefore=meeting.state.value.recording?.notice
         if(!meeting.receive(body,participant,sentAt))return false
         if(meeting.state.value.policy!=before)scheduleMeetingRepost()
+        reconcileRecording(recordingBefore)
+        return true
+    }
+    internal fun receiveLiveRecording(received:ReceivedLiveRecording):Boolean {
+        if(closed)return false
+        val before=meeting.state.value.recording?.notice
+        if(!meeting.receiveLive(received.state,received.sentAt))return false
+        reconcileRecording(before)
+        return true
+    }
+    private fun reconcileRecording(recordingBefore:RecordingNotice?) {
         if(meeting.state.value.recording?.notice!=recordingBefore)recordingRepost?.cancel()
         val retained=authority?.let { recordingStops?.pending(roomId,identity.devicePubkey,it) }
         if(retained!=null) {
@@ -405,7 +424,6 @@ class RoomWork(
         } else if(recordingStops==null) mutableRecordingStopPending.value?.let { id ->
             if(meeting.state.value.recording?.notice?.let { it.on&&it.id==id }!=true) mutableRecordingStopPending.value=null
         }
-        return true
     }
     /** Confirm details before the running notice. Capture may begin only after
      * this returns. A failed publication never authorises local capture. */
@@ -624,5 +642,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();liveRecordingCollector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }

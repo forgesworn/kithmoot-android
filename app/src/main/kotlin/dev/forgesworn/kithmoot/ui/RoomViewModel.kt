@@ -4793,6 +4793,7 @@ class RoomViewModel @JvmOverloads constructor(
                     authoritySecretKey=epochAuthorityHost?.inviterSecretKey,
                     recordingStops=recordingApplication.recordingStops)
                 roomWork=work
+                work.followLiveRecording(live.liveRecording)
                 scope.launch { work.recordingStopPending.collect { pending ->
                     _room.update { if (roomWork === work) it.copy(recordingStopPending = pending != null) else it }
                 } }

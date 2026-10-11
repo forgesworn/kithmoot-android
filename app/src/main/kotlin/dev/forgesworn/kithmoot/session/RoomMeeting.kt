@@ -7,6 +7,8 @@ import dev.forgesworn.kithmoot.protocol.RecordingView
 import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
 import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.LiveRecordingState
+import dev.forgesworn.kithmoot.protocol.verifyLiveRecordingState
 import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.decodeRecordingCaptureOp
 import dev.forgesworn.kithmoot.protocol.verifyRecordingCaptureNotice
@@ -83,6 +85,31 @@ class RoomMeeting(
     }
 
     private fun fresh(sentAt: Long) = sentAt >= now() - 60
+
+    /** Adopt the complete live warning atomically; neither half authorises the other. */
+    fun receiveLive(state: LiveRecordingState, sentAt: Long): Boolean {
+        val auth = authority ?: return false
+        if (!verifyLiveRecordingState(roomId, state, auth)) return false
+        var news: MeetingNews? = null
+        synchronized(this) {
+            val snapshot = mutable.value
+            val before = snapshot.recording
+            val next = state.recording.notice
+            if (before != null && before.notice.version > next.version) return false
+            if (before != null && before.notice.version == next.version && before.notice != next) return false
+            if (before?.notice?.version == next.version && snapshot.capture?.notice?.let {
+                it.id == next.id && it.version == next.version && it != state.capture?.notice
+            } == true) return false
+            val same = before?.notice?.on == true && next.on && before.notice.id == next.id
+            val since = if (same) before!!.since else sentAt
+            val heardAt = if (before?.notice?.version == next.version) maxOf(before.heardAt, sentAt) else sentAt
+            mutable.value = snapshot.copy(recording = HeardRecording(state.recording, since, heardAt), capture = state.capture)
+            if (fresh(sentAt) && (before?.notice?.on == true) != next.on)
+                news = if (next.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
+        }
+        news?.let { runCatching { onNews(it) } }
+        return true
+    }
 
     private fun ingestCapture(signed: SignedRecordingCaptureNotice) {
         val auth = authority ?: return
