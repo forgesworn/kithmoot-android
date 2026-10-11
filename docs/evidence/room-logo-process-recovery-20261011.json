@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-11",
+  "sourceRevision": "bcc7a11b1fdb0c6ddc8053e4276b4e9f7fdd0bd6",
+  "sourceFiles": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/RoomLogoRestartTest.kt": "2ce3866675bde4b55474116621d875572fb14e9107e7d1b7671c6a569392294a",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionEntryTest.kt": "54030a174f7b5675cde9d2f9c302b3393ee289e0fef0090b40468eb6da814499",
+    "scripts/check-room-logo-restart-emulator.py": "7574bb197a86b9961959f6a8b94c7fc139c19d72ed9cac8501a50bf64ff2891b",
+    "scripts/check-sharing-restart-emulator.py": "fff16d44d8e0ecb3bbdbdea622cad38b2a7a11140322f43c5a91ad443b85ff08",
+    "scripts/check-sharing-restart-runner.py": "7d23a28247183a4dcded0ee2d7c0cdbece66e94b69e1fc7dd5ce16d55d3f3321",
+    ".github/workflows/ci.yml": "c70a8f4d836b33c5be27175da6ad3cd7a7b5efc576ce2dc49daf1bcdcc163207"
+  },
+  "device": {
+    "type": "owned disposable emulator",
+    "avd": "kithmoot-project-logos-20261011",
+    "serial": "emulator-5582",
+    "api": 35,
+    "abi": "arm64-v8a",
+    "viewport": "720x1280, 320 dpi"
+  },
+  "apks": {
+    "debug": {
+      "bytes": 116147801,
+      "sha256": "a09a9196fd79dfbb23549ba8bea94fb8bf6b05ce972f3f7f9f35bb450840e344"
+    },
+    "instrumentation": {
+      "bytes": 5300759,
+      "sha256": "47b34b6339ef60a1b000c899fb8ef13c885ff775458646927f27777141bc5100"
+    }
+  },
+  "forcedRestartCases": {
+    "image": {
+      "sourcePid": 18882,
+      "recoveryPid": 19016,
+      "activeSigkillObserved": true,
+      "passed": true,
+      "logSha256": "bd4097e1b34e98d311a992ab298be459d4b77190a8e7520856f8c21150759d61"
+    },
+    "removal": {
+      "sourcePid": 19107,
+      "recoveryPid": 19201,
+      "activeSigkillObserved": true,
+      "passed": true,
+      "logSha256": "aef79fbc8ddf09a388f76f544d8609081b3ec70a8e888a8a284544e7bf1adb8d"
+    }
+  },
+  "admissionEntryCases": 6,
+  "driverChecks": 268,
+  "newProductionAppChanges": false,
+  "publiclyShipped": false,
+  "physicalAcceptance": false,
+  "remaining": [
+    "Physical phone artwork recovery",
+    "Independent browser/native replacement-device recovery",
+    "Project-logo process recovery",
+    "Complete G15 and G17 acceptance"
+  ]
+}

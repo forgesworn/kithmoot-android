@@ -9,10 +9,10 @@ FAKE = r'''#!/usr/bin/env python3
 import os,sys,time,json
 from pathlib import Path
 args=sys.argv[1:];mode=os.environ.get('FAKE_MODE','ok')
-profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-');retirement=profile.startswith('native-retirement-');transitioned=rekey or retirement
-case='dev.forgesworn.kithmoot.epoch.NativeRetirementRestartTest' if retirement else 'dev.forgesworn.kithmoot.epoch.NativeRekeyRestartTest' if rekey else 'dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
-marker='native_retirement' if retirement else 'native_rekey' if rekey else 'native_host' if native else 'sharing'
-transition=profile.removeprefix('native-retirement-') if retirement else 'before-handoff' if profile=='native-rekey-before' else 'after-handoff'
+profile=os.environ.get('FAKE_PROFILE','sharing');native=profile.startswith('native-');rekey=profile.startswith('native-rekey-');retirement=profile.startswith('native-retirement-');logo=profile.startswith('room-logo-');transitioned=rekey or retirement or logo
+case='dev.forgesworn.kithmoot.ui.RoomLogoRestartTest' if logo else 'dev.forgesworn.kithmoot.epoch.NativeRetirementRestartTest' if retirement else 'dev.forgesworn.kithmoot.epoch.NativeRekeyRestartTest' if rekey else 'dev.forgesworn.kithmoot.ui.'+('NativeHostRestartTest' if native else 'RoomSharingRestartTest')
+marker='room_logo' if logo else 'native_retirement' if retirement else 'native_rekey' if rekey else 'native_host' if native else 'sharing'
+transition=profile.removeprefix('room-logo-') if logo else profile.removeprefix('native-retirement-') if retirement else 'before-handoff' if profile=='native-rekey-before' else 'after-handoff'
 root=Path(os.environ['FAKE_ROOT']);killed=root/'killed'
 with (root/'calls').open('a') as out:out.write(json.dumps(args)+'\n')
 if 'ro.kernel.qemu' in args:print('0' if mode=='not-qemu' else '1');sys.exit(7 if mode=='qemu-failure' else 0)
@@ -63,13 +63,13 @@ class DriverTest(unittest.TestCase):
  def run_case(self, mode='ok', serial='emulator-9998'):
   with tempfile.TemporaryDirectory(prefix='kithmoot-sharing-driver-') as folder:
    root=Path(folder);(root/'scripts').mkdir();(root/'sdk/platform-tools').mkdir(parents=True)
-   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py','check-native-retirement-restart-emulator.py'):
+   for name in ('check-sharing-restart-emulator.py','check-native-host-restart-emulator.py','check-native-rekey-restart-emulator.py','check-native-retirement-restart-emulator.py','check-room-logo-restart-emulator.py'):
     shutil.copyfile(Path(__file__).with_name(name),root/'scripts'/name)
-   rekey=self.profile.startswith('native-rekey-');retirement=self.profile.startswith('native-retirement-')
-   driver=root/'scripts'/('check-native-retirement-restart-emulator.py' if retirement else 'check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
+   rekey=self.profile.startswith('native-rekey-');retirement=self.profile.startswith('native-retirement-');logo=self.profile.startswith('room-logo-')
+   driver=root/'scripts'/('check-room-logo-restart-emulator.py' if logo else 'check-native-retirement-restart-emulator.py' if retirement else 'check-native-rekey-restart-emulator.py' if rekey else 'check-sharing-restart-emulator.py' if self.profile=='sharing' else 'check-native-host-restart-emulator.py')
    adb=root/'sdk/platform-tools/adb';adb.write_text(FAKE);adb.chmod(0o700)
-   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1',KITHMOOT_NATIVE_RETIREMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_RETIREMENT_DEATH_SECONDS='1')
-   command=['python3',str(driver)]+([self.profile.removeprefix('native-retirement-')] if retirement else ['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
+   env=dict(os.environ,ANDROID_HOME=str(root/'sdk'),ANDROID_SERIAL=serial,FAKE_ROOT=str(root),FAKE_MODE=mode,FAKE_PROFILE=self.profile,KITHMOOT_SHARING_PREPARE_SECONDS='2',KITHMOOT_SHARING_DEATH_SECONDS='1',KITHMOOT_NATIVE_HOST_PREPARE_SECONDS='2',KITHMOOT_NATIVE_HOST_DEATH_SECONDS='1',KITHMOOT_NATIVE_REKEY_PREPARE_SECONDS='2',KITHMOOT_NATIVE_REKEY_DEATH_SECONDS='1',KITHMOOT_NATIVE_RETIREMENT_PREPARE_SECONDS='2',KITHMOOT_NATIVE_RETIREMENT_DEATH_SECONDS='1',KITHMOOT_ROOM_LOGO_PREPARE_SECONDS='2',KITHMOOT_ROOM_LOGO_DEATH_SECONDS='1')
+   command=['python3',str(driver)]+([self.profile.removeprefix('room-logo-')] if logo else [self.profile.removeprefix('native-retirement-')] if retirement else ['before-handoff' if self.profile=='native-rekey-before' else 'after-handoff'] if rekey else [])
    result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=30)
    calls=(root/'calls').read_text() if (root/'calls').exists() else ''
    reports=root/'app/build/reports'/(self.profile+'-restart-emulator')
@@ -176,5 +176,26 @@ class NativeRetirementOfferedDriverTest(NativeRetirementPendingDriverTest):
  profile='native-retirement-offered-before-archive'
 class NativeRetirementArchivedDriverTest(NativeRetirementPendingDriverTest):
  profile='native-retirement-archive-before-hint'
+
+class RoomLogoImageDriverTest(DriverTest):
+ profile='room-logo-image'
+ def test_artwork_mode_selects_exact_case_and_both_mode_arguments(self):
+  r,c,_=self.run_case();self.assertEqual(0,r.returncode,r.stderr)
+  self.assertIn('RoomLogoRestartTest#a_prepare',c);self.assertIn('RoomLogoRestartTest#b_recover',c)
+  self.assertEqual(2,c.count('"transitionMode", "'+self.profile.removeprefix('room-logo-')+'"'))
+  self.assertNotIn('"pm", "clear"',c)
+ def test_wrong_artwork_checkpoint_is_not_killed(self):
+  r,c,_=self.run_case('wrong-checkpoint-mode');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c)
+ def test_missing_artwork_checkpoint_is_not_killed(self):
+  r,c,_=self.run_case('no-checkpoint-mode');self.assertEqual(1,r.returncode);self.assertNotIn('"kill",',c)
+ def test_wrong_artwork_recovery_cannot_pass(self):
+  r,_,_=self.run_case('wrong-recovery-mode');self.assertEqual(1,r.returncode)
+ def test_missing_artwork_recovery_cannot_pass(self):
+  r,_,_=self.run_case('no-recovery-mode');self.assertEqual(1,r.returncode)
+ def test_duplicate_artwork_recovery_cannot_pass(self):
+  r,_,_=self.run_case('duplicate-recovery-mode');self.assertEqual(1,r.returncode)
+
+class RoomLogoRemovalDriverTest(RoomLogoImageDriverTest):
+ profile='room-logo-removal'
 
 if __name__=='__main__':unittest.main()
