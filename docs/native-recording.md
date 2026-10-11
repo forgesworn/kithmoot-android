@@ -31,8 +31,8 @@ a separate job using verify APKs; all original assertions remain intact.
 
 Candidate `a77309f8` warms the compositor's I420 shader using synthetic pixels
 during preparation, before the capture clock opens. Warm-up is cleared before
-composition and submits no encoder frame. Its build and runtime qualification
-are pending; the audio queue bound and export assertions are unchanged.
+composition and submits no encoder frame. Its [build and 61 recording unit checks](evidence/native-recording-i420-preparation-build-2026-10-11.json)
+passed; GPU rendering and capture runtime qualification remain pending; the audio queue bound and export assertions are unchanged.
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
 
