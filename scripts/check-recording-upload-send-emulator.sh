@@ -69,6 +69,8 @@ run_restart_stage() {
   ! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3' "$reports/$stage.txt"
 }
 trap cleanup EXIT
+python3 scripts/check-recording-emulator-ready.py --adb "$adb_bin" \
+  --serial "$ANDROID_SERIAL" --reports "$reports"
 cat > "$fixture_root/openssl.cnf" <<'CONFIG'
 [req]
 distinguished_name = dn

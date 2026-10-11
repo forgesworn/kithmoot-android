@@ -1,0 +1,19 @@
+{
+  "qualification": "Cold Google APIs emulator launcher readiness",
+  "passed": true,
+  "environment": "macOS ARM API 35 Google APIs fresh disposable emulator",
+  "stable_focus_checks": 2,
+  "source_sha256": {
+    "scripts/check-recording-emulator-ready.py": "a5e2d836c821065be725a7181bdbe540741bf62d536f88e0c39a75099f359d10",
+    "scripts/check-recording-upload-send-emulator.sh": "5681275c981ce6a121bc97c7fa80c521c1e954eb50ce5e214e8ff4255edb7e4c"
+  },
+  "evidence_sha256": {
+    "launcher-readiness.json": "2e608ee9377f5d5167be14d85b663fe69deed4a2ed19e6a9b1c3ca28b4ef8ba8",
+    "launcher-window.txt": "47ae509f368375f75ca41c6fdea6cc838e7b8b280366f61fce2160fce92107f1"
+  },
+  "limits": [
+    "Launcher readiness only; no recording APK or transfer journey ran here",
+    "Linux x86 hosted Google APIs qualification remains open",
+    "No ANR dismissal or failed instrumentation retry is introduced"
+  ]
+}
