@@ -11,6 +11,9 @@ import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.RoomSession
 import dev.forgesworn.kithmoot.session.SessionTiming
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.RoomWork
+import dev.forgesworn.kithmoot.session.AssignmentStorage
+import dev.forgesworn.kithmoot.session.deriveChatChannel
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
 import kotlinx.coroutines.*
@@ -146,12 +149,81 @@ class GuestAdmissionEntryTest {
         } finally { f.close() }
     }
 
-    private class Fixture(@Volatile var ack: Boolean = false, val hostRoom: Boolean = false) {
+    private fun logoFixture(): LogoImage {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val vectors = Json.parseToJsonElement(assets.open("logo-images-v1.json").bufferedReader().use { it.readText() })
+            .jsonObject.getValue("vectors").jsonArray
+        return requireNotNull(LogoImages.read(vectors.first { it.jsonObject["accepted"]?.jsonPrimitive?.boolean == true }
+            .jsonObject.getValue("payload")))
+    }
+
+    @Test fun closedRoomArtworkIsNotQueriedBeforeAdmissionAndStoredLogoCatchesUpAfterGrant() = runBlocking {
+        val f = Fixture(ack = true, hostRoom = true, retainControls = true)
+        try {
+            f.start()
+            val image = logoFixture()
+            f.rootWork!!.replaceRoomLogo(image)
+            val queries = f.controlQueries()
+            f.main { f.model.joinFromUrl(f.url); f.model.onGuestAdmissionNameChanged("Logo guest"); f.model.requestGuestAdmission() }
+            await("closed room request acknowledged") { f.model.guestAdmission.value?.phase == GuestAdmissionPhase.WAITING }
+            assertEquals(queries, f.controlQueries())
+            assertEquals(Stage.START, f.model.stage.value); assertNull(f.model.room.value.logo)
+            assertNull(f.app.savedRooms.get(f.room.roomId))
+            val request = decodeInvitationRequest(f.requests.single(), f.host.invitation, f.now())!!
+            f.reply(encodeInvitationGrant(f.host, request.device, request.requestId, f.secret, f.now()))
+            await("admitted guest receives stored private logo") { f.model.stage.value == Stage.ROOM && f.model.room.value.logo?.sha256 == image.sha256 }
+            assertTrue(f.controlQueries() > queries)
+            assertTrue(f.model.room.value.chat.isEmpty())
+            assertFalse(f.model.room.value.onCall); assertFalse(f.model.room.value.micOn); assertFalse(f.model.room.value.cameraOn)
+            await("accepted room artwork saved for recovery") { f.app.savedRooms.get(f.room.roomId)?.sharedLogo?.record?.image?.sha256 == image.sha256 }
+            f.main { f.model.leave() }
+            await("guest leaves the room") { f.model.stage.value == Stage.START && !f.model.start.value.busy }
+            // Clear the process cache and replace the ViewModel. Recovery must
+            // use this device's encrypted saved record, without logo history.
+            f.app.roomLogos.forget(f.room.roomId)
+            f.replayControls = false
+            f.main { f.store.clear(); f.model = RoomViewModel(f.app, chatOnly = true); f.store.put("guest-entry", f.model) }
+            await("fresh guest model reads saved rooms") { !f.model.start.value.loadingRooms }
+            f.main { f.model.reopenRoom(f.room.roomId) }
+            await("fresh model restores private logo without relay history") { f.model.stage.value == Stage.ROOM && f.model.room.value.logo?.sha256 == image.sha256 }
+            assertFalse(f.model.room.value.onCall)
+        } finally { f.close() }
+    }
+
+    @Test fun removalWhileGuestWaitsWinsOverStoredAndLateOlderArtworkAfterAdmission() = runBlocking {
+        val f = Fixture(ack = true, hostRoom = true, retainControls = true)
+        try {
+            f.start()
+            f.rootWork!!.replaceRoomLogo(logoFixture())
+            val oldImage = f.events.last { it.kind == KIND_CHAT }
+            val queries = f.controlQueries()
+            f.main { f.model.joinFromUrl(f.url); f.model.requestGuestAdmission() }
+            await("guest waits outside artwork channel") { f.model.guestAdmission.value?.phase == GuestAdmissionPhase.WAITING }
+            val removal = f.rootWork!!.replaceRoomLogo(null)
+            assertEquals(queries, f.controlQueries()); assertNull(f.model.room.value.logo)
+            val request = decodeInvitationRequest(f.requests.single(), f.host.invitation, f.now())!!
+            f.reply(encodeInvitationGrant(f.host, request.device, request.requestId, f.secret, f.now()))
+            await("admitted guest accepts current removal") {
+                f.model.stage.value == Stage.ROOM && f.app.savedRooms.get(f.room.roomId)?.let {
+                    f.app.roomLogos.seed(it, f.now())?.record?.id == removal.id
+                } == true
+            }
+            f.reply(oldImage)
+            delay(250)
+            assertNull(f.model.room.value.logo)
+            assertTrue(f.model.room.value.chat.isEmpty())
+            assertFalse(f.model.room.value.onCall)
+        } finally { f.close() }
+    }
+
+    private class Fixture(@Volatile var ack: Boolean = false, val hostRoom: Boolean = false, val retainControls: Boolean = false) {
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
         val host = createRoomInvitation()
         val secret = Entropy.bytes(32)
         val room = deriveRoom(secret)
         val events = CopyOnWriteArrayList<NostrEvent>()
+        val queries = CopyOnWriteArrayList<JsonObject>()
+        @Volatile var replayControls = retainControls
         val requests get() = events.filter { it.kind == KIND_INVITATION_REQUEST }
         val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
         val store = ViewModelStore()
@@ -159,10 +231,21 @@ class GuestAdmissionEntryTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         var rootPool: RelayPool? = null
         var rootSession: RoomSession? = null
+        var rootWork: RoomWork? = null
         lateinit var model: RoomViewModel
         lateinit var url: String
         fun now() = System.currentTimeMillis() / 1_000
         fun main(block: () -> Unit) = InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
+        fun controlQueries(): Int {
+            val channel = deriveChatChannel(room.roomId, room.roomKey, "control").id
+            return queries.count { filter -> filter["#d"]?.jsonArray?.any { it.jsonPrimitive.content == channel } == true }
+        }
+        private fun matches(filter: JsonObject, event: NostrEvent): Boolean =
+            filter["kinds"]?.jsonArray?.any { it.jsonPrimitive.int == event.kind } != false &&
+                filter["authors"]?.jsonArray?.any { it.jsonPrimitive.content == event.pubkey } != false &&
+                filter.filterKeys { it.startsWith("#") }.all { (tag, values) -> event.tags.any { row ->
+                    row.size >= 2 && row[0] == tag.drop(1) && values.jsonArray.any { it.jsonPrimitive.content == row[1] }
+                } }
         suspend fun start() {
             server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
                 override fun dispatch(request: RecordedRequest) = MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
@@ -174,6 +257,11 @@ class GuestAdmissionEntryTest {
                             "REQ" -> {
                                 val id = frame[1].jsonPrimitive.content
                                 subscriptions[id] = frame.drop(2).map { it.jsonObject }
+                                queries.addAll(subscriptions.getValue(id))
+                                if (replayControls) events.filter { event -> event.kind == KIND_CHAT && subscriptions.getValue(id).any { matches(it, event) } }
+                                    .sortedWith(compareBy({ it.createdAt }, { it.id })).forEach { event ->
+                                        socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+                                    }
                                 socket.send(buildJsonArray { add("EOSE"); add(id) }.toString())
                             }
                             "CLOSE" -> subscriptions.remove(frame[1].jsonPrimitive.content)
@@ -199,6 +287,15 @@ class GuestAdmissionEntryTest {
                     timing = SessionTiming(announceJitterMs = 0), epochResponder = { request ->
                         encodeEpochGrant(room.roomId, host.inviterSecretKey, request.pubkey, request.id, now(), RoomEpoch(0, secret))
                     }).also { it.join() }
+                if (retainControls) {
+                    val storage = object : AssignmentStorage {
+                        private var journal: String? = null
+                        override suspend fun load() = journal
+                        override suspend fun save(encrypted: String) { journal = encrypted }
+                    }
+                    rootWork = RoomWork(room.roomId, room.roomKey, rootSession!!.identity, transport, storage, scope,
+                        authority = host.invitation.canonicalInviter).also { it.open() }
+                }
             }
             main {
                 val preferences = app.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
@@ -222,17 +319,12 @@ class GuestAdmissionEntryTest {
         fun acknowledge() { ack = true; sockets.keys.forEach { socket -> requests.forEach { ok(socket, it) } } }
         fun reply(event: NostrEvent) {
             for ((socket, subscriptions) in sockets) for ((id, filters) in subscriptions) {
-                if (filters.any { filter ->
-                    filter["kinds"]?.jsonArray?.any { it.jsonPrimitive.int == event.kind } != false &&
-                        filter["authors"]?.jsonArray?.any { it.jsonPrimitive.content == event.pubkey } != false &&
-                        filter.filterKeys { it.startsWith("#") }.all { (tag, values) -> event.tags.any { row ->
-                            row.size >= 2 && row[0] == tag.drop(1) && values.jsonArray.any { it.jsonPrimitive.content == row[1] }
-                        } }
-                }) socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+                if (filters.any { matches(it, event) }) socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
             }
         }
         suspend fun close() {
             main { store.clear() }
+            rootWork?.close()
             rootSession?.leave(); rootPool?.stop(); scope.cancel()
             withTimeout(15_000) { while (sockets.isNotEmpty()) delay(20) }
             if (hostRoom) {
@@ -241,6 +333,7 @@ class GuestAdmissionEntryTest {
                     dev.forgesworn.kithmoot.storage.RoomSharingVault(app, saved.id, saved.participant, saved.devicePubkey).forget()
                 }
                 app.savedRooms.forget(room.roomId); app.roomEpochs.forget(room.roomId)
+                app.roomLogos.forget(room.roomId)
             }
             server.shutdown(); secret.fill(0); host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0)
             assertNull("No admission fixture may leave a saved room", app.savedRooms.get(room.roomId))
