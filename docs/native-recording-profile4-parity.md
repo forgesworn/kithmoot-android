@@ -36,6 +36,30 @@ now regenerates 29 cases, including profile-4 carriage of legacy warnings and
 rejection of future profile 99. Both independent participant fixture suites
 remain alongside these complete-JSON wire checks.
 
+## 12 October runtime and admission follow-up
+
+Integrated source `199b39e2` failed hosted recovery instrumentation with an
+Android `VerifyError` in `RoomScreenKt`; the verify runner also lacked ripgrep
+for the driver fault checks. Commit `f6fdad67` extracts the recording-start
+dialog and installs that dependency. Fresh run
+[38184180726](https://github.com/forgesworn/kithmoot-android/actions/runs/38184180726)
+failed with the same room-screen verifier rejection. The [blocker receipt](evidence/native-recording-profile4-runtime-blocker-2026-10-12.json)
+records the original failure; the first refactor did not resolve the runtime rejection. The working tree now
+separates the complete room composition from its public callback API, preserving
+the existing UI and saved-state keys; fresh runtime verification remains required.
+The local full build of the known failing revision was deliberately terminated.
+
+The working tree also adds capture/heartbeat credential and signed-admission
+deadlines, per-source expiry checked without roster/UI refresh, retirement of
+an owned On before a failed Stop acknowledgement, and fail-closed heartbeat
+handling when the owner callback throws. Consent now distinguishes a new
+recording episode after a known Off, even when the same ID is reused within one
+second; equivalent On refreshes keep the consent episode stable. Focused tests
+for publication, reception, source grants, participant ownership and meeting
+consent passed: 43 tests, no failures, errors or skips. This proves the focused
+shutdown, expiry and consent cases; it does not qualify the subsequent room-screen
+composition refactor or replace full release gates.
+
 ## Historical initial audit
 
 # Recording profile 4 parity gate
