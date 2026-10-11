@@ -155,6 +155,9 @@ class ArtworkPickerUiTest {
             mount(scenario, offline = true)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
             ui.onNodeWithContentDescription("Emoji").performClick()
+            // Hiding the IME finishes outside Compose's idle tracking. While
+            // it is visible the compact tray does not expose the media tabs.
+            ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")
             ui.onNodeWithText("GIFs").performClick()

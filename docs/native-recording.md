@@ -51,7 +51,10 @@ source and APK hashes.
 The [latest hosted verify receipt](evidence/native-recording-a1-hosted-verify-2026-10-11.json)
 records 436 protocol tests and 2,104 app tests in each build variant, with no
 failures or skips, both lints and all APK builds passing on `a1f0786f`. Recovery
-and API 33/35 signing jobs were still running at this observation.
+failed before recording restart stages because the artwork-picker test clicked
+a media tab during the keyboard transition. API 33/35 signing passed. The
+fixture now waits for the actual visible tab; its corrective runtime remains
+required.
 
 ## Scheduled announcements and local export
 
@@ -433,6 +436,22 @@ not Wildbloom. The Android host-mode debug and instrumentation APKs build
 successfully; the receipt records the archived APK hashes.
 Host-mode runtime, large/slow daemon uploads and physical endurance remain
 unqualified.
+
+The [large host/private-node receipt](evidence/native-recording-private-node-host-large-2026-10-11.json)
+qualifies a 256 MiB synthetic plaintext sealed into 269,488,200 encrypted bytes
+by an independent Python FSWNENC2 implementation. The real allowlisted daemon
+returns one PUT 201 and one GET 200 through the host TLS streaming proxy.
+Every downloaded record authenticates, metadata and source hashes match, and
+temporary data, daemon and proxy cleanup pass. The upload took 25.47 seconds.
+This proves a host/server transfer, not native encryption, Android UI at this
+size, slow authorisation expiry or long physical capture.
+
+The optional `scripts/check-recording-private-node-host.py` requires Python
+`cryptography`, Node 24, an explicitly selected `nostr-tools` package, an
+existing private daemon binary and a synthetic 1-256 MiB MP4. Its signer is
+ephemeral; it uses no saved account, public node discovery, Tor or replication.
+Use `--chunk-delay` to exercise slower transfers; results record whether the
+upload receipt arrived after the five-minute authorisation expiry.
 
 ## Live browser/native adapter export qualification
 
