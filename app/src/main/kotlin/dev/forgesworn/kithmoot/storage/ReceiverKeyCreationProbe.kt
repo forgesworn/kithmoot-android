@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference
 internal object ReceiverKeyCreationProbe {
     private val owner = AtomicReference<Session?>()
     private const val MAX_EVENTS = 128
-    private const val MAX_CALLERS = 16
+    private const val MAX_CALLERS = 64
 
     enum class Phase(val wire: String) {
         BASELINE("baseline"), DIRECT_ENTRY("direct-entry"), FOREGROUND_CONSTRUCTION("foreground-construction"),
