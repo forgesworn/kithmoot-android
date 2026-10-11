@@ -19,6 +19,12 @@ Send and the real-node stages were not reached. The harness now captures bounded
 logcat, screenshot and last-ANR diagnostics on failure while preserving the
 original failure status. The cause of the launcher failure remains unqualified.
 
+The next workflow candidate runs identical private-node assertions on both
+Google APIs and standard AOSP Android 35 images, with independent reports and
+fail-fast disabled. Both x86_64 packages are present in the SDK repository.
+This comparison retains the Google APIs gate while allowing the launcher/setup
+failure to be isolated. Neither matrix result has been qualified yet.
+
 The earlier integrated-main/cadence candidate passed 417 protocol and 2,070 app
 unit tests, both lint variants and both APK builds locally; see the
 [main/cadence receipt](evidence/native-recording-main-cadence-guarded-2026-10-11.json).

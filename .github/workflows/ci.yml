@@ -228,6 +228,10 @@ jobs:
     needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [google_apis, default]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -286,6 +290,7 @@ jobs:
               output.truncate(target)
           binary = Path('build/wildbloom-node/target/release/wildbloomd')
           receipt = {'node_source': '4474ce194888b039f14cf7001e2eab43305b2c9c',
+                     'system_image_target': '${{ matrix.target }}',
                      'node_binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                      'physical': False, 'synthetic_track_seconds': 3,
                      'large_plaintext_bytes': large.stat().st_size}
@@ -308,7 +313,7 @@ jobs:
           KITHMOOT_RECORDING_HOST_PROXY: '1'
         with:
           api-level: 35
-          target: google_apis
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
           avd-name: kithmoot-recording-private-node
@@ -325,7 +330,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: recording-private-node-emulator-reports
+          name: recording-private-node-emulator-reports-${{ matrix.target }}
           path: app/build/reports/native-recording-private-node/
           if-no-files-found: warn
           retention-days: 7
