@@ -1,0 +1,27 @@
+{
+  "qualification": "Atomic separate-process recording recipient readiness",
+  "source_commit": "1b754f70",
+  "tests": 4,
+  "result": "passed",
+  "emulator": "Android 35 Google APIs ARM64, host GPU, 2048 MiB",
+  "fix": "Write recipient-ready.tmp completely, then rename it to recipient-ready.json before the sender can observe readiness",
+  "source_sha256": {
+    "app/src/debug/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingRecipientFixtureActivity.kt": "f208092d7611090fef162b65fef98f38053a1912d50b92824d2b15ce53eecd3c"
+  },
+  "log_sha256": "22da5ba192d8e5db81601f0e0061ff0fbc791481c1614cee425b3cf58ecd8e67",
+  "synthetic_sample_sha256": "0a50a58fec2063c5f9c154245b44c71c337c173707b869608fdbc73a80b234f4",
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "fb39ebfdfde6a96029be3f69a7fe970bb074ad5427e5cbc3aceaf015d1300424",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "25b30976f1768d8b3f047d8e4a1d90f83132441a50da937dd612d431129c0077"
+  },
+  "hosted_failure": {
+    "run": 38150014848,
+    "job": "recording-private-node-emulator (google_apis)",
+    "observed": "recipient-ready.json existed with empty contents, causing JSONObject parsing to fail before transfer checks",
+    "instrumentation_sha256": "d353d238ed162c63cc0cbcc8f51d75f19bffe9b2b605ab82596f26796ee49e17"
+  },
+  "limits": [
+    "Local private TLS contract tests; the real Wildbloom daemon and maximum/slow hosted matrix require a fresh run",
+    "Does not qualify live capture worker performance, physical export, quiet Send restart/rekey or production delivery"
+  ]
+}
