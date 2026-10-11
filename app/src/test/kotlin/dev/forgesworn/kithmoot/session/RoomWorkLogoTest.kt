@@ -105,6 +105,27 @@ class RoomWorkLogoTest {
         work.close()
     }
 
+    @Test fun `cancelling the editor before dispatch sends no logo`() = runTest {
+        val transport = Transport(); transport.gate = CompletableDeferred()
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 }, nowMs = { 200_000 })
+        work.open()
+        var editorOpen = true
+        val writing = async { runCatching { work.replaceRoomLogo(image) { editorOpen } } }
+        transport.waiting.await(); editorOpen = false; transport.gate!!.complete(Unit)
+        assertIs<IllegalStateException>(writing.await().exceptionOrNull())
+        assertEquals(1, transport.sent.size, "Only discovery was sent")
+        assertNull(work.roomLogo()); work.close()
+    }
+
+    @Test fun `an already invalid editor does not enter publication`() = runTest {
+        val transport = Transport()
+        val work = RoomWork(room, key, person, transport, storage, backgroundScope, now = { 200 })
+        work.open()
+        assertFailsWith<IllegalStateException> { work.replaceRoomLogo(null) { false } }
+        assertFalse(transport.waiting.isCompleted); assertEquals(1, transport.sent.size)
+        work.close()
+    }
+
     @Test fun `a removed epoch logo disappears and is not carried into the new epoch`() = runTest {
         val transport = Transport(); val changes = mutableListOf<RoomLogoRecord?>()
         val rekeys = mutableMapOf<Int, Long>()

@@ -305,8 +305,8 @@ class RoomWork(
     }
 
     /** Confirm a private room override or explicit removal in this epoch only. */
-    suspend fun replaceRoomLogo(image:LogoImage?):RoomLogoRecord {
-        check(!closed) {"This room has closed"}
+    suspend fun replaceRoomLogo(image:LogoImage?, stillAllowed:()->Boolean={true}):RoomLogoRecord {
+        check(!closed&&stillAllowed()) {"This room or its logo editor has closed"}
         val generation=transport.publicationGeneration()
         val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
         val at=nowMs();val sentAt=Math.floorDiv(at,1000L)
@@ -314,7 +314,7 @@ class RoomWork(
         val messageId=Entropy.bytes(16).toHex()
         val event=encodeChatEvent(encodeRoomLogoOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
             id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,sentAtMs=at,roomLogo=RoomLogoPayload(image))
-        val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key) }
+        val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key)&&stillAllowed() }
         check(allowed()&&transport.publishConfirmedGuarded(event,generation,allowed)&&allowed()) {"No relay confirmed the current room logo"}
         val record=RoomLogoRecord(image,op.id,op.at,sentAt,identity.participant)
         ingestLogo(messageId,record,epoch)
