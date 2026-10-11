@@ -30,11 +30,35 @@
       "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
       "test_apk_sha256": "5a3f879eac3c75785497491adf779368d6abfe9c4f28a4201690ac75101e6709"
     },
-    "emulator_setup": "Owned disposable Android 35 ARM64 host-GPU AVD; unrelated com.google.android.apps.messaging disabled after observed system ANR"
+    "emulator_setup": "Owned disposable Android 35 ARM64 host-GPU AVD; unrelated com.google.android.apps.messaging disabled after observed system ANR",
+    "runtime": {
+      "result": "failed; deliberately stopped after live failures and system ANR blocked owner UI",
+      "instrumentation_sha256": "735d6e3d05b05546914702aa3f96a1ad20d820ffc5dec5bff12d150128ccec32",
+      "live_audio": "Failed before capture: zero sink/browser frames despite connected RTP",
+      "live_video": "Failed before capture: zero sink/browser frames despite connected RTP",
+      "limits": [
+        "Neither case reached camera replacement or recording; offer correlation and PCM queue fixes are not runtime-qualified"
+      ],
+      "emulator_setup_limit": "Messaging disable command passed before reboot, but the rebooted disabled-package list omitted Messaging and its ANR dialog blocked UI again"
+    }
   },
   "browser_validation": {
     "focused_peer_tests": 174,
     "typecheck": "passed on browser correlation commit",
     "current_main_merged_hosted_run": 38161339649
+  },
+  "synthetic_producer_follow_up": {
+    "source_commit": "38325cdc",
+    "change": "Three bulk plane writes replace per-pixel plane getters, retaining 320x240 pixels, Y/U/V values 160/90/130 and 66 ms schedule",
+    "evidence": "javap on the installed io.github.webrtc-sdk Android 144.7559.12 classes confirms each getDataY/U/V calls ByteBuffer.slice; old loop called getters 115200 times per frame",
+    "sdk_bytecode_sha256": "898cf474e01dcd8f7b64bde2e1779f6f8a37eca8e8c670a6546cfafe0c937f2d",
+    "scope": "Synthetic fixture optimisation; production PCM queue bound and recording assertions unchanged; compile passed and runtime pending",
+    "build": {
+      "result": "passed",
+      "duration_seconds": 58,
+      "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "test_apk_sha256": "589494d213ce6355cc7afa1800432a3dedac21b469ced2b3c920f95983d048c9"
+    },
+    "next_runtime_setup": "Owned Android 35 ARM64 AVD with host GPU and 2048 MiB RAM, reducing host memory pressure; explicit messaging stop/disable after boot before qualification"
   }
 }
