@@ -12,7 +12,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
-internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
+internal class RecoveryUi(
+    private val useSwipeFallback: Boolean = true,
+    private val freshNodes: Boolean = false,
+) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
     /** Confirm the chosen radio option before the next accessibility action. */
@@ -53,6 +56,9 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     }
 
     private fun nodes(): List<AccessibilityNodeInfo> {
+        // Dynamic labels may otherwise be read from UiAutomation's node cache.
+        // Opt in where a lifecycle test must observe the current rendered control.
+        if (freshNodes) automation.clearCache()
         val result = mutableListOf<AccessibilityNodeInfo>()
         fun visit(node: AccessibilityNodeInfo) {
             result += node

@@ -16,10 +16,17 @@ fixture="recording-stop-ui-$(openssl rand -hex 6)"
 "$adb_bin" -s "$ANDROID_SERIAL" install -r -d app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 run_stage() {
   local stage="$1"
-  "$adb_bin" -s "$ANDROID_SERIAL" shell am instrument -w -r \
+  local statuses=()
+  if "$adb_bin" -s "$ANDROID_SERIAL" shell am instrument -w -r \
     -e recordingStopRecoveryFixture "$fixture" -e recordingStopRecoveryStage "$stage" \
     -e class dev.forgesworn.kithmoot.media.recording.RecordingStopRecoveryUiTest \
-    dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/$stage.txt"
+    dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/$stage.txt"; then
+    statuses=("${PIPESTATUS[@]}")
+  else
+    statuses=("${PIPESTATUS[@]}")
+  fi
+  "$adb_bin" -s "$ANDROID_SERIAL" logcat -d -t 6000 > "$reports/$stage-logcat.txt" 2>&1 || true
+  [[ "${statuses[*]}" == '0 0' ]]
   grep -Eq '^OK \(1 tests?\)' "$reports/$stage.txt"
   ! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3' "$reports/$stage.txt"
 }

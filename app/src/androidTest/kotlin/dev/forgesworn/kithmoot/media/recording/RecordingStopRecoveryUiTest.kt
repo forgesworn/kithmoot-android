@@ -32,7 +32,7 @@ import java.security.MessageDigest
 class RecordingStopRecoveryUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
-    private val ui = RecoveryUi(useSwipeFallback = false)
+    private val ui = RecoveryUi(useSwipeFallback = false, freshNodes = true)
     private lateinit var model: RoomViewModel
     private var relay: ProjectTestRelay? = null
 
@@ -86,7 +86,10 @@ class RecordingStopRecoveryUiTest {
             ui.await("authority and media ready") { model.room.value.meetingModerator && !model.room.value.mediaStarting }
             ui.click("Start call"); ui.await("call joined") { model.room.value.onCall }
             ui.click("Record call"); ui.click("Start recording")
-            ui.await("confirmed On and local capture") { model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy }
+            ui.await("confirmed On, local capture and rendered Stop control") {
+                model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy &&
+                    !model.room.value.nativeRecordingPreparing && ui.enabled("Stop recording")
+            }
             val roomId = model.room.value.roomId
             val saved = requireNotNull(app.savedRooms.get(roomId))
             val off = requireNotNull(app.recordingStops.pending(roomId, saved.devicePubkey, requireNotNull(saved.authority)))

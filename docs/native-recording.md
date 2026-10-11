@@ -5,7 +5,7 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The latest integrated-main/cadence candidate passed 417 protocol and 2,070 app
+The earlier integrated-main/cadence candidate passed 417 protocol and 2,070 app
 unit tests, both lint variants and both APK builds locally; see the
 [main/cadence receipt](evidence/native-recording-main-cadence-guarded-2026-10-11.json).
 The subsequent [independent-recipient receipt](evidence/native-recording-independent-recipient-2026-10-11.json)
@@ -22,6 +22,14 @@ and emulator filesystem; independent-device acceptance remains open.
 The [saved-stop UI recovery receipt](evidence/native-recording-saved-stop-ui-recovery-2026-10-11.json)
 qualifies reopening the original saved room after process death and confirming
 its exact retained Off through the production Retry stop notice control.
+
+The [room-logo integration receipt](evidence/native-recording-room-logo-integration-2026-10-11.json)
+records 427 protocol and 2,088 app tests, both lint/build variants and API 33/35
+signing lineage passing on the merged candidate. Hosted recovery failed while
+finding the Stop control after model capture started. Its accessibility report
+still showed the startup label; cache staleness remains a hypothesis. The
+follow-up reads fresh accessibility nodes and requires the actual enabled Stop
+control before withholding acknowledgements. Its runtime qualification is pending.
 
 The [startup cancellation receipt](evidence/native-recording-start-cancellation-2026-10-11.json)
 qualifies cancelling a pending announcement through the native room controls,
