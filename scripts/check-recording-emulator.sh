@@ -37,3 +37,4 @@ mkdir -p "$reports"
 # am instrument can exit zero even when the test process fails.
 rg -q "^OK \\($expected tests\\)" "$reports/instrumentation.txt"
 ! rg -q 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$reports/instrumentation.txt"
+! rg -q '^INSTRUMENTATION_STATUS_CODE: (-3|-4)$' "$reports/instrumentation.txt"
