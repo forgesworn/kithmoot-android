@@ -80,6 +80,19 @@ class MemberRecordingReceptionTest {
         assertEquals(speakerConsent, meeting.state.value.recordingConsentKey(0))
     }
 
+    @Test fun restartingTheSameIdAfterOffRequiresFreshConsentEvenWithinTheSameSecond() {
+        val meeting = RoomMeeting(room.roomId, null, { 0 })
+        assertTrue(meeting.receiveParticipant(received(first)))
+        val originalConsent = assertNotNull(meeting.state.value.recordingConsentKey(0))
+        assertTrue(meeting.receiveParticipant(received(first, warning(first, on = false, version = 18))))
+        assertNull(meeting.state.value.recordingConsentKey(0))
+        assertTrue(meeting.receiveParticipant(received(first, warning(first, version = 19))))
+        val resumedConsent = assertNotNull(meeting.state.value.recordingConsentKey(0))
+        assertNotEquals(originalConsent, resumedConsent)
+        assertTrue(meeting.receiveParticipant(received(first, warning(first, version = 20), at = 1)))
+        assertEquals(resumedConsent, meeting.state.value.recordingConsentKey(1))
+    }
+
     @Test fun anotherDeviceChoosingTheSameIdCannotAuthoriseTheOriginalDeviceCapture() {
         val meeting = RoomMeeting(room.roomId, null, { 0 })
         val original = warning(first)

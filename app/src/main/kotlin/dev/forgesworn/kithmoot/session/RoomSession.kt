@@ -446,7 +446,8 @@ class RoomSession(
 
     private data class RecordingCaptureState(val callId: String?, val incompatibleCalls: Set<String>, val incompatibleMemberCalls: Set<String>)
     @Volatile private var recordingCaptureState = RecordingCaptureState(null, emptySet(), emptySet())
-    internal val recordingRosterAuthority = RecordingRosterAuthority(identity.participant, identity.devicePubkey)
+    internal val recordingRosterAuthority = RecordingRosterAuthority(identity.participant, identity.devicePubkey, now,
+        requiresProof = policy?.tier?.let { it != KindredTier.OPEN } == true)
 
     /** Updated under the session lock before any flow can invoke a media
      * collector. Capture callbacks must never take that lock: collectors may
@@ -464,9 +465,18 @@ class RoomSession(
         }.toSet())
     }
 
+    /** Deadlines were authenticated at admission; media callbacks read them
+     * without signature work, transport calls or the session lock. */
+    private fun recordingAdmissionCurrent(): Boolean {
+        val at = now()
+        val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+        val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        return trafficAllowed() && at < credentialDeadline && at < accessDeadline && at < (ends ?: Long.MAX_VALUE)
+    }
+
     fun recordingCaptureAllowed(callId: String, requireLiveWarnings: Boolean, participantWarning: Boolean = false): Boolean {
         val snapshot = recordingCaptureState
-        return snapshot.callId == callId && (!requireLiveWarnings || callId !in snapshot.incompatibleCalls) &&
+        return recordingAdmissionCurrent() && snapshot.callId == callId && (!requireLiveWarnings || callId !in snapshot.incompatibleCalls) &&
             (!participantWarning || callId !in snapshot.incompatibleMemberCalls)
     }
 
@@ -684,8 +694,8 @@ class RoomSession(
 
     private val _liveRecording = MutableStateFlow<ReceivedLiveRecording?>(null)
     private val liveRecordingPublicationMutex = Mutex()
-    private var outgoingLiveRecording: LiveRecordingState? = null
-    private var outgoingLiveRecordingAllowed: (() -> Boolean)? = null
+    @Volatile private var outgoingLiveRecording: LiveRecordingState? = null
+    @Volatile private var outgoingLiveRecordingAllowed: (() -> Boolean)? = null
     @Volatile private var liveRecordingGeneration = 0L
     /** Latest complete authority-verified warning received in authenticated presence. */
     val liveRecording: StateFlow<ReceivedLiveRecording?> = _liveRecording.asStateFlow()
@@ -970,6 +980,7 @@ class RoomSession(
     /** Media callbacks read authenticated ownership directly, without waiting
      * for a RoomWork/UI collector or acquiring the session lock. */
     fun participantRecordingActive(notice: RecordingNotice, callId: String): Boolean {
+        if (!recordingAdmissionCurrent() || outgoingLiveRecording?.recording?.notice != notice) return false
         val received = _participantRecordings.value["$callId:${identity.devicePubkey}"] ?: return false
         val state = received.state
         return state.call == callId && state.device == identity.devicePubkey && state.recorder == identity.participant &&
@@ -1010,6 +1021,12 @@ class RoomSession(
                     "Recording publication is no longer allowed"
                 }
                 check(liveRecordingStillCurrent(state)) { "A newer recording warning has already been received" }
+                // Stop retires this device's matching On before waiting for a
+                // relay. A failed Off must never keep refreshing the old On.
+                val running = outgoingLiveRecording
+                if (!state.recording.notice.on && running?.recording?.notice?.id == state.recording.notice.id &&
+                    running.call == state.call && running.device == state.device && running.recorder == state.recorder)
+                    clearOutgoingLiveRecordingLocked()
                 localGeneration = liveRecordingGeneration
                 announcementEntryLocked(reply = true, left = false, live = state)
             }
@@ -1033,7 +1050,13 @@ class RoomSession(
             lock.withStateLock {
                 if (!allowed() || currentTransportGeneration != transportGeneration) return@withLock false
                 outgoingLiveRecording = state
-                outgoingLiveRecordingAllowed = stillAllowed
+                // Presence refresh has its own TTL. The recording owner and
+                // the original publication's admission deadlines remain bound.
+                outgoingLiveRecordingAllowed = {
+                    stillAllowed() && trafficAllowed() && liveRecordingGeneration == localGeneration &&
+                        liveRecordingStillCurrent(state) && now() < credentialDeadline &&
+                        now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE)
+                }
                 roster[identity.devicePubkey] = entry
                 refreshRecordingCaptureStateLocked()
                 val received = ReceivedLiveRecording(state, at, identity.participant, identity.devicePubkey, call?.id)
@@ -1048,7 +1071,7 @@ class RoomSession(
     private fun publishAnnouncement(reply: Boolean, left: Boolean) {
         val epoch = epochKeys()
         val entry = lock.withStateLock {
-            if (outgoingLiveRecordingAllowed?.invoke() == false ||
+            if (runCatching { outgoingLiveRecordingAllowed?.invoke() }.getOrDefault(false) == false ||
                 outgoingLiveRecording?.let { !liveRecordingStillCurrent(it) } == true) clearOutgoingLiveRecordingLocked()
             announcementEntryLocked(reply, left, outgoingLiveRecording).also {
                 roster[identity.devicePubkey] = it

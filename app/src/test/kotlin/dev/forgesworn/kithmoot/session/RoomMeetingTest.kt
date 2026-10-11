@@ -46,6 +46,21 @@ class RoomMeetingTest {
         return encodeRecordingOp(SignedRecordingNotice(notice, signRecordingNotice(roomId, notice, sk)))
     }
 
+    @Test fun `a known stop makes a same id restart a new consent episode`() {
+        val meeting = RoomMeeting(roomId, authority, { clock })
+        val id = "12".repeat(16)
+        meeting.receive(recordingOp(true, id, 1), alice, clock)
+        val first = meeting.state.value.recordingConsentKey(clock)
+        assertTrue(first != null)
+        meeting.receive(recordingOp(false, id, 2), alice, clock)
+        assertNull(meeting.state.value.recordingConsentKey(clock))
+        meeting.receive(recordingOp(true, id, 3), alice, clock)
+        val resumed = meeting.state.value.recordingConsentKey(clock)
+        assertTrue(resumed != null && resumed != first)
+        meeting.receive(recordingOp(true, id, 4), alice, clock)
+        assertEquals(resumed, meeting.state.value.recordingConsentKey(clock))
+    }
+
     @Test fun `capture details need the authority and exactly the live recording id and version`() {
         val meeting = RoomMeeting(roomId, authority, { clock })
         val capture = RecordingCaptureNotice("0f".repeat(16), 1, "gallery", alice, bob)
