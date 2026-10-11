@@ -16,11 +16,45 @@ separate recipient app process. The later
 now qualifies that UI journey against an actual private Wildbloom daemon, still
 with both participants in one app process.
 
+The [startup cancellation receipt](evidence/native-recording-start-cancellation-2026-10-11.json)
+qualifies cancelling a pending announcement through the native room controls,
+with ownership fencing and exact Off retry.
+
 Quiet announcement timing/heartbeat capacity, full room/restart/rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
 hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
 source and APK hashes.
+
+## Cancel while announcing recording
+
+The room controls say Announcing recording while signed notices await
+confirmation, and expose Cancel recording start in the room and call dock.
+The ViewModel owns the startup job; cancelling or leaving revokes its generation
+and cancels the job outside the capture lock. The authority checks that same
+ownership at actual dispatch and on refresh, so a withdrawn capture owner cannot
+publish a later On. Off confirmation remains independent of capture ownership.
+
+The owner learns the recording ID immediately after its exact signed Off is
+retained, before either startup notice is offered. Cancel removes the unused
+source before waiting for stop confirmation. A possibly offered announcement
+keeps its exact Off available for retry; cancellation cannot substitute a new
+recording or erase unconfirmed stop recovery.
+
+Seventeen RoomWork tests, including four ownership/cancellation cases, passed.
+All 16 local capture/playback emulator checks passed in 57.453 seconds. The
+actual room test withholds acknowledgement, chooses Cancel before On, verifies
+no capture/export or later On, then confirms the retained exact Off through
+Retry stop notice. Three HTTPS sharing checks passed in 17.237 seconds, and the
+forced-process signed-stop driver passed preparation, verification and cleanup.
+The earlier retry-control fixture race is preserved in the receipt. Full local
+CI passed in 8m 4s: 417 protocol and 2,074 app tests, both lints and debug/release
+builds. Hosted qualification for this source remains required.
+
+This does not change quiet routing, confirmation timeouts or heartbeat cadence.
+Cadence-aware waiting/deadlines, quiet key capacity and actual delegated delivery
+remain open. Call-dock cancellation is implemented; the new automated UI journey
+runs through the main room controls. Physical acceptance remains separate.
 
 ## Independent recipient Show and Play
 

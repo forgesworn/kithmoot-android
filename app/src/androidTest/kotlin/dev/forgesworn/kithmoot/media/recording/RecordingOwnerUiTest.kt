@@ -71,6 +71,51 @@ class RecordingOwnerUiTest {
         if (::relay.isInitialized) relay.close()
     }
 
+    @Test fun cancel_waiting_announcement_prevents_capture_and_retains_stop_until_confirmed() {
+        ui.click("New room"); ui.replace("Room name (optional)", "Synthetic cancelled recorder"); ui.click("Start a room"); ui.room()
+        ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }
+        ui.click("Start call")
+        ui.await("original call joined") { model.room.value.onCall }
+        recordingRoom = model.room.value.roomId
+        val saved = requireNotNull(app.savedRooms.get(requireNotNull(recordingRoom)))
+        val secret = saved.secret
+        val original = try { dev.forgesworn.kithmoot.protocol.deriveRoom(secret) } finally { secret.fill(0) }
+        try {
+            relay.acknowledge = false
+            ui.click("Record call"); ui.click("Start recording")
+            ui.await("notice wait exposes cancellation before capture") {
+                model.room.value.nativeRecordingPreparing && ui.hasText("Cancel recording start")
+            }
+            assertFalse(model.room.value.nativeRecording)
+            ui.click("Cancel recording start")
+            ui.await("cancelled start detaches and removes unused source") {
+                !model.room.value.nativeRecordingPreparing && !model.room.value.nativeRecording && app.recordings.pending() == null
+            }
+            ui.await("signed stop retained after cancelled announcement") { model.room.value.recordingStopPending }
+            assertNull(app.recordings.export.value)
+            ui.await("relay has withheld the exact Off acknowledgement") {
+                relay.writes.any { event -> event.id in relay.withheldAcknowledgements &&
+                    dev.forgesworn.kithmoot.session.decodeChatEvent(event, original.roomId, original.roomKey,
+                        System.currentTimeMillis() / 1000, channel = "control")?.body?.let {
+                            dev.forgesworn.kithmoot.protocol.decodeRecordingOp(it)?.notice?.on == false
+                        } == true
+                }
+            }
+            relay.acknowledge = true
+            ui.click("Retry stop notice")
+            ui.await("explicit retry confirms exact Off") { !model.room.value.recordingStopPending && !model.room.value.recordingStopRetrying }
+            assertFalse(model.room.value.nativeRecording)
+            val controls = relay.writes.filter { it.kind == KIND_CHAT }.mapNotNull {
+                dev.forgesworn.kithmoot.session.decodeChatEvent(it, original.roomId, original.roomKey,
+                    System.currentTimeMillis() / 1000, channel = "control")?.body
+            }
+            val notices = controls.mapNotNull { dev.forgesworn.kithmoot.protocol.decodeRecordingOp(it) }
+            assertTrue("Cancelled startup must never offer On", notices.none { it.notice.on })
+            assertEquals("Retries retain one exact Off", 1, notices.distinct().size)
+            assertNull(app.recordings.export.value)
+        } finally { relay.acknowledge = true; original.roomKey.fill(0) }
+    }
+
     @Test fun gallery_controls_keep_original_origin_pause_while_hidden_and_retain_a_two_track_mp4() {
         ui.click("New room")
         ui.replace("Room name (optional)", "Synthetic recording owner")

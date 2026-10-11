@@ -25,6 +25,7 @@ internal class ProjectTestRelay : AutoCloseable {
     private val server = MockWebServer()
     val events = CopyOnWriteArrayList<NostrEvent>()
     val writes = CopyOnWriteArrayList<NostrEvent>()
+    val withheldAcknowledgements = CopyOnWriteArrayList<String>()
     val requests = CopyOnWriteArrayList<JsonObject>()
     private val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
     @Volatile var acknowledge = true
@@ -56,6 +57,7 @@ internal class ProjectTestRelay : AutoCloseable {
                         "EVENT" -> {
                             val event = NostrEvent.fromJson(frame[1]); writes.add(event); publish(event)
                             if (acknowledge) socket.send(buildJsonArray { add("OK"); add(event.id); add(true); add("Synthetic stored event") }.toString())
+                            else withheldAcknowledgements.add(event.id)
                         }
                     }
                 }

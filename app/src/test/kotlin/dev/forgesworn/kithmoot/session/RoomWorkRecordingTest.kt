@@ -8,6 +8,9 @@ import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.*
 import kotlin.test.*
@@ -24,6 +27,7 @@ class RoomWorkRecordingTest {
         var rejectAt=Int.MAX_VALUE
         var stored=emptyList<NostrEvent>()
         var beforeGuard:(()->Unit)?=null
+        var waitBeforeGuard:(suspend ()->Unit)?=null
         override fun publish(event:NostrEvent) {sent+=event}
         override fun subscribe(filters:List<Filter>)=MutableSharedFlow<NostrEvent>()
         override suspend fun queryStored(filters:List<Filter>,timeoutMs:Long)=stored
@@ -32,6 +36,7 @@ class RoomWorkRecordingTest {
             return sent.size!=rejectAt
         }
         override suspend fun publishConfirmedGuarded(event:NostrEvent,generation:Long,stillAllowed:()->Boolean,timeoutMs:Long):Boolean {
+            waitBeforeGuard?.invoke()
             beforeGuard?.invoke()
             if(!stillAllowed())throw PublicationNotOfferedException()
             return publishConfirmed(event,timeoutMs)
@@ -51,6 +56,65 @@ class RoomWorkRecordingTest {
         override fun read()=bytes?.clone()
         override fun write(value:ByteArray) { check(!fail) { "Synthetic stop journal failure" };bytes=value.clone() }
         override fun reset() {bytes=null}
+    }
+
+    @Test fun cancelled_owner_before_start_arms_nothing_and_offers_nothing()=runTest {
+        val retained=StopStorage();val t=Transport()
+        val work=work(t,stops=RecordingStopJournal(retained))
+        assertFailsWith<IllegalStateException> {work.startRecording("audio",stillAllowed={false})}
+        assertTrue(t.sent.isEmpty())
+        assertNull(RecordingStopJournal(retained).pending(room,host.devicePubkey,authority))
+        assertNull(work.recordingStopPending.value);work.close()
+    }
+
+    @Test fun cancellation_between_details_and_on_fences_dispatch_and_keeps_exact_stop()=runTest {
+        val retained=StopStorage();val stops=RecordingStopJournal(retained);val t=Transport()
+        var allowed=true;var armed:String?=null
+        t.beforeGuard={if(t.sent.size==1)allowed=false}
+        val work=work(t,stops=stops)
+        assertFailsWith<PublicationNotOfferedException> {
+            work.startRecording("gallery",stillAllowed={allowed},onArmed={armed=it})
+        }
+        assertNotNull(decodeRecordingCaptureOp(body(t.sent.single())))
+        val off=assertNotNull(stops.pending(room,host.devicePubkey,authority))
+        assertEquals(armed,off.notice.id);assertEquals(armed,work.recordingStopPending.value)
+        assertNull(work.meeting.state.value.recording)
+        t.beforeGuard=null
+        work.stopRecording(checkNotNull(armed))
+        assertEquals(off,decodeRecordingOp(body(t.sent.last())))
+        assertNull(stops.pending(room,host.devicePubkey,authority));work.close()
+    }
+
+    @Test fun cancelling_suspended_start_releases_control_and_retains_stop_for_explicit_retry()=runTest {
+        val retained=StopStorage();val stops=RecordingStopJournal(retained);val t=Transport()
+        val waiting=CompletableDeferred<Unit>();val release=CompletableDeferred<Unit>()
+        t.waitBeforeGuard={waiting.complete(Unit);release.await()}
+        val work=work(t,stops=stops);var armed:String?=null
+        val start=launch {work.startRecording("audio",onArmed={armed=it})}
+        waiting.await();start.cancelAndJoin()
+        assertTrue(t.sent.isEmpty())
+        val off=assertNotNull(stops.pending(room,host.devicePubkey,authority))
+        assertEquals(armed,off.notice.id);assertEquals(armed,work.recordingStopPending.value)
+        release.complete(Unit);runCurrent()
+        assertTrue(t.sent.isEmpty(),"Late release cannot revive cancelled startup")
+        t.waitBeforeGuard=null
+        work.stopRecording(checkNotNull(armed))
+        assertEquals(off,decodeRecordingOp(body(t.sent.single())))
+        assertNull(work.recordingStopPending.value);work.close()
+    }
+
+    @Test fun withdrawn_capture_owner_cannot_refresh_on_but_exact_off_can_still_confirm()=runTest {
+        val retained=StopStorage();val stops=RecordingStopJournal(retained);val t=Transport()
+        var allowed=true
+        val work=work(t,stops=stops)
+        val on=work.startRecording("gallery",stillAllowed={allowed})
+        assertEquals(2,t.sent.size)
+        allowed=false
+        advanceTimeBy(RECORDING_REPOST_SECONDS*1000+1);runCurrent()
+        assertEquals(2,t.sent.size,"An invalidated owner cannot refresh its On notice")
+        work.stopRecording(on.id)
+        assertFalse(assertNotNull(decodeRecordingOp(body(t.sent.last()))).notice.on)
+        assertNull(stops.pending(room,host.devicePubkey,authority));work.close()
     }
 
     @Test fun forget_at_transport_dispatch_prevents_running_notice_and_late_journal_resurrection()=runTest {

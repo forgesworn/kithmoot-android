@@ -645,6 +645,7 @@ data class RoomState(
     val nativeRecording: Boolean = false,
     val nativeRecordingPaused: Boolean = false,
     val nativeRecordingBusy: Boolean = false,
+    val nativeRecordingPreparing: Boolean = false,
     val recordingVideoDevices: List<dev.forgesworn.kithmoot.media.recording.RecordingVideoEndpoint> = emptyList(),
     val recordingVideoSupported: Boolean = false,
     val recordingStopPending: Boolean = false,
@@ -1004,7 +1005,8 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var shownChat: List<dev.forgesworn.kithmoot.session.ChatMessage> = emptyList()
     private var engine: WebRtcEngine? = null
     private val nativeRecordingLock = Any()
-    private var nativeRecordingGeneration = 0L
+    @Volatile private var nativeRecordingGeneration = 0L
+    private var nativeRecordingStartJob: Job? = null
     private var nativeRecordingStarting = false
     private data class NativeRecordingOwner(val id: String, val media: WebRtcEngine, val work: RoomWork, val file: java.io.File,
         val capture: dev.forgesworn.kithmoot.media.recording.CallAudioCapture,
@@ -5732,10 +5734,10 @@ class RoomViewModel @JvmOverloads constructor(
             if (nativeRecordingStarting || nativeRecordingOwner != null || !_room.value.onCall || !media.callActive) return
             if (recordingApplication.recordings.pending() != null) return note("Save or discard the previous recording first.")
             nativeRecordingStarting = true
+            _room.update { it.copy(nativeRecordingBusy = true, nativeRecordingPreparing = true) }
             ++nativeRecordingGeneration
         }
-        _room.update { it.copy(nativeRecordingBusy = true) }
-        viewModelScope.launch(Dispatchers.IO) {
+        val startup = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             var file: java.io.File? = null
             var noticeId: String? = null
             var installed = false
@@ -5745,7 +5747,9 @@ class RoomViewModel @JvmOverloads constructor(
                     origin = origin,
                     discardAt = originalState.endsAt?.takeIf { originalState.destruct })
                 file = source
-                val recordingId = work.startRecording(layout?.wire ?: "audio").id
+                val recordingId = work.startRecording(layout?.wire ?: "audio",
+                    stillAllowed = { nativeRecordingGeneration == ticket && (layout == null || appVisible) },
+                    onArmed = { noticeId = it }).id
                 noticeId = recordingId
                 synchronized(nativeRecordingLock) {
                     check(nativeRecordingGeneration == ticket && engine === media && roomWork === work && session === originalSession &&
@@ -5761,8 +5765,9 @@ class RoomViewModel @JvmOverloads constructor(
                         dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, snapshot.first, captureKey, captureName), snapshot.second)
                     nativeRecordingOwner = NativeRecordingOwner(recordingId, media, work, source, capture, origin, layout, captureKey, captureName, speaker)
                     nativeRecordingStarting = false
+                    nativeRecordingStartJob = null
                     installed = true
-                    _room.update { it.copy(nativeRecording = true, nativeRecordingPaused = false, nativeRecordingBusy = false) }
+                    _room.update { it.copy(nativeRecording = true, nativeRecordingPaused = false, nativeRecordingBusy = false, nativeRecordingPreparing = false) }
                 }
                 viewModelScope.launch {
                     while (isActive) {
@@ -5782,20 +5787,28 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { if (engine === media) note(error.message ?: "Recording could not start.") }
+            catch (error: Exception) { if (engine === media && nativeRecordingGeneration == ticket) note(error.message ?: "Recording could not start.") }
             finally {
                 if (!installed) withContext(NonCancellable) {
-                    noticeId?.let { runCatching { work.stopRecording(it) } }
                     file?.let { runCatching { recordingApplication.recordings.abandon(it) } }
+                    noticeId?.let { runCatching { work.stopRecording(it) } }
                     synchronized(nativeRecordingLock) {
                         if (nativeRecordingGeneration == ticket) {
                             nativeRecordingStarting = false
-                            if (engine === media) _room.update { it.copy(nativeRecordingBusy = false) }
+                            nativeRecordingStartJob = null
+                            if (engine === media) _room.update { it.copy(nativeRecordingBusy = false, nativeRecordingPreparing = false) }
                         }
                     }
                 }
             }
         }
+        val ownsStart = synchronized(nativeRecordingLock) {
+            if (nativeRecordingGeneration == ticket && nativeRecordingStarting) {
+                nativeRecordingStartJob = startup
+                true
+            } else false
+        }
+        if (ownsStart) startup.start() else startup.cancel()
     }
 
     private fun recordingVideoSnapshot(media: WebRtcEngine, live: RoomSession,
@@ -5895,14 +5908,18 @@ class RoomViewModel @JvmOverloads constructor(
     /** Synchronously revoke input access before leaving/rekeying; finalisation
      * belongs to the application so closing this room cannot cancel it. */
     fun stopNativeRecording() {
-        val held = synchronized(nativeRecordingLock) {
+        val stopped = synchronized(nativeRecordingLock) {
             ++nativeRecordingGeneration
             nativeRecordingStarting = false
+            val startup = nativeRecordingStartJob.also { nativeRecordingStartJob = null }
             val owner = nativeRecordingOwner.also { nativeRecordingOwner = null }
-            _room.update { it.copy(nativeRecording = false, nativeRecordingPaused = false, nativeRecordingBusy = owner != null) }
-            owner?.let { it to it.media.takeAudioRecording() }
-        } ?: return
-        val (owner, capture) = held
+            _room.update { it.copy(nativeRecording = false, nativeRecordingPaused = false, nativeRecordingBusy = owner != null,
+                nativeRecordingPreparing = false) }
+            (owner?.let { it to it.media.takeAudioRecording() }) to startup
+        }
+        // Cancellation may invoke transport handlers; never do that under the capture lock.
+        stopped.second?.cancel()
+        val (owner, capture) = stopped.first ?: return
         recordingApplication.recordingExports.launch {
             try {
                 runCatching { owner.work.stopRecording(owner.id) }.onFailure {

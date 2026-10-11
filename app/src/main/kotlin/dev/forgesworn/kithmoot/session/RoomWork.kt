@@ -321,7 +321,8 @@ class RoomWork(
     }
     /** Confirm details before the running notice. Capture may begin only after
      * this returns. A failed publication never authorises local capture. */
-    suspend fun startRecording(capture:String):RecordingNotice=recordingMutex.withLock {
+    suspend fun startRecording(capture:String,stillAllowed:()->Boolean={true},onArmed:(String)->Unit={}):RecordingNotice=recordingMutex.withLock {
+        check(stillAllowed()) {"Recording was cancelled before it could start"}
         check(!closed) {"This room has closed"}
         val sk=authoritySecretKey
         check(moderator&&sk!=null) {"Only the room's authority can start recording."}
@@ -340,8 +341,9 @@ class RoomWork(
         val signedOff=SignedRecordingNotice(off,signRecordingNotice(roomId,off,sk))
         recordingStops?.arm(roomId,identity.devicePubkey,signedOff,checkNotNull(authority),checkNotNull(recordingStopGeneration))
         try {
-            publishRecordingControl(encodeRecordingCaptureOp(signedDetails))
-            publishRecordingControl(encodeRecordingOp(signed))
+            onArmed(id)
+            publishRecordingControl(encodeRecordingCaptureOp(signedDetails),stillAllowed)
+            publishRecordingControl(encodeRecordingOp(signed),stillAllowed)
         } catch(error:Exception) {
             if(recordingStops!=null) mutableRecordingStopPending.value=id
             throw error
@@ -354,8 +356,8 @@ class RoomWork(
                     // A failed refresh leaves the last confirmed notice intact;
                     // peers eventually show it as unconfirmed, never silently off.
                     try {
-                        publishRecordingControl(encodeRecordingCaptureOp(signedDetails))
-                        publishRecordingControl(encodeRecordingOp(signed))
+                        publishRecordingControl(encodeRecordingCaptureOp(signedDetails),stillAllowed)
+                        publishRecordingControl(encodeRecordingOp(signed),stillAllowed)
                     } catch(cancelled:CancellationException) {throw cancelled}
                     catch(_:Exception) {mutableError.value="The recording notice could not be refreshed."}
                 }
@@ -403,7 +405,7 @@ class RoomWork(
         }
     }
 
-    private suspend fun publishRecordingControl(body:String) {
+    private suspend fun publishRecordingControl(body:String,stillAllowed:()->Boolean={true}) {
         check(!closed) {"This room has closed"}
         check(ends==null||now()<ends) {"This room has ended"}
         val generation=transport.publicationGeneration()
@@ -416,7 +418,7 @@ class RoomWork(
         val event=encodeChatEvent(body,identity.participant,identity.credential,id,key,
             identity.deviceSecretKey,sentAt,channel="control",credentialRoomId=roomId,roomEnds=ends)
         check(transport.publishConfirmedGuarded(event,generation,{
-            !closed && trafficRoomId==id && now()<credentialDeadline && (ends==null||now()<ends) &&
+            stillAllowed() && !closed && trafficRoomId==id && now()<credentialDeadline && (ends==null||now()<ends) &&
                 (recordingStops==null||recordingStops.generation(roomId)==recordingStopGeneration)
         })) {"No relay confirmed the recording notice"}
         receiveMeeting(body,identity.participant,sentAt)

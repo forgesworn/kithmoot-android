@@ -568,10 +568,12 @@ fun RoomScreen(
                         enabled = !state.nativeRecordingBusy && (state.nativeRecording ||
                             (!state.recordingStopPending && state.recording == dev.forgesworn.kithmoot.protocol.RecordingView.Off)),
                     ) { Text(when {
+                        state.nativeRecordingPreparing -> "Announcing recording…"
                         state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Preparing recording…"
                         state.nativeRecording -> "Stop recording"
                         else -> "Record call"
                     }) }
+                    if (state.nativeRecordingPreparing) TextButton(onClick = onStopRecording) { Text("Cancel recording start") }
                     if (state.nativeRecording) TextButton(onClick = onToggleRecordingPause, enabled = !state.nativeRecordingBusy) {
                         Text(if (state.nativeRecordingPaused) "Resume recording" else "Pause recording")
                     }

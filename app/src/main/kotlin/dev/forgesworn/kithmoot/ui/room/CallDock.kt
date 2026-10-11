@@ -56,6 +56,8 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                     },
                 ) { Text(if (heard) "Mic on" else "Mic off") }
                 Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to the call") }
+                if (call.nativeRecordingPreparing) OutlinedButton(onClick = onStopRecording,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel recording start") }
                 if (call.nativeRecording) OutlinedButton(onClick = onStopRecording, enabled = !call.nativeRecordingBusy,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text("Stop recording") }
                 if (call.nativeRecording) OutlinedButton(onClick = onToggleRecordingPause, enabled = !call.nativeRecordingBusy,
