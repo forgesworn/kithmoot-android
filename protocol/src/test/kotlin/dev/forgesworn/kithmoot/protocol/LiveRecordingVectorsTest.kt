@@ -38,8 +38,8 @@ class LiveRecordingVectorsTest(private val name: String, private val row: JsonOb
             val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
             assertEquals("kithmoot/v1", root.getValue("protocolVersion").jsonPrimitive.content)
             val rows = root.getValue("cases").jsonArray
-            assertEquals(28, rows.size)
-            assertEquals(28, rows.map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet().size)
+            assertEquals(29, rows.size)
+            assertEquals(29, rows.map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet().size)
             return rows.map { val row = it.jsonObject; arrayOf<Any>(row.getValue("name").jsonPrimitive.content, row) }
         }
     }

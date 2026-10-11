@@ -173,7 +173,7 @@ data class RosterEntry(
      * Only the exact number `2` counts - anything else is treated as absent.
      */
     val callProfile: Int? = null,
-    /** 2 explains signed capture details; 3 also receives live recording warnings. */
+    /** 2 explains capture details, 3 authority warnings, 4 participant warnings. */
     val recordingProfile: Int? = null,
     val liveRecording: LiveRecordingState? = null,
     /**
@@ -220,8 +220,8 @@ data class RosterEntry(
         if (agent) put("agent", true)
         if (left) put("left", true)
         if (callProfile != null) put("callProfile", callProfile)
-        if (recordingProfile == 2 || recordingProfile == 3) put("recordingProfile", recordingProfile)
-        if (recordingProfile == 3) liveRecording?.let { put("liveRecording", it.toJson()) }
+        if (recordingProfile in listOf(2, 3, 4)) put("recordingProfile", recordingProfile)
+        if (recordingProfile in listOf(3, 4)) liveRecording?.let { put("liveRecording", it.toJson()) }
         if (sid != null) put("sid", sid)
         if (call != null) put("call", call.toJson())
     }
@@ -266,9 +266,9 @@ data class RosterEntry(
                 ?.takeIf { it == 2 },
             sid = (json["sid"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
             recordingProfile = (json["recordingProfile"] as? JsonPrimitive)
-                ?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it == 2.0 || it == 3.0 }?.toInt(),
+                ?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it == 2.0 || it == 3.0 || it == 4.0 }?.toInt(),
             liveRecording = if ((json["recordingProfile"] as? JsonPrimitive)
-                ?.takeIf { !it.isString }?.doubleOrNull == 3.0) LiveRecordingState.fromJson(json["liveRecording"]) else null,
+                ?.takeIf { !it.isString }?.doubleOrNull in listOf(3.0, 4.0)) LiveRecordingState.fromJson(json["liveRecording"]) else null,
             // Sanitised on the way in, as the web client does: only a
             // well-formed membership counts, and a malformed one is dropped
             // rather than carried around as a value nothing can read.

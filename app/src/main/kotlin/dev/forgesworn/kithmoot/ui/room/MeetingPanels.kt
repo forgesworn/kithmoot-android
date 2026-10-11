@@ -39,11 +39,11 @@ private fun clockTime(seconds: Long): String = clock.format(Instant.ofEpochSecon
 
 /** What the recording notice says, or null when there is nothing to say.
  *  Worded as the web client's banner is. */
-internal fun recordingLine(view: RecordingView, description: String? = null): String? = when (view) {
+internal fun recordingLine(view: RecordingView, description: String? = null, inRoom: Boolean = false): String? = when (view) {
     RecordingView.Off -> null
-    is RecordingView.On -> "This call is being recorded, since ${clockTime(view.since)}. ${description ?: "Audio and video you share may be included."} " +
+    is RecordingView.On -> "${if (inRoom) "A call in this room" else "This call"} is being recorded, since ${clockTime(view.since)}. ${description ?: "Audio and video you share may be included."} " +
         "KithMoot cannot stop anybody recording with another app, recording or not."
-    is RecordingView.Unconfirmed -> "This call may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}."
+    is RecordingView.Unconfirmed -> "${if (inRoom) "A call in this room" else "This call"} may still be recording: the notice was last confirmed at ${clockTime(view.lastHeard)}."
 }
 
 internal fun recordingCaptureDescription(state: RoomState): String? {
@@ -58,7 +58,8 @@ internal fun recordingCaptureDescription(state: RoomState): String? {
         "screen-camera" -> "a screen share with camera and call audio"
         else -> return null
     }
-    return "$who is capturing $what."
+    val others = state.recordingWarnings.size - 1
+    return "$who is capturing $what." + if (others > 0) " There ${if (others == 1) "is" else "are"} $others other recording ${if (others == 1) "device" else "devices"} in this room." else ""
 }
 
 /** What meeting mode means for this person, or null when it is off. */
@@ -78,8 +79,8 @@ internal fun meetingLine(state: RoomState): String? = when {
  * hidden controls.
  */
 @Composable
-internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier, description: String? = null) {
-    val line = recordingLine(view, description) ?: return
+internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier, description: String? = null, inRoom: Boolean = false) {
+    val line = recordingLine(view, description, inRoom) ?: return
     Surface(
         modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(12.dp),

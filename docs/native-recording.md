@@ -18,8 +18,8 @@ padded to the transfer limit; this does not establish 45-minute live capture.
 Current web/desktop participant recording requires native profile 4 parity.
 The [parity gate](native-recording-profile4-parity.md) tracks independent signed
 warnings, consent, device-owned Start/Stop and restart/rekey. The new reception
-candidate has passed 490 protocol checks but its app build and reception tests
-are still running. It does not yet advertise profile 4. Historical results below
+candidate has passed 490 protocol checks and 47 focused app tests. APK assembly
+is still running. It does not yet advertise profile 4. Historical results below
 apply only to their recorded source; the final native production release,
 physical acceptance and full profile-4 lifecycle remain open.
 

@@ -1,0 +1,72 @@
+{
+  "base": "f2f8378e",
+  "protocol_tests": 490,
+  "protocol_failures": 0,
+  "app_suites": [
+    {
+      "name": "dev.forgesworn.kithmoot.session.LiveRecordingPublicationTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:45.210Z"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.session.LiveRecordingReceptionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:48.834Z"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.session.MemberRecordingReceptionTest",
+      "tests": "5",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:49.564Z"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.session.RoomWorkLiveRecordingTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:50.365Z"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.session.RoomWorkRecordingTest",
+      "tests": "21",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:51.086Z"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.ui.room.RecordingDescriptionTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "timestamp": "2026-10-11T22:37:52.126Z"
+    }
+  ],
+  "app_tests": 47,
+  "app_failures": 0,
+  "assembly": "in progress when this receipt was written",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomMeeting.kt": "fafa56ec10378651357c2cce1377caf19d936145c49b295de1fd7afc766f5c8c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "dd541e107528f3690ceb6e27d9b08f72c0a9937dfb1f6b914771b890aa4a11c9",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "00f6c1a6e1a4ab8e34239c6a3303b0ce81bf5c54bbe3bfb615b93c001f65e268",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "36fb74be602dc43011652d2916200d1e650b7daf3baf5066b5c3a08f28d8f96e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/MeetingPanels.kt": "5f952703f89f62d79e815374d1ee8421c133bf72425d56dcf6ca4b156f27fb2b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "a7894ee77ccd6385828d012125b81f90d9b3796cc5dcb3b979a8ddcb9e17e3f7",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/MemberRecordingReceptionTest.kt": "50a00f2ea9804bb78367b8f586f388e0a3999b7817cae75a3659c5df9cef7ae5",
+    "protocol/src/main/kotlin/dev/forgesworn/kithmoot/protocol/Roster.kt": "a62671b837a5a383ed939286e0e6b0fdf02bfbc00a4e5670b1c00cf8cf9b0adf",
+    "protocol/src/test/resources/recording-live.json": "b2dedaf6344454495c9219b0d3ddf9123c433a03d7ef37c3ae538b5bcd99f9a2",
+    "protocol/src/test/resources/recording-live-profile3.json": "9fec606c5ad487a59d3e4f624c5159fee794e66b45d96c566f0b9510bf9bb160",
+    "scripts/generate-live-recording-vectors.mjs": "d88d67d53de76426b51b31938b458a9f4f936b308b14c3f6fb2949f3ec2b6705"
+  },
+  "limits": "Source reception checks only. APK assembly and instrumentation are not qualified by this receipt. Native does not yet advertise profile 4; device-owned Start/Stop, durable member Off recovery and mixed-client qualification remain open. The consent fingerprint still needs capture-mode/person binding before release. Earlier hosted results apply to e3607e11 only. Physical endurance and final signed production delivery remain open."
+}

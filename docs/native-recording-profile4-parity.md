@@ -69,3 +69,12 @@ presence reception/consent tests and APK assembly are still running, so receptio
 and UI are not yet qualified. Native still advertises its previous capability.
 Device-owned publication, durable member Off recovery, capture ownership, all
 mixed-client gates and the original physical/release requirements remain open.
+
+The [reception unit receipt](evidence/native-recording-profile4-reception-unit-2026-10-11.json)
+now records all 47 focused app tests passing alongside the 490 protocol checks.
+Five member-reception tests cover two independently signed recorders, one device's
+Off preserving another's warning, stale/conflicting On rejection, malformed or
+forged context, active-call filtering and reading authenticated presence before
+collectors run. APK assembly is still live; no instrumentation or physical claim
+follows. Before release, the consent fingerprint must also bind capture mode and
+person/device metadata, and the participant-owned lifecycle remains incomplete.

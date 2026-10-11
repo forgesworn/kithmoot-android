@@ -564,7 +564,12 @@ fun RoomScreen(
             // clear of the status bar and the camera cutout.
             val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
             Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RecordingBanner(state.recording, description = recordingCaptureDescription(state))
+                if (state.recordingWarnings.isEmpty()) {
+                    RecordingBanner(state.recording, description = recordingCaptureDescription(state))
+                } else state.recordingWarnings.forEach { warning ->
+                    RecordingBanner(warning.view, description = recordingCaptureDescription(state.copy(recordingCapture = warning.capture)),
+                        inRoom = warning.call != null)
+                }
                 if (state.nativeRecordingPaused) Text("Recording paused on this device.")
                 if (state.recordingStopPending && !lockedCallOnly && !inPictureInPicture) {
                     Text("Capture stopped on this device. The room's stop notice needs confirmation.")

@@ -145,6 +145,8 @@ data class LocalRoles(
  */
 data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
 data class ReceivedLiveRecording(val state: LiveRecordingState, val sentAt: Long)
+data class ReceivedMemberRecording(val state: LiveRecordingState, val participant: String,
+    val device: String, val call: String?, val profile: Int?, val sentAt: Long)
 
 enum class EpochGateResult { COMMITTED, PENDING }
 
@@ -678,6 +680,12 @@ class RoomSession(
     @Volatile private var liveRecordingGeneration = 0L
     /** Latest complete authority-verified warning received in authenticated presence. */
     val liveRecording: StateFlow<ReceivedLiveRecording?> = _liveRecording.asStateFlow()
+    private val _memberRecordings = MutableStateFlow<List<ReceivedMemberRecording>>(emptyList())
+    /** Already authenticated and admitted; each device retains its own ordering. */
+    val memberRecordings: StateFlow<List<ReceivedMemberRecording>> = _memberRecordings.asStateFlow()
+    fun advertisedRecordingCalls(): Set<String> = lock.withStateLock {
+        roster.values.filterNot { it.left }.mapNotNull { it.call?.id }.toSet()
+    }
 
     private val _signals = MutableSharedFlow<UnwrappedSignal>(replay = 0, extraBufferCapacity = 256)
 
@@ -1519,7 +1527,28 @@ class RoomSession(
             }
             refreshRecordingCaptureStateLocked()
         }
-        if (!entry.left && entry.recordingProfile == 3) entry.liveRecording?.let { state ->
+        if (!entry.left && entry.recordingProfile == 4 && entry.liveRecording?.call != null) {
+            val state = checkNotNull(entry.liveRecording)
+            if (verifyLiveRecordingState(room.roomId, state, entry.participant, entry.device,
+                    entry.call?.id, entry.recordingProfile, authority)) lock.withStateLock {
+                // An intervening accepted presence change cannot be followed
+                // by publication of this older context's warning.
+                if (roster[entry.device] == entry) {
+                    val before = _memberRecordings.value.firstOrNull { it.device == entry.device }
+                    val previous = before?.state?.recording?.notice
+                    val next = state.recording.notice
+                    if (previous == null || previous.version < next.version ||
+                        (before != null && previous == next && before.state.capture?.notice == state.capture?.notice &&
+                            before.state.call == state.call && before.state.recorder == state.recorder && before.state.device == state.device)) {
+                        val received = ReceivedMemberRecording(state, entry.participant, entry.device,
+                            entry.call?.id, entry.recordingProfile, maxOf(entry.updatedAt, before?.sentAt ?: entry.updatedAt))
+                        _memberRecordings.value = (_memberRecordings.value.filterNot { it.device == entry.device } + received)
+                            .sortedBy { it.device }
+                    }
+                }
+            }
+        }
+        if (!entry.left && entry.recordingProfile in listOf(3, 4) && entry.liveRecording?.call == null) entry.liveRecording?.let { state ->
             val root = authority
             if (root != null && verifyLiveRecordingState(room.roomId, state, root)) {
                 // Shares the ACK commit lock: a concurrent newer Off cannot

@@ -30,6 +30,10 @@ data class HeardRecording(val signed: SignedRecordingNotice, val since: Long, va
     val notice: RecordingNotice get() = signed.notice
 }
 
+data class HeardMemberRecording(val state: LiveRecordingState, val since: Long, val heardAt: Long)
+data class RecordingWarning(val view: RecordingView, val capture: RecordingCaptureNotice?,
+    val call: String? = null, val recorder: String? = null, val device: String? = null)
+
 /** Everything a room's control log has said about meeting mode and recording. */
 data class MeetingSnapshot(
     val policy: SignedMeetingPolicy? = null,
@@ -37,6 +41,8 @@ data class MeetingSnapshot(
     val capture: SignedRecordingCaptureNotice? = null,
     /** Raised hands: participant -> unix seconds raised. */
     val hands: Map<String, Long> = emptyMap(),
+    /** Independent, device-signed warnings; never meeting authority. */
+    val memberRecordings: Map<String, HeardMemberRecording> = emptyMap(),
 ) {
     val meeting: MeetingPolicy? get() = policy?.policy
     /** What the room should be told about recording at [now]. */
@@ -46,6 +52,30 @@ data class MeetingSnapshot(
     fun recordingCapture(): RecordingCaptureNotice? = capture?.notice?.takeIf {
         recording?.notice?.on == true && it.id == recording.notice.id && it.version == recording.notice.version
     }
+
+    fun recordingWarnings(now: Long, activeCalls: Set<String>? = null): List<RecordingWarning> = buildList {
+        val legacy = recordingView(now)
+        if (legacy != RecordingView.Off) add(RecordingWarning(legacy, recordingCapture()))
+        for ((device, heard) in memberRecordings.toSortedMap()) {
+            val live = heard.state
+            if (activeCalls != null && live.call !in activeCalls) continue
+            val view = recordingView(live.recording.notice, heard.since, heard.heardAt, now)
+            if (view != RecordingView.Off)
+                add(RecordingWarning(view, live.capture?.notice, live.call, live.recorder, device))
+        }
+    }
+
+    /** Consent covers every currently advertised recorder, not just whichever
+     * warning happens to be first. Heartbeat/version refreshes do not re-ask. */
+    fun recordingConsentKey(now: Long, activeCalls: Set<String>? = null): String? =
+        recordingWarnings(now, activeCalls).map { warning ->
+            val id = when (val view = warning.view) {
+                is RecordingView.On -> view.id
+                is RecordingView.Unconfirmed -> view.id
+                RecordingView.Off -> error("An off warning cannot require consent")
+            }
+            "${warning.call.orEmpty()}:${warning.device.orEmpty()}:$id"
+        }.sorted().takeIf { it.isNotEmpty() }?.joinToString("|")
 }
 
 /** Something worth a line in the room's chat: said only for a change read
@@ -85,6 +115,34 @@ class RoomMeeting(
     }
 
     private fun fresh(sentAt: Long) = sentAt >= now() - 60
+
+    /** The caller supplies the authenticated/admitted roster context. A device
+     * warning cannot modify the root's meeting policy or another device's notice. */
+    fun receiveMember(received: ReceivedMemberRecording): Boolean {
+        val live = received.state
+        if (live.call == null || !verifyLiveRecordingState(roomId, live, received.participant,
+                received.device, received.call, received.profile, authority)) return false
+        var news: MeetingNews? = null
+        synchronized(this) {
+            val snapshot = mutable.value
+            val before = snapshot.memberRecordings[received.device]
+            val next = live.recording.notice
+            if (before != null && before.state.recording.notice.version > next.version) return false
+            if (before != null && before.state.recording.notice.version == next.version &&
+                (before.state.recording.notice != next || before.state.capture?.notice != live.capture?.notice ||
+                    before.state.call != live.call || before.state.recorder != live.recorder || before.state.device != live.device)) return false
+            val same = before?.state?.recording?.notice?.let { it.on && next.on && it.id == next.id } == true
+            val since = if (same) before!!.since else received.sentAt
+            val heardAt = if (before?.state?.recording?.notice?.version == next.version)
+                maxOf(before.heardAt, received.sentAt) else received.sentAt
+            mutable.value = snapshot.copy(memberRecordings = snapshot.memberRecordings +
+                (received.device to HeardMemberRecording(live, since, heardAt)))
+            if (fresh(received.sentAt) && (before?.state?.recording?.notice?.on == true) != next.on)
+                news = if (next.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
+        }
+        news?.let { runCatching { onNews(it) } }
+        return true
+    }
 
     /** Adopt the complete live warning atomically; neither half authorises the other. */
     fun receiveLive(state: LiveRecordingState, sentAt: Long): Boolean {

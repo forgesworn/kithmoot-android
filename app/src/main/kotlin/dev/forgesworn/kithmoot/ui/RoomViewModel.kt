@@ -651,6 +651,7 @@ data class RoomState(
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
     val recordingCapture: RecordingCaptureNotice? = null,
+    val recordingWarnings: List<dev.forgesworn.kithmoot.session.RecordingWarning> = emptyList(),
     val nativeRecording: Boolean = false,
     val nativeRecordingPaused: Boolean = false,
     val nativeRecordingBusy: Boolean = false,
@@ -1012,6 +1013,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** The recording this person agreed to be on the call for, by id, so the
      *  question is asked once per recording and per call, not per button. */
     @Volatile private var consentedRecording: String? = null
+    @Volatile private var askedRecordingConsent: String? = null
     /** This room's send path for a reply typed on its notification, as registered with [dev.forgesworn.kithmoot.notifications.OpenRoomReplies]. */
     private var noticeReplier: Pair<String, suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome>? = null
     /** The open room's latest messages, so closing it can tell the background inbox what it showed. */
@@ -4904,6 +4906,7 @@ class RoomViewModel @JvmOverloads constructor(
                     })
                 roomWork=work
                 work.followLiveRecording(live.liveRecording)
+                work.followMemberRecordings(live.memberRecordings)
                 scope.launch { work.recordingStopPending.collect { pending ->
                     _room.update { if (roomWork === work) it.copy(recordingStopPending = pending != null) else it }
                 } }
@@ -4984,6 +4987,7 @@ class RoomViewModel @JvmOverloads constructor(
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
                         ) }
+                        if (session === live) showRecording()
                     }
             }
             scope.launch {
@@ -5641,6 +5645,7 @@ class RoomViewModel @JvmOverloads constructor(
         roomWork = null
         meetingState.value = MeetingSnapshot()
         consentedRecording = null
+        askedRecordingConsent = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
@@ -5812,14 +5817,17 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private fun askRecordingConsent(action: RecordingConsent): Boolean {
         if (_room.value.onCall) return false
-        val view = meetingState.value.recordingView(epochSeconds())
-        val id = when (view) {
-            is RecordingView.On -> view.id
-            is RecordingView.Unconfirmed -> view.id
-            RecordingView.Off -> return false
+        val live = session ?: return true
+        val snapshot = roomWork?.recordingSnapshot(live) ?: run {
+            note("Recording status is changing. Try joining again."); return true
         }
-        if (consentedRecording == id) return false
-        _room.update { it.copy(recording = view, recordingConsent = action) }
+        val calls = live.advertisedRecordingCalls()
+        val warnings = snapshot.recordingWarnings(epochSeconds(), calls)
+        val key = snapshot.recordingConsentKey(epochSeconds(), calls) ?: return false
+        if (consentedRecording == key) return false
+        askedRecordingConsent = key
+        _room.update { it.copy(recording = warnings.first().view, recordingWarnings = warnings,
+            recordingCapture = warnings.first().capture, recordingConsent = action) }
         return true
     }
 
@@ -5827,13 +5835,23 @@ class RoomViewModel @JvmOverloads constructor(
      *  no leaves the person in the room, off the call. */
     fun answerRecordingConsent(join: Boolean) {
         val asked = _room.value.recordingConsent ?: return
-        _room.update { it.copy(recordingConsent = null) }
-        if (!join) return
-        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds())) {
-            is RecordingView.On -> view.id
-            is RecordingView.Unconfirmed -> view.id
-            RecordingView.Off -> null
+        val live = session ?: return
+        val snapshot = roomWork?.recordingSnapshot(live) ?: run {
+            note("Recording status is changing. Try joining again."); return
         }
+        val key = snapshot.recordingConsentKey(epochSeconds(), live.advertisedRecordingCalls())
+        if (join && key != null && key != askedRecordingConsent) {
+            // A new recorder appeared while the dialog was open. Present its
+            // current details and require a fresh answer, rather than silently
+            // broadening the earlier consent.
+            askedRecordingConsent = null
+            askRecordingConsent(asked)
+            return
+        }
+        _room.update { it.copy(recordingConsent = null) }
+        askedRecordingConsent = null
+        if (!join) return
+        consentedRecording = key
         when (asked) {
             RecordingConsent.JOIN -> joinCall(micOn = false)
             RecordingConsent.JOIN_WITH_MIC -> joinCall(micOn = true)
@@ -6490,6 +6508,7 @@ class RoomViewModel @JvmOverloads constructor(
      * other app refusing to play them is the half that does not rely on it.
      */
     private fun adoptMeeting(snapshot: MeetingSnapshot) {
+        val warnings = snapshot.recordingWarnings(epochSeconds(), session?.advertisedRecordingCalls())
         val before = meetingState.value
         meetingState.value = snapshot
         // Clear excluded cached pictures before deferred policy collectors.
@@ -6512,8 +6531,9 @@ class RoomViewModel @JvmOverloads constructor(
             meetingModerator = roomWork?.moderator == true,
             meetingSpeakers = policy?.speakers.orEmpty(),
             raisedHands = snapshot.hands,
-            recording = snapshot.recordingView(epochSeconds()),
-            recordingCapture = snapshot.recordingCapture(),
+            recording = warnings.firstOrNull()?.view ?: RecordingView.Off,
+            recordingCapture = warnings.firstOrNull()?.capture,
+            recordingWarnings = warnings,
         ) }
         // The host hears about a hand as it goes up, not one found in the log.
         if (roomWork?.moderator == true) snapshot.hands.filter { (p, at) -> p !in before.hands && p != me && at >= epochSeconds() - 30 }
@@ -6524,7 +6544,9 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun showRecording() {
-        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds()), recordingCapture = meetingState.value.recordingCapture()) }
+        val warnings = meetingState.value.recordingWarnings(epochSeconds(), session?.advertisedRecordingCalls())
+        _room.update { it.copy(recording = warnings.firstOrNull()?.view ?: RecordingView.Off,
+            recordingCapture = warnings.firstOrNull()?.capture, recordingWarnings = warnings) }
     }
 
     /** Off the stage: everything this device sends is stopped, and it says what. */
@@ -6557,6 +6579,7 @@ class RoomViewModel @JvmOverloads constructor(
         stopNativeRecording()
         // Joining again asks again, if it is still being recorded.
         consentedRecording = null
+        askedRecordingConsent = null
         // A remembered Join must not survive a Leave; it would put the person
         // straight back on the call they just left.
         _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false,

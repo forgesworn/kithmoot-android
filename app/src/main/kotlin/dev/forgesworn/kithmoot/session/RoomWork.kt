@@ -132,12 +132,28 @@ class RoomWork(
     private val catalogues=linkedMapOf<String,Pair<Long,List<AvailableAssignmentAction>>>()
     private var collector:Job?=null
     private var liveRecordingCollector:Job?=null
+    private var memberRecordingCollector:Job?=null
+    fun followMemberRecordings(source:StateFlow<List<ReceivedMemberRecording>>) {
+        check(!closed) {"This room has closed"}
+        memberRecordingCollector?.cancel()
+        memberRecordingCollector=scope.launch {
+            source.collect { received -> if(!closed)received.forEach { meeting.receiveMember(it) } }
+        }
+    }
     fun followLiveRecording(source:kotlinx.coroutines.flow.StateFlow<ReceivedLiveRecording?>) {
         check(!closed) {"This room has closed"}
         liveRecordingCollector?.cancel()
         liveRecordingCollector=scope.launch {
             source.collect { received -> if(received!=null&&!closed)receiveLiveRecording(received) }
         }
+    }
+    /** Consent reads accepted session snapshots directly, without waiting for
+     * UI or warning collectors. Only this work's original room is eligible. */
+    internal fun recordingSnapshot(live:RoomSession):MeetingSnapshot? {
+        if(closed || live.room.roomId!=roomId)return null
+        live.liveRecording.value?.let(::receiveLiveRecording)
+        live.memberRecordings.value.forEach { meeting.receiveMember(it) }
+        return if(closed)null else meeting.state.value
     }
     private val discoveryMutex=Mutex()
     @Volatile private var closed=false
@@ -665,5 +681,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();liveRecordingCollector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();liveRecordingCollector?.cancel();memberRecordingCollector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }
