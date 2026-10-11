@@ -24,6 +24,6 @@ fun recordingVideoEndpoints(
             device.tracks.any { it.role == Roles.CAMERA && it.muted != true },
             device.tracks.any { it.role == Roles.SCREEN && it.muted != true })
     } }.toMutableList()
-    result += RecordingVideoEndpoint(self, localName, 2, !held && allowed(self.participant), localCamera, localScreen)
+    result += RecordingVideoEndpoint(self, localName, 3, !held && allowed(self.participant), localCamera, localScreen)
     return result.sortedWith(compareBy({ it.key.participant }, { it.key.device }))
 }

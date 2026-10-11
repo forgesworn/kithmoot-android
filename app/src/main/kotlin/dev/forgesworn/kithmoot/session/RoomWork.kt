@@ -30,6 +30,7 @@ import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.signMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.RECORDING_REPOST_SECONDS
 import dev.forgesworn.kithmoot.protocol.RecordingNotice
+import dev.forgesworn.kithmoot.protocol.LiveRecordingState
 import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
 import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
@@ -111,6 +112,9 @@ class RoomWork(
     /** Preserve the epoch a cached logo was accepted under. */
     initialRoomLogoEpoch:Int?=null,
     private val onRoomLogo:(RoomLogoRecord?,Int)->Unit={_,_->},
+    /** Quiet call warnings use live presence with a real relay ACK. Null
+     * retains the legacy control route for rooms whose chat is not quiet. */
+    private val liveRecordingPublisher:(suspend (LiveRecordingState,()->Boolean)->Boolean)?=null,
 ) {
     private val recordingTrafficLock=Any()
     @Volatile private var trafficRoomId=initialTrafficRoomId
@@ -448,8 +452,7 @@ class RoomWork(
         recordingStops?.arm(roomId,identity.devicePubkey,signedOff,checkNotNull(authority),checkNotNull(recordingStopGeneration))
         try {
             onArmed(id)
-            publishRecordingControl(encodeRecordingCaptureOp(signedDetails),stillAllowed)
-            publishRecordingControl(encodeRecordingOp(signed),stillAllowed)
+            publishRecordingState(signed,signedDetails,stillAllowed)
         } catch(error:Exception) {
             if(recordingStops!=null) mutableRecordingStopPending.value=id
             throw error
@@ -462,8 +465,7 @@ class RoomWork(
                     // A failed refresh leaves the last confirmed notice intact;
                     // peers eventually show it as unconfirmed, never silently off.
                     try {
-                        publishRecordingControl(encodeRecordingCaptureOp(signedDetails),stillAllowed)
-                        publishRecordingControl(encodeRecordingOp(signed),stillAllowed)
+                        publishRecordingState(signed,signedDetails,stillAllowed)
                     } catch(cancelled:CancellationException) {throw cancelled}
                     catch(_:Exception) {mutableError.value="The recording notice could not be refreshed."}
                 }
@@ -496,7 +498,7 @@ class RoomWork(
             SignedRecordingNotice(it,signRecordingNotice(roomId,it,checkNotNull(sk)))
         }
         try {
-            publishRecordingControl(encodeRecordingOp(signed))
+            publishRecordingState(signed)
             if(retained!=null) {
                 // A local echo or replay of Off can precede a transport
                 // refusal. Only explicit publication confirmation completes
@@ -509,6 +511,27 @@ class RoomWork(
                 mutableRecordingStopPending.value=id
             throw error
         }
+    }
+
+    private suspend fun publishRecordingState(recording:SignedRecordingNotice,
+        capture:SignedRecordingCaptureNotice?=null,stillAllowed:()->Boolean={true}) {
+        val publish=liveRecordingPublisher
+        if(publish==null) {
+            if(capture!=null)publishRecordingControl(encodeRecordingCaptureOp(capture),stillAllowed)
+            publishRecordingControl(encodeRecordingOp(recording),stillAllowed)
+            return
+        }
+        check(!closed) {"This room has closed"}
+        check(ends==null||now()<ends) {"This room has ended"}
+        val id=trafficRoomId
+        val sentAt=now()
+        val state=LiveRecordingState(recording,capture)
+        val allowed={stillAllowed()&&!closed&&trafficRoomId==id&&(ends==null||now()<ends)&&
+            (recordingStops==null||recordingStops.generation(roomId)==recordingStopGeneration)}
+        check(allowed()) {"Recording publication is no longer allowed"}
+        check(publish(state,allowed)) {"No relay confirmed the recording notice"}
+        check(allowed()) {"Recording publication is no longer allowed"}
+        check(receiveLiveRecording(ReceivedLiveRecording(state,sentAt))) {"A newer recording notice has already been received"}
     }
 
     private suspend fun publishRecordingControl(body:String,stillAllowed:()->Boolean={true}) {

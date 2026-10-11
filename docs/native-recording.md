@@ -652,12 +652,10 @@ one authority-signed running notice paired with matching signed capture details,
 or a signed Off without capture details. Both signatures are required; device
 presence alone is not recording authority. Independent Kotlin and TypeScript
 codecs passed 446 protocol tests and 49 focused web tests, with web type-checking.
-Profile-2 and absent-field encoding remains unchanged. This field is not yet
-advertised by either client. Native presence reception now verifies the complete
+Profile-2 and absent-field encoding remains unchanged. Native presence reception verifies the complete
 pair, rejects same-version conflicts and older On replays after Off, and feeds
 the ordinary meeting warning. The 61 focused JVM receiver/meeting/session tests
-passed; compatibility preflight, capture fencing and
-cross-client runtime qualification remain open.
+passed. Cross-client runtime qualification remains open.
 
 The native session now exposes an explicit guarded live publication API. It
 requires the exact relay acknowledgement before retaining the warning for
@@ -665,11 +663,22 @@ heartbeats, and checks the caller, room generation, admission, credential expiry
 and presence freshness at dispatch and completion. Only the recording device
 may publish its running pair. Refusal or cancellation cannot arm capture; newer
 Off reception shares the ACK commit lock so an older On cannot overwrite it.
-Rekey and leave clear outgoing state and invalidate queued requests. Ordinary
-recording has not yet switched to this API. The 75 focused publication,
+Rekey and leave clear outgoing state and invalidate queued requests. The 75 focused publication,
 reception, session, rekey and quiet-guard tests passed, including simulated
 45-minute refreshes without quiet counters or queue writes. These fixtures do
 not prove capture endurance or physical acceptance.
+
+Native quiet recording now uses this API for startup, refresh and exact retained
+Stop recovery. Non-quiet recording keeps its existing control route. A pinned
+authority enables profile-3 advertising; call compatibility checks each device's
+authenticated call claim before UI flow delivery. Startup and capture installation
+recheck compatibility. Audio input updates and video plans exclude capture when
+compatibility is lost and stop the recording. Video accepts profiles 2 and 3.
+The 85 focused controller, session, warning and video checks passed, including
+45-minute refreshes through the real quiet wrapper and a separate receiver, and
+retry of the exact Off through a recreated controller. Frame-level behaviour,
+physical lifecycle and cross-client capture still require runtime qualification.
+See `docs/evidence/native-recording-live-integration-2026-10-11.json`.
 
 Hosted run 38140631224 passed every job on source c913d468, including the real
 private Wildbloom fixture's Upload, Send, recipient Show and Play journeys for

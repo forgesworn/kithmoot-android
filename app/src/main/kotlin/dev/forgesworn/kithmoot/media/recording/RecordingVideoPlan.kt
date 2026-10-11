@@ -121,7 +121,7 @@ class RecordingVideoPlan(
         val unavailable = when {
             missing -> "Selected device left the call"
             !endpoint.allowed -> "Video unavailable under the meeting policy"
-            endpoint.recordingProfile != 2 -> "Video unavailable: update this client"
+            endpoint.recordingProfile != 2 && endpoint.recordingProfile != 3 -> "Video unavailable: update this client"
             role == RecordingVideoRole.CAMERA && !endpoint.cameraOn -> "Camera off"
             role == RecordingVideoRole.SCREEN && !endpoint.screenOn -> "Selected screen share ended"
             else -> null

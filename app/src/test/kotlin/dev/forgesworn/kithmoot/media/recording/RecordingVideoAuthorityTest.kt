@@ -50,7 +50,7 @@ class RecordingVideoAuthorityTest {
         val result = resolve(listOf(staleSelf, muted))
         val local = result.single { it.key == self }
         assertEquals("My actual name", local.name)
-        assertEquals(2, local.recordingProfile)
+        assertEquals(3, local.recordingProfile)
         assertTrue(local.cameraOn); assertFalse(local.screenOn)
         assertFalse(result.single { it.key != self }.cameraOn)
     }

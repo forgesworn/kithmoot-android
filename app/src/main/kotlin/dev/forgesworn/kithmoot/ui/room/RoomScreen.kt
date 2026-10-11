@@ -192,7 +192,7 @@ fun RoomScreen(
                 Text("The recording follows the active speaker. A new speaker takes the picture after speaking for 1.5 seconds while the current speaker is quiet.")
             if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA) {
                 Text("Choose the screen sharer's device")
-                state.recordingVideoDevices.filter { it.allowed && it.recordingProfile == 2 }.forEach { endpoint ->
+                state.recordingVideoDevices.filter { it.allowed && (it.recordingProfile == 2 || it.recordingProfile == 3) }.forEach { endpoint ->
                     val key = "${endpoint.key.participant}/${endpoint.key.device}"
                     Row(Modifier.fillMaxWidth().selectable(selected = recordingDevice == key, role = androidx.compose.ui.semantics.Role.RadioButton,
                         onClick = { recordingDevice = key }), verticalAlignment = Alignment.CenterVertically) {
@@ -205,7 +205,7 @@ fun RoomScreen(
         } },
         confirmButton = { TextButton(enabled = (recordingLayout == null || state.recordingVideoSupported) &&
             (recordingLayout != dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA ||
-            selectedRecordingDevice?.let { it.allowed && it.recordingProfile == 2 } == true), onClick = {
+            selectedRecordingDevice?.let { it.allowed && (it.recordingProfile == 2 || it.recordingProfile == 3) } == true), onClick = {
             // Read the selected state at the action, rather than capturing a
             // previous composition's derived mode during rapid/accessible taps.
             val confirmedLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }

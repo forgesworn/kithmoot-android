@@ -906,7 +906,7 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
-                recordingProfile = if (live != null) 3 else 2,
+                recordingProfile = if (authority != null) 3 else 2,
                 liveRecording = if (left) null else live,
                 // Omitted on a farewell, as the web client omits it: a device
                 // on its way out is not on the call either, and the last thing
@@ -918,6 +918,13 @@ class RoomSession(
         outgoingLiveRecording = null
         outgoingLiveRecordingAllowed = null
         liveRecordingGeneration++
+    }
+
+    val requiresLiveRecordingWarnings: Boolean get() = policy?.quiet == true
+
+    /** Checks each device's own call claim before UI flow delivery. */
+    fun liveRecordingCompatible(callId: String): Boolean = lock.withStateLock {
+        roster.values.none { !it.left && it.call?.id == callId && it.recordingProfile != 3 }
     }
 
     private fun liveRecordingStillCurrent(state: LiveRecordingState): Boolean {
