@@ -28,6 +28,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import javax.net.ServerSocketFactory
 
 /** Real entry ViewModel and WebSockets, with a loopback relay and signed replies.
  * No account or existing room is replaced. The initial relay preference is
@@ -216,10 +220,11 @@ class GuestAdmissionEntryTest {
         } finally { f.close() }
     }
 
-    private class Fixture(@Volatile var ack: Boolean = false, val hostRoom: Boolean = false, val retainControls: Boolean = false) {
+    internal class Fixture(@Volatile var ack: Boolean = false, val hostRoom: Boolean = false, val retainControls: Boolean = false,
+        secretOverride: ByteArray? = null, hostOverride: RoomInvitationHost? = null, private val relayPort: Int = 0) {
         val app = ApplicationProvider.getApplicationContext<KithMootApplication>()
-        val host = createRoomInvitation()
-        val secret = Entropy.bytes(32)
+        val host = hostOverride ?: createRoomInvitation()
+        val secret = secretOverride?.copyOf() ?: Entropy.bytes(32)
         val room = deriveRoom(secret)
         val events = CopyOnWriteArrayList<NostrEvent>()
         val queries = CopyOnWriteArrayList<JsonObject>()
@@ -227,7 +232,19 @@ class GuestAdmissionEntryTest {
         val requests get() = events.filter { it.kind == KIND_INVITATION_REQUEST }
         val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
         val store = ViewModelStore()
-        val server = MockWebServer()
+        val server = MockWebServer().also {
+            // Both sides of a forced restart reuse the same loopback relay.
+            it.serverSocketFactory = object : ServerSocketFactory() {
+                override fun createServerSocket() = object : ServerSocket() {
+                    override fun setReuseAddress(on: Boolean) { super.setReuseAddress(true) }
+                }.apply { reuseAddress = true }
+                private fun bound(port: Int, backlog: Int, address: InetAddress?) =
+                    createServerSocket().apply { bind(InetSocketAddress(address, port), backlog) }
+                override fun createServerSocket(port: Int) = bound(port, 50, null)
+                override fun createServerSocket(port: Int, backlog: Int) = bound(port, backlog, null)
+                override fun createServerSocket(port: Int, backlog: Int, address: InetAddress?) = bound(port, backlog, address)
+            }
+        }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         var rootPool: RelayPool? = null
         var rootSession: RoomSession? = null
@@ -277,7 +294,7 @@ class GuestAdmissionEntryTest {
                     override fun onFailure(socket: WebSocket, error: Throwable, response: okhttp3.Response?) { sockets.remove(socket) }
                 })
             }
-            server.start()
+            server.start(relayPort)
             val relays = listOf(server.url("/").toString().replace("http:", "ws:"))
             url = encodeInvitationUrl("https://fixture.invalid/j/", host.invitation, relays)
             if (hostRoom) {
@@ -317,10 +334,12 @@ class GuestAdmissionEntryTest {
             socket.send(buildJsonArray { add("OK"); add(event.id); add(true); add("fixture accepted") }.toString())
         }
         fun acknowledge() { ack = true; sockets.keys.forEach { socket -> requests.forEach { ok(socket, it) } } }
-        fun reply(event: NostrEvent) {
+        fun reply(event: NostrEvent): Int {
+            var delivered = 0
             for ((socket, subscriptions) in sockets) for ((id, filters) in subscriptions) {
-                if (filters.any { matches(it, event) }) socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+                if (filters.any { matches(it, event) } && socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())) delivered++
             }
+            return delivered
         }
         suspend fun close() {
             main { store.clear() }
