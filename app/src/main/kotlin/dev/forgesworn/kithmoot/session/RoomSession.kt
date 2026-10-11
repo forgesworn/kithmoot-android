@@ -649,6 +649,10 @@ class RoomSession(
     val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
 
     private val _liveRecording = MutableStateFlow<ReceivedLiveRecording?>(null)
+    private val liveRecordingPublicationMutex = Mutex()
+    private var outgoingLiveRecording: LiveRecordingState? = null
+    private var outgoingLiveRecordingAllowed: (() -> Boolean)? = null
+    @Volatile private var liveRecordingGeneration = 0L
     /** Latest complete authority-verified warning received in authenticated presence. */
     val liveRecording: StateFlow<ReceivedLiveRecording?> = _liveRecording.asStateFlow()
 
@@ -829,6 +833,7 @@ class RoomSession(
             farewell = trafficAllowed()
             joined = false
             publicationAllowed = false
+            clearOutgoingLiveRecordingLocked()
             tracks = emptyList()
             claims = emptyMap()
             // A farewell is never on a call. Leaving the room is leaving
@@ -885,9 +890,7 @@ class RoomSession(
         }
     }
 
-    private fun publishAnnouncement(reply: Boolean, left: Boolean) {
-        val epoch = epochKeys()
-        val entry = lock.withStateLock {
+    private fun announcementEntryLocked(reply: Boolean, left: Boolean, live: LiveRecordingState? = null): RosterEntry =
             RosterEntry(
                 participant = identity.participant,
                 device = identity.devicePubkey,
@@ -903,12 +906,84 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
-                recordingProfile = 2,
+                recordingProfile = if (live != null) 3 else 2,
+                liveRecording = if (left) null else live,
                 // Omitted on a farewell, as the web client omits it: a device
                 // on its way out is not on the call either, and the last thing
                 // it publishes should not say it is.
                 call = if (left) null else call,
-            ).also { roster[identity.devicePubkey] = it }
+            )
+
+    private fun clearOutgoingLiveRecordingLocked() {
+        outgoingLiveRecording = null
+        outgoingLiveRecordingAllowed = null
+        liveRecordingGeneration++
+    }
+
+    private fun liveRecordingStillCurrent(state: LiveRecordingState): Boolean {
+        val before = _liveRecording.value?.state ?: return true
+        val next = state.recording.notice
+        return before.recording.notice.version < next.version ||
+            (before.recording.notice == next && before.capture?.notice == state.capture?.notice)
+    }
+
+    /** Live presence bypasses quiet chat slots, but requires the relay's exact
+     * acknowledgement. A queued or local echo never permits capture. The
+     * owner's guard must be cheap and must not call the transport. */
+    suspend fun publishLiveRecordingConfirmed(state: LiveRecordingState, stillAllowed: () -> Boolean = { true }): Boolean {
+        val requestGeneration = liveRecordingGeneration
+        return liveRecordingPublicationMutex.withLock {
+            val root = authority ?: error("This room has no recording authority")
+            require(verifyLiveRecordingState(room.roomId, state, root)) { "The recording warning is not authorised" }
+            state.capture?.notice?.let {
+                require(it.recorder == identity.participant && it.device == identity.devicePubkey) {
+                    "Only the recording device can publish its running warning"
+                }
+            }
+            val transportGeneration = transport.publicationGeneration()
+            val epoch = epochKeys()
+            val localGeneration: Long
+            val entry = lock.withStateLock {
+                check(joined && trafficAllowed() && stillAllowed() && liveRecordingGeneration == requestGeneration) {
+                    "Recording publication is no longer allowed"
+                }
+                check(liveRecordingStillCurrent(state)) { "A newer recording warning has already been received" }
+                localGeneration = liveRecordingGeneration
+                announcementEntryLocked(reply = true, left = false, live = state)
+            }
+            val at = entry.updatedAt
+            check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
+            policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
+            val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+            val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+            val allowed = {
+                stillAllowed() && trafficAllowed() && liveRecordingGeneration == localGeneration &&
+                    epochKeys().id == epoch.id && liveRecordingStillCurrent(state) &&
+                    now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                    now() < at + timing.presenceTtlSeconds
+            }
+            val event = encodeRosterEvent(entry, epoch.id, epoch.key, identity.deviceSecretKey, roomEnds = ends)
+            val confirmed = transport.publishConfirmedGuarded(event, transportGeneration, allowed, CHAT_CONFIRM_TIMEOUT_MS)
+            if (!confirmed) return@withLock false
+            val currentTransportGeneration = transport.publicationGeneration()
+            lock.withStateLock {
+                if (!allowed() || currentTransportGeneration != transportGeneration) return@withLock false
+                outgoingLiveRecording = state
+                outgoingLiveRecordingAllowed = stillAllowed
+                roster[identity.devicePubkey] = entry
+                _liveRecording.value = ReceivedLiveRecording(state, at)
+            }
+            recompute()
+            true
+        }
+    }
+
+    private fun publishAnnouncement(reply: Boolean, left: Boolean) {
+        val epoch = epochKeys()
+        val entry = lock.withStateLock {
+            if (outgoingLiveRecordingAllowed?.invoke() == false ||
+                outgoingLiveRecording?.let { !liveRecordingStillCurrent(it) } == true) clearOutgoingLiveRecordingLocked()
+            announcementEntryLocked(reply, left, outgoingLiveRecording).also { roster[identity.devicePubkey] = it }
         }
         transport.publish(
             encodeRosterEvent(
@@ -1409,15 +1484,19 @@ class RoomSession(
         if (!entry.left && entry.recordingProfile == 3) entry.liveRecording?.let { state ->
             val root = authority
             if (root != null && verifyLiveRecordingState(room.roomId, state, root)) {
-                _liveRecording.update { before ->
-                    val previous = before?.state?.recording?.notice
-                    val next = state.recording.notice
-                    when {
-                        previous != null && previous.version > next.version -> before
-                        before != null && previous != null && previous.version == next.version &&
-                            (previous != next || before.state.capture?.notice != state.capture?.notice) -> before
-                        before != null && previous?.version == next.version -> ReceivedLiveRecording(state, maxOf(before.sentAt, entry.updatedAt))
-                        else -> ReceivedLiveRecording(state, entry.updatedAt)
+                // Shares the ACK commit lock: a concurrent newer Off cannot
+                // be overwritten by completion of an earlier local On.
+                lock.withStateLock {
+                    _liveRecording.update { before ->
+                        val previous = before?.state?.recording?.notice
+                        val next = state.recording.notice
+                        when {
+                            previous != null && previous.version > next.version -> before
+                            before != null && previous != null && previous.version == next.version &&
+                                (previous != next || before.state.capture?.notice != state.capture?.notice) -> before
+                            before != null && previous?.version == next.version -> ReceivedLiveRecording(state, maxOf(before.sentAt, entry.updatedAt))
+                            else -> ReceivedLiveRecording(state, entry.updatedAt)
+                        }
                     }
                 }
             }
@@ -2011,6 +2090,7 @@ class RoomSession(
     private suspend fun blockForRekey() {
         lock.withStateLock {
             publicationAllowed = false
+            clearOutgoingLiveRecordingLocked()
             responseJob?.cancel()
         }
         if (!transportBlocked) {

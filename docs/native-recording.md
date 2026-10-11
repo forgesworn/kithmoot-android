@@ -656,8 +656,20 @@ Profile-2 and absent-field encoding remains unchanged. This field is not yet
 advertised by either client. Native presence reception now verifies the complete
 pair, rejects same-version conflicts and older On replays after Off, and feeds
 the ordinary meeting warning. The 61 focused JVM receiver/meeting/session tests
-passed; live publication, compatibility preflight, capture fencing and
+passed; compatibility preflight, capture fencing and
 cross-client runtime qualification remain open.
+
+The native session now exposes an explicit guarded live publication API. It
+requires the exact relay acknowledgement before retaining the warning for
+heartbeats, and checks the caller, room generation, admission, credential expiry
+and presence freshness at dispatch and completion. Only the recording device
+may publish its running pair. Refusal or cancellation cannot arm capture; newer
+Off reception shares the ACK commit lock so an older On cannot overwrite it.
+Rekey and leave clear outgoing state and invalidate queued requests. Ordinary
+recording has not yet switched to this API. The 75 focused publication,
+reception, session, rekey and quiet-guard tests passed, including simulated
+45-minute refreshes without quiet counters or queue writes. These fixtures do
+not prove capture endurance or physical acceptance.
 
 Hosted run 38140631224 passed every job on source c913d468, including the real
 private Wildbloom fixture's Upload, Send, recipient Show and Play journeys for

@@ -1,0 +1,53 @@
+{
+  "qualification": "Native guarded live recording publication candidate",
+  "source_base": "b0ff8340",
+  "suites": {
+    "LiveRecordingPublicationTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "ab5c9d162141d54c0c3b4c2e62dc907c3a9e96fc881743bc55bd1520a7957964"
+    },
+    "LiveRecordingReceptionTest": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "8d3b2b50192a907937f675308a5bcd03c1018f1522352a66253faec6ad29bbc2"
+    },
+    "RoomSessionTest": {
+      "tests": 29,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "c72bac40c705674702ba20c89ae3abb515eb285ad65ede0ec3a0ce6f9377b1bf"
+    },
+    "RoomEpochTransitionTest": {
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "b84b57fe73d468b27ca3da9603d15a2b27de50ac8304ae8b226fa94ff0337851"
+    },
+    "QuietGuardedPublicationTest": {
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "dd98c63ccc715d5517a8ff9bc6e2371649b0a39f757f6bc8eedcfb52eb709caa"
+    }
+  },
+  "app_tests": 75,
+  "log_sha256": "23245e6d6ede72071dc920620eb097b527fe4979c8a35f811689a2633e8c72dd",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "1385706481fa1b22bf02e8a4ed4f4f6373f82c90f0fb22e19263b60ef976e5f4",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/LiveRecordingPublicationTest.kt": "9e14f261304567ffe901206be95dd58f2db1950b2b2e584a0c88145e5a66ad1a"
+  },
+  "limits": [
+    "JVM transport fixtures, not physical or cross-client qualification",
+    "Simulated 45-minute warning refresh, not audio/video capture endurance",
+    "Ordinary recording still uses the existing path",
+    "Compatibility preflight and capture fencing remain open"
+  ]
+}
