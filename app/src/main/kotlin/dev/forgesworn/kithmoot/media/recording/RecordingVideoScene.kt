@@ -16,9 +16,10 @@ import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 
 /** Independent sinks on the call owner's authorised, privacy-processed tracks.
- * At most three scaled I420 frames per selected source are retained. Their
- * dimensions fit the export viewport, rather than retaining full camera or
- * screen textures. The callback clock is the audio mixer's paused timeline.
+ * A bounded history of scaled I420 frames bridges export-worker delays. Each
+ * source uses at most twelve viewport-sized pictures or 32 smaller pictures,
+ * rather than retaining full camera or screen textures. The callback clock
+ * is the audio mixer's paused timeline.
  * Native sink attachment/removal always happens outside the callback monitor.
  */
 class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true }) {
@@ -143,9 +144,11 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
             synchronized(this) {
                 if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
-                    while (input.frames.size > 3) {
+                    val limit = (input.width.toLong() * input.height * 12 /
+                        (buffer.width.toLong() * buffer.height)).coerceIn(3, 32).toInt()
+                    while (input.frames.size > limit) {
                         // Retain the last picture available to a delayed export
-                        // worker, plus two recent pictures. Dropping every past
+                        // worker, plus bounded recent pictures. Dropping every past
                         // picture would blank the slot until audio catches up.
                         val past = input.frames.removeFirst()
                         input.frames.removeFirst().frame.release()
