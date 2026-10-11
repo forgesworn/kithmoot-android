@@ -7,6 +7,13 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.ROOM_RELAYS_REPOST_SECONDS
 import dev.forgesworn.kithmoot.protocol.RoomNameBook
 import dev.forgesworn.kithmoot.protocol.RoomNameRecord
+import dev.forgesworn.kithmoot.protocol.LogoImage
+import dev.forgesworn.kithmoot.protocol.RoomLogoBook
+import dev.forgesworn.kithmoot.protocol.RoomLogoPayload
+import dev.forgesworn.kithmoot.protocol.RoomLogoRecord
+import dev.forgesworn.kithmoot.protocol.encodeRoomLogoOp
+import dev.forgesworn.kithmoot.protocol.roomLogoFromMessage
+import dev.forgesworn.kithmoot.protocol.roomLogoOp
 import dev.forgesworn.kithmoot.protocol.carryRoomNameOp
 import dev.forgesworn.kithmoot.protocol.encodeRoomNameOp
 import dev.forgesworn.kithmoot.protocol.renameRoomOp
@@ -87,6 +94,10 @@ class RoomWork(
     /** The secret half of [authority], when this device made the room and
      *  so may run it as a meeting. Null everywhere else. */
     private val authoritySecretKey:ByteArray?=null,
+    initialRoomLogo:RoomLogoRecord?=null,
+    /** Preserve the epoch a cached logo was accepted under. */
+    initialRoomLogoEpoch:Int?=null,
+    private val onRoomLogo:(RoomLogoRecord?)->Unit={},
 ) {
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -120,6 +131,12 @@ class RoomWork(
     private var shownName:RoomNameRecord?=null
     private var nameCarry:Job?=null
     @Volatile private var nameCarryScheduled=false
+    private val logos=RoomLogoBook().apply { initialRoomLogo?.let { seed(it,initialRoomLogoEpoch) } }
+    private val logoMessages=HashSet<String>()
+    private var shownLogo:String?=null
+    private var logoCarry:Job?=null
+    @Volatile private var logoCarryScheduled=false
+    fun roomLogo():RoomLogoRecord?=synchronized(logos){logos.current(trafficEpoch,rekeyedAt)}
     /** The room's shared name now, or null while nobody has renamed it. */
     fun roomName():RoomNameRecord?=synchronized(names){names.current(trafficEpoch,rekeyedAt)}
     private fun receive(message:ChatMessage,epoch:Int) {
@@ -127,6 +144,11 @@ class RoomWork(
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
         if(receiveMeeting(message.body,message.participant,message.sentAt))return
         if(control.assignmentText("op")=="name") { roomNameFromMessage(message.body,message.participant,message.sentAt)?.let{ingestName(message.id,it,epoch)};return }
+        if(control.assignmentText("op")=="logo") {
+            message.roomLogo?.let { payload -> roomLogoFromMessage(message.body,payload.image?.toJson()?:JsonNull,
+                "control",message.participant,message.sentAt)?.let { ingestLogo(message.id,it,epoch) } }
+            return
+        }
         if(control.assignmentText("op")!="catalogue"||control.assignmentText("host")!=message.participant)return
         val entries=control["agents"] as? JsonArray?:return
         val running=control["running"] as? JsonArray?:return
@@ -259,6 +281,68 @@ class RoomWork(
         if(confirmed)ingestName(messageId,RoomNameRecord(due.name,due.id,due.at,null,sentAt),epoch)
         return confirmed
     }
+    private fun ingestLogo(messageId:String,record:RoomLogoRecord,epoch:Int) {
+        synchronized(logos) {
+            if(closed||!logoMessages.add(messageId))return
+            logos.add(record,epoch)
+        }
+        settleLogo()
+    }
+
+    private fun settleLogo() {
+        val next=synchronized(logos) {
+            if(closed)return
+            val record=logos.current(trafficEpoch,rekeyedAt)
+            val identity=record?.let { "${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
+            if(shownLogo==identity)return
+            shownLogo=identity
+            record
+        }
+        runCatching { onRoomLogo(next) }
+    }
+
+    /** Confirm a private room override or explicit removal in this epoch only. */
+    suspend fun replaceRoomLogo(image:LogoImage?):RoomLogoRecord {
+        check(!closed) {"This room has closed"}
+        val generation=transport.publicationGeneration()
+        val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
+        val at=nowMs();val sentAt=Math.floorDiv(at,1000L)
+        val op=roomLogoOp(image,at)
+        val messageId=Entropy.bytes(16).toHex()
+        val event=encodeChatEvent(encodeRoomLogoOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,sentAtMs=at,roomLogo=RoomLogoPayload(image))
+        val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key) }
+        check(allowed()&&transport.publishConfirmedGuarded(event,generation,allowed)&&allowed()) {"No relay confirmed the current room logo"}
+        val record=RoomLogoRecord(image,op.id,op.at,sentAt,identity.participant)
+        ingestLogo(messageId,record,epoch)
+        return record
+    }
+
+    private fun scheduleLogoCarry(minMs:Long,spreadMs:Long) {
+        synchronized(logos) {
+            logoCarry?.cancel()
+            if(closed)return
+            logoCarry=scope.launch { delay(minMs+(0 until spreadMs).random());carryLogoIfDue() }
+        }
+    }
+
+    internal suspend fun carryLogoIfDue():Boolean {
+        if(closed)return false
+        val generation=transport.publicationGeneration()
+        val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
+        val sentAt=now()
+        val due=synchronized(logos){logos.carryDue(epoch,sentAt,rekeyedAt)}?:return false
+        val op=roomLogoOp(due.image,due.at,due.id).copy(carried=true)
+        val messageId=Entropy.bytes(16).toHex()
+        val event=encodeChatEvent(encodeRoomLogoOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,roomLogo=RoomLogoPayload(due.image))
+        val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key) }
+        val confirmed=runCatching{allowed()&&transport.publishConfirmedGuarded(event,generation,allowed)&&allowed()}
+            .getOrElse{if(it is CancellationException)throw it;false}
+        if(confirmed)ingestLogo(messageId,due.copy(sentAt=sentAt,by=null),epoch)
+        return confirmed
+    }
+
     /**
      * Raise or lower this person's hand for everybody in the room: a `hand`
      * op on this epoch's control channel. Shown here at once; throws when no
@@ -331,7 +415,7 @@ class RoomWork(
             }
         }
     }
-    suspend fun open() { journal.open();refreshActions() }
+    suspend fun open() { journal.open();settleLogo();refreshActions() }
     suspend fun refreshActions() = discoveryMutex.withLock {
         check(!closed) {"This room has closed"}
         val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
@@ -350,6 +434,7 @@ class RoomWork(
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         maybeRepostRoomRelays()
         if(!nameCarryScheduled) { nameCarryScheduled=true;scheduleNameCarry(30_000L,30_000L) }
+        if(!logoCarryScheduled) { logoCarryScheduled=true;scheduleLogoCarry(30_000L,30_000L) }
         }
         check(!closed) {"This room has closed"}
         val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
@@ -366,7 +451,9 @@ class RoomWork(
         collector?.cancelAndJoin();collector=null
         trafficRoomId=id;trafficRoomKey=key.copyOf();trafficEpoch=epoch
         settleName()
+        settleLogo()
         scheduleNameCarry(3_000L,12_000L)
+        scheduleLogoCarry(3_000L,12_000L)
         synchronized(catalogues){catalogues.clear();mutableActions.value=emptyList()}
         try { journal.rekey(id,key) }
         catch (_:StoredHistoryUnavailableException) {
@@ -384,5 +471,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }

@@ -13,6 +13,8 @@ import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
+import dev.forgesworn.kithmoot.protocol.RoomLogoPayload
+import dev.forgesworn.kithmoot.protocol.roomLogoPayload
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.withRoomExpiration
@@ -22,6 +24,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -91,6 +94,8 @@ data class ChatMessage(
     val assignment: NostrEvent? = null,
     val attachments: List<ChatAttachment> = emptyList(),
     val artwork: List<ChatArtwork> = emptyList(),
+    /** Private metadata on control chat; a payload with no image removes the override. */
+    val roomLogo: RoomLogoPayload? = null,
 )
 
 fun encodeChatEvent(
@@ -121,8 +126,14 @@ fun encodeChatEvent(
     sentAtMs: Long? = null,
     attachments: List<ChatAttachment> = emptyList(),
     artwork: List<ChatArtwork> = emptyList(),
+    roomLogo: RoomLogoPayload? = null,
 ): NostrEvent {
     require(sentAtMs == null || Math.floorDiv(sentAtMs, 1000L) == sentAt) { "sentAtMs must fall within sentAt's second" }
+    if (roomLogo != null) {
+        require(roomLogoPayload(body, roomLogo.image?.toJson() ?: JsonNull, channel) != null) { "Invalid room logo envelope" }
+        require(listOfNotNull(reaction, reply, thread, replaces, retracts, mentions, invite, assignment).isEmpty() &&
+            attachments.isEmpty() && artwork.isEmpty()) { "A room logo is a single statement" }
+    }
     if (assignment != null) {
         val payload = assignmentPayload(assignment, credentialRoomId)
         require(channel == ASSIGNMENT_CHANNEL && payload != null && assignment.pubkey == participant &&
@@ -159,6 +170,7 @@ fun encodeChatEvent(
         mentions?.takeIf { it.isNotEmpty() }?.let { list -> put("mentions", buildJsonArray { for (m in list) add(JsonPrimitive(m)) }) }
         invite?.let { put("invite", it.toJson()) }
         assignment?.let { put("assignment", it.toJson()) }
+        roomLogo?.let { put("roomLogo", it.image?.toJson() ?: JsonNull) }
     }
     return Events.sign(
         secretKey = deviceSecretKey,
@@ -216,9 +228,10 @@ fun decodeChatEvent(
             val rawArtwork = json["artwork"] as? JsonArray
             require(rawArtwork == null || rawArtwork.size <= MAX_CHAT_ARTWORK)
             val artwork = rawArtwork?.mapNotNull(::parseArtwork).orEmpty()
-            val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment").count { json.containsKey(it) }
+            val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment", "roomLogo").count { json.containsKey(it) }
             val conversationKeys = listOf("kind", "attachments", "artwork", "reply", "thread", "mentions")
-            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment")
+            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment") || json.containsKey("roomLogo")
+            val roomLogo = if (json.containsKey("roomLogo")) roomLogoPayload(body, json["roomLogo"], channel) else null
             val assignment = (json["assignment"] as? JsonObject)?.let(NostrEvent::fromJson)
             val assignmentPayload = assignment?.let { assignmentPayload(it, credentialRoomId) }
             val invite = json["invite"]?.let(::parseInvite)
@@ -227,6 +240,7 @@ fun decodeChatEvent(
             val mentionsRaw = json["mentions"]
             val mentions = (mentionsRaw as? kotlinx.serialization.json.JsonArray)?.let(::normaliseMentions)?.takeIf { it.isNotEmpty() }
             when {
+                json.containsKey("roomLogo") && roomLogo == null -> null
                 json.containsKey("assignment") && (channel != ASSIGNMENT_CHANNEL || assignment == null || assignmentPayload == null || assignment.pubkey != participant || (assignmentPayload.device != null && assignmentPayload.device != device)) -> null
                 statements > 1 -> null
                 hasStatementAlone && conversationKeys.any { json.containsKey(it) } -> null
@@ -268,6 +282,7 @@ fun decodeChatEvent(
                     assignment = assignment,
                     attachments = attachments,
                     artwork = artwork,
+                    roomLogo = roomLogo,
                 )
             }
         }
