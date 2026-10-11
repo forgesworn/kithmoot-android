@@ -28,6 +28,17 @@ class PcmRecordingMixer(private val maxSources: Int = 32) {
         windows.values.forEach { it.samples.fill(0); it.next = cursor }
     }
 
+    /** A changed permission must discard this source's old epoch of PCM. */
+    @Synchronized fun revoke(source: String) {
+        windows.remove(source)?.samples?.fill(0)
+    }
+
+    @Synchronized internal fun grant(source: String) {
+        if (source in windows) return
+        require(windows.size < maxSources)
+        windows[source] = Window(next = cursor)
+    }
+
     /** Callers decide authorised sources and mute before handing us samples.
      * Unsupported formats fail explicitly rather than silently exporting silence.
      */
@@ -58,17 +69,20 @@ class PcmRecordingMixer(private val maxSources: Int = 32) {
         window.next = start + frames
     }
 
-    @Synchronized fun drain(frames: Int): ShortArray {
+    @Synchronized fun drain(frames: Int): ShortArray =
+        RecordingPcmBatch(frames, drainSources(frames).mapValues { Unit to it.value }).mix { Unit }
+
+    /** Preserve attribution until the export worker's final permission check.
+     * Revoking one source after draining must not silence other participants. */
+    @Synchronized internal fun drainSources(frames: Int): Map<String, ShortArray> {
         require(frames in 1..CAPACITY)
-        val output = ShortArray(frames)
-        if (paused) return output
-        for (offset in output.indices) {
-            val index = ((cursor + offset) % CAPACITY).toInt()
-            var sum = 0
-            windows.values.forEach { window -> sum += window.samples[index]; window.samples[index] = 0 }
-            output[offset] = sum.coerceIn(-32768, 32767).toShort()
+        val output = if (paused) emptyMap() else windows.mapValues { (_, window) ->
+            ShortArray(frames) { offset ->
+                val index = ((cursor + offset) % CAPACITY).toInt()
+                window.samples[index].also { window.samples[index] = 0 }
+            }
         }
-        cursor += frames
+        if (!paused) cursor += frames
         return output
     }
 
@@ -77,6 +91,34 @@ class PcmRecordingMixer(private val maxSources: Int = 32) {
     companion object {
         const val SAMPLE_RATE = 48_000
         const val CAPACITY = SAMPLE_RATE * 2
+    }
+}
+
+/** One bounded worker batch, with the permission revision that admitted each
+ * source. A revision must change across revocation even if permission returns
+ * before the worker runs. Mixing consumes and erases the source arrays. */
+internal class RecordingPcmBatch(
+    val frames: Int,
+    private val sources: Map<String, Pair<Any, ShortArray>>,
+) {
+    init {
+        require(frames in 0..PcmRecordingMixer.CAPACITY)
+        require(sources.size <= 32 && sources.values.all { it.second.size == frames })
+    }
+
+    fun mix(grant: (String) -> Any?): ShortArray {
+        val result = ShortArray(frames)
+        try {
+            val admitted = sources.filter { (source, entry) ->
+                runCatching { grant(source) }.getOrNull() == entry.first
+            }.values.map { it.second }
+            for (offset in result.indices) {
+                val sum = admitted.sumOf { it[offset].toInt() }
+                result[offset] = sum.coerceIn(-32768, 32767).toShort()
+            }
+            return result
+        } catch (error: Throwable) { result.fill(0); throw error }
+        finally { sources.values.forEach { it.second.fill(0) } }
     }
 }
 

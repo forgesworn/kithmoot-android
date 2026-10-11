@@ -57,6 +57,21 @@ has fresh hosted checks running on the integrated history candidate.
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
 
+The local per-source permission candidate reads accepted roster snapshots before
+UI publication and the original room's signed meeting policy. Media grants
+change across mute, track/call changes, arbitration loss, hold and restore;
+heartbeat and display-name changes retain the same grant. Video callbacks and
+draws recheck the source grant and clear its history on a revision change.
+Audio retains source attribution through draining and checks each contribution
+before mixing for the output worker. An excluded source does not silence the
+other participants. The unchanged PCM capacity remains two seconds.
+Production engine preparation requires these source readers explicitly.
+New checks cover revoke/restore without a collector, independent source
+retention, unreadable authority and sender/receiver ID differences. The local
+build, unit checks and seven scene checks are pending; no new privacy or
+physical qualification is claimed. The full capture script now requires all
+23 tests, without skips, once this candidate is built.
+
 The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
 records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.
 The new real-node job passed its four HTTPS contract tests, then stopped at

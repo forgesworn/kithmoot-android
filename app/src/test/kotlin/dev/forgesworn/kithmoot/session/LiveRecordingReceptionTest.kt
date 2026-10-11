@@ -13,6 +13,37 @@ class LiveRecordingReceptionTest {
     private val secret = Fixtures.key(1)
     private val authority = Schnorr.publicKeyHex(secret)
     private val room = Fixtures.room()
+    @Test fun signedSourceRevocationIsReadableWithoutWaitingForSessionCollectors() = runTest {
+        val reader = session(room, Fixtures.primary(room, 3, 4), FakeRelay(), authority = authority)
+        val caller = Fixtures.primary(room, 1, 2)
+        val call = CallMembership("ab".repeat(16), 0)
+        reader.join(); reader.setCall(call)
+        fun presence(muted: Boolean = false) = encodeRosterEvent(
+            RosterEntry(caller.participant, caller.devicePubkey, caller.credential, updatedAt = 0,
+                recordingProfile = 3, call = call, tracks = listOf(TrackRef("advertised-camera", Roles.CAMERA, muted = muted))),
+            room.roomId, room.roomKey, caller.deviceSecretKey)
+        val accepted = presence()
+        reader.onRosterEvent(accepted)
+        val before = assertNotNull(reader.recordingRosterAuthority.source(call.id, caller.devicePubkey, "advertised-camera", null))
+        reader.onRosterEvent(presence(true).copy(sig = "00".repeat(64)))
+        assertEquals(before, reader.recordingRosterAuthority.source(call.id, caller.devicePubkey, "advertised-camera", null))
+        reader.onRosterEvent(presence(true))
+        assertNull(reader.recordingRosterAuthority.source(call.id, caller.devicePubkey, "advertised-camera", null))
+        reader.onRosterEvent(accepted)
+        val field = RoomSession::class.java.getDeclaredField("lock").apply { isAccessible = true }
+        val lock = field.get(reader) as ReentrantLock
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            lock.lock()
+            try {
+                val restored = worker.submit<RecordingRosterAuthority.Grant?> {
+                    reader.recordingRosterAuthority.source(call.id, caller.devicePubkey, "advertised-camera", null)
+                }.get(1, TimeUnit.SECONDS)
+                assertNotEquals(before.revision, assertNotNull(restored).revision)
+            } finally { lock.unlock() }
+        } finally { worker.shutdownNow(); reader.leave() }
+    }
+
     @Test fun captureReadsDoNotWaitForSessionCollectorsAndTrackCallCompatibility() = runTest {
         val reader = session(room, Fixtures.primary(room, 3, 4), FakeRelay(), authority = authority)
         val caller = Fixtures.primary(room, 1, 2)

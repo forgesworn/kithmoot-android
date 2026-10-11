@@ -438,11 +438,17 @@ class RoomSession(
 
     private data class RecordingCaptureState(val callId: String?, val incompatibleCalls: Set<String>)
     @Volatile private var recordingCaptureState = RecordingCaptureState(null, emptySet())
+    internal val recordingRosterAuthority = RecordingRosterAuthority(identity.participant, identity.devicePubkey)
 
     /** Updated under the session lock before any flow can invoke a media
      * collector. Capture callbacks must never take that lock: collectors may
      * already hold it while acquiring the capture's audio monitor. */
     private fun refreshRecordingCaptureStateLocked() {
+        // Local track/claim changes take effect before their asynchronous
+        // announcement or UI collectors can run.
+        recordingRosterAuthority.update(roster.values.map {
+            if (it.device == identity.devicePubkey) it.copy(tracks = tracks, claims = claims, call = call) else it
+        })
         recordingCaptureState = RecordingCaptureState(call?.id, roster.values.mapNotNull {
             if (!it.left && it.recordingProfile != 3) it.call?.id else null
         }.toSet())
@@ -1117,7 +1123,7 @@ class RoomSession(
      * announcement (`applyEpoch`) and every heartbeat after it carry it.
      */
     fun setTracks(tracks: List<TrackRef>) {
-        lock.withStateLock { this.tracks = tracks }
+        lock.withStateLock { this.tracks = tracks; refreshRecordingCaptureStateLocked() }
         announceIfPublishing()
     }
 
@@ -1137,12 +1143,13 @@ class RoomSession(
                 .maxOfOrNull { it.claims[role] ?: 0L } ?: 0L)
             check(latest < at + 60) { "Device clocks disagree. Wait a moment and try the handover again." }
             claims = claims + (role to maxOf(at, latest + 1))
+            refreshRecordingCaptureStateLocked()
         }
         announce()
     }
 
     fun release(role: String) {
-        lock.withStateLock { claims = claims - role }
+        lock.withStateLock { claims = claims - role; refreshRecordingCaptureStateLocked() }
         announce()
     }
 

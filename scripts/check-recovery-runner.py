@@ -21,6 +21,8 @@ if os.environ.get("FAKE_CALLS"):
     with open(os.environ["FAKE_CALLS"], "a") as log: log.write(json.dumps(args) + "\n")
 if "ro.kernel.qemu" in args:
     print(os.environ.get("FAKE_QEMU", "1")); sys.exit(0)
+if "get-state" in args:
+    print("device"); sys.exit(0)
 if "resolve-activity" in args:
     print("fixture.launcher/Home"); sys.exit(0)
 if "instrument" in args:

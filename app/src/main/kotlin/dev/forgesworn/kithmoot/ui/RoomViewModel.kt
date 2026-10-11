@@ -935,6 +935,8 @@ class RoomViewModel @JvmOverloads constructor(
      *  silenced (see the remote audio collector in startMedia) and a live
      *  microphone muted, so neither leaks into or over the phone call. */
     private val callHeld = MutableStateFlow(false)
+    private val recordingHoldRevision = java.util.concurrent.atomic.AtomicLong()
+    private val recordingVisibilityRevision = java.util.concurrent.atomic.AtomicLong()
     /** Whether [holdCall] muted the microphone, so [resumeCall] unmutes only that. */
     @Volatile private var micMutedForHold = false
 
@@ -1396,6 +1398,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (onCall) {
                     dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), _room.value.name)
                 } else {
+                    if (callHeld.value) recordingHoldRevision.incrementAndGet()
                     callHeld.value = false
                     micMutedForHold = false
                     dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
@@ -5910,8 +5913,16 @@ class RoomViewModel @JvmOverloads constructor(
                         (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id == recordingId
                 }
                 val warming = recordingVideoSnapshot(media, originalSession, origin)
-                val candidate = if (layout == null) media.prepareAudioRecording(source, captureAllowed) else media.prepareVideoRecording(source,
-                    dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, warming.first, chosen, selectedName), warming.second, captureAllowed)
+                // Frame callbacks read the accepted roster and signed meeting
+                // state directly; UI collectors are never the authority.
+                val audioGrant: (AudioTrack?) -> Any? = { track ->
+                    recordingAudioGrant(media, originalSession, work, origin.call, track)
+                }
+                val videoGrant: (dev.forgesworn.kithmoot.media.recording.RecordingVideoKey, VideoTrack) -> Any? = { key, track ->
+                    recordingVideoGrant(media, originalSession, work, origin.call, key, track)
+                }
+                val candidate = if (layout == null) media.prepareAudioRecording(source, captureAllowed, audioGrant) else media.prepareVideoRecording(source,
+                    dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, warming.first, chosen, selectedName), warming.second, captureAllowed, audioGrant, videoGrant)
                 preparedCapture = candidate.capture
                 val ready = withTimeoutOrNull(30_000) {
                     while (!candidate.capture.prepared()) {
@@ -5987,6 +5998,52 @@ class RoomViewModel @JvmOverloads constructor(
             } else false
         }
         if (ownsStart) startup.start() else startup.cancel()
+    }
+
+    private data class RecordingSourceGrant(val source: Any, val meeting: dev.forgesworn.kithmoot.protocol.MeetingPolicy?,
+        val holdRevision: Long, val monitor: Long? = null, val microphone: Long? = null, val visibility: Long? = null)
+
+    private fun recordingAudioGrant(media: WebRtcEngine, live: RoomSession,
+        work: dev.forgesworn.kithmoot.session.RoomWork, call: String, track: AudioTrack?): Any? {
+        if (callHeld.value || !media.callActive) return null
+        val authority = live.recordingRosterAuthority
+        val policy = work.meeting.state.value.meeting
+        if (track == null) {
+            val local = media.localMedia.recordingSources.values.singleOrNull { it.track.track is AudioTrack } ?: return null
+            if (local.track.muted || !meetingAllows(policy, live.identity.participant)) return null
+            if (!local.track.microphoneOn && local.track.role != Roles.SCREEN_AUDIO) return null
+            val microphone = if (local.track.microphoneOn && !local.track.microphoneMuted)
+                authority.localMicrophone() ?: return null else null
+            return RecordingSourceGrant(local.revision, policy, recordingHoldRevision.get(), microphone = microphone)
+        }
+        val received = media.remoteTracks.value.singleOrNull { it.track === track && it.receiving } ?: return null
+        val source = authority.source(call, received.device, received.trackId, received.role) ?: return null
+        if (source.meaning.participant == live.identity.participant || !meetingAllows(policy, source.meaning.participant)) return null
+        val monitor = authority.localMonitor() ?: return null
+        return RecordingSourceGrant(source, policy, recordingHoldRevision.get(), monitor = monitor)
+    }
+
+    private fun recordingVideoGrant(media: WebRtcEngine, live: RoomSession,
+        work: dev.forgesworn.kithmoot.session.RoomWork, call: String,
+        key: dev.forgesworn.kithmoot.media.recording.RecordingVideoKey, track: VideoTrack): Any? {
+        if (callHeld.value || !appVisible || !media.callActive) return null
+        val policy = work.meeting.state.value.meeting
+        if (!meetingAllows(policy, key.endpoint.participant)) return null
+        val role = if (key.role == dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA) Roles.CAMERA else Roles.SCREEN
+        val source: Any = if (key.endpoint.device == live.identity.devicePubkey) {
+            if (key.endpoint.participant != live.identity.participant) return null
+            val local = media.localMedia.recordingSources[role] ?: return null
+            if (local.track.track !== track || local.track.muted) return null
+            local.revision
+        } else {
+            val received = media.remoteTracks.value.singleOrNull { it.device == key.endpoint.device && it.track === track && it.receiving } ?: return null
+            if (received.role != null && received.role != role) return null
+            val grant = live.recordingRosterAuthority.source(call, received.device, received.trackId, received.role) ?: return null
+            if (grant.key.role != role || grant.meaning.participant != key.endpoint.participant ||
+                (grant.meaning.profile != 2 && grant.meaning.profile != 3)) return null
+            grant
+        }
+        return RecordingSourceGrant(source, policy, recordingHoldRevision.get(), visibility = recordingVisibilityRevision.get())
     }
 
     private fun recordingVideoSnapshot(media: WebRtcEngine, live: RoomSession,
@@ -6594,6 +6651,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun holdCall() = act {
         if (!_room.value.onCall || callHeld.value) return@act
+        recordingHoldRevision.incrementAndGet()
         callHeld.value = true
         engine?.revokeRecordingVideo(reason = "The call is on hold")
         val state = _room.value
@@ -6604,6 +6662,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun resumeCall() = act {
         if (!callHeld.value) return@act
+        recordingHoldRevision.incrementAndGet()
         callHeld.value = false
         if (micMutedForHold) {
             micMutedForHold = false
@@ -6722,7 +6781,10 @@ class RoomViewModel @JvmOverloads constructor(
      * stale composite. See media/effects/BackgroundProcessor.kt.
      */
     fun setAppVisible(visible: Boolean) {
-        synchronized(nativeRecordingLock) { appVisible = visible }
+        synchronized(nativeRecordingLock) {
+            if (appVisible != visible) recordingVisibilityRevision.incrementAndGet()
+            appVisible = visible
+        }
         if (!visible) {
             val video = synchronized(nativeRecordingLock) { nativeRecordingOwner?.layout != null }
             if (video) {

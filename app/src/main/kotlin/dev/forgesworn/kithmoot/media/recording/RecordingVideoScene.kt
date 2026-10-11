@@ -23,13 +23,15 @@ import org.webrtc.VideoTrack
  * screen textures. The callback clock is the audio mixer's paused timeline.
  * Native sink attachment/removal always happens outside the callback monitor.
  */
-class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true }) {
+class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true },
+    private val sourceGrant: (RecordingVideoKey, VideoTrack) -> Any? = { _, _ -> Unit }) {
     private data class Snapshot(val at: Long, val frame: VideoFrame)
     private class Input(val key: RecordingVideoKey, val track: VideoTrack, val width: Int, val height: Int) {
         lateinit var sink: VideoSink
         val frames = ArrayDeque<Snapshot>()
         var bucket = -1L
         var unavailable: String? = null
+        var grant: Any? = null
         fun clear() { frames.forEach { it.frame.release() }; frames.clear(); bucket = -1 }
     }
     private val origin = initial.origin
@@ -124,12 +126,23 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
 
     private fun captureAllowed(): Boolean = runCatching(allowed).getOrDefault(false)
 
+    /** Read a current immutable authority snapshot. A source revision change
+     * clears its entire history, even when permission has already returned. */
+    private fun sourceGrant(input: Input): Any? = runCatching { sourceGrant(input.key, input.track) }.getOrNull()
+    private fun refreshGrant(input: Input, grant: Any?): Boolean {
+        if (input.grant != grant) { input.clear(); input.grant = grant; version++ }
+        if (grant == null) input.clear()
+        return grant != null
+    }
+
     private fun receive(input: Input, frame: VideoFrame) {
         if (!captureAllowed()) { synchronized(this) { input.clear() }; return }
+        val grant = sourceGrant(input)
         // Never call the audio clock while holding the video monitor: pause and
         // detachment acquire the audio monitor before updating this scene.
         val clock = synchronized(this) {
             if (paused || stopped || disposed || inputs[input.key] !== input || input.unavailable != null) return
+            if (!refreshGrant(input, grant)) return
             timeline
         } ?: return
         val at = clock()?.coerceAtLeast(0) ?: return
@@ -147,7 +160,9 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
             val buffer = try { i420.cropAndScale(0, 0, i420.width, i420.height, width, height) } finally { i420.release() }
             copied = VideoFrame(buffer, frame.rotation, frame.timestampNs)
             synchronized(this) {
-                if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
+                val currentGrant = sourceGrant(input)
+                if (currentGrant != grant) refreshGrant(input, currentGrant)
+                if (captureAllowed() && currentGrant == grant && grant != null && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
                     // A writer can lag inside the PCM bound without failing.
                     // Keep the corresponding pictures, rather than only the
@@ -215,9 +230,11 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         val messages = plan.slots.map { slot ->
             val key = slot.source
             val input = key?.let(inputs::get)
+            val admitted = input?.let { refreshGrant(it, sourceGrant(it)) } ?: false
             val snapshot = input?.frames?.lastOrNull { it.at <= sample }
-            val message = slot.unavailable ?: input?.unavailable ?: when {
+            var message = slot.unavailable ?: input?.unavailable ?: when {
                 input == null -> "Video track unavailable"
+                !admitted -> "Video unavailable"
                 snapshot == null -> "Waiting for video"
                 sample - snapshot.at > 5L * 48_000 -> "Video unavailable: no recent frame"
                 else -> null
@@ -238,6 +255,15 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
                 val x = slot.bounds.x + (slot.bounds.width - w) / 2
                 val y = slot.bounds.y + (slot.videoHeight - h) / 2
                 video.drawFrame(snapshot.frame, rgb, null, x, height - y - h, w, h)
+                val currentGrant = sourceGrant(input)
+                if (currentGrant != input.grant) {
+                    refreshGrant(input, currentGrant)
+                    GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
+                    GLES20.glScissor(rect.x, height - rect.y - rect.height, rect.width, rect.height)
+                    GLES20.glClearColor(0.13f, 0.15f, 0.18f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                    GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
+                    message = "Video unavailable"
+                }
             }
             message
         }

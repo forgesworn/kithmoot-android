@@ -16,6 +16,46 @@ class RecordingVideoSceneTest {
     private val first = RecordingVideoEndpoint(RecordingEndpointKey("3".repeat(64), "4".repeat(64)), "First camera", 2, true, true, false)
     private val second = RecordingVideoEndpoint(RecordingEndpointKey("5".repeat(64), "6".repeat(64)), "Second camera", null, true, true, false)
 
+    @Test fun source_permission_changes_without_plan_collection_remove_only_its_queued_pictures() {
+        withSources { directory, egl, sources, tracks ->
+            val clock = AtomicLong()
+            val firstRevision = AtomicLong(1)
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY,
+                listOf(first, second.copy(recordingProfile = 2)))
+            val firstKey = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val secondKey = RecordingVideoKey(second.key, RecordingVideoRole.CAMERA)
+            val scene = RecordingVideoScene(plan, sourceGrant = { key, _ ->
+                if (key == firstKey) firstRevision.get().takeIf { it != 0L } else 1L
+            })
+            val file = File(directory, "source-policy.mp4")
+            val writer = ComposedAvRecordingFile(file, egl.eglBaseContext, scene)
+            writer.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(firstKey to tracks[0], secondKey to tracks[1]))
+                writer.prepare()
+                repeat(30) { frame -> feedUntil(scene, plan.inputs, sources, frame * 3200L, clock) }
+                writer.write(ShortArray(48_000))
+                // Neither setPlan nor a source callback runs at revocation.
+                firstRevision.set(0)
+                writer.write(ShortArray(24_000))
+                assertTrue(scene.inputHistorySamples()[firstKey].isNullOrEmpty())
+                assertFalse(scene.inputHistorySamples()[secondKey].isNullOrEmpty())
+                firstRevision.set(3)
+                writer.write(ShortArray(24_000))
+                assertTrue(scene.inputHistorySamples()[firstKey].isNullOrEmpty())
+                feedUntil(scene, plan.inputs, sources, 96_000, clock)
+                writer.write(ShortArray(12_000))
+                writer.close()
+                assertRed(pixel(file, 500_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_200_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_800_000, plan.slots[0]))
+                assertGreen(pixel(file, 1_800_000, plan.slots[1]))
+                assertRed(pixel(file, 2_100_000, plan.slots[0]))
+                assertGreen(pixel(file, 2_100_000, plan.slots[1]))
+            } finally { writer.discard() }
+        }
+    }
+
     @Test fun continuing_sources_retain_the_audio_window_without_unbounded_video_history() {
         withSources { _, _, sources, tracks ->
             val clock = AtomicLong()
