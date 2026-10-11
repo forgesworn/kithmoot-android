@@ -41,7 +41,7 @@ class LiveRecordingBrowserInteropTest {
         @JavascriptInterface fun received(id: String, value: String) { received[id] = Json.parseToJsonElement(value) }
     }
 
-    @Test fun native_and_browser_sessions_exchange_root_signed_on_off_and_reject_replay() {
+    @Test fun native_and_browser_sessions_exchange_device_signed_on_off_and_reject_replay() {
         Assume.assumeTrue("Disposable emulator only", android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -87,7 +87,7 @@ class LiveRecordingBrowserInteropTest {
                     val config = buildJsonObject {
                         put("relay", relay.url); put("roomKey", 11); put("authorityKey", 7)
                         put("authority", authority); put("participantKey", 9); put("deviceKey", 10)
-                        put("call", call); put("since", now)
+                        put("call", call); put("since", now); put("nativeDevice", identity.devicePubkey)
                     }
                     await("browser bundle loaded") {
                         js("if(window.recordingInterop && !window.started){window.started=true;window.recordingInterop.start($config).catch(e=>Native.failure(String(e)))}")
@@ -99,12 +99,13 @@ class LiveRecordingBrowserInteropTest {
                     fun state(on: Boolean, at: Long): LiveRecordingState {
                         val notice = RecordingNotice(on, id, at)
                         val capture = RecordingCaptureNotice(id, at, "gallery", identity.participant, identity.devicePubkey)
-                        return LiveRecordingState(SignedRecordingNotice(notice, signRecordingNotice(room.roomId, notice, root)),
-                            if (on) SignedRecordingCaptureNotice(capture, signRecordingCaptureNotice(room.roomId, capture, root)) else null)
+                        return LiveRecordingState(SignedRecordingNotice(notice, signRecordingNotice(room.roomId, notice, identity.deviceSecretKey)),
+                            if (on) SignedRecordingCaptureNotice(capture, signRecordingCaptureNotice(room.roomId, capture, identity.deviceSecretKey)) else null,
+                            call, identity.participant, identity.devicePubkey)
                     }
                     val on = state(true, version)
                     fun presence(value: LiveRecordingState) = encodeRosterEvent(RosterEntry(identity.participant,
-                        identity.devicePubkey, identity.credential, updatedAt = now, recordingProfile = 3,
+                        identity.devicePubkey, identity.credential, updatedAt = now, recordingProfile = 4,
                         call = CallMembership(call, now), liveRecording = value), room.roomId, room.roomKey, identity.deviceSecretKey)
                     val forged = presence(on.copy(capture = on.capture!!.copy(sig = "00".repeat(64))))
                     relay.publish(forged)
@@ -128,13 +129,13 @@ class LiveRecordingBrowserInteropTest {
                     assertFalse(retained["on"]!!.jsonPrimitive.boolean)
                     assertEquals(version + 1, retained["version"]!!.jsonPrimitive.long)
                     js("window.recordingInterop.publish(true,'${"34".repeat(16)}',${version + 2}).catch(e=>Native.failure(String(e)))")
-                    await("browser On reaches native session") { native.liveRecording.value?.state?.recording?.notice?.version == version + 2 }
-                    assertTrue(native.liveRecording.value!!.state.recording.notice.on)
-                    assertEquals(Schnorr.publicKeyHex(ByteArray(32) { 9 }), native.liveRecording.value!!.state.capture!!.notice.recorder)
+                    await("browser On reaches native session") { native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]?.state?.recording?.notice?.version == version + 2 }
+                    assertTrue(native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]!!.state.recording.notice.on)
+                    assertEquals(Schnorr.publicKeyHex(ByteArray(32) { 9 }), native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]!!.state.capture!!.notice.recorder)
                     js("window.recordingInterop.publish(false,'${"34".repeat(16)}',${version + 3}).catch(e=>Native.failure(String(e)))")
-                    await("browser Off reaches native session") { native.liveRecording.value?.state?.recording?.notice?.version == version + 3 }
-                    assertFalse(native.liveRecording.value!!.state.recording.notice.on)
-                    assertNull(native.liveRecording.value!!.state.capture)
+                    await("browser Off reaches native session") { native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]?.state?.recording?.notice?.version == version + 3 }
+                    assertFalse(native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]!!.state.recording.notice.on)
+                    assertNull(native.participantRecordings.value["$call:${Schnorr.publicKeyHex(ByteArray(32) { 10 })}"]!!.state.capture)
                 } finally {
                     runBlocking { native.leave() }
                     pool.stop()

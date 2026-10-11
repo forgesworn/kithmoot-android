@@ -17,37 +17,38 @@ import { RoomSession } from ${JSON.stringify(resolve(web, 'src/session.ts'))};
 import { NostrRelayPool } from ${JSON.stringify(resolve(web, 'src/relay-pool.ts'))};
 import { localIdentity } from ${JSON.stringify(resolve(web, 'src/identity.ts'))};
 import { signRecordingNotice, signRecordingCaptureNotice } from ${JSON.stringify(resolve(web, 'src/meeting.ts'))};
-let session, transport, authoritySk;
+let session, transport, deviceSk, nativeDevice;
+const receivedState = () => session?.liveRecordings().find(value => value.state.device === nativeDevice) ?? null;
 const key = n => new Uint8Array(32).fill(n);
 window.recordingInterop = {
   async start(config) {
-    authoritySk = key(config.authorityKey);
+    deviceSk = key(config.deviceKey); nativeDevice = config.nativeDevice;
     const pool = new NostrRelayPool([config.relay]);
     transport = {
       publish: event => pool.publish(event),
       publishGuarded: (event, current) => pool.publishGuarded(event, current),
       subscribe: (filters, onEvent, onEose) => pool.subscribe(filters, (event, via) => {
         onEvent(event, via);
-        Native.received(event.id, JSON.stringify(session?.liveRecording ?? null));
+        Native.received(event.id, JSON.stringify(receivedState()));
       }, onEose),
       close: () => pool.close()
     };
     session = new RoomSession({transport, secret: key(config.roomKey), authority: config.authority,
       identity: localIdentity(key(config.participantKey)), deviceSk: key(config.deviceKey),
-      recordingProfile: 3, announceJitterMs: 0});
+      recordingProfile: 4, announceJitterMs: 0});
     await session.join([], {});
     await session.setCall({id: config.call, since: config.since});
     Native.ready(session.roomId, session.participant, session.device);
   },
-  report() { Native.state(JSON.stringify(session.liveRecording ?? null)); },
+  report() { Native.state(JSON.stringify(receivedState())); },
   async publish(on, id, version) {
     const notice = {on, id, version};
     const recording = {op: 'recording', ...notice,
-      sig: signRecordingNotice({roomId: session.roomId, notice, authoritySk})};
+      sig: signRecordingNotice({roomId: session.roomId, notice, authoritySk: deviceSk})};
     const capture = {id, version, capture: 'gallery', recorder: session.participant, device: session.device};
-    await session.publishLiveRecordingConfirmed({recording, ...(on ? {capture: {
+    await session.publishLiveRecording({call: session.call.id, recorder: session.participant, device: session.device, recording, ...(on ? {capture: {
       op: 'recording-capture', ...capture,
-      sig: signRecordingCaptureNotice({roomId: session.roomId, notice: capture, authoritySk})}} : {})});
+      sig: signRecordingCaptureNotice({roomId: session.roomId, notice: capture, authoritySk: deviceSk})}} : {})});
     Native.published(id, version);
   },
   async close() { if (session) await session.leave(); transport?.close(); }

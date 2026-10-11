@@ -651,6 +651,8 @@ data class RoomState(
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
     val recordingCapture: RecordingCaptureNotice? = null,
+    val recordingCaptures: List<RecordingCaptureNotice> = emptyList(),
+    val recordingAllowed: Boolean = false,
     val nativeRecording: Boolean = false,
     val nativeRecordingPaused: Boolean = false,
     val nativeRecordingBusy: Boolean = false,
@@ -4894,6 +4896,9 @@ class RoomViewModel @JvmOverloads constructor(
                     // one device that may run its calls as meetings.
                     authoritySecretKey=epochAuthorityHost?.inviterSecretKey,
                     recordingStops=recordingApplication.recordingStops,
+                    participantRecordingCall={live.currentCall()?.id},
+                    participantRecordingCompatible={live.currentCall()?.id?.let(live::participantRecordingCompatible)==true},
+                    participantRecordingPublisher={state,allowed -> live.publishLiveRecordingConfirmed(state,allowed)},
                     liveRecordingPublisher=if(quiet==null)null else { state,allowed ->
                         live.publishLiveRecordingConfirmed(state) {
                             allowed() && (!state.recording.notice.on || live.currentCall()?.id?.let(live::liveRecordingCompatible)==true)
@@ -4901,6 +4906,7 @@ class RoomViewModel @JvmOverloads constructor(
                     })
                 roomWork=work
                 work.followLiveRecording(live.liveRecording)
+                work.followParticipantRecordings(live.participantRecordings)
                 scope.launch { work.recordingStopPending.collect { pending ->
                     _room.update { if (roomWork === work) it.copy(recordingStopPending = pending != null) else it }
                 } }
@@ -5809,7 +5815,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private fun askRecordingConsent(action: RecordingConsent): Boolean {
         if (_room.value.onCall) return false
-        val view = meetingState.value.recordingView(epochSeconds())
+        val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())
         val id = when (view) {
             is RecordingView.On -> view.id
             is RecordingView.Unconfirmed -> view.id
@@ -5826,7 +5832,7 @@ class RoomViewModel @JvmOverloads constructor(
         val asked = _room.value.recordingConsent ?: return
         _room.update { it.copy(recordingConsent = null) }
         if (!join) return
-        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds())) {
+        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())) {
             is RecordingView.On -> view.id
             is RecordingView.Unconfirmed -> view.id
             RecordingView.Off -> null
@@ -5849,12 +5855,15 @@ class RoomViewModel @JvmOverloads constructor(
     private fun startNativeRecording(layout: dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout?,
         selected: dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) {
         val media = engine ?: return note("Join the call before recording.")
-        val work = roomWork?.takeIf { it.moderator } ?: return note("Only the room's authority can start recording.")
+        val work = roomWork?.takeIf { it.canRecord } ?: return note("Join the call before recording.")
         val originalSession = session ?: return note("Join the call before recording.")
         val originalCall = originalSession.currentCall() ?: return note("Join the call before recording.")
         val originalEpoch = originalSession.epochKeys().epoch
         val originalState = _room.value
-        val liveWarnings = originalSession.requiresLiveRecordingWarnings
+        val participantWarning = originalSession.participantRecordingCompatible(originalCall.id)
+        if(!participantWarning && (!work.moderator || originalSession.requiresLiveRecordingWarnings))
+            return note("Everyone on this call needs a current KithMoot version before it can be recorded.")
+        val liveWarnings = originalSession.requiresLiveRecordingWarnings || participantWarning
         if(liveWarnings && !originalSession.liveRecordingCompatible(originalCall.id))
             return note("Everyone on this call needs a current KithMoot version before it can be recorded.")
         val origin = dev.forgesworn.kithmoot.media.recording.RecordingOrigin(originalState.roomId, originalCall.id, originalState.name)
@@ -5871,7 +5880,7 @@ class RoomViewModel @JvmOverloads constructor(
         val chosen = if (speaker != null) initialSpeaker?.key else selected
         val selectedName = initial.first.firstOrNull { it.key == chosen }?.name ?: "Selected device"
         if (layout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA &&
-            initial.first.none { it.key == selected && (it.recordingProfile == 2 || it.recordingProfile == 3) && it.allowed })
+            initial.first.none { it.key == selected && it.recordingProfile in listOf(2, 3, 4) && it.allowed })
             return note("Choose a compatible device on this call.")
         val ticket = synchronized(nativeRecordingLock) {
             if (nativeRecordingStarting || nativeRecordingOwner != null || !_room.value.onCall || !media.callActive) return
@@ -5903,11 +5912,10 @@ class RoomViewModel @JvmOverloads constructor(
                 // owner lock. Cancellation can revoke this exact candidate
                 // while its worker prepares the output.
                 val captureAllowed = {
-                    nativeRecordingGeneration == ticket && media.callActive && originalSession.recordingCaptureAllowed(origin.call, liveWarnings) &&
+                    nativeRecordingGeneration == ticket && media.callActive && originalSession.recordingCaptureAllowed(origin.call, liveWarnings, participantWarning) &&
                         (originalSession.epochState.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.epoch == originalEpoch &&
                         (originalState.endsAt == null || epochSeconds() < originalState.endsAt) &&
-                        work.meeting.state.value.recording?.notice == recordingNotice &&
-                        (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id == recordingId
+                        work.meeting.state.value.activeRecording(recordingId,epochSeconds())
                 }
                 val warming = recordingVideoSnapshot(media, originalSession, origin)
                 val candidate = if (layout == null) media.prepareAudioRecording(source, captureAllowed) else media.prepareVideoRecording(source,
@@ -5956,7 +5964,7 @@ class RoomViewModel @JvmOverloads constructor(
                         val error = media.audioRecordingError()
                         if (error != null || installedCapture.permissionRevoked() || engine !== media || session !== originalSession ||
                             originalSession.currentCall()?.id != origin.call || !_room.value.onCall ||
-                            (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id != noticeId) {
+                            !work.meeting.state.value.activeRecording(recordingId,epochSeconds())) {
                             stopNativeRecording()
                             if (error != null) note("Recording stopped: ${error.message ?: "audio capture failed"}")
                             return@launch
@@ -6440,7 +6448,7 @@ class RoomViewModel @JvmOverloads constructor(
         val currentSession = session
         if (currentMedia != null && currentSession != null) refreshRecordingVideo(currentMedia, currentSession)
         val currentRecording = synchronized(nativeRecordingLock) { nativeRecordingOwner?.id }
-        if (currentRecording != null && (snapshot.recordingView(epochSeconds()) as? RecordingView.On)?.id != currentRecording) {
+        if (currentRecording != null && !snapshot.activeRecording(currentRecording,epochSeconds())) {
             stopNativeRecording()
         }
         val me = _room.value.selfParticipant
@@ -6455,8 +6463,10 @@ class RoomViewModel @JvmOverloads constructor(
             meetingModerator = roomWork?.moderator == true,
             meetingSpeakers = policy?.speakers.orEmpty(),
             raisedHands = snapshot.hands,
-            recording = snapshot.recordingView(epochSeconds()),
-            recordingCapture = snapshot.recordingCapture(),
+            recording = snapshot.recordingView(epochSeconds(), recordingWarningCalls()),
+            recordingCapture = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
+            recordingCaptures = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()),
+            recordingAllowed = roomWork?.canRecord == true,
         ) }
         // The host hears about a hand as it goes up, not one found in the log.
         if (roomWork?.moderator == true) snapshot.hands.filter { (p, at) -> p !in before.hands && p != me && at >= epochSeconds() - 30 }
@@ -6466,8 +6476,12 @@ class RoomViewModel @JvmOverloads constructor(
         else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")
     }
 
+    private fun recordingWarningCalls(): Set<String> =
+        (listOfNotNull(session?.currentCall()?.id) + session?.participants?.value.orEmpty().mapNotNull { it.call?.id }).toSet()
+
     private fun showRecording() {
-        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds()), recordingCapture = meetingState.value.recordingCapture()) }
+        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls()), recordingCapture = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
+            recordingCaptures = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls())) }
     }
 
     /** Off the stage: everything this device sends is stopped, and it says what. */

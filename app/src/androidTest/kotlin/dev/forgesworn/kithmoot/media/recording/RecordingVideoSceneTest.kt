@@ -16,6 +16,28 @@ class RecordingVideoSceneTest {
     private val first = RecordingVideoEndpoint(RecordingEndpointKey("3".repeat(64), "4".repeat(64)), "First camera", 2, true, true, false)
     private val second = RecordingVideoEndpoint(RecordingEndpointKey("5".repeat(64), "6".repeat(64)), "Second camera", null, true, true, false)
 
+    @Test fun delayed_export_keeps_the_last_picture_before_its_audio_sample() {
+        withSources { directory, egl, sources, tracks ->
+            val clock = AtomicLong()
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY, listOf(first))
+            val scene = RecordingVideoScene(plan)
+            val file = File(directory, "delayed-gallery.mp4")
+            val writer = ComposedAvRecordingFile(file, egl.eglBaseContext, scene)
+            writer.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(RecordingVideoKey(first.key, RecordingVideoRole.CAMERA) to tracks[0]))
+                // Source callbacks keep arriving while the export worker is
+                // busy. It must retain a past picture, rather than replacing
+                // every queued picture with one from the future audio clock.
+                repeat(15) { frame -> feedUntil(scene, plan.inputs, sources, frame * 3200L, clock) }
+                writer.write(ShortArray(48_000))
+                writer.close()
+                assertRed(pixel(file, 200_000, plan.slots.single()))
+                assertRed(pixel(file, 800_000, plan.slots.single()))
+            } finally { writer.discard() }
+        }
+    }
+
     @Test fun gallery_exports_independent_tracks_and_drops_legacy_and_withdrawn_video() {
         withSources { directory, egl, sources, tracks ->
             val clock = AtomicLong()

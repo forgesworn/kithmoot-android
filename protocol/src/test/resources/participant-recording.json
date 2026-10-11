@@ -1,0 +1,125 @@
+{
+  "format": "kithmoot.participant-recording.v1",
+  "source": "forgesworn/kithmoot",
+  "sourceHashes": {
+    "src/meeting.ts": "bdb94dc8cdbf29d9108f0093bd428e3ef4e870e2545557a21d844a45a08602c7",
+    "src/live-recording.ts": "24e04cd7645a87a365a10ea4304002a67514d29445b39cf6991e52c3716e73dc"
+  },
+  "roomId": "abababababababababababababababababababababababababababababababab",
+  "participant": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+  "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+  "call": "12121212121212121212121212121212",
+  "cases": [
+    {
+      "name": "audio",
+      "state": {
+        "call": "12121212121212121212121212121212",
+        "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+        "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+        "recording": {
+          "op": "recording",
+          "on": true,
+          "id": "34343434343434343434343434343434",
+          "version": 100,
+          "sig": "f6d281f0a01df7fd50d1897be727046afc4ba80beae98a1ef4c6e7ddabf3b86b2e8a08c52589f6da19aa1d9ce31434cf503b7f9a626a893c3767ac280db76e3f"
+        },
+        "capture": {
+          "op": "recording-capture",
+          "id": "34343434343434343434343434343434",
+          "version": 100,
+          "capture": "audio",
+          "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+          "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+          "sig": "d6ea9460fb69db01f285a4c0425b048f342499b949ee117707c642144fc194555f3f96b9ffc65f89e9d77a99f411713c65a6670b0a1791120cc32872a512a063"
+        }
+      }
+    },
+    {
+      "name": "gallery",
+      "state": {
+        "call": "12121212121212121212121212121212",
+        "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+        "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+        "recording": {
+          "op": "recording",
+          "on": true,
+          "id": "34343434343434343434343434343434",
+          "version": 101,
+          "sig": "838f11eb4beb576fd775db474592fb3650356788fe63806428f3dc57399273f168d714003f78d3a100e8e4d8c48239975b0d024c3b8328ab0eb5aab7a9fd251f"
+        },
+        "capture": {
+          "op": "recording-capture",
+          "id": "34343434343434343434343434343434",
+          "version": 101,
+          "capture": "gallery",
+          "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+          "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+          "sig": "61320495ea0730b27ef1b5e85bdca2d0b540469263b94bfae825ff9ad343b901d6d75b178368c12ada403ba718e46a887747971a643e9b4cb741dde59861b8c6"
+        }
+      }
+    },
+    {
+      "name": "speaker",
+      "state": {
+        "call": "12121212121212121212121212121212",
+        "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+        "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+        "recording": {
+          "op": "recording",
+          "on": true,
+          "id": "34343434343434343434343434343434",
+          "version": 102,
+          "sig": "daedfb6b1eeeea2a619e8222acef1fb25a74d3589b1b3fc1a7163138fa26c3c8dbcc54607ecc2b117bce26b07baca60dc501f80abb6c308d23d40f3c9bcdf71e"
+        },
+        "capture": {
+          "op": "recording-capture",
+          "id": "34343434343434343434343434343434",
+          "version": 102,
+          "capture": "speaker",
+          "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+          "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+          "sig": "b50d30dbf77a3ab24ac65f425cf7439294acdda52b864ca8d060c246544227e48847765a20ef5b9eee52c9d409b4fe5e03c2ea37c35a2d906ada351f793dc53e"
+        }
+      }
+    },
+    {
+      "name": "screen-camera",
+      "state": {
+        "call": "12121212121212121212121212121212",
+        "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+        "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+        "recording": {
+          "op": "recording",
+          "on": true,
+          "id": "34343434343434343434343434343434",
+          "version": 103,
+          "sig": "6d2c89f70761d923545f70501d6eb4719fcd194b8301cb8bc7e4584bb7be9193aa1deaf90cd0b15f26bdda359954780515837ff2d8aef2162b4fa918e8008b40"
+        },
+        "capture": {
+          "op": "recording-capture",
+          "id": "34343434343434343434343434343434",
+          "version": 103,
+          "capture": "screen-camera",
+          "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+          "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+          "sig": "50a76e4a054cedd8ea903ee498640cda19b0811bbd326f1b9b9116651afb50c7698ec4d71b74f0a8a658b6275105ce02fee5d96aa62f63ea86d5d3ec43cf3150"
+        }
+      }
+    },
+    {
+      "name": "off",
+      "state": {
+        "call": "12121212121212121212121212121212",
+        "recorder": "56b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967",
+        "device": "f991f944d1e1954a7fc8b9bf62e0d78f015f4c07762d505e20e6c45260a3661b",
+        "recording": {
+          "op": "recording",
+          "on": false,
+          "id": "34343434343434343434343434343434",
+          "version": 104,
+          "sig": "9f71b8cbcf250bb4274d29dd179461526b58c143db59971c97663eb65feedc40512d028c999348b790813d8d44bcae56825d4846f25cf3aa6e23f2670130cab9"
+        }
+      }
+    }
+  ]
+}
