@@ -79,15 +79,19 @@ withholds it; another project cannot take over the existing call label. Leaving
 clears the captured context. Capturing an absent context prevents later sign-in
 or directory recovery from inventing a project for an already active call.
 
-Before admission, an exact invitation fragment already held in the account's
-joined directory may supply a project label and inline artwork. Unknown links
-show no guessed project identity. This lookup performs no network request,
-creates no membership and grants no access. Quiet, private and anonymous rooms,
+The admission-dialog component can use an exact invitation fragment already
+held in the account's joined directory to supply a project label and inline
+artwork. Unknown links show no guessed project identity. This lookup performs
+no network request, creates no membership and grants no access. Shared-project
+links are persistent, while the current real guest preview opens for temporary
+links; connecting branded preview to the persistent-project entry journey
+remains open. The component's rendered-state tests do not close that gate.
+Quiet, private and anonymous rooms,
 anonymous browsing, ended rooms and another account's saved rooms withhold
 project artwork. Names remain visible beside the logo and the admission screen
 explains that a logo is not proof of access.
 
 Source implementation, installed emulator checks, public APK availability and
 physical-phone acceptance remain separate evidence. This source change
-publishes no APK. Closed-room catch-up, cross-client recovery and physical
+publishes no APK. Persistent-project invitation preview, closed-room catch-up, cross-client recovery and physical
 acceptance remain open; G15 is not complete.

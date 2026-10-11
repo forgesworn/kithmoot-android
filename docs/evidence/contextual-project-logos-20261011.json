@@ -72,6 +72,7 @@
     "g15Complete": false
   },
   "remaining": [
+    "real persistent-project invitation preview; branded dialog checks use synthetic state",
     "closed-room logo catch-up",
     "independent browser/native account recovery",
     "physical-phone acceptance",
