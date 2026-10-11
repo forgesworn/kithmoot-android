@@ -5,7 +5,7 @@ and signed desktop release 0.1.75. Draft PR #385 overlaps this newer work and
 conflicts; its attempted merge was aborted with the worktree clean. Do not merge
 that older profile-3 implementation over current participant recording.
 
-Android candidate `877883ad` still advertises profile 3 only for a room authority,
+At the initial audit, Android candidate `877883ad` advertised profile 3 only for a room authority,
 otherwise profile 2. Its roster codec discards profile 4 and its live-state parser
 rejects the participant call/recorder/device fields. RoomWork requires moderator
 and room-authority secret to record and holds one global meeting warning. This
@@ -38,8 +38,9 @@ Required integration and evidence:
   quiet/delegated ACK and retained Send/rekey. Keep all existing capture/export,
   privacy, private-node, recovery, signing and physical acceptance gates.
 
-The existing 28 profile-3 vectors and published canonical interop vectors remain
-unchanged. Published fixture input must be copied verbatim from reviewed upstream,
+The original 28 profile-3 vectors are preserved verbatim in
+`protocol/src/test/resources/recording-live-profile3.json`; published canonical
+interop vectors remain unchanged. Published fixture input must be copied verbatim from reviewed upstream,
 with its source hash recorded. No profile-4 qualification follows from this audit.
 
 The five fixture cases are now copied verbatim to
@@ -56,3 +57,15 @@ advertising profile 4. The earlier local release-gates run was stopped only afte
 [complete equivalent hosted verification](evidence/native-recording-source-grants-hosted-verify-2026-10-11.json)
 passed on the unchanged source-permission app code. Its local release lint is
 recorded as incomplete rather than passed.
+
+The current reception candidate accepts roster profiles 3/4 and keeps separately
+ordered, context-verified member warnings. Consent reads accepted Session state
+before collectors run and covers every active advertised recording call; member
+warnings never confer meeting authority. The deterministic live-warning generator
+now uses the reviewed participant-recording SDK and produces 29 cases, including
+legacy authority warnings carried by profile 4 and rejection of future profile 99.
+All 490 protocol tests pass with no failures or skips. App compilation, the signed
+presence reception/consent tests and APK assembly are still running, so reception
+and UI are not yet qualified. Native still advertises its previous capability.
+Device-owned publication, durable member Off recovery, capture ownership, all
+mixed-client gates and the original physical/release requirements remain open.

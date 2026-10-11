@@ -5,7 +5,25 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The latest [local runtime receipt](evidence/native-recording-atomic-ready-runtime-2026-10-11.json)
+The latest completed [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
+passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
+variants, 23 capture checks, nine restart stages, recovery, native/browser
+warnings, API 33/35 signing and both private-node variants. The
+[runtime receipt](evidence/native-recording-source-grants-runtime-hosted-2026-10-11.json)
+records the actual reports: separate recipient processes completed short,
+256 MiB and throttled 256 MiB Upload/Send/Show/Play against a real Wildbloom
+daemon on Google APIs and AOSP images. The large fixture is three-second media
+padded to the transfer limit; this does not establish 45-minute live capture.
+
+Current web/desktop participant recording requires native profile 4 parity.
+The [parity gate](native-recording-profile4-parity.md) tracks independent signed
+warnings, consent, device-owned Start/Stop and restart/rekey. The new reception
+candidate has passed 490 protocol checks but its app build and reception tests
+are still running. It does not yet advertise profile 4. Historical results below
+apply only to their recorded source; the final native production release,
+physical acceptance and full profile-4 lifecycle remain open.
+
+An earlier [local runtime receipt](evidence/native-recording-atomic-ready-runtime-2026-10-11.json)
 records 19/20 checks passing on `c2fce0d2`, without skips. All three recording
 owner UI journeys pass: local Save/Discard while Stop awaits acknowledgement,
 gallery pause/original-call attribution, and cancellation with exact Stop retry.
