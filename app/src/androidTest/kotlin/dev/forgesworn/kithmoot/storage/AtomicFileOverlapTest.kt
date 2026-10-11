@@ -1,9 +1,11 @@
 package dev.forgesworn.kithmoot.storage
 
 import android.content.Context
+import android.os.Bundle
 import android.util.AtomicFile
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -59,7 +61,7 @@ class AtomicFileOverlapTest {
             writer.finishWrite(stream)
             assertArrayEquals(before, reader.readFully())
             assertFalse(File(raw.path + ".new").exists())
-            println("NATIVE_ATOMIC_OVERLAP case=raw-platform stagingRemoved=true priorRetained=true replacementCommitted=false platformActual=true")
+            emit("NATIVE_ATOMIC_OVERLAP case=raw-platform stagingRemoved=true priorRetained=true replacementCommitted=false platformActual=true")
         } finally {
             writer.failWrite(stream)
         }
@@ -122,7 +124,7 @@ class AtomicFileOverlapTest {
             assertArrayEquals(before, result.value)
             assertArrayEquals(replacement, EncryptedRoomStorage(context, alias).read())
             assertNoStaging()
-            println("NATIVE_ATOMIC_OVERLAP case=different-path concurrentCompleted=true stagingPreserved=true workerClosed=true platformActual=true")
+            emit("NATIVE_ATOMIC_OVERLAP case=different-path concurrentCompleted=true stagingPreserved=true workerClosed=true platformActual=true")
         } finally { result.value?.fill(0) }
     }
 
@@ -142,7 +144,13 @@ class AtomicFileOverlapTest {
     }
 
     private fun report(case: String) {
-        println("NATIVE_ATOMIC_OVERLAP case=$case sharedPathBlocked=true stagingPreserved=true committedVerified=true workerClosed=true platformActual=true")
+        emit("NATIVE_ATOMIC_OVERLAP case=$case sharedPathBlocked=true stagingPreserved=true committedVerified=true workerClosed=true platformActual=true")
+    }
+
+    private fun emit(message: String) {
+        InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {
+            putString("native_atomic_overlap", message)
+        })
     }
 
     private fun assertNoStaging() {

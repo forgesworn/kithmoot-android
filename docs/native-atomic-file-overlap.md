@@ -36,3 +36,9 @@ process deaths and five complete pending diagnostics before merge.
 No firmware, radio, MQTT/group, public relay, registration, purchase or contact
 operation is included. Never flash M4 or open its T-Display. Remaining capacity,
 security, sync, airtime and physical group requirements are unchanged.
+
+The reporting successor sends every numeric row through the existing Android
+instrumentation status path (code 2, one allowlisted string field), so the
+normal adb runner captures it without adding logcat collection or changing
+ordinary test parsing. It preserves the initial branch/run and all five case
+assertions; it does not turn unmeasured or failed cases into passing rows.
