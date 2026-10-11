@@ -1,0 +1,26 @@
+{
+  "source": "877883ad48840d0e12415b3f7c5291cf0a57b7de",
+  "build": "passed in 6m 17s",
+  "compiled_before_commit": true,
+  "source_tree_matches_committed_app_code": true,
+  "recording_and_signed_source_unit_tests": {
+    "tests": 74,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": "17d60d63e06f8ae6bbf17041eb8dc434ff5bb067022b7d400deb67746cff2129",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "c3abae5a0f86850c904c77624a38e7113e2fe02cb13f7f7789badfd86e69c034"
+  },
+  "proof_copy_fault_checks": 9,
+  "recovery_driver_fault_checks": 11,
+  "recovery_driver_limit": "Initial loaded-host run timed out after 30s; all 11 passed on a rerun after compilation finished. Acceptance assertions and deadlines are unchanged.",
+  "runtime": {
+    "scene_tests": 7,
+    "failures": 0,
+    "skips": 0,
+    "log_sha256": "236f7cb063d915793dc2cade926da017d2ce1bce31de99713c3f510cd19ec8f9",
+    "limits": "Full 23-test capture suite, final hosted checks and physical qualification remain open."
+  }
+}

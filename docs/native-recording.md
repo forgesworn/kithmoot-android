@@ -52,7 +52,11 @@ finished 20/22 without skips. Both native/browser cases failed the established
 call's video prerequisite before constructing a recording; all other checks,
 including owner UI, passed. This run does not qualify live export or resolve
 the PCM worker overflow. Follow-up [PR #255](https://github.com/forgesworn/kithmoot-android/pull/255)
-has fresh hosted checks running on the integrated history candidate.
+completed its hosted history checks: all 22 capture tests, nine restart stages,
+both private-node variants, Session warnings and signing checks passed. The
+[hosted history receipt](evidence/native-recording-history-hosted-2026-10-11.json)
+records eight of nine jobs passing. Recovery failed when the emulator disconnected
+during a required screenshot copy; later recovery stages were not reached.
 
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
@@ -67,10 +71,18 @@ before mixing for the output worker. An excluded source does not silence the
 other participants. The unchanged PCM capacity remains two seconds.
 Production engine preparation requires these source readers explicitly.
 New checks cover revoke/restore without a collector, independent source
-retention, unreadable authority and sender/receiver ID differences. The local
-build, unit checks and seven scene checks are pending; no new privacy or
-physical qualification is claimed. The full capture script now requires all
-23 tests, without skips, once this candidate is built.
+retention, unreadable authority and sender/receiver ID differences. The [source-grant build and scene receipt](evidence/native-recording-source-grants-build-2026-10-11.json)
+records candidate `877883ad`: 74 focused unit tests and all seven native scene
+checks pass without skips. The scene checks include revoke/restore without
+a plan collector while preserving the other source. The full capture script
+now requires all 23 tests without skips; this run and fresh hosted checks remain
+pending. These results do not establish physical qualification. The recovery
+proof-copy helper now waits for the same emulator transport between its existing
+three attempts; all nine copy and eleven driver fault checks pass, without
+rerunning instrumentation or accepting missing proof. The [full local follow-up](evidence/native-recording-source-grants-full-blocked-2026-10-11.json)
+failed launcher readiness because a System UI ANR held focus. The shell mistakenly
+continued into capture; that partial run was stopped and provides no qualification.
+The owned emulator was then stopped before the complete JVM/lint/release build.
 
 The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
 records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.
