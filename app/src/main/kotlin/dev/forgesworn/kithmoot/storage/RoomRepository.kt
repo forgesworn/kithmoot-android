@@ -30,7 +30,7 @@ class RoomRepository(private val storage: RoomStorage) {
         previous.firstOrNull { it.id == room.id }?.let { checkReplacement(it, room) }
         val rooms = previous.filterNot { it.id == room.id } + room
         if (rooms.size > 100) throw RoomRecoveryException("You have 100 saved rooms. Forget one before adding another.")
-        write(rooms)
+        write(rooms, room.id)
     }
     /** A fresh admission cannot overwrite a room saved while it was waiting. */
     @Synchronized fun saveNew(room: SavedRoom) {
@@ -48,7 +48,7 @@ class RoomRepository(private val storage: RoomStorage) {
         val next = change(existing)
         require(next.id == id)
         checkReplacement(existing, next)
-        write(rooms.map { if (it.id == id) next else it })
+        write(rooms.map { if (it.id == id) next else it }, id)
         return next
     }
     @Synchronized fun forget(id: String) = write(read().filterNot { it.id == id })
@@ -71,10 +71,18 @@ class RoomRepository(private val storage: RoomStorage) {
         } finally { bytes.fill(0) }
     }
 
-    private fun write(rooms: List<SavedRoom>) = guarded {
+    private fun write(rooms: List<SavedRoom>, logoPriority: String? = null) = guarded {
+        // Artwork eviction must never discard a saved room or its admission keys.
+        val keep = rooms.filter { it.sharedLogo?.record?.image != null }
+            .sortedWith(compareByDescending<SavedRoom> { it.id == logoPriority }.thenByDescending { it.openedAt }.thenBy { it.id })
+            .take(64).map { it.id }.toSet()
+        val bounded = rooms.map { room ->
+            if (!room.canKeepLogo || "sharedLogo" in room.json && room.sharedLogo == null ||
+                room.sharedLogo?.record?.image != null && room.id !in keep) room.withSharedLogo(null) else room
+        }
         val bytes = buildJsonObject {
             put("version", if (rooms.any { it.nativeAuthority != null }) 2 else 1)
-            put("rooms", JsonArray(rooms.map { it.json }))
+            put("rooms", JsonArray(bounded.map { it.json }))
         }.toString().toByteArray(Charsets.UTF_8)
         try {
             require(bytes.size <= 4 * 1024 * 1024)
