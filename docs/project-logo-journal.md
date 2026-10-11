@@ -95,5 +95,7 @@ Source implementation, installed emulator checks, public APK availability and
 physical-phone acceptance remain separate evidence. This source change
 publishes no APK. The [closed-room artwork checks](closed-room-logo-catchup.md)
 qualify native post-admission history, removal and encrypted local cache
-restoration. Independent browser/native replacement-device recovery, forced
-process restart and physical acceptance remain open; G15 is not complete.
+restoration. Separate [room-artwork process-death checks](room-logo-process-recovery.md)
+qualify accepted images and removals after active SIGKILL. Independent
+browser/native replacement-device recovery, project-logo process recovery and
+physical acceptance remain open; G15 is not complete.

@@ -17,5 +17,7 @@ The six-case `GuestAdmissionEntryTest` batch passed on the owned API 35 ARM
 emulator at 1080x2400 and 420 dpi with animations disabled. Accounts, rooms and
 relay history are synthetic. This proves native admission gating and local
 cache restoration, rather than a physical-phone, cross-client replacement-device
-or forced-process-restart journey. Those remaining G15/G17 gates stay open.
+journey. Separate [process-death checks](room-logo-process-recovery.md) qualify
+the native accepted-image and removal boundaries after an active SIGKILL.
+Physical and independent replacement-device G15/G17 gates stay open.
 No production APK or store publication is claimed by these checks.
