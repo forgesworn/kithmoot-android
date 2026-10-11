@@ -5,16 +5,36 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The latest [live capture receipt](evidence/native-recording-correlated-browser-followup-2026-10-11.json)
-records both real native/browser audio and video exports passing on `38325cdc`,
-including camera replacement, both speakers' decoded tones and encrypted export
-round trips. The full local suite finished 19/20: cancellation assertions passed,
-but subsequent room teardown exceeded its 60-second wait and took about 122 seconds.
-The synthetic producer now uses bulk plane writes instead of creating a buffer
-slice for every pixel. Recording assertions and the PCM queue bound are unchanged.
-Hosted Session qualification also remains open: its latest job failed during
-emulator home launch, before instrumentation. Physical endurance, per-source
-permission revocation, full Send recovery and final production delivery remain open.
+The latest [local runtime receipt](evidence/native-recording-atomic-ready-runtime-2026-10-11.json)
+records 19/20 checks passing on `c2fce0d2`, without skips. All three recording
+owner UI journeys pass: local Save/Discard while Stop awaits acknowledgement,
+gallery pause/original-call attribution, and cancellation with exact Stop retry.
+Room teardown took 441, 383 and 793 ms. Both sides established video, but video
+export failed when the local PCM queue reached its unchanged two-second bound.
+The audio export and remaining capture/playback/journal checks passed.
+
+The [preceding failed runtime](evidence/native-recording-fresh-ui-runtime-2026-10-11.json)
+was stopped after launcher and System UI ANRs covered the app. Those blocked UI
+fixtures provide no recording-owner acceptance. Launcher command timeouts now
+retain partial output and refuse readiness. The interop readiness flag is atomic
+across Chromium, WebRTC and instrumentation threads; the [build receipt](evidence/native-recording-atomic-ready-build-2026-10-11.json)
+records the exact APKs, without claiming that this explains every video failure.
+
+The current [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38165509356)
+on `38b7ee82` has passed verify, recovery, real native/browser Session warnings
+and both signing-lineage API checks. The independent recording restart job
+also passed its exact Stop and retaining-chat Send process-death drivers.
+The [capture and restart receipt](evidence/native-recording-live-capture-restart-hosted-2026-10-11.json)
+confirms all 20 capture checks and all nine restart stages passed without skips.
+Both private-node variants remain pending. The recording restart drivers now have
+a separate job using verify APKs; all original assertions remain intact.
+
+Candidate `a77309f8` warms the compositor's I420 shader using synthetic pixels
+during preparation, before the capture clock opens. Warm-up is cleared before
+composition and submits no encoder frame. Its build and runtime qualification
+are pending; the audio queue bound and export assertions are unchanged.
+Physical endurance, per-source permission revocation, full Send recovery/rekey
+and final production delivery remain open.
 
 The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
 records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.

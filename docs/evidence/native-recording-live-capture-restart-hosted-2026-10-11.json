@@ -1,0 +1,29 @@
+{
+  "run": 38165509356,
+  "source": "38b7ee82389387fef3fd7f5d2e843d3841ab4a99",
+  "capture": {
+    "job": 114550496305,
+    "result": "passed",
+    "tests": 20,
+    "passed": 20,
+    "skipped": 0,
+    "scope": "Real native/browser audio and video exports plus scene, owner UI, playback and journal assertions"
+  },
+  "restart": {
+    "job": 114550496250,
+    "result": "passed",
+    "stages_passed": 9,
+    "skipped": 0,
+    "scope": "Exact Stop re-enveloping, saved-room Stop retry and retaining-chat identical-ciphertext Send retry across process death"
+  },
+  "limits": [
+    "No quiet/delegated Send or Send rekey qualification",
+    "No physical-phone endurance/interruption/Save-provider acceptance",
+    "No per-source callback revocation qualification",
+    "Does not qualify later compositor candidate a77309f8"
+  ],
+  "log_hashes": {
+    "kithmoot-recording-38b-hosted-capture.log": "f799b17a30144c89176d814b3eeaa2186b13ca72e704df56920d7ee52333fed2",
+    "kithmoot-recording-38b-hosted-restart.log": "0deee5376eaa038c7cfea44ce96ffb4d8e4d98818c418485e65f6b4509708e0a"
+  }
+}
