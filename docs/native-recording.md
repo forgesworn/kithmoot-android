@@ -647,6 +647,15 @@ reliably share that budget with chat during long recordings. Announcement
 routing, heartbeat cadence and the user's waiting/cancellation flow therefore
 need product-level integration before quiet-room recording is qualified.
 
+The next protocol candidate defines profile 3's `liveRecording` presence field:
+one authority-signed running notice paired with matching signed capture details,
+or a signed Off without capture details. Both signatures are required; device
+presence alone is not recording authority. Independent Kotlin and TypeScript
+codecs passed 446 protocol tests and 49 focused web tests, with web type-checking.
+Profile-2 and absent-field encoding remains unchanged. This field is not yet
+advertised by either client: live publication/receipt, compatibility preflight,
+capture fencing and cross-client runtime qualification remain to be wired.
+
 The slot driver now requests durable publication confirmation through every
 underlying transport, including hybrid wrappers; it no longer substitutes a
 fire-and-forget call for a receipt. Refusal or unsupported confirmation keeps

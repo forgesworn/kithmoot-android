@@ -10,16 +10,17 @@ class RosterRecordingProfileTest {
     private val credential = NostrEvent(20460, 0, emptyList(), "", "00".repeat(32), "00".repeat(32), "00".repeat(64))
     private val entry = RosterEntry("aa".repeat(32), "bb".repeat(32), credential, updatedAt = 1_800_000_000)
 
-    @Test fun `only numeric capability two survives and legacy JSON remains unchanged`() {
+    @Test fun `supported numeric capabilities survive and legacy JSON remains unchanged`() {
         val baseline = entry.toJson()
         assertNull(baseline["recordingProfile"])
-        for (text in listOf("null", "true", "\"2\"", "1", "3", "{}", "[]")) {
+        for (text in listOf("null", "true", "\"2\"", "1", "4", "{}", "[]")) {
             val fields = baseline.toMutableMap()
             fields["recordingProfile"] = Json.parseToJsonElement(text)
             val decoded = RosterEntry.fromJson(JsonObject(fields))
             assertNull(decoded.recordingProfile)
             assertEquals(baseline, decoded.toJson())
         }
+        assertEquals(3, RosterEntry.fromJson(entry.copy(recordingProfile = 3).toJson()).recordingProfile)
         for (text in listOf("2", "2.0", "2e0")) {
             val fields = baseline.toMutableMap()
             fields["recordingProfile"] = Json.parseToJsonElement(text)
