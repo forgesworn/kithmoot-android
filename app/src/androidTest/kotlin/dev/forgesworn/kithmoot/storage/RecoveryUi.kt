@@ -119,11 +119,12 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true,
         // later enabled state, particularly with animations disabled in CI.
         reveal { button(text) }
         await("$text to become enabled") { button(text)?.isEnabled == true }
-        // Removing a row can replace Compose's accessibility node between
-        // lookup and dispatch. Re-query only when Android refused the click.
+        // Recomposition can replace a node or move it outside the scroll
+        // viewport between lookup and dispatch. Reveal it again if it moved;
+        // the same visible, enabled control still has to accept the action.
         await("$text to accept a click") {
-            val target = button(text)
-            target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            val target = button(text) ?: reveal { button(text) }
+            target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
     }
 

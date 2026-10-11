@@ -3,7 +3,7 @@
   "baseRevision": "e86790bbfdd9b02ebb700532d0527722ca34de8b",
   "implementationFilesSHA256": {
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/SharedProjectsUiTest.kt": "5f61778526ff68c219f44c6816ab9538515d00bc9fcb427006393abd04cb64e6",
-    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "f44481f22da5f04caf8047b49f6a19e546aafa12aa09cbdac525c5fa80e4f764",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "b4aaf128e4dead9c0c6754d2ebb98635e449d3ce26c1775804de22bc5f44c912",
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/ContextualProjectLogoUiTest.kt": "6c707b7878b0a38c4ce81d638ea7ba65f2dc0bf0e4f597a14cb192182758dc18",
     "app/src/main/kotlin/dev/forgesworn/kithmoot/MainActivity.kt": "0c3699dc5938797db150e4df59c0e55c376abe2fa33d389b3e5391044ff37b5d",
     "app/src/main/kotlin/dev/forgesworn/kithmoot/account/ProjectBrands.kt": "9fd8c68595f9a1d5c6c6c50d4519f6681c20932ec55d60b2452609f955208ab0",
@@ -53,18 +53,25 @@
     "actualProjectRoomNavigation": true,
     "actualCallMembership": true,
     "microphoneAndCameraEnabled": false,
-    "physicalMediaQualification": false
+    "physicalMediaQualification": false,
+    "additionalViewportQualification": {
+      "size": "1080x2400",
+      "dpi": 420,
+      "animations": "disabled",
+      "result": "OK (28 tests)"
+    }
   },
   "artifacts": {
     "debugSHA256": "f504a063d38635e971f3735b44b1fbd5970581d146a793ab4ea67daaeeca8e7d",
-    "instrumentationSHA256": "8a856a05c51595d738df1692dc0f1d5154f6927b28d1345920c11d7422d0af64",
+    "instrumentationSHA256": "cc3002af47e1b2ff9bb06d7b3d6448860a4a252cf4a1bef67d7acff5dce014ea",
     "unsignedReleaseSHA256": "cc85d3c1c99f39c7d2954a8af285e129991d2ba7c51fcdcd7dde2ba8458d0183"
   },
   "preservedFailures": [
     "First installed call journey failed during cleanup when the Android background-battery dialog covered Home; fixture now explicitly denies that exception.",
     "First wider screen batch failed two admission feedback visibility checks; restored the original invitation wording, placed device feedback above controls and reset scroll on state transitions.",
     "Initial navigation assertion accepted the project card before room entry; strengthened it to require the actual chat-only room and its selected project.",
-    "Hosted run 38142986057 passed all four SharedProjectsUiTest cases but failed the stale three-case runner expectation; corrected the count and added the contextual/admission screen classes to hosted recovery."
+    "Hosted run 38142986057 passed all four SharedProjectsUiTest cases but failed the stale three-case runner expectation; corrected the count and added the contextual/admission screen classes to hosted recovery.",
+    "Hosted run 38144754531 lost Share Build room with project from the visible accessibility tree after its first reveal. The helper now reveals a moved control again and still requires its successful click. The installed 28-case batch passed at 1080x2400, 420 dpi with animations disabled."
   ],
   "publication": {
     "newProductionAPK": false,
@@ -78,5 +85,7 @@
     "independent browser/native account recovery",
     "physical-phone acceptance",
     "new signed Android release publication"
-  ]
+  ],
+  "previousInstrumentationSHA256": "8a856a05c51595d738df1692dc0f1d5154f6927b28d1345920c11d7422d0af64",
+  "previousHelperSHA256": "f44481f22da5f04caf8047b49f6a19e546aafa12aa09cbdac525c5fa80e4f764"
 }
