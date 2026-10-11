@@ -29,6 +29,8 @@ internal class ProjectTestRelay(port: Int = 0) : AutoCloseable {
     val requests = CopyOnWriteArrayList<JsonObject>()
     private val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
     @Volatile var acknowledge = true
+    /** Simulate an offer whose delivery is unknown, without a history echo. */
+    @Volatile var storeReceivedEvents = true
     val url: String get() = "ws://127.0.0.1:${server.port}/"
     fun publish(event: NostrEvent) {
         require(Events.verify(event))
@@ -55,7 +57,8 @@ internal class ProjectTestRelay(port: Int = 0) : AutoCloseable {
                         }
                         "CLOSE" -> subs.remove(frame[1].jsonPrimitive.content)
                         "EVENT" -> {
-                            val event = NostrEvent.fromJson(frame[1]); writes.add(event); publish(event)
+                            val event = NostrEvent.fromJson(frame[1]); writes.add(event)
+                            if (storeReceivedEvents) publish(event) else require(Events.verify(event))
                             if (acknowledge) socket.send(buildJsonArray { add("OK"); add(event.id); add(true); add("Synthetic stored event") }.toString())
                             else withheldAcknowledgements.add(event.id)
                         }

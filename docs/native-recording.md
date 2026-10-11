@@ -388,6 +388,16 @@ delivery that may have arrived, rather than describing both as waiting.
 These JVM reconstructions do not qualify Android process death or the whole
 recording owner journey through rekey; those acceptance gates remain open.
 
+The [Send UI restart candidate](evidence/native-recording-send-ui-restart-2026-10-11.json)
+adds an actual Add/Upload/Send journey using synthetic native AAC and a scoped
+TLS contract fixture. Its relay withholds both acknowledgements and history
+echoes. After explicit process death, the test reopens the saved original room,
+clicks Retry, and requires the identical signed message, one attachment, no
+second upload and an unchanged local export. The debug and instrumentation
+APKs build successfully. Local runtime could not start because the selected
+emulator was unavailable and its replacement did not finish booting. Hosted
+qualification is pending; quiet Send, rekey and physical acceptance remain open.
+
 ## Live browser/native adapter export qualification
 
 The [11 October live-gallery receipt](evidence/native-recording-live-gallery-2026-10-11.json)

@@ -202,6 +202,7 @@ jobs:
             python3 scripts/check-native-retirement-restart-emulator.py archive-before-hint
             bash scripts/check-recording-stop-restart-emulator.sh
             bash scripts/check-recording-stop-ui-restart-emulator.sh
+            KITHMOOT_RECORDING_SEND_RESTART=1 KITHMOOT_RECORDING_REPORTS=app/build/reports/native-recording-send-ui-restart bash scripts/check-recording-upload-send-emulator.sh
 
       - name: Keep emulator reports
         if: always()
@@ -217,6 +218,7 @@ jobs:
             app/build/reports/native-retirement-*-restart-emulator/
             app/build/reports/native-recording-stop-restart/
             app/build/reports/native-recording-stop-ui-restart/
+            app/build/reports/native-recording-send-ui-restart/
           if-no-files-found: warn
           retention-days: 7
 

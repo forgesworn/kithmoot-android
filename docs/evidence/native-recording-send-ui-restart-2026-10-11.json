@@ -1,0 +1,34 @@
+{
+  "scope": "Actual Add/Upload/Send and retaining-chat Retry after process death; synthetic native AAC and scoped TLS contract fixture. Quiet Send, rekey, real-node large upload and physical capture remain unqualified.",
+  "build": {
+    "status": "passed",
+    "elapsed_seconds": 966,
+    "tasks": [
+      ":app:assembleDebug",
+      ":app:assembleDebugAndroidTest"
+    ],
+    "log_sha256": "b7f2177419036b5954e48f2e054392b4ccc30f2565825dec58e3652dfd348e95"
+  },
+  "runtime": {
+    "status": "not_started",
+    "physical": false,
+    "reason": "First driver refused missing emulator. Restarted selected emulator did not confirm boot and reported hung QEMU CPU threads. No test-stage pass is claimed."
+  },
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingSendRecoveryUiTest.kt": "03f2372561a2de2d5945c0a3289588ca742c023c4700b8a8749e054d25fc714b",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "2307c29349bfbfb4474db6996b811562df091e846d76423b069ae7939831ea47",
+    "scripts/check-recording-upload-send-emulator.sh": "add43af5383e413e8c8112d34182e5f23bd8091db99f53610d23323352e35ee2",
+    ".github/workflows/ci.yml": "ebf11abe515f65d1a8131944fd6d6c7f42c8d1a2afb26a39a9e686b0ea22b870"
+  },
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "12b821126f2588b84ab1413c8c4eac50f4b25a2c3b279519dfe522e613452cbd",
+      "bytes": 117690988
+    },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "sha256": "a2e3cf1d1b71d04d9d35cd63227c815b5d5380fab09d88c8b332dd067b80b26c",
+      "bytes": 5180998
+    }
+  },
+  "hosted": "pending candidate integration and push"
+}
