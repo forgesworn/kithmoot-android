@@ -11,7 +11,6 @@ import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.projects.ProjectTestRelay
 import dev.forgesworn.kithmoot.protocol.*
-import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.storage.RecoveryUi
 import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
@@ -92,7 +91,7 @@ class RecordingStopRecoveryUiTest {
             }
             val roomId = model.room.value.roomId
             val saved = requireNotNull(app.savedRooms.get(roomId))
-            val off = requireNotNull(app.recordingStops.pending(roomId, saved.devicePubkey, requireNotNull(saved.authority)))
+            val off = requireNotNull(app.recordingStops.pending(roomId, saved.devicePubkey, saved.devicePubkey))
             assertFalse(off.notice.on)
             SystemClock.sleep(600)
             wire.acknowledge = false
@@ -105,7 +104,7 @@ class RecordingStopRecoveryUiTest {
             ui.click("Later")
             SystemClock.sleep(15_500)
             assertTrue(ui.enabled("Retry stop notice"))
-            assertEquals(off, app.recordingStops.pending(roomId, saved.devicePubkey, requireNotNull(saved.authority)))
+            assertEquals(off, app.recordingStops.pending(roomId, saved.devicePubkey, saved.devicePubkey))
             marker.writeText(JSONObject().put("pid", Process.myPid()).put("room", roomId)
                 .put("port", URI(wire.url).port).put("off", encodeRecordingOp(off))
                 .put("export", export.name).put("exportSha256", digest(export))
@@ -116,7 +115,7 @@ class RecordingStopRecoveryUiTest {
             val roomId = before.getString("room")
             val saved = requireNotNull(app.savedRooms.get(roomId))
             val expected = requireNotNull(decodeRecordingOp(before.getString("off")))
-            assertEquals(expected, app.recordingStops.pending(roomId, saved.devicePubkey, requireNotNull(saved.authority)))
+            assertEquals(expected, app.recordingStops.pending(roomId, saved.devicePubkey, saved.devicePubkey))
             val export = requireNotNull(app.recordings.export.value)
             assertEquals(before.getString("export"), export.name)
             assertEquals(before.getString("exportSha256"), digest(export))
@@ -134,13 +133,15 @@ class RecordingStopRecoveryUiTest {
             val original = try { deriveRoom(secret) } finally { secret.fill(0) }
             try {
                 val notices = wire.writes.mapNotNull { event ->
-                    decodeChatEvent(event, original.roomId, original.roomKey, System.currentTimeMillis() / 1000,
-                        channel = "control")?.body?.let(::decodeRecordingOp)
+                    decodeRosterEvent(event, original.roomId, original.roomKey, System.currentTimeMillis() / 1000)?.let { entry ->
+                        entry.liveRecording?.takeIf { state -> verifyParticipantRecordingState(
+                            original.roomId, state, entry.participant, entry.device, entry.call?.id) }?.recording
+                    }
                 }
                 assertEquals(listOf(expected), notices.distinct())
                 assertTrue(wire.writes.all(Events::verify))
-                assertTrue(verifyRecordingNotice(roomId, expected.notice, expected.sig, requireNotNull(saved.authority)))
-                assertNull(app.recordingStops.pending(roomId, saved.devicePubkey, requireNotNull(saved.authority)))
+                assertTrue(verifyRecordingNotice(roomId, expected.notice, expected.sig, saved.devicePubkey))
+                assertNull(app.recordingStops.pending(roomId, saved.devicePubkey, saved.devicePubkey))
                 assertEquals(export, app.recordings.export.value)
                 assertEquals(before.getString("exportSha256"), digest(export))
             } finally { original.roomKey.fill(0) }

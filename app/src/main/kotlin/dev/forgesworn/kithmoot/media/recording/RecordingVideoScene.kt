@@ -143,7 +143,14 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
             synchronized(this) {
                 if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
-                    while (input.frames.size > 3) input.frames.removeFirst().frame.release()
+                    while (input.frames.size > 3) {
+                        // Retain the last picture available to a delayed export
+                        // worker, plus two recent pictures. Dropping every past
+                        // picture would blank the slot until audio catches up.
+                        val past = input.frames.removeFirst()
+                        input.frames.removeFirst().frame.release()
+                        input.frames.addFirst(past)
+                    }
                 }
             }
         } catch (error: Exception) {
@@ -181,7 +188,14 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         val messages = plan.slots.map { slot ->
             val key = slot.source
             val input = key?.let(inputs::get)
-            val snapshot = input?.frames?.lastOrNull { it.at <= sample }
+            if (input != null) {
+                // Advance only to pictures at or before this audio position;
+                // never show a future frame to make a delayed worker catch up.
+                while (input.frames.size > 1 && input.frames.elementAt(1).at <= sample) {
+                    input.frames.removeFirst().frame.release()
+                }
+            }
+            val snapshot = input?.frames?.firstOrNull()?.takeIf { it.at <= sample }
             val message = slot.unavailable ?: input?.unavailable ?: when {
                 input == null -> "Video track unavailable"
                 snapshot == null -> "Waiting for video"
