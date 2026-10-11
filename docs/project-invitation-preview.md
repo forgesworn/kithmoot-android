@@ -33,6 +33,10 @@ mismatch and withdrawal during lookup. ActivityScenario's launcher intent is
 restored only during fixture teardown: the app correctly retains the external
 VIEW intent, which otherwise causes the test rule to ignore destruction events.
 
+The [qualification receipt](evidence/project-invitation-preview-20261011.json)
+records the passing JVM/build checks and complete 38-case installed run,
+including large-text controls in both themes and the preserved earlier failures.
+
 Implementation, automated acceptance and published availability are separate.
 This change does not publish a production APK or complete G15/G17. Closed-room
 logo catch-up, independent browser/native recovery, physical-phone device
