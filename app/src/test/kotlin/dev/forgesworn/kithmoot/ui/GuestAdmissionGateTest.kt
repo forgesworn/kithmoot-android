@@ -3,6 +3,35 @@ package dev.forgesworn.kithmoot.ui
 import kotlin.test.*
 
 class GuestAdmissionGateTest {
+    private fun projectReview() = ProjectInvitationReview("11".repeat(32), "synthetic-npub", "Reviewed account",
+        dev.forgesworn.kithmoot.protocol.ProjectReference("11".repeat(32), "22".repeat(32)), "33".repeat(32))
+
+    @Test fun `persistent review opens deliberately under its unchanged account rather than an editable guest name`() {
+        val gate = GuestAdmissionGate(); val review = projectReview()
+        gate.prepare("synthetic-persistent-invitation", "Workshop", review.name, review)
+        assertEquals(GuestAdmissionPhase.PREVIEW, gate.view.value!!.phase)
+        gate.editName("Another person")
+        assertEquals(review.name, gate.view.value!!.name)
+        val attempt = gate.request()!!
+        assertEquals(review, attempt.projectInvitation); assertEquals(review.name, attempt.name)
+        assertEquals(GuestAdmissionPhase.OPENING, gate.view.value!!.phase)
+        assertNull(gate.request())
+        gate.cancel(); assertFalse(gate.phase(attempt, GuestAdmissionPhase.ADMITTED))
+        assertTrue(gate.retry()); assertEquals(review, gate.view.value!!.projectInvitation)
+        assertNotEquals(attempt.id, gate.request()!!.id)
+    }
+
+    @Test fun `an invalidated review rejects delayed opening and keeps an explanation for the person`() {
+        val gate = GuestAdmissionGate(); val review = projectReview()
+        gate.prepare("synthetic-persistent-invitation", "Workshop", review.name, review)
+        val attempt = gate.request()!!
+        gate.unavailable("The reviewed account changed")
+        assertFalse(gate.isCurrent(attempt)); assertFalse(gate.finish(attempt))
+        assertFalse(gate.phase(attempt, GuestAdmissionPhase.ADMITTED))
+        assertEquals(GuestAdmissionPhase.UNAVAILABLE, gate.view.value!!.phase)
+        assertEquals("The reviewed account changed", gate.view.value!!.detail)
+        assertEquals(review, gate.view.value!!.projectInvitation)
+    }
     @Test fun `opening an invitation does not own a request until the guest acts`() {
         val gate = GuestAdmissionGate()
         gate.prepare("synthetic-invitation", "Workshop", "Rowan")

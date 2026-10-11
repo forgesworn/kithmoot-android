@@ -9,6 +9,7 @@ import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.account.*
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.storage.RecoveryUi
+import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.ui.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -24,6 +25,7 @@ class SharedProjectsUiTest {
     private val ui = RecoveryUi(useSwipeFallback = false, declineBackgroundBatteryAsk = true)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
+    private var scenarioLaunchIntent: android.content.Intent? = null
     private var server: ProjectTestRelay? = null
     private val owner = LocalSigner(ByteArray(32) { 1 })
     private val member = LocalSigner(ByteArray(32) { 2 })
@@ -61,6 +63,11 @@ class SharedProjectsUiTest {
         bitmap.recycle()
     }
     @After fun cleanup() {
+        // MainActivity correctly keeps the latest external link as its intent.
+        // ActivityScenario filters lifecycle events against its launcher intent;
+        // restore that fixture intent only after the actual link journey ends,
+        // so its rule can observe and verify Activity destruction during teardown.
+        scenarioLaunchIntent?.let { original -> activity.scenario.onActivity { it.intent = original } }
         if (::model.isInitialized) {
             if (model.stage.value == Stage.ROOM) { activity.scenario.onActivity { model.leave() }; ui.home() }
             activity.scenario.onActivity { model.signOut() }
@@ -200,6 +207,139 @@ class SharedProjectsUiTest {
         assertEquals(original.definition!!.getValue("members"), updated.definition!!.getValue("members"))
         assertNull("Shared project assignment must not silently become a local label", app.savedRooms.get(saved.id)!!.project)
         screenshot("project-room-assignment.png")
+    }
+
+    private data class InvitationFixture(val relay: ProjectTestRelay, val project: SharedProject, val room: SavedRoom)
+    private fun invitationFixture(): InvitationFixture {
+        val relay = ProjectTestRelay().also { server = it }
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        ui.home()
+        if (app.accounts.load() != null) {
+            ui.await("previous saved account") { model.start.value.account != null }
+            activity.scenario.onActivity { model.signOut() }; ui.await("previous account closed") { model.start.value.account == null }
+        }
+        resetProjectTestVault(app, owner); resetProjectTestVault(app, member)
+        app.savedRooms.reset(); activity.scenario.onActivity { model.refreshSavedRooms() }
+        asAccount(1, relay)
+        ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
+        val room = app.savedRooms.get(model.room.value.roomId)!!
+        ui.click("Leave room"); ui.home(); ui.click("Projects")
+        create("Invitation project", member, agent, room = true)
+        val original = project("Invitation project")
+        val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
+            .bufferedReader().use { Json.parseToJsonElement(it.readText()) }.jsonObject.getValue("vectors").jsonArray
+            .mapNotNull { LogoImages.read(it.jsonObject["payload"]) }.first()
+        var edit: dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? = null
+        activity.scenario.onActivity { edit = model.openProjectLogoEditor(original) }
+        runBlocking { requireNotNull(edit).save(image) { true } }
+        ui.await("owner invitation artwork") { project("Invitation project").logo?.sha256 == image.sha256 }; confirmed()
+        asAccount(2, relay)
+        ui.click("Join Invitation project"); ui.await("member joined project") { project("Invitation project").joined }; confirmed()
+        val joined = project("Invitation project")
+        assertEquals(image.sha256, joined.logo?.sha256)
+        app.savedRooms.reset(); activity.scenario.onActivity { model.refreshSavedRooms() }
+        ui.click("Back"); ui.home()
+        ui.await("cold project room entry") { model.start.value.savedRooms.isEmpty() && !model.start.value.busy }
+        return InvitationFixture(relay, joined, room)
+    }
+
+    private fun openAsExternalLink(link: String) {
+        if (scenarioLaunchIntent == null) activity.scenario.onActivity { scenarioLaunchIntent = android.content.Intent(it.intent) }
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link),
+            context, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        ui.await("real project invitation preview") { model.guestAdmission.value?.projectInvitation != null && ui.hasText("Review this invitation") }
+    }
+    private fun invitationQueries(f: InvitationFixture) = f.relay.requests.count { filter ->
+        filter["kinds"]?.jsonArray?.any { it.jsonPrimitive.int == KIND_GROUP_INVITATION } == true &&
+            filter["#d"]?.jsonArray?.any { it.jsonPrimitive.content == deriveInvitationId(f.room.invitation!!.invitation) } == true
+    }
+
+    @Test fun a_project_link_previews_without_fetching_and_cancelled_lookup_cannot_enter_before_deliberate_retry() {
+        val f = invitationFixture(); val queries = invitationQueries(f)
+        openAsExternalLink(f.room.joinUrl)
+        assertEquals(Stage.START, model.stage.value); assertTrue(app.savedRooms.list().isEmpty())
+        assertEquals(queries, invitationQueries(f)); assertEquals(member.pubkey, model.guestAdmission.value!!.projectInvitation!!.account)
+        assertTrue(ui.hasText("Invitation project")); assertTrue(ui.hasText(npubOf(member.pubkey)))
+        assertTrue("Open room is visible before scrolling through optional device checks", ui.hasText("Open room"))
+        assertFalse(ui.hasText("Request to join")); screenshot("project-invitation-real-preview.png")
+        f.relay.holdInvitationReplies = true
+        ui.click("Open room"); ui.await("held persistent invitation query") { f.relay.heldInvitationQueries > 0 }
+        assertEquals(GuestAdmissionPhase.OPENING, model.guestAdmission.value!!.phase)
+        ui.click("Cancel opening"); ui.await("cancelled lookup settled") { !model.start.value.busy && model.guestAdmission.value?.phase == GuestAdmissionPhase.CANCELLED }
+        f.relay.releaseHeldInvitations()
+        assertEquals(Stage.START, model.stage.value); assertTrue(app.savedRooms.list().isEmpty())
+        ui.click("Review and retry"); ui.await("persistent preview restored") { model.guestAdmission.value?.phase == GuestAdmissionPhase.PREVIEW }
+        assertTrue(app.savedRooms.list().isEmpty())
+        ui.click("Open room"); ui.room()
+        assertEquals(f.room.id, model.room.value.roomId); assertEquals(member.pubkey, model.room.value.selfParticipant)
+        assertEquals(f.project.reference, model.room.value.projectContext)
+        assertFalse(model.room.value.onCall); assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
+        assertEquals(member.pubkey, app.savedRooms.get(f.room.id)!!.participant)
+        screenshot("project-invitation-real-admitted-room.png")
+    }
+
+    @Test fun changing_account_after_project_review_requires_fresh_review_without_querying_the_invitation() {
+        val f = invitationFixture(); val queries = invitationQueries(f)
+        openAsExternalLink(f.room.joinUrl)
+        activity.scenario.onActivity { model.signOut() }; ui.await("reviewed account signed out") { model.start.value.account == null && !model.start.value.busy }
+        ui.click("Open room")
+        ui.await("account change refused") { model.guestAdmission.value?.phase == GuestAdmissionPhase.UNAVAILABLE && !model.start.value.busy }
+        assertEquals(queries, invitationQueries(f)); assertEquals(Stage.START, model.stage.value)
+        assertTrue(app.savedRooms.list().isEmpty())
+        ui.click("Review and retry")
+        assertEquals(GuestAdmissionPhase.UNAVAILABLE, model.guestAdmission.value!!.phase)
+        assertEquals(queries, invitationQueries(f))
+        ui.click("Back to rooms"); ui.home()
+        asAccount(2, f.relay)
+        openAsExternalLink(f.room.joinUrl); ui.click("Open room"); ui.room()
+        assertEquals(member.pubkey, model.room.value.selfParticipant)
+        assertEquals(f.project.reference, model.room.value.projectContext)
+    }
+
+    @Test fun project_withdrawal_during_lookup_prevents_late_room_entry_and_retry() {
+        val f = invitationFixture()
+        openAsExternalLink(f.room.joinUrl)
+        f.relay.holdInvitationReplies = true
+        ui.click("Open room")
+        ui.await("project invitation lookup held") { f.relay.heldInvitationQueries > 0 }
+        val at = System.currentTimeMillis() / 1000
+        val withdrawal = runBlocking { Projects.sign(owner.pubkey, buildJsonObject {
+            put("v", 1); put("op", "withdraw"); put("project", f.project.reference.project); put("revision", 2)
+            put("request", "owner-preview-withdrawal-02"); put("parents", JsonArray(f.project.heads.map(::JsonPrimitive)))
+            put("recipient", member.pubkey)
+        }, at, owner::sign) }
+        f.relay.publish(Projects.wrap(withdrawal, member.pubkey, at))
+        ui.await("project access withdrawn during lookup") { model.start.value.projects.projects.any { it.reference == f.project.reference && it.withdrawn } }
+        f.relay.releaseHeldInvitations()
+        ui.await("late invitation cannot enter withdrawn project") { model.guestAdmission.value?.phase == GuestAdmissionPhase.UNAVAILABLE && !model.start.value.busy }
+        assertEquals(Stage.START, model.stage.value); assertTrue(app.savedRooms.list().isEmpty())
+        assertEquals("", model.room.value.roomId)
+        val queries = invitationQueries(f)
+        ui.click("Review and retry")
+        assertEquals(GuestAdmissionPhase.UNAVAILABLE, model.guestAdmission.value!!.phase)
+        assertEquals(queries, invitationQueries(f)); assertTrue(app.savedRooms.list().isEmpty())
+        ui.click("Back to rooms")
+    }
+
+    @Test fun a_project_preview_cannot_open_a_different_room_from_a_signed_directory_label() {
+        val f = invitationFixture(); val original = f.project
+        val wrong = ProjectRoomChoice("ab".repeat(32), "Wrong room", f.room.joinUrl)
+        val definition = JsonObject(original.definition!! + mapOf("authorityRevision" to JsonPrimitive(2),
+            "rooms" to JsonArray(listOf(wrong.toJson()))))
+        val at = System.currentTimeMillis() / 1000
+        val snapshot = runBlocking { Projects.sign(owner.pubkey, buildJsonObject {
+            put("v", 1); put("op", "snapshot"); put("project", original.reference.project); put("revision", 2)
+            put("request", "owner-preview-wrong-room-02"); put("parents", JsonArray(original.heads.map(::JsonPrimitive))); put("definition", definition)
+        }, at, owner::sign) }
+        f.relay.publish(Projects.wrap(snapshot, member.pubkey, at))
+        ui.await("signed directory changed") { project("Invitation project").heads == listOf(snapshot.id) }
+        openAsExternalLink(f.room.joinUrl); ui.click("Open room")
+        ui.await("authenticated room mismatch refused") { model.guestAdmission.value?.phase == GuestAdmissionPhase.UNAVAILABLE && !model.start.value.busy }
+        assertTrue(model.guestAdmission.value!!.detail!!.contains("different room"))
+        assertEquals(Stage.START, model.stage.value); assertTrue(app.savedRooms.list().isEmpty())
+        assertEquals("", model.room.value.roomId)
+        ui.click("Back to rooms")
     }
 
     @Test fun project_room_logo_override_and_call_origin_survive_browsing_another_project() {

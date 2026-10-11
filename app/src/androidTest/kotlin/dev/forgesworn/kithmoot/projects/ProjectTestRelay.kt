@@ -28,12 +28,26 @@ internal class ProjectTestRelay : AutoCloseable {
     val requests = CopyOnWriteArrayList<JsonObject>()
     private val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
     @Volatile var acknowledge = true
+    @Volatile var holdInvitationReplies = false
+    private val heldInvitations = ConcurrentHashMap<Pair<WebSocket, String>, List<JsonObject>>()
+    val heldInvitationQueries: Int get() = heldInvitations.size
     val url: String get() = "ws://127.0.0.1:${server.port}/"
     fun publish(event: NostrEvent) {
         require(Events.verify(event))
         if (events.none { it.id == event.id }) events.add(event)
         for ((socket, subs) in sockets) for ((id, filters) in subs) {
             if (filters.any { matches(it, event) }) socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+        }
+    }
+    fun releaseHeldInvitations() {
+        holdInvitationReplies = false
+        for ((key, filters) in heldInvitations.toMap()) {
+            if (heldInvitations.remove(key) == null) continue
+            val (socket, id) = key
+            events.filter { event -> filters.any { matches(it, event) } }.forEach { event ->
+                socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+            }
+            socket.send(buildJsonArray { add("EOSE"); add(id) }.toString())
         }
     }
     init {
@@ -47,6 +61,11 @@ internal class ProjectTestRelay : AutoCloseable {
                         "REQ" -> {
                             val id = frame[1].jsonPrimitive.content
                             val filters = frame.drop(2).map { it.jsonObject }; requests.addAll(filters); subs[id] = filters
+                            if (holdInvitationReplies && filters.any { filter -> filter["kinds"]?.jsonArray?.any {
+                                    it.jsonPrimitive.int == KIND_GROUP_INVITATION } == true }) {
+                                heldInvitations[socket to id] = filters
+                                return
+                            }
                             events.filter { event -> filters.any { matches(it, event) } }.forEach { event ->
                                 socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
                             }

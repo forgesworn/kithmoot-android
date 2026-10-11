@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-11",
+  "baseRevision": "d3537cff0c7f177b25e3c74fccf163341ca35851",
+  "implementationFilesSHA256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "8637608d80a42c36673d2d8de23bf76cba00aafbfa8749af2719c7bed3143d5f",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/SharedProjectsUiTest.kt": "e5ceda165d6afb30ef51651b2c6ec0747c328ce10de0783a9f8505fe05cf302c",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionUiTest.kt": "58dcd7a6c51d04dc70b7a0a1bcd146f9f6de2d28d9c64b210b2e64280c5cba42",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmission.kt": "8292e48a5e1333361c756c762793f56fa392162dfef12efcb6c4e3dc9022fda5",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionDialog.kt": "0b76ccd72d7483713a9042c284d5c65e20b18aa3323691048b52c6ddef0b660a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "63b9e886c51a9420accc03c894882589cade3f10c67b053d73678a7afd9709b7",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/ProjectInvitationReview.kt": "37158344ebc08dfc5e85bfcd806490f053b7c4635b93f28ba7531eb2de5acf76",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "a5f4ae71a4d43a7426a5578a9b73ebcc7b89b1693a69c307d6d7defa4986fa57",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionGateTest.kt": "e5a3603cd7597d3b84da07df1c3fd0a5ee5f0dcca6d13d63245a4fbea6f113b8",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/ProjectInvitationReviewTest.kt": "0cf004347f2d95a04847cb9337f28c23831e1a715e1e25cd11650c970771dc41",
+    "docs/project-invitation-preview.md": "7b67198bb179a26313fbb534023495ea55a15f04933820f597067b7a5a3373b7",
+    "docs/project-logo-journal.md": "6640c29e853df1054c13265633c38b129873ceff424707bfd16bbdbf64e69323",
+    "scripts/check-recovery-emulator.sh": "b01223e8adb3e369c0f62716d2cbeb4e0369caa4d67d94b020b7f8d1a328277a"
+  },
+  "local": {
+    "protocolTests": 443,
+    "debugAppTests": 2015,
+    "releaseAppTests": 2015,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "lintDebug": "passed",
+    "lintRelease": "passed",
+    "assemblies": [
+      "debug",
+      "instrumentation",
+      "unsigned release"
+    ]
+  },
+  "installedEmulator": {
+    "serial": "emulator-5582",
+    "ownedAVD": "kithmoot-project-logos-20261011",
+    "api": 35,
+    "architecture": "arm64-v8a",
+    "completePreviousBatch": "OK (36 tests)",
+    "current38CaseBatch": "passed; runner exit zero and full instrumentation summary",
+    "sourceFilesCompared": 1285,
+    "sourceFileHashMismatches": 0,
+    "testCases": 38,
+    "strictResult": "OK (38 tests)",
+    "classes": [
+      "SharedProjectsUiTest",
+      "ContextualProjectLogoUiTest",
+      "GuestAdmissionUiTest",
+      "GuestAdmissionEntryTest",
+      "ProjectLogoEditorTest",
+      "RoomLogoUiTest"
+    ]
+  },
+  "artifacts": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "bytes": 117073003,
+      "sha256": "b0728de3d268489577bccf0028faa3e24a8e0389b349cf7e6aac6e66ece60d46"
+    },
+    "app/build/outputs/apk/release/app-release-unsigned.apk": {
+      "bytes": 79498322,
+      "sha256": "143f549ad9c3183293e45fafae4f536ae1fe554c94d8423db803e3c8d0765d8e"
+    },
+    "instrumentation": {
+      "bytes": 4841881,
+      "sha256": "cc2f2ad962bff74e72d990b7af3213677bb59547eca5d8cd0287cc5c911f42f1"
+    }
+  },
+  "preservedFailures": [
+    "Initial seven-case batch passed journey assertions but ActivityScenario ignored destruction because MainActivity correctly retained the external VIEW intent; test teardown now restores the original launcher intent.",
+    "First 38-case batch completed all assertions without failures in device logcat, then UiAutomation.disconnect threw DeadObjectException during instrumentation finish. Strict CLI result did not pass; preserved rather than counted as qualified."
+  ],
+  "visualReview": {
+    "actualPreview": "accepted; project, room, account and Open room and Close invitation visible on 360dp phone",
+    "largeTextLightAndDark": "passed; both Open room and Close invitation displayed entirely inside screen at 160 percent, no initial scroll"
+  },
+  "publication": {
+    "newProductionAPK": false,
+    "zapstore": false,
+    "physicalPhoneAcceptance": false,
+    "g15Complete": false,
+    "g17Complete": false
+  },
+  "remaining": [
+    "closed-room logo catch-up",
+    "independent browser/native account recovery",
+    "physical-phone acceptance",
+    "new signed Android release publication"
+  ]
+}
