@@ -1288,3 +1288,25 @@ check for the Session suite. The [six driver fault checks](evidence/native-recor
 pass with fake adb, including failed readiness preventing all instrumentation
 and a misleading OK summary failing without complete results. This does not
 qualify capture on a real device or close the [profile-4 parity gate](native-recording-profile4-parity.md).
+
+## Source-permission hosted qualification and profile-4 integration
+
+The [source-permission runtime receipt](evidence/native-recording-source-grants-runtime-hosted-2026-10-11.json)
+confirms all 23 hosted capture checks with individual successful results and no
+skips, all nine restart stages, and the complete recovery job on `e3607e11`.
+[Hosted verification](evidence/native-recording-source-grants-hosted-verify-2026-10-11.json)
+also passed protocol, debug/release app unit tests, both lint variants and both
+APK builds. The duplicate loaded-host local run was deliberately stopped only
+after those complete equivalent hosted gates passed; its release lint was
+incomplete, and no local release success is claimed. The two private-node jobs
+were still running at this receipt. These results do not qualify later driver
+changes, physical devices or current profile-4 participant recording.
+
+The [participant verifier receipt](evidence/native-recording-profile4-protocol-2026-10-11.json)
+records 489 passing protocol tests, including 15 contextual signature and JSON
+checks against all five published participant fixtures. All 28 existing live
+warning vectors also pass. The native roster codec still advertises the previous
+profiles until multi-recorder reception, warnings/consent, device-signed capture,
+exact Stop recovery and current-browser interoperability are integrated and
+qualified. [The parity gate](native-recording-profile4-parity.md) retains the
+remaining requirements; this is a protocol implementation step, not shipment.

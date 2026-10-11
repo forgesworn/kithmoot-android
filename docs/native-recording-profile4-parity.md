@@ -44,5 +44,15 @@ with its source hash recorded. No profile-4 qualification follows from this audi
 
 The five fixture cases are now copied verbatim to
 `protocol/src/test/resources/participant-recording.json`; both declared source
-hashes match reviewed web main. Native fixture decoding and verification tests
-remain to be implemented after the current Kotlin build is terminal.
+hashes match reviewed web main. The [protocol verifier receipt](evidence/native-recording-profile4-protocol-2026-10-11.json)
+records 489 protocol tests passing, including 15 new checks against all five
+published fixtures and all 28 existing live-warning vectors. Complete JSON is
+re-encoded, and wrong rooms, calls, people, devices, profiles, signatures and
+malformed/partial bindings are refused. The exact member Off remains verifiable
+after leaving the original call. Context-free authority verification does not
+adopt a participant warning. The roster codec still uses its previous profiles;
+receiving/UI, capture lifecycle and restart integration remain open before
+advertising profile 4. The earlier local release-gates run was stopped only after
+[complete equivalent hosted verification](evidence/native-recording-source-grants-hosted-verify-2026-10-11.json)
+passed on the unchanged source-permission app code. Its local release lint is
+recorded as incomplete rather than passed.

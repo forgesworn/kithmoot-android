@@ -1,0 +1,21 @@
+{
+  "source": "e3607e11bfb8188c999cc4a848892785acfc31a2",
+  "run": 38175467201,
+  "capture": {
+    "tests": 23,
+    "failures": 0,
+    "skips": 0
+  },
+  "restart_stages": 9,
+  "recovery": {
+    "job": "success",
+    "instrumentation_suites": 61,
+    "tests": 204
+  },
+  "log_sha256": {
+    "capture": "5d2b327e55969ac3ff3c7f91c0f78d0628838645f05c7f9315f045cfa877d323",
+    "restart": "1e2c90232d996c889a10631e49340b743e0bca56b22a93b2855fc47b44e18dd2",
+    "recovery": "ea57fd01cb8736fc4a348abbdc4d2357712feb742ba732830f3d068b07b9e953"
+  },
+  "limits": "Exact source-permission candidate only. Both private-node variants were still running when this receipt was written. Later driver/protocol changes, profile-4 lifecycle, physical endurance and production delivery remain unqualified."
+}
