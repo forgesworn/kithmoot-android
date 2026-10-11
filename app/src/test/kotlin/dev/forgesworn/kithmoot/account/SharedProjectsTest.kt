@@ -460,6 +460,24 @@ class SharedProjectsTest {
         assertContentEquals(bytes, store.bytes); assertTrue(net.guarded.isEmpty()); assertFalse(store.held)
     }
 
+    @Test fun cancellingPhotoPreviewWhileSignerWaitsPreventsCommitWithoutClosingTheAccount() = runTest {
+        val entered = CompletableDeferred<Unit>(); val answer = CompletableDeferred<Unit>(); var wait = false; var allowed = true
+        val signer = object : ParticipantSigner by owner {
+            override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent {
+                if (wait) { entered.complete(Unit); answer.await() }
+                return owner.sign(kind, createdAt, tags, content)
+            }
+        }
+        val store = Store(); val net = Network(); val log = open(store, net, signer); log.open()
+        log.create(definition(), "logo-preview-project-01"); runCurrent(); val project = log.state.value.projects.single()
+        val bytes = store.bytes!!.copyOf(); wait = true
+        val change = async { runCatching { log.updateLogo(project.reference, project.heads, emptyList(), image(), "logo-preview-change-01") { allowed } } }
+        entered.await(); allowed = false; answer.complete(Unit)
+        assertTrue(change.await().isFailure); runCurrent()
+        assertContentEquals(bytes, store.bytes); assertTrue(net.guarded.isEmpty()); assertTrue(log.state.value.ready)
+        assertNull(log.state.value.projects.single().logo); log.close()
+    }
+
     @Test fun corruptCompanionSignatureRejectsCacheWithoutPromptingSignerOrReplacingBytes() = runTest {
         val store = Store(); val net = Network(); var log = open(store, net); log.open()
         log.create(definition(), "logo-corruption-project"); runCurrent(); val project = log.state.value.projects.single()

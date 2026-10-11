@@ -69,6 +69,8 @@ import dev.forgesworn.kithmoot.ui.room.decodePublicProfile
 import android.app.Application
 import android.content.Intent
 import dev.forgesworn.kithmoot.account.AccountSession
+import dev.forgesworn.kithmoot.account.ProjectRoomBrand
+import dev.forgesworn.kithmoot.protocol.ProjectReference
 import dev.forgesworn.kithmoot.account.ProfileMetadata
 import dev.forgesworn.kithmoot.account.checkedSignedEvent
 import dev.forgesworn.kithmoot.relay.RelayChoice
@@ -506,6 +508,12 @@ data class RoomState(
     val roomId: String = "",
     val name: String = "",
     val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
+    /** Display context only; never room admission or task authority. */
+    val projectContext: ProjectReference? = null,
+    val callProjectContext: ProjectReference? = null,
+    val callProjectContextCaptured: Boolean = false,
+    /** Derived by the visible account surface, never persisted as room metadata. */
+    val projectBrand: ProjectRoomBrand? = null,
     val joinUrl: String = "",
     /** This room stays on its constrained Orbot/onion carrier. */
     val anonymous: Boolean = false,
@@ -1881,6 +1889,36 @@ class RoomViewModel @JvmOverloads constructor(
         if (project == null) it.create(definition, request) else it.update(project.reference, project.heads, definition, request)
     }
 
+    /** A local crop preview grants only the captured owner's current project-logo edit. */
+    fun openProjectLogoEditor(project: SharedProject): dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? {
+        val directory = sharedProjects ?: return null
+        val account = accountSession ?: return null
+        val heads = project.heads.toList()
+        val logoHeads = java.util.concurrent.atomic.AtomicReference(project.logoHeads.toList())
+        fun current(): Boolean {
+            val snapshot = directory.state.value
+            val selected = snapshot.projects.find { it.reference == project.reference }
+            return sharedProjects === directory && accountSession === account && directory.identity == project.reference.owner &&
+                snapshot.ready && selected != null && !selected.archived && !selected.withdrawn && !selected.conflicted &&
+                selected.heads == heads && selected.logoHeads == logoHeads.get()
+        }
+        if (!current()) {
+            _start.update { it.copy(projectError = "This project changed. Review it before opening its logo editor.") }
+            return null
+        }
+        return dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope(project.name ?: "Project", project.logo, ::current,
+            canRemove = project.logoHeads.isNotEmpty()) { image, editorAllowed ->
+            val saved = projectChange { selected ->
+                check(selected === directory && current() && editorAllowed()) { "This project changed. Open the logo editor again." }
+                val head = selected.updateLogo(project.reference, heads, logoHeads.get(), image,
+                    java.util.UUID.randomUUID().toString()) { current() && editorAllowed() }
+                // Our own accepted head is now current; let the preview close normally.
+                logoHeads.set(listOf(head))
+            }
+            check(saved) { _start.value.projectError ?: "The project logo could not be saved. Try again." }
+        }
+    }
+
     suspend fun availableProjectRooms(): List<ProjectRoomChoice> = withContext(Dispatchers.IO) {
         val actor = accountSigner?.pubkey ?: return@withContext emptyList()
         savedRoomSummaries().mapNotNull { summary -> savedRooms.get(summary.id)?.takeIf {
@@ -1906,7 +1944,8 @@ class RoomViewModel @JvmOverloads constructor(
             val who = savedIdentity(saved)
             val derived = deriveRoom(saved.secret)
             checkProjectRoomAdmission(room.room, derived.roomId); checkSelection()
-            open(derived, saved.secret, savedRoomRelays(saved, selected.link), who, saved.secondary, saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved)
+            open(derived, saved.secret, savedRoomRelays(saved, selected.link), who, saved.secondary, saved.joinUrl, saved.invitation, saved.host(epochSeconds()), saved.policy, saved,
+                projectContext = project.reference)
         } else {
             val invitation = decodeInvitationUrl(selected.link) ?: throw RoomRecoveryException("This project needs a persistent room invitation.")
             if (!invitation.invitation.persistent || decodeInvitationPairingLink(selected.link) != null) throw RoomRecoveryException("This is not a project room invitation.")
@@ -1922,7 +1961,7 @@ class RoomViewModel @JvmOverloads constructor(
             } catch (e: Exception) { admission.secret.fill(0); throw e }
             open(derived, admission.secret, relays + foundFurther, who, false, encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
                 invitation, admission.delegate, invitation.policy, localName = selected.name, ends = admission.endsAt, expectedEpoch = admission.epoch,
-                destruct = admission.destruct)
+                destruct = admission.destruct, projectContext = project.reference)
         }
     }
 
@@ -4209,6 +4248,7 @@ class RoomViewModel @JvmOverloads constructor(
         destruct: Boolean = false,
         startsAt: Long? = null,
         freshNearby: FreshNearbyEntry? = null,
+        projectContext: ProjectReference? = null,
     ) = gate.withLock {
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -4582,6 +4622,7 @@ class RoomViewModel @JvmOverloads constructor(
             mediaRunning = !route.nearby,
             name = record.name,
             logo = logoSeed?.record?.image,
+            projectContext = projectContext,
             joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
             anonymous = anonymousProfile,
             relaysTotal = activeRelays.size,
@@ -6382,7 +6423,8 @@ class RoomViewModel @JvmOverloads constructor(
         consentedRecording = null
         // A remembered Join must not survive a Leave; it would put the person
         // straight back on the call they just left.
-        _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false) }
+        _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false,
+            callProjectContext = null, callProjectContextCaptured = false) }
         // Shuts the self-heal until this leave has settled. Local media is
         // stopped below before the membership is cleared, but the track list
         // is a flow and its last emission can still be in flight behind us:
@@ -8342,7 +8384,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (live.currentCall() != null) {
             // Already a member. Keep the screen's mirror of it honest anyway:
             // it is what the control reads as "on the call".
-            _room.update { if (session === live) it.copy(onCall = true) else it }
+            _room.update { if (session === live) dev.forgesworn.kithmoot.ui.room.captureCallProjectOrigin(it, _start.value).copy(onCall = true) else it }
             return
         }
         val existing = live.calls().firstOrNull()?.id
@@ -8358,7 +8400,7 @@ class RoomViewModel @JvmOverloads constructor(
         runCatching { live.setCall(CallMembership(id, epochSeconds())) }
             .onSuccess {
                 lastCallId = id
-                _room.update { if (session === live) it.copy(onCall = true) else it }
+                _room.update { if (session === live) dev.forgesworn.kithmoot.ui.room.captureCallProjectOrigin(it, _start.value).copy(onCall = true) else it }
             }
             .onFailure { Log.w(JOIN_LOG, "call declaration could not be published") }
     }

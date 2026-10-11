@@ -126,8 +126,9 @@ fun StartScreen(
     val enabled = !state.busy && !state.loadingRooms && !state.storageError
     val signedIn = state.account != null
 
-    val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey) {
-        mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey)
+    val homeRooms = remember(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey, state.projects, state.anonymousMode) {
+        mergeRooms(state.savedRooms, state.roomBookmarks.rooms, signedIn, state.account?.pubkey,
+            if (state.anonymousMode) dev.forgesworn.kithmoot.account.ProjectAccountSnapshot() else state.projects)
     }
     val returning = isReturning(homeRooms, signedIn, state.destructTombstones.size)
     fun activity(room: HomeRoom) = state.latestMessageTimes[room.id]?.let { RoomActivity(it, null, false, 0, 0, emptyList()) }

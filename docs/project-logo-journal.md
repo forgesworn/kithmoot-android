@@ -47,7 +47,51 @@ receipt limit is 4,096, and the vault remains bounded to 32 MiB. Waiting artwork
 does not create a project, join a room or follow an invitation. Archived,
 withdrawn or conflicting projects expose no image.
 
-The owner editor, contextual inheritance, navigation/invitation/admission
-branding and originating-call label follow this integration. The journal is
-used by the app, but the owner editor and project-logo rendering remain to wire
-in. This source change publishes no APK. G15 remains open.
+Project cards render the verified inline artwork beside the accessible project
+name. The owner can choose, preview/crop, replace or remove it using the same
+bounded local-image editor as room logos. Members cannot open the owner editor.
+A withheld fork can be resolved by an explicit removal without displaying an
+unverified image. Cancelling the preview sends nothing.
+
+An editor captures the account, directory and companion heads. Account changes,
+membership/authority changes, withdrawal or another logo update invalidate it.
+The journal checks cancellation both before and after an external signer waits,
+before committing or sending anything. The accepted update refreshes the local
+captured heads so successful removal can close the preview normally.
+
+Emulator checks cover the real content-URI decoder and crop/share action,
+owner/member controls, cancellation, stale selection and large text in both
+themes. The installed account journey checks encrypted owner-to-member delivery,
+cache restoration without relay history, stale-owner refusal and removal after
+restart. These do not replace physical-phone acceptance.
+
+Room headers and home rows now inherit the artwork of a sole joined, current
+project. Opening a room through a project captures that explicit context, so a
+room shared by several projects does not choose one arbitrarily. A room's own
+logo takes precedence; removing the override restores project inheritance. The
+room metadata and its editing authority remain separate from this display
+context. Project room shortcuts use their selected project's context.
+
+An active call captures its originating project when joining and keeps that
+reference while the person reads other rooms or projects. Directory changes
+refresh the artwork of that captured project. Withdrawal, archival or conflict
+withholds it; another project cannot take over the existing call label. Leaving
+clears the captured context. Capturing an absent context prevents later sign-in
+or directory recovery from inventing a project for an already active call.
+
+The admission-dialog component can use an exact invitation fragment already
+held in the account's joined directory to supply a project label and inline
+artwork. Unknown links show no guessed project identity. This lookup performs
+no network request, creates no membership and grants no access. Shared-project
+links are persistent, while the current real guest preview opens for temporary
+links; connecting branded preview to the persistent-project entry journey
+remains open. The component's rendered-state tests do not close that gate.
+Quiet, private and anonymous rooms,
+anonymous browsing, ended rooms and another account's saved rooms withhold
+project artwork. Names remain visible beside the logo and the admission screen
+explains that a logo is not proof of access.
+
+Source implementation, installed emulator checks, public APK availability and
+physical-phone acceptance remain separate evidence. This source change
+publishes no APK. Persistent-project invitation preview, closed-room catch-up, cross-client recovery and physical
+acceptance remain open; G15 is not complete.

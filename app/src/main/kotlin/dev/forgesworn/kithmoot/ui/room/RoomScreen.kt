@@ -755,7 +755,7 @@ private fun Header(
             verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onLeave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Leave room") }
             if (!state.privateConversation && !state.quiet && !state.anonymous) {
-                val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo
+                val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
                 PrivateLogo(logo,
                     state.name.ifBlank { "Room" }, Modifier.size(28.dp))
                 Spacer(Modifier.width(8.dp))
@@ -769,6 +769,8 @@ private fun Header(
                 Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 state.nativeHosting?.let { hosting ->
                     Text(nativeHostingLine(hosting), style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

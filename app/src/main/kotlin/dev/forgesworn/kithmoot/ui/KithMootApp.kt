@@ -120,7 +120,7 @@ fun KithMootApp(
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
     val guestAdmission by model.guestAdmission.collectAsState()
-    val roomState by model.room.collectAsState()
+    val actualRoomState by model.room.collectAsState()
     val recordingModel = accountModel
     val recordingExport by recordingModel.recordingExport.collectAsState()
     val recordingExportBusy by recordingModel.recordingExportBusy.collectAsState()
@@ -176,6 +176,7 @@ fun KithMootApp(
     }
     val workspaceSnapshot by accountModel.workspace.collectAsState()
     val workspaceAccountState by accountModel.start.collectAsState()
+    val roomState = actualRoomState.copy(projectBrand = dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(actualRoomState, workspaceAccountState))
     val workspaceOrigin by model.workspaceOrigin.collectAsState()
     val workspaceProjectsRequest by model.workspaceProjectsRequest.collectAsState()
     var workspaceMode by rememberSaveable { mutableStateOf<String?>(null) }
@@ -245,7 +246,9 @@ fun KithMootApp(
         GuestAdmissionDialog(guest, startState.busy, devicesAvailable = callRoomId == null,
             onName = model::onGuestAdmissionNameChanged, onRequest = model::requestGuestAdmission,
             onCancel = model::cancelGuestAdmission, onClose = model::closeGuestAdmission,
-            onRetry = model::retryGuestAdmission)
+            onRetry = model::retryGuestAdmission,
+            projectBrand = if (startState.anonymousMode || startState.account?.pubkey != workspaceAccountState.account?.pubkey) null
+                else dev.forgesworn.kithmoot.ui.room.currentInvitationProjectBrand(startState.joinUrl, workspaceAccountState))
     }
     var nearbyInviteRequest by remember { mutableStateOf<Triple<String, String, dev.forgesworn.kithmoot.relay.RoomRoute>?>(null) }
     var nearbyCreateRequest by remember { mutableStateOf<dev.forgesworn.kithmoot.relay.RoomRoute?>(null) }
@@ -672,6 +675,7 @@ fun KithMootApp(
                     open = model::openSharedProjectRoom,
                     save = accountModel::saveSharedProject,
                     rooms = accountModel::availableProjectRooms,
+                    editLogo = accountModel::openProjectLogoEditor,
                 )
                 when (homePage) {
                     HomePage.ROOMS -> Column(Modifier.padding(padding)) {
@@ -681,7 +685,9 @@ fun KithMootApp(
                         }
                       dev.forgesworn.kithmoot.update.UpdateNotice(updates)
                       StartScreen(
-                        state = startState,
+                        state = startState.copy(projects = workspaceAccountState.projects.takeIf {
+                            workspaceAccountState.account?.pubkey == startState.account?.pubkey
+                        } ?: dev.forgesworn.kithmoot.account.ProjectAccountSnapshot()),
                         onRoomNameChanged = model::onRoomNameChanged,
                         onJoinUrlChanged = model::onJoinUrlChanged,
                         onRelaysChanged = model::onRelaysChanged,
