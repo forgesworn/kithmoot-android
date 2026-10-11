@@ -352,6 +352,120 @@ class NativeKeeperJournalTest {
         }
     }
 
+    @Test fun envelope_nearby_ascii() = envelopePolicyCases(RoomRoute.NEARBY, false)
+    @Test fun envelope_nearby_unicode() = envelopePolicyCases(RoomRoute.NEARBY, true)
+    @Test fun envelope_internet_ascii() = envelopePolicyCases(RoomRoute.INTERNET, false)
+    @Test fun envelope_internet_unicode() = envelopePolicyCases(RoomRoute.INTERNET, true)
+    @Test fun envelope_mixed_ascii() = envelopePolicyCases(RoomRoute.MIXED, false)
+    @Test fun envelope_mixed_unicode() = envelopePolicyCases(RoomRoute.MIXED, true)
+
+    private fun envelopeRelays(unicode: Boolean) = (0 until 8).map { index ->
+        // Minimum canonical wss prefix; every remaining UTF-16 unit is a
+        // three-byte BMP character for the larger UTF-8 policy measurement.
+        "wss://a/" + (if (unicode) (0x0800 + index).toChar() else ('a'.code + index).toChar()).toString().repeat(248)
+    }
+
+    private fun envelopePolicyCases(route: RoomRoute, unicode: Boolean) {
+        val ends = (1L shl 53) - 1
+        for (at in listOf(1000L, 9_007_199_254_740_000L)) {
+            val relays = envelopeRelays(unicode)
+            assertEquals(relays, canonicalRoomRelays(relays))
+            assertTrue(relays.all { it.length == 256 })
+            assertTrue(relays.all { it.toByteArray(Charsets.UTF_8).size == if (unicode) 752 else 256 })
+            val buffers = mutableListOf<ByteArray>()
+            val store = Store()
+            var report: JsonObject? = null
+            var hosts = 0; var secrets = 0
+            val creation = observedCreation(at, relays, ends, true,
+                { hosts++; createRoomInvitation(persistent = true).also {
+                    buffers += it.inviterSecretKey; buffers += it.invitation.bearer
+                } },
+                { secrets++; dev.forgesworn.kithmoot.crypto.Entropy.bytes(32).also(buffers::add) })
+            try {
+                assertEquals(1, hosts); assertEquals(1, secrets)
+                val base = creation.roomSecret().also(buffers::add)
+                val invitation = creation.invitation().also { buffers += it.bearer }
+                val room = deriveRoom(base).also { buffers += it.roomKey }
+                val participant = Fixtures.key(5).also(buffers::add)
+                val device = Fixtures.key(6).also(buffers::add)
+                val owner = PrimaryIdentity.create(room.roomId, ends, at, participant, device)
+                val binding = NativeKeeperBinding(room.roomId, creation.authority, owner.participant,
+                    owner.devicePubkey, route, if (route.internet) relays else emptyList())
+                val original = creation.welcome()
+                assertTrue(Events.verify(original))
+                val policy = assertNotNull(decodePersistentInvitation(original, invitation))
+                try {
+                    assertContentEquals(base, policy.secret); assertEquals(relays, policy.relays)
+                    assertEquals(ends, policy.endsAt); assertTrue(policy.destruct)
+                } finally { policy.secret.fill(0) }
+                val actualBytes = original.toCompactJson().toByteArray(Charsets.UTF_8).size
+                val plannedBytes = persistentInvitationEventBytes(at, ends, relays, true)
+                assertEquals(plannedBytes, actualBytes)
+                // Conservative: all 256 units in each URL could be three-byte
+                // BMP values. Real URIs need their smaller ASCII scheme/host.
+                val fixedBody = buildJsonObject {
+                    put("v", 3); put("room", "0".repeat(64)); put("secret", "A".repeat(43))
+                    put("ends", ends); put("destruct", true); put("relays", JsonArray(relays.map(::JsonPrimitive)))
+                }.toString().toByteArray(Charsets.UTF_8).size - relays.sumOf { it.toByteArray(Charsets.UTF_8).size }
+                val plaintextUpperBound = fixedBody + 8 * 256 * 3
+                val envelope = NostrEvent(KIND_GROUP_INVITATION, at,
+                    withRoomExpiration(listOf(listOf("d", "0".repeat(64))), ends),
+                    "A".repeat(dev.forgesworn.kithmoot.crypto.Nip44.encodedLength(plaintextUpperBound)),
+                    "0".repeat(64), "0".repeat(64), "0".repeat(128))
+                val eventUpperBound = envelope.toCompactJson().toByteArray(Charsets.UTF_8).size
+                assertTrue(actualBytes <= eventUpperBound && eventUpperBound < NativeKeeperJournal.MAX_EVENT_BYTES)
+                NativeKeeperJournal.create(store, binding, creation, owner.credential) { at }.use { source ->
+                    assertEquals(original, source.welcome()); assertEquals(0, source.snapshot().epoch)
+                }
+                val committed = store.bytes!!.also(buffers::add)
+                val cold = committed.clone().also(buffers::add)
+                NativeKeeperJournal.open(store, binding) { at }.use { source ->
+                    assertEquals(original, source.welcome()); assertEquals(KeeperPhase.ACTIVE, source.snapshot().phase)
+                    assertEquals(0, source.snapshot().epoch); assertContentEquals(cold, store.bytes)
+                    val epoch = source.epoch()
+                    try { assertContentEquals(base, epoch.secret) } finally { epoch.secret.fill(0) }
+                }
+                report = buildJsonObject {
+                    put("route", route.stored); put("unicode", unicode); put("at", at); put("ends", ends)
+                    put("relayCount", relays.size); put("relayUnits", 256); put("relayUtf8Bytes", if (unicode) 752 else 256)
+                    put("plannedEventBytes", plannedBytes); put("actualEventBytes", actualBytes)
+                    put("plaintextUpperBound", plaintextUpperBound); put("eventUpperBound", eventUpperBound)
+                    put("sourceBytes", committed.size); put("authorityFactoryEntries", hosts); put("baseFactoryEntries", secrets)
+                    put("coldReaderVerified", true); put("coldBytesUnchanged", true); put("epoch", 0)
+                    put("direct16KiBCaseMeasured", false); put("replacementMeasured", false)
+                    put("allEventKindsQualified", false); put("participantReceipt", false); put("processDeath", false)
+                    put("totalAuxiliaryEntropyMeasured", false)
+                }
+            } finally {
+                creation.close(); store.beforeWrite = null; store.bytes?.fill(0); buffers.forEach { it.fill(0) }
+            }
+            assertTrue(buffers.all { bytes -> bytes.all { it == 0.toByte() } })
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+            println("NATIVE_ENVELOPE_SIZE " + JsonObject(assertNotNull(report) + ("cleanupVerified" to JsonPrimitive(true))))
+        }
+    }
+
+    @Test fun envelope_policy_overlimits_refuse_before_creation_factories() {
+        val valid = envelopeRelays(true)
+        val cases = listOf("nine-relays" to (valid + "wss://b/"),
+            "ascii-257-units" to listOf("wss://a/" + "a".repeat(249)),
+            "unicode-257-units" to listOf("wss://a/" + "\u0800".repeat(249)))
+        for ((name, relays) in cases) {
+            var hosts = 0; var secrets = 0
+            assertFailsWith<IllegalArgumentException> {
+                observedCreation(1000, relays, (1L shl 53) - 1, true,
+                    { hosts++; error("Authority factory must not enter") },
+                    { secrets++; error("Base factory must not enter") })
+            }
+            assertEquals(0, hosts); assertEquals(0, secrets)
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+            println("NATIVE_ENVELOPE_POLICY_REFUSAL " + buildJsonObject {
+                put("case", name); put("authorityFactoryEntries", hosts); put("baseFactoryEntries", secrets)
+                put("policyRefusal", true); put("eventSizeRefusal", false); put("cleanupVerified", true)
+            })
+        }
+    }
+
     @Test fun replacement_private_gate_refuses_foreign_stale_expired_and_changed_index_before_any_minting_or_write() {
         for (fault in listOf("foreign", "stale", "expired", "index")) {
             val r = Rig(RoomRoute.NEARBY, ends = 2000)
