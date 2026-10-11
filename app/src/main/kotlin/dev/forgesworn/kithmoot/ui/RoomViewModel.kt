@@ -1824,6 +1824,36 @@ class RoomViewModel @JvmOverloads constructor(
         if (project == null) it.create(definition, request) else it.update(project.reference, project.heads, definition, request)
     }
 
+    /** A local crop preview grants only the captured owner's current project-logo edit. */
+    fun openProjectLogoEditor(project: SharedProject): dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? {
+        val directory = sharedProjects ?: return null
+        val account = accountSession ?: return null
+        val heads = project.heads.toList()
+        val logoHeads = java.util.concurrent.atomic.AtomicReference(project.logoHeads.toList())
+        fun current(): Boolean {
+            val snapshot = directory.state.value
+            val selected = snapshot.projects.find { it.reference == project.reference }
+            return sharedProjects === directory && accountSession === account && directory.identity == project.reference.owner &&
+                snapshot.ready && selected != null && !selected.archived && !selected.withdrawn && !selected.conflicted &&
+                selected.heads == heads && selected.logoHeads == logoHeads.get()
+        }
+        if (!current()) {
+            _start.update { it.copy(projectError = "This project changed. Review it before opening its logo editor.") }
+            return null
+        }
+        return dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope(project.name ?: "Project", project.logo, ::current,
+            canRemove = project.logoHeads.isNotEmpty()) { image, editorAllowed ->
+            val saved = projectChange { selected ->
+                check(selected === directory && current() && editorAllowed()) { "This project changed. Open the logo editor again." }
+                val head = selected.updateLogo(project.reference, heads, logoHeads.get(), image,
+                    java.util.UUID.randomUUID().toString()) { current() && editorAllowed() }
+                // Our own accepted head is now current; let the preview close normally.
+                logoHeads.set(listOf(head))
+            }
+            check(saved) { _start.value.projectError ?: "The project logo could not be saved. Try again." }
+        }
+    }
+
     suspend fun availableProjectRooms(): List<ProjectRoomChoice> = withContext(Dispatchers.IO) {
         val actor = accountSigner?.pubkey ?: return@withContext emptyList()
         savedRoomSummaries().mapNotNull { summary -> savedRooms.get(summary.id)?.takeIf {
