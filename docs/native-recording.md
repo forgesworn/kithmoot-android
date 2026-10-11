@@ -454,6 +454,15 @@ GET 200, authenticated plaintext identity and complete cleanup pass. This
 does not prove rejection of a new offer made after expiry, or Android transfer
 behaviour; those remain separate checks.
 
+CI now includes a separate real private-node Android job after `verify`. It
+builds daemon commit `4474ce194888b039f14cf7001e2eab43305b2c9c` with its locked
+dependencies, downloads the exact debug and instrumentation APKs from verify,
+and runs the production Upload/Send/recipient Show/Play journey with both a
+short clip and a 256 MiB padded synthetic MP4. Its report artifact retains
+source/binary digests, responses, independent process IDs and cleanup results.
+The job is a qualification candidate until its runtime passes; these are
+three-second synthetic tracks, not 45-minute capture or physical acceptance.
+
 The optional `scripts/check-recording-private-node-host.py` requires Python
 `cryptography`, Node 24, an explicitly selected `nostr-tools` package, an
 existing private daemon binary and a synthetic 1-256 MiB MP4. Its signer is

@@ -55,6 +55,31 @@ class FileAttachmentTest {
         assertEquals(setOf("call.wav", "call.enc"), directory.listFiles()!!.map { it.name }.toSet())
     }
 
+    @Test fun `maximum recording seals and authenticates within the ciphertext limit`() = inDirectory { directory ->
+        val source = File(directory, "maximum.mp4")
+        // A sparse synthetic source exercises every encryption record without
+        // retaining the complete source in memory or needing a captured call.
+        java.io.RandomAccessFile(source, "rw").use { file ->
+            file.setLength(MAX_RECORDING_SOURCE_BYTES)
+            file.write(ByteArray(4096) { 31 })
+            file.seek(MAX_RECORDING_SOURCE_BYTES - 4096)
+            file.write(ByteArray(4096) { 79 })
+        }
+        val sealed = sealFile(source, File(directory, "maximum.enc"), source.name, "video/mp4")
+        assertTrue(sealed.file.length() > source.length())
+        assertTrue(sealed.file.length() <= 260L * 1024 * 1024)
+        val opened = openFileAttachment(sealed.file, File(directory, "opened.mp4"), ChatAttachment(
+            "https://files.example/${sealed.hash}", sealed.hash, sealed.key,
+        ))
+        assertEquals(MAX_RECORDING_SOURCE_BYTES, opened.size)
+        assertEquals(fileSha256(source), fileSha256(opened.file))
+
+        java.io.RandomAccessFile(source, "rw").use { it.setLength(MAX_RECORDING_SOURCE_BYTES + 1) }
+        val oversized = File(directory, "oversized.enc")
+        assertFailsWith<IllegalArgumentException> { sealFile(source, oversized, source.name, "video/mp4") }
+        assertFalse(oversized.exists())
+    }
+
     @Test fun `never overwrites existing files and rejects unsupported types before writing`() = inDirectory { directory ->
         val source = File(directory, "call.wav").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
         val destination = File(directory, "existing").also { it.writeText("keep") }
