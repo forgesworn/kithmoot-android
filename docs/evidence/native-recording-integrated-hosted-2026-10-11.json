@@ -1,0 +1,70 @@
+{
+  "run": 38165509356,
+  "source": "38b7ee82389387fef3fd7f5d2e843d3841ab4a99",
+  "status": "completed",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "verify",
+      "id": 114547129539,
+      "conclusion": "success"
+    },
+    {
+      "name": "recovery-emulator",
+      "id": 114547129709,
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (session)",
+      "id": 114550496233,
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "id": 114550496250,
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "id": 114550496251,
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "id": 114550496257,
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "id": 114550496279,
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "id": 114550496286,
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (capture)",
+      "id": 114550496305,
+      "conclusion": "success"
+    }
+  ],
+  "private_node_logs": {
+    "default": {
+      "https_tests": 4,
+      "log_sha256": "39f190ae3f3be500012cc07eed793b389dacf766fcbbca957a191aaae5e22b6c"
+    },
+    "google": {
+      "https_tests": 4,
+      "log_sha256": "03c38352522d8b5e434d2d9e269c7bc082bf26df123d7d67d6eb77c70a18d610"
+    }
+  },
+  "capture_restart_receipt": "native-recording-live-capture-restart-hosted-2026-10-11.json",
+  "limits": [
+    "Does not qualify later local commits",
+    "Per-source revocation and quiet/delegated/rekey Send acceptance remain open",
+    "Physical endurance, interruption and document-provider acceptance remain open",
+    "No production distribution qualified"
+  ]
+}

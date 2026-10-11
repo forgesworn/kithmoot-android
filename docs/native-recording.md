@@ -20,13 +20,14 @@ retain partial output and refuse readiness. The interop readiness flag is atomic
 across Chromium, WebRTC and instrumentation threads; the [build receipt](evidence/native-recording-atomic-ready-build-2026-10-11.json)
 records the exact APKs, without claiming that this explains every video failure.
 
-The current [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38165509356)
+The completed [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38165509356)
 on `38b7ee82` has passed verify, recovery, real native/browser Session warnings
 and both signing-lineage API checks. The independent recording restart job
 also passed its exact Stop and retaining-chat Send process-death drivers.
 The [capture and restart receipt](evidence/native-recording-live-capture-restart-hosted-2026-10-11.json)
 confirms all 20 capture checks and all nine restart stages passed without skips.
-Both private-node variants remain pending. The recording restart drivers now have
+Both private-node variants also passed. The [integrated hosted receipt](evidence/native-recording-integrated-hosted-2026-10-11.json)
+records all nine jobs passing on that exact source. The recording restart drivers now have
 a separate job using verify APKs; all original assertions remain intact.
 
 Candidate `a77309f8` warms the compositor's I420 shader using synthetic pixels
