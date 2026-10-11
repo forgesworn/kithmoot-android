@@ -363,11 +363,12 @@ class SharedProjects(
 
     /** Owner-only artwork; directory and companion heads bind the user's reviewed context. */
     suspend fun updateLogo(ref: ProjectReference, expectedHeads: List<String>, expectedLogoHeads: List<String>,
-        image: LogoImage?, request: String): String {
+        image: LogoImage?, request: String, stillAllowed: () -> Boolean = { true }): String {
         val heads = expectedHeads.sorted(); val logoHeads = expectedLogoHeads.sorted()
         val chosen = image?.let { requireNotNull(LogoImages.read(it.toJson())) { "Invalid project logo" } }
         val result = gate.withLock {
             requireReady(); check(ref.owner == identity) { "Only the project owner can change its logo" }
+            check(stillAllowed()) { "This project changed or its preview closed. Open the logo editor again." }
             check(REQUEST.matches(request)) { "Invalid project logo request" }
             check(request !in receipts) { "This request belongs to a project directory change" }
             val context = context(ref) ?: error("Review the current project before changing its logo")
@@ -381,6 +382,7 @@ class SharedProjects(
             val projection = logos.current(context)
             check(current.heads == heads && projection.heads == logoHeads) { "The project or logo changed. Review it before sharing." }
             val primary = signLogo(context, chosen, Math.addExact(projection.version, 1), request)
+            check(stillAllowed()) { "This project changed or its preview closed. Open the logo editor again." }
             val next = logos.accept(primary, context, now())
             check(primary.id in next.current(context).heads) { "Project logo directory is full" }
             val out = pruneLogos(images = next)

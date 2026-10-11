@@ -19,7 +19,9 @@ import java.io.File
 /** Installed app, Compose controls, real sockets, native crypto and Android Keystore. */
 class SharedProjectsUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
-    private val ui = RecoveryUi()
+    // Scroll the app's accessible containers. Whole-window swipe fallbacks
+    // can pull down Android's notification shade instead of revealing a card.
+    private val ui = RecoveryUi(useSwipeFallback = false)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
     private var server: ProjectTestRelay? = null
@@ -198,5 +200,54 @@ class SharedProjectsUiTest {
         assertEquals(original.definition!!.getValue("members"), updated.definition!!.getValue("members"))
         assertNull("Shared project assignment must not silently become a local label", app.savedRooms.get(saved.id)!!.project)
         screenshot("project-room-assignment.png")
+    }
+
+    @Test fun project_logo_owner_scope_private_delivery_restart_and_explicit_removal() {
+        val relay = ProjectTestRelay().also { server = it }
+        activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
+        ui.home()
+        if (app.accounts.load() != null) {
+            ui.await("previous saved account") { model.start.value.account != null }
+            activity.scenario.onActivity { model.signOut() }; ui.await("previous account closed") { model.start.value.account == null }
+        }
+        resetProjectTestVault(app, owner); resetProjectTestVault(app, member)
+        asAccount(1, relay); ui.click("Projects"); create("Logo workshop", member, agent)
+        val original = project("Logo workshop")
+        ui.click("Edit logo for Logo workshop"); ui.click("Cancel")
+        assertNull(project("Logo workshop").logo)
+        val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
+            .bufferedReader().use { Json.parseToJsonElement(it.readText()) }.jsonObject.getValue("vectors").jsonArray
+            .mapNotNull { LogoImages.read(it.jsonObject["payload"]) }.first()
+        var edit: dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? = null
+        activity.scenario.onActivity { edit = model.openProjectLogoEditor(original) }
+        runBlocking { requireNotNull(edit).save(image) { true } }
+        ui.await("owner logo saved") { project("Logo workshop").logo?.sha256 == image.sha256 }; confirmed()
+        assertTrue(requireNotNull(edit).isCurrent())
+        val ownerHead = project("Logo workshop").logoHeads
+        val wraps = relay.writes.filter { it.tags.any { tag -> tag == listOf("l", ProjectLogos.APP) } }
+        assertEquals(3, wraps.size)
+        assertFalse(wraps.joinToString { it.content }.contains(image.data))
+        screenshot("project-logo-owner.png")
+
+        asAccount(2, relay)
+        ui.await("member logo delivered") { project("Logo workshop").logo?.sha256 == image.sha256 }
+        assertFalse(project("Logo workshop").joined)
+        assertEquals(ownerHead, project("Logo workshop").logoHeads)
+        assertFalse(requireNotNull(edit).isCurrent())
+        val writes = relay.writes.size
+        assertTrue(runCatching { runBlocking { requireNotNull(edit).save(null) { true } } }.isFailure)
+        assertEquals(writes, relay.writes.size)
+        assertNull(model.openProjectLogoEditor(project("Logo workshop")))
+        screenshot("project-logo-member.png")
+
+        // The encrypted owner cache restores artwork even with no relay history.
+        relay.events.clear(); asAccount(1, relay)
+        assertEquals(image.sha256, project("Logo workshop").logo?.sha256)
+        ui.click("Edit logo for Logo workshop"); ui.click("Remove logo for everyone")
+        ui.await("removed owner logo") { project("Logo workshop").logo == null && project("Logo workshop").logoVersion == 2 }
+        ui.await("accepted removal preview closed") { !ui.hasText("Remove logo for everyone") }; confirmed()
+        screenshot("project-logo-removed.png")
+        asAccount(2, relay)
+        assertNull(project("Logo workshop").logo); assertEquals(2, project("Logo workshop").logoVersion)
     }
 }

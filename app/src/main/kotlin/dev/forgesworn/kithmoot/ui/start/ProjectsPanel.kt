@@ -6,11 +6,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.*
 import dev.forgesworn.kithmoot.protocol.DisplayName
 import dev.forgesworn.kithmoot.protocol.SharedProject
+import dev.forgesworn.kithmoot.ui.room.PrivateLogo
+import dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope
+import dev.forgesworn.kithmoot.ui.room.ProjectLogoEditor
 import dev.forgesworn.kithmoot.ui.StartState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -23,6 +28,7 @@ data class ProjectActions(
     val open: (SharedProject, ProjectRoomChoice) -> Unit = { _, _ -> },
     val save: suspend (SharedProject?, JsonObject) -> Boolean = { _, _ -> false },
     val rooms: suspend () -> List<ProjectRoomChoice> = { emptyList() },
+    val editLogo: (SharedProject) -> RoomLogoEditScope? = { null },
 )
 
 /** @param showHeader false when a host page (ProjectsScreen) already shows
@@ -34,6 +40,7 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
     val account = state.account
     var editing by remember(account?.pubkey) { mutableStateOf(false) }
     var selected by remember(account?.pubkey) { mutableStateOf<SharedProject?>(null) }
+    var logoEditor by remember(account?.pubkey) { mutableStateOf<RoomLogoEditScope?>(null) }
     var candidate by remember(account?.pubkey, roomToAdd) { mutableStateOf<ProjectRoomChoice?>(null) }
     var candidateLoading by remember(account?.pubkey, roomToAdd) { mutableStateOf(roomToAdd != null) }
     var candidateError by remember(account?.pubkey, roomToAdd) { mutableStateOf<String?>(null) }
@@ -80,8 +87,17 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
                 var peopleShown by remember(project.key) { mutableStateOf(false) }
                 OutlinedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(project.name ?: if (project.withdrawn) "Invitation withdrawn" else "Project needs review",
-                            style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                        val title = project.name ?: if (project.withdrawn) "Invitation withdrawn" else "Project needs review"
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PrivateLogo(project.logo, title, Modifier.size(40.dp))
+                            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 2,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { heading() })
+                        }
+                        if (project.logoConflicted) Text(if (project.reference.owner == account.pubkey)
+                            "Conflicting logos need review. Choose a new logo or remove them to resolve the conflict."
+                            else "Conflicting logos need the owner's review.",
+                            color = MaterialTheme.colorScheme.error)
                         Text("Owner ${shortNpub(project.reference.owner)}", style = MaterialTheme.typography.bodySmall)
                         val members = project.definition?.get("members")?.jsonArray.orEmpty()
                         val agents = members.count { it.jsonObject["kind"] == JsonPrimitive("agent") }
@@ -114,6 +130,12 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
                             }
                         }
                         if (!project.withdrawn && !project.conflicted) {
+                            if (project.reference.owner == account.pubkey && !project.archived) {
+                                OutlinedButton({ logoEditor = actions.editLogo(project) }, enabled = enabled,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "Edit logo for ${project.name}" }) {
+                                    Text(if (project.logo == null) "Choose project logo" else "Change project logo")
+                                }
+                            }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             TextButton({ peopleShown = !peopleShown }) { Text(if (peopleShown) "Hide people" else "People and agents") }
                             if (project.reference.owner == account.pubkey) TextButton({ selected = project; editing = true }, enabled = enabled,
@@ -135,6 +157,7 @@ fun ProjectsPanel(state: StartState, actions: ProjectActions, showHeader: Boolea
         }
     }
     if (editing && account != null) ProjectEditor(account.pubkey, selected, state, actions, candidate) { editing = false }
+    logoEditor?.let { edit -> ProjectLogoEditor(edit) { logoEditor = null } }
 }
 
 /** Preserve known collaborator names and invitations that are not saved locally on this phone. */

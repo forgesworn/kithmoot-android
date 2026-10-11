@@ -47,7 +47,24 @@ receipt limit is 4,096, and the vault remains bounded to 32 MiB. Waiting artwork
 does not create a project, join a room or follow an invitation. Archived,
 withdrawn or conflicting projects expose no image.
 
-The owner editor, contextual inheritance, navigation/invitation/admission
-branding and originating-call label follow this integration. The journal is
-used by the app, but the owner editor and project-logo rendering remain to wire
-in. This source change publishes no APK. G15 remains open.
+Project cards render the verified inline artwork beside the accessible project
+name. The owner can choose, preview/crop, replace or remove it using the same
+bounded local-image editor as room logos. Members cannot open the owner editor.
+A withheld fork can be resolved by an explicit removal without displaying an
+unverified image. Cancelling the preview sends nothing.
+
+An editor captures the account, directory and companion heads. Account changes,
+membership/authority changes, withdrawal or another logo update invalidate it.
+The journal checks cancellation both before and after an external signer waits,
+before committing or sending anything. The accepted update refreshes the local
+captured heads so successful removal can close the preview normally.
+
+Emulator checks cover the real content-URI decoder and crop/share action,
+owner/member controls, cancellation, stale selection and large text in both
+themes. The installed account journey checks encrypted owner-to-member delivery,
+cache restoration without relay history, stale-owner refusal and removal after
+restart. These do not replace physical-phone acceptance.
+
+Contextual project inheritance, invitation/admission branding and the
+originating-call label still require integration. This source change publishes
+no APK. G15 remains open.

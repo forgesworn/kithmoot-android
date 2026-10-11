@@ -42,11 +42,12 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
 
-/** Captures the exact session and epoch that opened the editor. */
+/** Captures the room epoch or account/project heads that opened the preview. */
 class RoomLogoEditScope internal constructor(
     val name: String,
     val image: LogoImage?,
     internal val isCurrent: () -> Boolean,
+    internal val canRemove: Boolean = image != null,
     internal val save: suspend (LogoImage?, () -> Boolean) -> Unit,
 )
 
@@ -119,6 +120,19 @@ internal suspend fun encodeLogoCrop(source: Bitmap, zoom: Float, x: Float, y: Fl
 
 @Composable
 fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
+    PrivateLogoEditor(edit, "room", onClose)
+}
+
+@Composable
+fun ProjectLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
+    PrivateLogoEditor(edit, "project", onClose)
+}
+
+@Composable
+private fun PrivateLogoEditor(edit: RoomLogoEditScope, subject: String, onClose: () -> Unit) {
+    val title = if (subject == "project") "Project logo" else "Room logo"
+    val changed = if (subject == "project") "This project or account changed. Close this preview and open the editor again."
+        else "This room or its key changed. Close this preview and open the editor again."
     val resolver = LocalContext.current.contentResolver
     val scope = rememberCoroutineScope()
     val alive = remember(edit) { AtomicBoolean(true) }
@@ -137,7 +151,7 @@ fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
         while (current) {
             delay(250)
             if (!edit.isCurrent()) { current = false; alive.set(false); loading?.cancel(); busy = false
-                status = "This room or its key changed. Close this preview and open the editor again." }
+                status = changed }
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -148,9 +162,9 @@ fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
                 var decoded: Bitmap? = null
                 try {
                     decoded = decodeLogoSource(resolver, uri)
-                    check(allowed()) { "This room changed. Open the editor again." }
+                    check(allowed()) { "This $subject changed. Open the editor again." }
                     bitmap = decoded; decoded = null; zoom = 1f; x = .5f; y = .5f
-                    status = "Adjust the crop, then share it with everyone in this room."
+                    status = "Adjust the crop, then share it with everyone in this $subject."
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) { if (allowed()) status = error.message ?: "This image could not be opened. Choose another." }
                 finally { decoded?.recycle(); if (allowed()) busy = false }
@@ -159,15 +173,15 @@ fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
     }
     fun share(remove: Boolean) {
         if (busy || !allowed()) return
-        busy = true; status = if (remove) "Removing room logo…" else "Preparing and sharing crop…"
+        busy = true; status = if (remove) "Removing $subject logo…" else "Preparing and sharing crop…"
         scope.launch {
             try {
                 val image = if (remove) null else encodeLogoCrop(requireNotNull(bitmap), zoom, x, y)
-                check(allowed()) { "This room changed. Open the editor again." }
+                check(allowed()) { "This $subject changed. Open the editor again." }
                 edit.save(image, allowed)
                 if (allowed()) close()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { if (allowed()) status = error.message ?: "The room logo could not be shared. Try again." }
+            catch (error: Exception) { if (allowed()) status = error.message ?: "The $subject logo could not be shared. Try again." }
             finally { if (allowed()) busy = false }
         }
     }
@@ -175,12 +189,12 @@ fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
         Surface(shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().heightIn(max = 680.dp).verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Room logo", style = MaterialTheme.typography.titleLarge)
+                Text(title, style = MaterialTheme.typography.titleLarge)
                 Text(edit.name, style = MaterialTheme.typography.titleMedium)
                 val source = bitmap
                 if (source != null) {
                     val crop = LogoPixels.crop(source.width, source.height, zoom, x, y)
-                    Canvas(Modifier.size(224.dp).align(Alignment.CenterHorizontally).semantics { contentDescription = "Room logo crop preview" }) {
+                    Canvas(Modifier.size(224.dp).align(Alignment.CenterHorizontally).semantics { contentDescription = "$title crop preview" }) {
                         drawIntoCanvas { canvas -> drawLogoCrop(canvas.nativeCanvas, source, crop, size.width, size.height) }
                     }
                     Text("Zoom")
@@ -198,8 +212,8 @@ fun RoomLogoEditor(edit: RoomLogoEditScope, onClose: () -> Unit) {
                 OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     enabled = current && !busy, modifier = Modifier.fillMaxWidth()) { Text(if (source == null) "Choose image" else "Choose another image") }
                 Button(onClick = { share(false) }, enabled = current && !busy && source != null,
-                    modifier = Modifier.fillMaxWidth()) { Text("Share logo with room") }
-                if (edit.image != null) TextButton(onClick = { share(true) }, enabled = current && !busy,
+                    modifier = Modifier.fillMaxWidth()) { Text("Share logo with $subject") }
+                if (edit.canRemove) TextButton(onClick = { share(true) }, enabled = current && !busy,
                     modifier = Modifier.fillMaxWidth()) { Text("Remove logo for everyone") }
                 TextButton(onClick = ::close, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             }

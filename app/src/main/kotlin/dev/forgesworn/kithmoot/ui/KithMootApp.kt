@@ -607,6 +607,7 @@ fun KithMootApp(
                     open = model::openSharedProjectRoom,
                     save = accountModel::saveSharedProject,
                     rooms = accountModel::availableProjectRooms,
+                    editLogo = accountModel::openProjectLogoEditor,
                 )
                 when (homePage) {
                     HomePage.ROOMS -> Column(Modifier.padding(padding)) {
