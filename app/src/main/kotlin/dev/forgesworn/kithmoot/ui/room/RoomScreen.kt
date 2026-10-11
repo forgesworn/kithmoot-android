@@ -170,50 +170,12 @@ fun RoomScreen(
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
     var confirmRecording by rememberSaveable(state.roomId) { mutableStateOf(false) }
-    var recordingMode by rememberSaveable(state.roomId) { mutableStateOf("audio") }
-    var recordingDevice by rememberSaveable(state.roomId) { mutableStateOf<String?>(null) }
-    val recordingLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
-    val selectedRecordingDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
-    if (confirmRecording) AlertDialog(
-        onDismissRequest = { confirmRecording = false },
-        title = { Text("Record this call?") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Everyone in the room receives a recording notice. Audio you hear and share on this device will be included. Recording stays on this device until you choose Save or Discard; nothing is uploaded automatically. Unsaved recordings follow the original room's self-destruct settings.")
-            val modes = listOf("audio" to "Audio only") + dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.map { it.wire to it.label }
-            modes.forEach { (wire, label) -> Row(Modifier.fillMaxWidth().selectable(selected = recordingMode == wire,
-                enabled = wire == "audio" || state.recordingVideoSupported, role = androidx.compose.ui.semantics.Role.RadioButton,
-                onClick = { recordingMode = wire }), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.RadioButton(selected = recordingMode == wire, enabled = wire == "audio" || state.recordingVideoSupported, onClick = null)
-                Text(label)
-            } }
-            if (!state.recordingVideoSupported) Text("Video recording is unavailable on this device. Audio only is available.")
-            if (recordingLayout != null) Text("Video from compatible clients is included. Unavailable cameras and legacy clients have named placeholders; the export is independent of the tiles on your screen.")
-            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SPEAKER)
-                Text("The recording follows the active speaker. A new speaker takes the picture after speaking for 1.5 seconds while the current speaker is quiet.")
-            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA) {
-                Text("Choose the screen sharer's device")
-                state.recordingVideoDevices.filter { it.allowed && it.recordingProfile in listOf(2, 3, 4) }.forEach { endpoint ->
-                    val key = "${endpoint.key.participant}/${endpoint.key.device}"
-                    Row(Modifier.fillMaxWidth().selectable(selected = recordingDevice == key, role = androidx.compose.ui.semantics.Role.RadioButton,
-                        onClick = { recordingDevice = key }), verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.RadioButton(selected = recordingDevice == key, onClick = null)
-                        Column { Text(endpoint.name); Text("${shortId(endpoint.key.participant)} · device ${shortId(endpoint.key.device)}", style = MaterialTheme.typography.bodySmall) }
-                    }
-                }
-                Text("The selected device stays pinned. If its camera or share ends, its name remains in the recording.")
-            }
-        } },
-        confirmButton = { TextButton(enabled = (recordingLayout == null || state.recordingVideoSupported) &&
-            (recordingLayout != dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA ||
-            selectedRecordingDevice?.let { it.allowed && it.recordingProfile in listOf(2, 3, 4) } == true), onClick = {
-            // Read the selected state at the action, rather than capturing a
-            // previous composition's derived mode during rapid/accessible taps.
-            val confirmedLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
-            val confirmedDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
-            confirmRecording = false
-            if (confirmedLayout == null) onStartAudioRecording() else onStartVideoRecording(confirmedLayout, confirmedDevice?.key)
-        }) { Text("Start recording") } },
-        dismissButton = { TextButton(onClick = { confirmRecording = false }) { Text("Cancel") } },
+    RecordingStartDialog(
+        state = state,
+        open = confirmRecording,
+        onDismiss = { confirmRecording = false },
+        onStartAudioRecording = onStartAudioRecording,
+        onStartVideoRecording = onStartVideoRecording,
     )
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -968,4 +930,62 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
             OutlinedButton(onClick = onRetry) { Text("Retry secure update") }
         }
     }
+}
+
+/** Keep dialog composition separate from the room's many callbacks and states. */
+@Composable
+private fun RecordingStartDialog(
+    state: RoomState,
+    open: Boolean,
+    onDismiss: () -> Unit,
+    onStartAudioRecording: () -> Unit,
+    onStartVideoRecording: (dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout,
+        dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) -> Unit,
+) {
+    var recordingMode by rememberSaveable(state.roomId) { mutableStateOf("audio") }
+    var recordingDevice by rememberSaveable(state.roomId) { mutableStateOf<String?>(null) }
+    val recordingLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
+    val selectedRecordingDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
+    if (!open) return
+    AlertDialog(
+        onDismissRequest = { onDismiss() },
+        title = { Text("Record this call?") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Everyone in the room receives a recording notice. Audio you hear and share on this device will be included. Recording stays on this device until you choose Save or Discard; nothing is uploaded automatically. Unsaved recordings follow the original room's self-destruct settings.")
+            val modes = listOf("audio" to "Audio only") + dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.map { it.wire to it.label }
+            modes.forEach { (wire, label) -> Row(Modifier.fillMaxWidth().selectable(selected = recordingMode == wire,
+                enabled = wire == "audio" || state.recordingVideoSupported, role = androidx.compose.ui.semantics.Role.RadioButton,
+                onClick = { recordingMode = wire }), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.RadioButton(selected = recordingMode == wire, enabled = wire == "audio" || state.recordingVideoSupported, onClick = null)
+                Text(label)
+            } }
+            if (!state.recordingVideoSupported) Text("Video recording is unavailable on this device. Audio only is available.")
+            if (recordingLayout != null) Text("Video from compatible clients is included. Unavailable cameras and legacy clients have named placeholders; the export is independent of the tiles on your screen.")
+            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SPEAKER)
+                Text("The recording follows the active speaker. A new speaker takes the picture after speaking for 1.5 seconds while the current speaker is quiet.")
+            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA) {
+                Text("Choose the screen sharer's device")
+                state.recordingVideoDevices.filter { it.allowed && it.recordingProfile in listOf(2, 3, 4) }.forEach { endpoint ->
+                    val key = "${endpoint.key.participant}/${endpoint.key.device}"
+                    Row(Modifier.fillMaxWidth().selectable(selected = recordingDevice == key, role = androidx.compose.ui.semantics.Role.RadioButton,
+                        onClick = { recordingDevice = key }), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(selected = recordingDevice == key, onClick = null)
+                        Column { Text(endpoint.name); Text("${shortId(endpoint.key.participant)} · device ${shortId(endpoint.key.device)}", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+                Text("The selected device stays pinned. If its camera or share ends, its name remains in the recording.")
+            }
+        } },
+        confirmButton = { TextButton(enabled = (recordingLayout == null || state.recordingVideoSupported) &&
+            (recordingLayout != dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA ||
+            selectedRecordingDevice?.let { it.allowed && it.recordingProfile in listOf(2, 3, 4) } == true), onClick = {
+            // Read the selected state at the action, rather than capturing a
+            // previous composition's derived mode during rapid/accessible taps.
+            val confirmedLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
+            val confirmedDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
+            onDismiss()
+            if (confirmedLayout == null) onStartAudioRecording() else onStartVideoRecording(confirmedLayout, confirmedDevice?.key)
+        }) { Text("Start recording") } },
+        dismissButton = { TextButton(onClick = { onDismiss() }) { Text("Cancel") } },
+    )
 }
