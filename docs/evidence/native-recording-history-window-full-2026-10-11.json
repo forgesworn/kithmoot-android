@@ -1,0 +1,34 @@
+{
+  "source": "3548a6dc",
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": "cef9fa64bf7b8baac92138e15eaf1533dac2b51ab05bec22017f3d78c35cd57e",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "7a9bc3a66843e0821dbf2a377f45c18008c9e1de89ba6c0b76430f2d9627c503"
+  },
+  "tests": 22,
+  "passed": 20,
+  "failed": 2,
+  "skipped": 0,
+  "elapsed_seconds": 268.43,
+  "log_sha256": "2ddbc3c018246aaa2a6af1450bae7e261a55908bb3ed7555240d05a683469590",
+  "failures": [
+    {
+      "case": "nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+      "stage": "Established-call prerequisite, before recording construction",
+      "ice": "NEW",
+      "received_video_frames": 0,
+      "browser_video_frames": 0,
+      "audio_packets": 0
+    },
+    {
+      "case": "nativeRecordingExportsBothSidesOfTheBrowserCall",
+      "stage": "Established-call prerequisite, before recording construction",
+      "ice": "CONNECTED",
+      "received_video_frames": 0,
+      "browser_video_frames": 0,
+      "native_decoded_video_frames": 465,
+      "audio_packets": 2062
+    }
+  ],
+  "passed_scope": "All 20 remaining scene, codec, native sink, owner UI, playback and upload journal checks",
+  "limits": "No live recording export was exercised in either failing case. PCM worker overflow, signed per-source callback policy and physical acceptance remain open."
+}

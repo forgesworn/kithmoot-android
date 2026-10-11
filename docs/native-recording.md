@@ -47,8 +47,12 @@ source, and releasing history as capture continues. Candidate `3548a6dc`
 [build and 61 recording unit checks](evidence/native-recording-history-window-build-2026-10-11.json)
 passed. Its [six scene checks](evidence/native-recording-history-window-scene-2026-10-11.json)
 also passed without skips, including the previously failing delayed-writer
-picture check. The full 22-check live capture run is pending. This does not
-claim to solve the PCM worker overflow.
+picture check. The [full local run](evidence/native-recording-history-window-full-2026-10-11.json)
+finished 20/22 without skips. Both native/browser cases failed the established
+call's video prerequisite before constructing a recording; all other checks,
+including owner UI, passed. This run does not qualify live export or resolve
+the PCM worker overflow. Follow-up [PR #255](https://github.com/forgesworn/kithmoot-android/pull/255)
+has fresh hosted checks running on the integrated history candidate.
 
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
