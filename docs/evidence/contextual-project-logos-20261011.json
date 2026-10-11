@@ -63,7 +63,8 @@
   "preservedFailures": [
     "First installed call journey failed during cleanup when the Android background-battery dialog covered Home; fixture now explicitly denies that exception.",
     "First wider screen batch failed two admission feedback visibility checks; restored the original invitation wording, placed device feedback above controls and reset scroll on state transitions.",
-    "Initial navigation assertion accepted the project card before room entry; strengthened it to require the actual chat-only room and its selected project."
+    "Initial navigation assertion accepted the project card before room entry; strengthened it to require the actual chat-only room and its selected project.",
+    "Hosted run 38142986057 passed all four SharedProjectsUiTest cases but failed the stale three-case runner expectation; corrected the count and added the contextual/admission screen classes to hosted recovery."
   ],
   "publication": {
     "newProductionAPK": false,
