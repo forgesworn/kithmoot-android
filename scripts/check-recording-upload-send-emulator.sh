@@ -47,5 +47,5 @@ cat "$KITHMOOT_RECORDING_SAMPLE" | "$adb_bin" -s "$ANDROID_SERIAL" shell -T "run
   -e recordingNetworkFixture "$fixture_name" \
   -e class dev.forgesworn.kithmoot.media.recording.RecordingUploadSendUiTest \
   dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/instrumentation.txt"
-rg -q '^OK \(2 tests\)' "$reports/instrumentation.txt"
+rg -q '^OK \(3 tests\)' "$reports/instrumentation.txt"
 ! rg -q 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3' "$reports/instrumentation.txt"

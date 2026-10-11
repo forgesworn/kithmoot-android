@@ -1,6 +1,11 @@
 package dev.forgesworn.kithmoot.media.recording
 
 import android.os.Build
+import android.os.SystemClock
+import android.graphics.Color
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -16,6 +21,14 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.session.deriveChatChannel
 import dev.forgesworn.kithmoot.session.KIND_CHAT
+import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.RoomSession
+import dev.forgesworn.kithmoot.session.SessionTiming
+import dev.forgesworn.kithmoot.relay.RelayPool
+import dev.forgesworn.kithmoot.relay.OkHttpRelaySockets
+import dev.forgesworn.kithmoot.ui.room.ChatPane
+import dev.forgesworn.kithmoot.ui.room.LocalRecordingAttachmentHttpClient
+import kotlinx.coroutines.*
 import dev.forgesworn.kithmoot.storage.RecoveryUi
 import dev.forgesworn.kithmoot.ui.KithMootApp
 import dev.forgesworn.kithmoot.ui.RoomViewModel
@@ -45,6 +58,7 @@ class RecordingUploadSendUiTest {
     private lateinit var model: RoomViewModel
     private lateinit var relay: ProjectTestRelay
     private lateinit var server: MockWebServer
+    private lateinit var http: OkHttpClient
     private lateinit var tls: SSLContext
     private lateinit var fixture: File
     private var room: String? = null
@@ -52,6 +66,8 @@ class RecordingUploadSendUiTest {
     @Volatile private var redirect = false
     @Volatile private var uploadedHash: String? = null
     @Volatile private var uploadedAuth: NostrEvent? = null
+    @Volatile private var uploadedBytes: ByteArray? = null
+    private val gets = AtomicInteger()
     private val puts = AtomicInteger()
     private val redirectOffers = AtomicInteger()
     private var redirectTarget: MockWebServer? = null
@@ -74,12 +90,18 @@ class RecordingUploadSendUiTest {
         }
         val tm = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trust) }
         tls = SSLContext.getInstance("TLS").apply { init(km.keyManagers, tm.trustManagers, null) }
-        val http = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, tm.trustManagers.filterIsInstance<X509TrustManager>().single())
+        http = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, tm.trustManagers.filterIsInstance<X509TrustManager>().single())
             .protocols(listOf(Protocol.HTTP_1_1)).build()
         server = MockWebServer().apply {
             useHttps(tls.socketFactory, false); protocols = listOf(Protocol.HTTP_1_1)
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.method == "GET" && uploadedHash != null && request.path == "/$uploadedHash.bin") {
+                        gets.incrementAndGet()
+                        check(request.getHeader("Authorization") == null)
+                        return MockResponse().setResponseCode(200)
+                            .setBody(okio.Buffer().write(requireNotNull(uploadedBytes)))
+                    }
                     if (request.method != "PUT" || request.path != "/upload") return MockResponse().setResponseCode(404)
                     puts.incrementAndGet()
                     return try {
@@ -93,7 +115,7 @@ class RecordingUploadSendUiTest {
                         val hash = MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
                         check(bytes.size > 73 && bytes.copyOfRange(0, 8).contentEquals("FSWNENC2".toByteArray()))
                         check(hash == request.getHeader("X-SHA-256") && auth.tagValue("x") == hash)
-                        uploadedHash = hash; uploadedAuth = auth
+                        uploadedHash = hash; uploadedAuth = auth; uploadedBytes = bytes
                         if (redirect) MockResponse().setResponseCode(307).setHeader("Location", "https://127.0.0.1:39848/upload")
                         else MockResponse().setResponseCode(201).setHeader("Content-Type", "application/json")
                             .setBody("""{"url":"$origin/$hash.bin","sha256":"$hash","size":${bytes.size}}""")
@@ -190,6 +212,99 @@ class RecordingUploadSendUiTest {
         assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
         assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
         assertEquals(1, puts.get()); assertEquals(0, redirectOffers.get())
+    }
+
+
+    private fun hasClock(seconds: Int): Boolean {
+        fun matches(node: AccessibilityNodeInfo): Boolean {
+            if (node.isVisibleToUser && node.text?.toString()?.let {
+                it == "0:%02d".format(seconds) || it.startsWith("0:%02d / ".format(seconds))
+            } == true) return true
+            return (0 until node.childCount).mapNotNull(node::getChild).any(::matches)
+        }
+        return InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow?.let(::matches) == true
+    }
+
+    @Test fun independent_recipient_receives_show_fetches_ciphertext_and_explicit_play_decodes_video() {
+        val saved = requireNotNull(app.savedRooms.get(requireNotNull(room)))
+        val secret = saved.secret
+        val peerRoom = try { deriveRoom(secret) } finally { secret.fill(0) }
+        val now = System.currentTimeMillis() / 1000
+        val identity = PrimaryIdentity.create(peerRoom.roomId, now + 3600, now,
+            ByteArray(32) { 62 }, ByteArray(32) { 72 })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val pool = RelayPool(listOf(relay.url), OkHttpRelaySockets(), scope)
+        val recipient = RoomSession(peerRoom, identity, pool, scope,
+            authority = saved.authority, timing = SessionTiming(announceJitterMs = 0))
+        val original = requireNotNull(app.recordings.export.value)
+        try {
+            pool.start()
+            runBlocking { recipient.join() }
+            chooseAndUpload()
+            ui.await("uploaded receipt enables explicit Send") { ui.hasText("Send recording") }
+            assertTrue(recipient.chat.value.none { it.attachments.isNotEmpty() })
+            assertEquals(0, gets.get())
+            ui.click("Send recording")
+            ui.await("independent relay subscription receives recording") {
+                recipient.chat.value.any { it.attachments.any { a -> a.sha256 == uploadedHash } }
+            }
+            val received = recipient.chat.value.single { it.attachments.isNotEmpty() }
+            assertNotEquals(identity.participant, received.participant)
+            assertNotEquals(identity.devicePubkey, received.device)
+            val attachment = received.attachments.single()
+            assertEquals(uploadedHash, attachment.sha256)
+            assertEquals(requireNotNull(uploadedBytes).size.toLong(), attachment.size)
+            assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
+            assertEquals(0, gets.get())
+            activity.scenario.onActivity { owner -> owner.setContent {
+                KithMootTheme {
+                    CompositionLocalProvider(LocalRecordingAttachmentHttpClient provides http) {
+                        val messages by recipient.chat.collectAsState()
+                        ChatPane(messages, identity.participant, onSend = { _, _ -> error("Recipient does not send in this fixture") })
+                    }
+                }
+            } }
+            val show = "Show recording: ${attachment.name ?: "Recording"}"
+            ui.await("received recording card") { ui.hasText(show) }
+            SystemClock.sleep(600)
+            assertEquals("Receiving and rendering must not fetch", 0, gets.get())
+            ui.click(show)
+            ui.await("TLS download authenticates and prepares native playback") { ui.enabled("Play recording") && hasClock(0) }
+            assertEquals(1, gets.get())
+            val plaintext = app.recordingPlaybackCache.walkTopDown().filter { it.isFile }.toList()
+            assertTrue("Authenticated original MP4 exists only in private playback cache", plaintext.any {
+                MessageDigest.getInstance("SHA-256").digest(it.readBytes()).contentEquals(
+                    MessageDigest.getInstance("SHA-256").digest(File(fixture, "sample.mp4").readBytes()))
+            })
+            SystemClock.sleep(600)
+            assertTrue("Show does not autoplay", hasClock(0) && ui.hasText("Play recording"))
+            ui.click("Play recording")
+            ui.await("native video decoder advances") { hasActiveRecordingPlayback() }
+            ui.await("decoded synthetic red camera visible") {
+                val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                try {
+                    var red = 0
+                    for (y in 0 until screenshot.height step 4) for (x in 0 until screenshot.width step 4) {
+                        val pixel = screenshot.getPixel(x, y)
+                        if (Color.red(pixel) > 180 && Color.green(pixel) < 80 && Color.blue(pixel) < 80) red++
+                    }
+                    red > 1000
+                } finally { screenshot.recycle() }
+            }
+            activity.scenario.moveToState(Lifecycle.State.CREATED)
+            SystemClock.sleep(500)
+            activity.scenario.moveToState(Lifecycle.State.RESUMED)
+            ui.await("recipient return remains paused") { ui.hasText("Play recording") }
+            ui.click("Close recording")
+            ui.await("recipient chat restored") { ui.hasText(show) }
+            ui.await("private plaintext removed on close") { app.recordingPlaybackCache.listFiles()?.isEmpty() == true }
+            assertEquals(1, gets.get()); assertEquals(1, puts.get())
+            assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
+        } finally {
+            activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme { KithMootApp(model) } } }
+            recipient.leave(); pool.stop(); scope.cancel(); peerRoom.roomKey.fill(0)
+            identity.deviceSecretKey.fill(0)
+        }
     }
 
     @Test fun https_redirect_is_not_followed_or_retried_and_cannot_enable_send() {

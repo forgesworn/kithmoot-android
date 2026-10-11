@@ -27,17 +27,21 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
+/** Scoped transport override; absent in production, which uses the strict HTTPS client. */
+internal val LocalRecordingAttachmentHttpClient = staticCompositionLocalOf<OkHttpClient?> { null }
+
 /** Entered through the recipient's explicit Show action. No remote URI is
  * given to the player; all bytes and metadata authenticate before playback. */
 @Composable
 fun RecordingAttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit, client: OkHttpClient? = null) {
+    val http = client ?: LocalRecordingAttachmentHttpClient.current
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val request = remember(attachment, client) {
+    val request = remember(attachment, http) {
         runCatching {
             val cache = (context.applicationContext as KithMootApplication).recordingPlaybackCache
-            if (client == null) RecordingAttachmentRequest(attachment, cache)
-            else RecordingAttachmentRequest(attachment, cache, client)
+            if (http == null) RecordingAttachmentRequest(attachment, cache)
+            else RecordingAttachmentRequest(attachment, cache, http)
         }
     }
     var opened by remember(attachment) { mutableStateOf<OpenedFile?>(null) }

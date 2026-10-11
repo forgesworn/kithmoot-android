@@ -27,6 +27,20 @@ import org.junit.Assert.*
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
+/** One accessibility snapshot avoids requiring a particular one-second clock window. */
+internal fun hasActiveRecordingPlayback(): Boolean {
+    val texts = mutableListOf<String>()
+    fun collect(node: AccessibilityNodeInfo) {
+        if (node.isVisibleToUser) node.text?.toString()?.let(texts::add)
+        for (i in 0 until node.childCount) node.getChild(i)?.let(::collect)
+    }
+    InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow?.let(::collect)
+    return "Pause recording" in texts && texts.any { text ->
+        val clock = Regex("^(\\d+):(\\d{2})(?: / .*)?$").matchEntire(text)
+        clock != null && clock.groupValues[1].toInt() * 60 + clock.groupValues[2].toInt() > 0
+    }
+}
+
 /** Actual recipient viewer controls and native AAC playback, with a synthetic
  * encrypted response. This does not claim real-room delivery or physical QA. */
 class RecordingPlaybackUiTest {
@@ -105,7 +119,7 @@ class RecordingPlaybackUiTest {
             assertTrue(hasClock(0))
             ui.click("Play recording")
             ui.await("native decoder advances while Pause remains available") {
-                hasClock(1) && ui.hasText("Pause recording")
+                hasActiveRecordingPlayback()
             }
             if (browserFixture == "synthetic-browser-video.webm") {
                 ui.await("decoded browser canvas is visible") {

@@ -1,0 +1,141 @@
+{
+  "production_ready": false,
+  "base_commit": "4c74eb541b4241f2fab79b80e71cb30c7aabf585",
+  "scope": "Independent participant and device identity, separate production relay connection and RoomSession, production recipient ChatPane and viewer. Same application process on disposable emulator; temporary TLS Blossom-contract server serves actual uploaded encrypted bytes. Starts from synthetic MP4; not live capture, real Wildbloom daemon, separate recipient app or physical acceptance.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RecordingAttachmentViewer.kt": "66db5ba3d899cf359f9a1213f52fbbecb1f635d9c66bd874dacdc93caba8ac62",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "0d6e7e6a86f4b62056a059961cafe00c6d37cd0d1564394c403281a2b3592c22",
+    "scripts/check-recording-upload-send-emulator.sh": "d6d9f93a58a01982c7eb955f4ff5e2c4c54a9d3f8dbe545c53b9752c3301f6fd",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "8a648eeee1420e7cb9e1f38acc268be98487df0015fcf7118c3f52fbaa107831"
+  },
+  "build": {
+    "debug_and_instrumentation_passed": true,
+    "elapsed": "2m 26s",
+    "log_sha256": "b591159179c3ddb4be4698ec162ae1531fd9e390f96710a5f99b964f157a0dd0"
+  },
+  "runtime": {
+    "tests": 3,
+    "failures": 0,
+    "skipped": 0,
+    "elapsed_seconds": 17.395,
+    "serial": "emulator-5586",
+    "physical": false,
+    "report_sha256": "4782e07b6286bcaf02c9bbb8f097d302ee4bc46288b66ee6858cb23a1f0b730e"
+  },
+  "recipient_checks": [
+    "No recipient attachment before explicit Send",
+    "One signed event in original chat channel",
+    "Received participant and device differ from recipient identity",
+    "No fetch while receiving or displaying chat card",
+    "One unauthenticated TLS GET only after Show",
+    "Authenticated decrypted MP4 SHA-256 matches original",
+    "Show does not autoplay",
+    "Explicit Play advances native playback clock and renders synthetic camera pixels",
+    "Background return remains paused",
+    "Close removes private decrypted cache",
+    "Original local sender export retained"
+  ],
+  "transport": {
+    "separate_relay_connection": true,
+    "separate_participant_identity": true,
+    "real_tls_socket": true,
+    "temporary_scoped_test_trust": true,
+    "production_https_default_unchanged": true,
+    "real_wildbloom_daemon": false,
+    "separate_app_process": false
+  },
+  "sample_sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "193f68470f2f08272385958352cbe5e9f324e8d513fdc8afd0bc70e467a44c07"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "6a93cd3335e62760b904065bad9e9e3bdc0353ea56053dacf22bb3da5754232d"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "0eb179510f3c4288ee6e55fb646cca542f1a565ea467b000cc72927ca31101e6"
+    }
+  ],
+  "remaining": [
+    "Real private Wildbloom node through complete room UI and independent app process",
+    "Full saved-room restart and rekey recovery",
+    "Quiet announcement timing and heartbeat capacity",
+    "Capture load reliability and physical endurance/interruption/provider exports",
+    "Final hosted CI, signed production release and installed distribution"
+  ],
+  "full_local_ci": {
+    "passed": true,
+    "elapsed": "47s",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ],
+    "log_sha256": "1d8f287d6bd5371a0c30d8ba2c89f9844d360a26b7830d9a2cb7959bdd1b5691",
+    "incremental": true,
+    "reuses_unchanged_jvm_and_apk_tasks": true
+  },
+  "jvm": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2070,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "preceding_runtime": {
+    "tests": 3,
+    "failures": 0,
+    "skipped": 0,
+    "elapsed_seconds": 30.586,
+    "serial": "emulator-5586",
+    "physical": false,
+    "report_sha256": "8b14f299b5bc71b996f201e7033868783df59fd78850424978cd7d4be79337d0"
+  },
+  "capture_playback_regression": {
+    "tests": 15,
+    "failures": 0,
+    "elapsed_seconds": 39.669,
+    "live_browser_interop_included": false,
+    "physical": false,
+    "report_sha256": "825c1b11f0173c58356f95ae31c1498ff3cfa7414a54e1a38131157da2028700"
+  },
+  "earlier_regression_failure": {
+    "tests": 15,
+    "failures": 1,
+    "elapsed_seconds": 97.934,
+    "report_sha256": "d7dc1ddd14fb4d80bd607e2534761f2602f0e99c691ced630d7a07ecff943ad9",
+    "observed": "Native audio reached 0:10 / 0:10 with Play visible; observer requiring exactly 0:01 and Pause timed out.",
+    "change": "Observe a positive playback clock and Pause in one accessibility snapshot. Completion with Play cannot pass. No production change or root-cause claim."
+  },
+  "final_instrumentation_build": {
+    "passed": true,
+    "elapsed": "39s",
+    "log_sha256": "530f0e6c4b37e24260eb4d0415f5fd7abbfb538d82e728066e3f0017f5514816"
+  },
+  "preceding_full_local_ci": {
+    "passed": true,
+    "elapsed": "7m 51s",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ],
+    "log_sha256": "0f944a0f7c7ba57bd5c985938c592f16fc6a9f2d05b99a075770fa6352b7e511"
+  }
+}

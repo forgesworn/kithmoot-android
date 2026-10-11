@@ -1,17 +1,53 @@
 # Native recording qualification
 
-Android's recording warnings are already part of the room UI. This branch adds
-native audio/video recording controls, capture and local export. The draft/parser
-candidate passed 18 focused JVM tests and all 14 local recording emulator checks,
-including gallery selection, signed notices, background pause, explicit resume,
-discard and recipient playback of browser recording attachments through the real
-MIME parser. The subsequent Add-to-chat candidate also passed those 18 JVM and
-14 emulator checks, including the explicit Add/Discard/Remove journey. The later
-Upload candidate passed 16 focused JVM tests and 15 emulator checks, plus
-Keystore restoration after a forced app-process stop and real-node transfer.
-Live browser/native video, private-node sharing UI, physical qualification and signed delivery remain open; this
-implementation does not close G11. Historical results below are scoped to their
-recorded source/APK hashes.
+Android recording remains a qualification candidate, not a production release.
+Local recording and Save/Discard require no storage node. Encrypted upload to
+an explicitly chosen private HTTPS node and Send are separate user actions.
+RelaySwarm is not a prerequisite.
+
+The latest integrated-main/cadence candidate passed 417 protocol and 2,070 app
+unit tests, both lint variants and both APK builds locally; see the
+[main/cadence receipt](evidence/native-recording-main-cadence-guarded-2026-10-11.json).
+The subsequent [independent-recipient receipt](evidence/native-recording-independent-recipient-2026-10-11.json)
+qualifies the complete received chat-card Show/Play path against a temporary
+TLS Blossom-contract fixture. It does not qualify a real Wildbloom node or a
+separate recipient app process.
+
+Quiet announcement timing/heartbeat capacity, full room/restart/rekey journeys,
+load reliability, physical endurance/interruption/Save providers and final
+hosted CI, signing and production distribution remain open. This implementation
+does not close G11. Historical results below apply only to their recorded
+source and APK hashes.
+
+## Independent recipient Show and Play
+
+The sender Upload/Send fixture now joins a second participant using distinct
+participant and device keys, a separate production relay socket and its own
+`RoomSession`. The received message is rendered through production `ChatPane`,
+`AttachmentViewer` and `RecordingAttachmentViewer`; it is not supplied directly
+to the viewer from sender state.
+
+Receiving the message and rendering its card make no storage request. Show
+performs one TLS GET of the uploaded ciphertext, authenticates the envelope and
+writes the decrypted MP4 only into private playback cache. The test compares
+its SHA-256 with the original sample. Show does not autoplay. Explicit Play
+advances the native clock and renders the synthetic camera pixels. Returning
+from background stays paused; Close deletes the private plaintext. The sender's
+local export survives the journey, and one signed original-chat event is sent.
+
+All three final HTTPS UI tests passed in 17.395 seconds, including redirect refusal
+and the existing explicit Upload/Send test. Debug and instrumentation builds
+passed in 2m 26s. Full local CI then passed in 7m 51s: 417 protocol tests,
+2,070 app tests, both lints and debug/release builds. After the test-only observer
+change, the full task list passed again incrementally in 47s, retaining the same
+app APK hashes. Fixture TLS trust is scoped to the recipient composition;
+production uses the strict default client. Both participants are in the same
+application process on a disposable emulator. All 15 local capture/playback
+regression checks also passed in 39.669 seconds after the clock observer was
+changed to require positive progress and Pause in one accessibility snapshot.
+The earlier native-audio observer failure is retained in the receipt. The fixture serves the actual
+uploaded encrypted bytes but is not a Wildbloom daemon. Real-node, separate-app,
+live capture and physical acceptance remain separate gates.
 
 ## Private recording drafts
 
