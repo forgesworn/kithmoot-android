@@ -58,7 +58,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          ref: 6fdc629f2137f0ba682764ea55bb9f9068238950
+          ref: 32653c747e26bc1e268ba15eacccb5c36343d268
           path: build/browser-recording-reference
           persist-credentials: false
 

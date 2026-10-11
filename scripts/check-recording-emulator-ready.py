@@ -41,12 +41,27 @@ def check(adb, serial, reports):
 
     if shell("getprop", "ro.kernel.qemu") != "1" or shell("getprop", "sys.boot_completed") != "1":
         raise ValueError("The selected disposable emulator has not booted")
-    home = shell("cmd", "package", "resolve-activity", "--brief", "--user", "0",
-                 "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME").splitlines()[-1]
-    if not re.fullmatch(r"[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+", home):
-        raise ValueError("The emulator did not resolve a home activity")
-    package = home.split("/")[0]
     shell("input", "keyevent", "82")
+    # AOSP's boot-completed flag can precede SdkSetup finishing provisioning.
+    # That temporary HOME disables itself; launching its previously resolved
+    # component races its removal. Wait for the real launcher without changing
+    # provisioning settings or treating the setup activity as ready.
+    setup_deadline = time.monotonic() + 30
+    home_resolutions = []
+    while True:
+        resolved = shell("cmd", "package", "resolve-activity", "--brief", "--user", "0",
+                         "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME").splitlines()
+        home = resolved[-1] if resolved else ""
+        home_resolutions.append(home)
+        (reports / "launcher-home-resolution.json").write_text(json.dumps(home_resolutions) + "\n")
+        if not re.fullmatch(r"[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+", home):
+            raise ValueError("The emulator did not resolve a home activity")
+        if not home.startswith("com.android.sdksetup/"):
+            break
+        if time.monotonic() >= setup_deadline:
+            raise RuntimeError("Emulator setup never finished; recording UI tests were not started")
+        time.sleep(1)
+    package = home.split("/")[0]
     shell("am", "start", "-W", "--user", "0", "-a", "android.intent.action.MAIN",
           "-c", "android.intent.category.HOME", "-n", home)
     deadline = time.monotonic() + 30
@@ -77,6 +92,7 @@ def check(adb, serial, reports):
         if stable >= 2:
             receipt.write_text(json.dumps({"passed": True, "serial": serial,
                                           "home": home, "probes": probes,
+                                          "home_resolution_probes": len(home_resolutions),
                                           "launcher_restarted": restarted,
                                           "stable_focus_checks": stable}, indent=2) + "\n")
             return

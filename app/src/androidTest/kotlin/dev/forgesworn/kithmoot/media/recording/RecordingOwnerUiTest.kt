@@ -29,7 +29,7 @@ import org.junit.Assert.*
  * scene suite. No system document-provider or physical-phone claim is made. */
 class RecordingOwnerUiTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
-    private val ui = RecoveryUi(useSwipeFallback = false)
+    private val ui = RecoveryUi(useSwipeFallback = false, freshNodes = true)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private lateinit var model: RoomViewModel
     private lateinit var relay: ProjectTestRelay
