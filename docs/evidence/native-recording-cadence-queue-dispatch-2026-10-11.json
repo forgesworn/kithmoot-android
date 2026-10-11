@@ -1,0 +1,52 @@
+{
+  "qualification": "cadence queue dispatch ownership and caller cancellation",
+  "source_base": "d52b1de8",
+  "tests": {
+    "dev.forgesworn.kithmoot.cadence.CadenceClientTest": {
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "861d38cdc35db95aa8184190ffeb5a925bcda22ea299f3524a5cb90fa016a432"
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceGuardedPublicationTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "2fc9e08464ff207fc6c3ac2a5c7f1ab1dc3941fe02b167fcfdc9275b68898aab"
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceLeaseVaultTest": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "22a2ed602a224de573860840a87e67fc5c068ca006152a68b7824afcbfa37a6a"
+    },
+    "dev.forgesworn.kithmoot.relay.LinkTransportTest": {
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "e1d991f79c84a6e69e5e34c9236e7c9dfb1694fd3687185082d3e214fb401e5f"
+    }
+  },
+  "total_tests": 38,
+  "log_sha256": "c51e4dfbc365ffb168e295956a2f1dd459066412351ad940941bd9d66dbf29e4",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "b58d1e2997587aebe7d222dac92df98fb734280c9e6ffed3151659ceebf12054",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "ab7cbbaffdb0a13094d9f18e113bd04af41bf7a4d4fcec4a60939af755d2b443"
+  },
+  "cases": [
+    "Current persisted lease is required before queueing",
+    "Caller permission is rechecked at Link dispatch",
+    "An ended lease revokes the captured ownership revision",
+    "An old lease snapshot cannot queue again",
+    "Cancelling the derived queue future reaches Link"
+  ],
+  "limits": [
+    "JVM fixtures and source wiring, not actual delegated-node delivery",
+    "Already offered native requests cannot be retracted by cancellation",
+    "Guarded delegated recording, quiet capacity, rekey UI and physical recording remain open"
+  ]
+}

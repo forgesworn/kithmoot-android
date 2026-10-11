@@ -625,6 +625,15 @@ This does not retract a request already offered to the native engine or prove
 delivery by a delegated node. Guarded recording on delegated schedules remains
 disabled until its delivery and ownership requirements are qualified.
 
+The [queue dispatch receipt](evidence/native-recording-cadence-queue-dispatch-2026-10-11.json)
+qualifies the next JVM candidate's lease and caller fences. Queueing requires
+the exact current persisted lease, then carries the room/device ownership
+revision to Link's dispatch checks. Ending or replacing ownership revokes
+that queued offer without a vault read on the Link worker. The room callback
+also supplies the outer queue future's cancellation state. Tests cover caller
+revocation, ended ownership, stale snapshots and cancellation propagation;
+actual delegated delivery and guarded recording remain unqualified.
+
 Quiet-room recording also has a capacity constraint to resolve: the protocol
 allows eight drop keys per device per hour, while current recording startup
 and five-minute refreshes each send two control events. These notices cannot

@@ -4449,6 +4449,7 @@ class RoomViewModel @JvmOverloads constructor(
                                     cadenceClient.queue(
                                         who.participant, context.scope, who, current, cadenceQueueId(event.id), event,
                                         epochSeconds(), cadenceLeases,
+                                        stillAllowed = { !queued.isDone },
                                     ).get()
                                 }
                                 val view = scheduleView(context, derived.roomId, who.devicePubkey)
