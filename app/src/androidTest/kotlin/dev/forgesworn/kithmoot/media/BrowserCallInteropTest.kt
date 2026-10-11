@@ -510,7 +510,7 @@ class BrowserCallInteropTest {
                     val settled = luma.takeLast(15)
                     assertTrue("Native camera appears in export: $settled", settled.all { it.first in 140..180 })
                     assertTrue("Browser camera appears in export: $settled", settled.all { it.second in 60..140 })
-                    assertTrue("Live browser picture changes in export", settled.maxOf { it.second } - settled.minOf { it.second } >= 8)
+                    assertTrue("Live browser picture changes in export: $settled", settled.maxOf { it.second } - settled.minOf { it.second } >= 8)
                     android.util.Log.i("KithMootRecordingTest", "Live gallery export: audioSamples=$frames videoFrames=${luma.size} bytes=${file.length()}")
                 }
                 val sealed = dev.forgesworn.kithmoot.session.sealFile(file, java.io.File(recordingDirectory, "call.enc"), file.name,
