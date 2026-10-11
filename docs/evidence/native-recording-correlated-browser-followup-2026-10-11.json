@@ -1,0 +1,32 @@
+{
+  "source_commit": "fe426a68dc1a570081dee11f98a1f8282a9e8f0c",
+  "browser_commit": "6fdc629f2137f0ba682764ea55bb9f9068238950",
+  "build": {
+    "result": "passed",
+    "duration_seconds": 38,
+    "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+    "test_apk_sha256": "7ee2cbd6084c233094bb395df9c06a1f8a94b5c0cb4b56c29db26c05b536d258"
+  },
+  "runtime": {
+    "result": "failed and deliberately stopped after system ANR contaminated UI cases",
+    "instrumentation_sha256": "38002af493668d4f1344401adf0fb03b395bbe19026402dbe1b3054ce9f7e19c",
+    "failures": [
+      "Live video failed before recording: connected RTP but no frames delivered to capture test",
+      "Live audio capture failed with bounded PCM queue overflow",
+      "Owner UI setup blocked by Messages system ANR dialog"
+    ],
+    "limits": [
+      "This installed bridge dropped seq/re and cannot qualify browser offer correlation",
+      "Run was stopped with app force-stop after observed failures; no full-suite completion claimed"
+    ]
+  },
+  "follow_up": {
+    "bridge_commit": "21492dd5",
+    "change": "Preserve seq/re in both directions, matching production WebRtcEngine signal envelopes; compilation and runtime pending"
+  },
+  "browser_validation": {
+    "focused_peer_tests": 174,
+    "typecheck": "passed on browser correlation commit",
+    "current_main_merged_hosted_run": 38161339649
+  }
+}
