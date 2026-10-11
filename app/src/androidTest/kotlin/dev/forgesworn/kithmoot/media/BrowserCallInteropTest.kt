@@ -21,6 +21,7 @@ import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -243,7 +244,7 @@ class BrowserCallInteropTest {
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
         lateinit var view: WebView
         lateinit var link: PeerLink
-        var ready = false
+        val ready = AtomicBoolean(false)
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
         val egl = EglBase.create()
         var syntheticSample = 0L
@@ -298,7 +299,7 @@ class BrowserCallInteropTest {
                 scope.launch { link.onLocalCandidate(IceCandidateData(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex)) }
             }
             override fun onRenegotiationNeeded() {
-                if (ready) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
+                if (ready.get()) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
             }
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let(::observeTrack) }
             override fun onTrack(transceiver: RtpTransceiver?) {
@@ -366,7 +367,7 @@ class BrowserCallInteropTest {
         val bridge = object {
             @JavascriptInterface fun signal(body: String) { incoming.trySend(Json.parseToJsonElement(body).jsonObject) }
             @JavascriptInterface fun failure(message: String) { failure.set(message) }
-            @JavascriptInterface fun ready() { ready = true; scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } } }
+            @JavascriptInterface fun ready() { ready.set(true); scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } } }
             @JavascriptInterface fun camera(id: String) { expectedCamera.set(id) }
             @JavascriptInterface fun stats(video: Int, audio: Int, state: String) { browserVideo.set(video); browserAudio.set(audio) }
         }
@@ -409,7 +410,7 @@ class BrowserCallInteropTest {
                 // Observe the current receivers, as the engine's track flow does,
                 // rather than keeping a one-off empty description snapshot.
                 bindReceivedVideo()
-                if (ready) js("window.report && window.report()")
+                if (ready.get()) js("window.report && window.report()")
                 pc.getStats { report ->
                     val outboundVideo = report.statsMap.values.filter { it.type == "outbound-rtp" && it.members["kind"] == "video" }
                     // A separate RTX record has no framesEncoded. Summing avoids
@@ -525,7 +526,7 @@ class BrowserCallInteropTest {
         } finally {
             recording.getAndSet(null)?.discard()
             recordingScene.getAndSet(null)?.dispose()
-            ready = false; scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
+            ready.set(false); scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
             videoSource.capturerObserver.onCapturerStopped()
             instrumentation.runOnMainSync { view.destroy() }
             monitoredVideo?.removeSink(videoSink)
