@@ -37,6 +37,15 @@ passed. The [local runtime follow-up](evidence/native-recording-i420-preparation
 finished 19/20, without skips: live video export still overflowed the local PCM
 queue. Shader preparation alone did not solve that failure; worker stack
 sampling is the next diagnosis. The queue bound and export assertions are unchanged.
+The [delayed-writer regression](evidence/native-recording-delayed-writer-red-2026-10-11.json)
+reproduced a separate timestamp-history bug on `48f56565`: earlier audio
+rendered a placeholder because its camera frame had already been discarded.
+The next candidate retains scaled video for the bounded two-second PCM window,
+with a strict 32-frame cap and immediate source revocation. New checks cover
+matching earlier pictures, continued capture from the remaining authorised
+source, and releasing history as capture continues. Build and runtime checks
+are pending. This does not claim to solve the PCM worker overflow.
+
 Physical endurance, per-source permission revocation, full Send recovery/rekey
 and final production delivery remain open.
 

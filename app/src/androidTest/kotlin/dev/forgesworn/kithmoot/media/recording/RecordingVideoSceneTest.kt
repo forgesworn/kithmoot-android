@@ -16,6 +16,27 @@ class RecordingVideoSceneTest {
     private val first = RecordingVideoEndpoint(RecordingEndpointKey("3".repeat(64), "4".repeat(64)), "First camera", 2, true, true, false)
     private val second = RecordingVideoEndpoint(RecordingEndpointKey("5".repeat(64), "6".repeat(64)), "Second camera", null, true, true, false)
 
+    @Test fun continuing_sources_retain_the_audio_window_without_unbounded_video_history() {
+        withSources { _, _, sources, tracks ->
+            val clock = AtomicLong()
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY, listOf(first))
+            val key = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val scene = RecordingVideoScene(plan)
+            scene.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(key to tracks[0]))
+                repeat(75) { frame -> feedUntil(scene, setOf(key), sources, frame * 3200L, clock) }
+                val history = requireNotNull(scene.inputHistorySamples()[key])
+                val newest = clock.get()
+                assertEquals(newest, history.last())
+                assertTrue("Oldest queued audio still has its matching video", history.first() <= newest - PcmRecordingMixer.CAPACITY)
+                assertTrue("Old video is released as capture continues", history.first() >= newest - PcmRecordingMixer.CAPACITY - 3200)
+                scene.revoke(key, "Camera off")
+                assertTrue(scene.inputHistorySamples().isEmpty())
+            } finally { scene.dispose() }
+        }
+    }
+
     @Test fun delayed_audio_writer_keeps_matching_video_and_revocation_clears_only_that_source() {
         withSources { directory, egl, sources, tracks ->
             val clock = AtomicLong()

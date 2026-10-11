@@ -17,7 +17,8 @@ import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 
 /** Independent sinks on the call owner's authorised, privacy-processed tracks.
- * At most three scaled I420 frames per selected source are retained. Their
+ * Scaled I420 history covers the bounded PCM window, with at most 32 frames
+ * per selected source (two seconds plus boundary frames at 15 fps). Their
  * dimensions fit the export viewport, rather than retaining full camera or
  * screen textures. The callback clock is the audio mixer's paused timeline.
  * Native sink attachment/removal always happens outside the callback monitor.
@@ -53,6 +54,9 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     /** Capture diagnostics for bounded-frame and source-revocation checks. */
     @Synchronized internal fun inputSamples(): Map<RecordingVideoKey, Long> =
         inputs.mapNotNull { (key, input) -> input.frames.lastOrNull()?.let { key to it.at } }.toMap()
+
+    @Synchronized internal fun inputHistorySamples(): Map<RecordingVideoKey, List<Long>> =
+        inputs.mapValues { (_, input) -> input.frames.map { it.at } }
 
     @Synchronized fun bindTimeline(clock: () -> Long?) {
         check(!stopped && !disposed && timeline == null)
@@ -130,8 +134,8 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         } ?: return
         val at = clock()?.coerceAtLeast(0) ?: return
         synchronized(this) {
-            if (paused || stopped || disposed || inputs[input.key] !== input || input.bucket == at / 3200) return
-            input.bucket = at / 3200
+            if (paused || stopped || disposed || inputs[input.key] !== input || input.bucket == at / FRAME_SAMPLES) return
+            input.bucket = at / FRAME_SAMPLES
         }
         var copied: VideoFrame? = null
         try {
@@ -145,7 +149,16 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
             synchronized(this) {
                 if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
-                    while (input.frames.size > 3) input.frames.removeFirst().frame.release()
+                    // A writer can lag inside the PCM bound without failing.
+                    // Keep the corresponding pictures, rather than only the
+                    // newest frames which are ahead of its output timestamp.
+                    // Retain one boundary picture before the oldest eligible
+                    // audio sample, while keeping a strict allocation cap.
+                    val oldestAudioSample = at - PcmRecordingMixer.CAPACITY
+                    while (input.frames.size > MAX_INPUT_FRAMES ||
+                        (input.frames.size > 1 && input.frames.elementAt(1).at <= oldestAudioSample)) {
+                        input.frames.removeFirst().frame.release()
+                    }
                 }
             }
         } catch (error: Exception) {
@@ -335,4 +348,9 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     }
 
     private fun printable(value: String) = value.filterNot(Char::isISOControl)
+
+    companion object {
+        internal const val FRAME_SAMPLES = PcmRecordingMixer.SAMPLE_RATE / AvRecordingFile.FRAME_RATE
+        private const val MAX_INPUT_FRAMES = PcmRecordingMixer.CAPACITY / FRAME_SAMPLES + 2
+    }
 }
