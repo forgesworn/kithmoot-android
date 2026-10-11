@@ -16,11 +16,13 @@ window.begin = async (nativeLow, iceServers=[], relayOnly=false) => {
   const native = (nativeLow ? '11' : '22').repeat(32), browser = (nativeLow ? '22' : '11').repeat(32);
   const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=240; document.body.append(canvas);
   const ctx=canvas.getContext('2d'); let tick=0;
-  setInterval(()=>{ctx.fillStyle=++tick%2?'#00aa88':'#2266cc';ctx.fillRect(0,0,320,240)},50);
+  // Request each painted frame explicitly: independent paint/capture clocks
+  // can sample the same phase of a flashing synthetic picture on a busy emulator.
+  setInterval(()=>{ctx.fillStyle=++tick%2?'#00aa88':'#2266cc';ctx.fillRect(0,0,320,240);streams[0]?.getVideoTracks()[0]?.requestFrame()},100);
   const sound=new AudioContext(); await sound.resume();
   const oscillator=sound.createOscillator(), destination=sound.createMediaStreamDestination();
   oscillator.frequency.value=440; oscillator.connect(destination); oscillator.start();
-  streams.push(canvas.captureStream(15),destination.stream);
+  streams.push(canvas.captureStream(0),destination.stream);
   peer=new Peer({localDevice:browser,remoteDevice:native,
     factory:()=>pc=new RTCPeerConnection({iceServers,iceTransportPolicy:relayOnly?'relay':'all',bundlePolicy:'max-bundle',rtcpMuxPolicy:'require'}),
     onSignal:body=>Native.signal(JSON.stringify(body)),
@@ -31,7 +33,7 @@ window.begin = async (nativeLow, iceServers=[], relayOnly=false) => {
   window.changeCamera=async()=>{
     await peer.start(streams[1].getTracks());
     await new Promise(r=>setTimeout(r,1500));
-    const next=canvas.captureStream(15); streams[0].getTracks().forEach(t=>t.stop()); streams[0]=next;
+    const next=canvas.captureStream(0); streams[0].getTracks().forEach(t=>t.stop()); streams[0]=next;
     Native.camera(next.getVideoTracks()[0].id);
     await peer.start(streams.flatMap(s=>s.getTracks()));
   };

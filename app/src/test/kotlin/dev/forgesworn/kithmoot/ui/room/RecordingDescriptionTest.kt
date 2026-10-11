@@ -35,4 +35,17 @@ class RecordingDescriptionTest {
         assertTrue(requireNotNull(recordingLine(view, inRoom = true)).startsWith("A call in this room"))
     }
 
+    @Test fun `all available capture details appear without repeating an other device count`() {
+        val audio = RecordingCaptureNotice("12".repeat(16), 1, "audio", "aa".repeat(32), "bb".repeat(32))
+        val gallery = RecordingCaptureNotice("34".repeat(16), 1, "gallery", "cc".repeat(32), "dd".repeat(32))
+        val warnings = listOf(audio, gallery).map {
+            dev.forgesworn.kithmoot.session.RecordingWarning(RecordingView.On(it.id, 1), it)
+        }
+        val state = RoomState(recordingCaptures = listOf(audio, gallery), recordingWarnings = warnings)
+        val description = requireNotNull(recordingCaptureDescription(state))
+        assertTrue(description.contains("capturing call audio"))
+        assertTrue(description.contains("capturing gallery video and call audio"))
+        assertTrue(!description.contains("other recording device"))
+    }
+
 }

@@ -140,6 +140,7 @@ class MainActivity : ComponentActivity() {
                 var visiting by rememberSaveable { mutableStateOf(false) }
                 val callStage by model.stage.collectAsState()
                 val callRoom by model.room.collectAsState()
+                val callVideos by model.videos.collectAsState()
                 val callAccount by model.start.collectAsState()
                 val visitorStage by visitor.stage.collectAsState()
                 // With the call gone and the visited room closed, there is only
@@ -292,7 +293,8 @@ class MainActivity : ComponentActivity() {
                             dev.forgesworn.kithmoot.ui.room.CallDock(callRoom.copy(projectBrand =
                                 dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(callRoom, callAccount)),
                                 onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave,
-                                onStopRecording = model::stopNativeRecording, onToggleRecordingPause = model::toggleNativeRecordingPause)
+                                onStopRecording = model::stopNativeRecording, onToggleRecordingPause = model::toggleNativeRecordingPause,
+                                videos = callVideos, eglBase = model.eglBase, onSetVolume = model::setCallVolume)
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,

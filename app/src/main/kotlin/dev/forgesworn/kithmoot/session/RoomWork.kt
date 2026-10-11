@@ -115,6 +115,9 @@ class RoomWork(
     /** Quiet call warnings use live presence with a real relay ACK. Null
      * retains the legacy control route for rooms whose chat is not quiet. */
     private val liveRecordingPublisher:(suspend (LiveRecordingState,()->Boolean)->Boolean)?=null,
+    private val participantRecordingPublisher:(suspend (LiveRecordingState,()->Boolean)->Boolean)?=null,
+    private val participantRecordingCall:()->String?={null},
+    private val participantRecordingCompatible:()->Boolean={false},
 ) {
     private val recordingTrafficLock=Any()
     @Volatile private var trafficRoomId=initialTrafficRoomId
@@ -132,12 +135,12 @@ class RoomWork(
     private val catalogues=linkedMapOf<String,Pair<Long,List<AvailableAssignmentAction>>>()
     private var collector:Job?=null
     private var liveRecordingCollector:Job?=null
-    private var memberRecordingCollector:Job?=null
-    fun followMemberRecordings(source:StateFlow<List<ReceivedMemberRecording>>) {
+    private var participantRecordingCollector:Job?=null
+    fun followParticipantRecordings(source:StateFlow<Map<String,ReceivedLiveRecording>>) {
         check(!closed) {"This room has closed"}
-        memberRecordingCollector?.cancel()
-        memberRecordingCollector=scope.launch {
-            source.collect { received -> if(!closed)received.forEach { meeting.receiveMember(it) } }
+        participantRecordingCollector?.cancel()
+        participantRecordingCollector=scope.launch {
+            source.collect { received -> if(!closed)received.values.forEach { receiveLiveRecording(it) } }
         }
     }
     fun followLiveRecording(source:kotlinx.coroutines.flow.StateFlow<ReceivedLiveRecording?>) {
@@ -152,7 +155,7 @@ class RoomWork(
     internal fun recordingSnapshot(live:RoomSession):MeetingSnapshot? {
         if(closed || live.room.roomId!=roomId)return null
         live.liveRecording.value?.let(::receiveLiveRecording)
-        live.memberRecordings.value.forEach { meeting.receiveMember(it) }
+        live.participantRecordings.value.values.forEach { receiveLiveRecording(it) }
         return if(closed)null else meeting.state.value
     }
     private val discoveryMutex=Mutex()
@@ -404,13 +407,22 @@ class RoomWork(
     /** Whether this device holds the room's authority key, and so may run
      *  it as a meeting. */
     val moderator:Boolean=authority!=null&&authoritySecretKey?.let{runCatching{Schnorr.publicKeyHex(it)}.getOrNull()}==authority.lowercase()
+    val canRecord:Boolean get()=participantRecordingPublisher!=null||moderator
+    fun recordingActive(id:String,at:Long):Boolean=
+        meeting.state.value.activeRecording(id,at,identity.devicePubkey)
+    fun recordingActive(notice:RecordingNotice,call:String,at:Long):Boolean=
+        meeting.state.value.activeRecording(notice,at,identity.devicePubkey,call)
+
+    private var activeParticipantRecording:LiveRecordingState?=null
+    private fun pendingRecordingStop():SignedRecordingNotice? {
+        val signer=if(recordingStops?.pendingCall(roomId,identity.devicePubkey)!=null)identity.devicePubkey else authority?:return null
+        return recordingStops?.pending(roomId,identity.devicePubkey,signer)
+    }
     @Volatile private var meetingRepost:Job?=null
     private val recordingMutex=Mutex()
     private val recordingStopGeneration=recordingStops?.generation(roomId)
     @Volatile private var recordingRepost:Job?=null
-    private val mutableRecordingStopPending=MutableStateFlow<String?>(authority?.let {
-        recordingStops?.pending(roomId,identity.devicePubkey,it)?.notice?.id
-    })
+    private val mutableRecordingStopPending=MutableStateFlow<String?>(pendingRecordingStop()?.notice?.id)
     /** A locally stopped recording whose off notice still needs acknowledgement. */
     val recordingStopPending=mutableRecordingStopPending.asStateFlow()
     private fun receiveMeeting(body:String,participant:String,sentAt:Long):Boolean {
@@ -423,12 +435,14 @@ class RoomWork(
     }
     internal fun receiveLiveRecording(received:ReceivedLiveRecording):Boolean {
         if(closed)return false
+        if(received.state.call!=null)return meeting.receiveParticipant(received)
         val before=meeting.state.value.recording?.notice
         if(!meeting.receiveLive(received.state,received.sentAt))return false
         reconcileRecording(before)
         return true
     }
     private fun reconcileRecording(recordingBefore:RecordingNotice?) {
+        if(recordingStops?.pendingCall(roomId,identity.devicePubkey)!=null)return
         if(meeting.state.value.recording?.notice!=recordingBefore)recordingRepost?.cancel()
         val retained=authority?.let { recordingStops?.pending(roomId,identity.devicePubkey,it) }
         if(retained!=null) {
@@ -450,9 +464,14 @@ class RoomWork(
     suspend fun startRecording(capture:String,stillAllowed:()->Boolean={true},onArmed:(String)->Unit={}):RecordingNotice=recordingMutex.withLock {
         check(stillAllowed()) {"Recording was cancelled before it could start"}
         check(!closed) {"This room has closed"}
+        if(participantRecordingPublisher!=null&&participantRecordingCompatible())
+            return@withLock startParticipantRecording(capture,stillAllowed,onArmed)
+        check(participantRecordingPublisher==null||liveRecordingPublisher==null) {
+            "Everyone on this call needs a current KithMoot version before it can be recorded."
+        }
         val sk=authoritySecretKey
         check(moderator&&sk!=null) {"Only the room's authority can start recording."}
-        check(recordingStops?.pending(roomId,identity.devicePubkey,checkNotNull(authority))==null) {
+        check(pendingRecordingStop()==null) {
             "Confirm the earlier recording's stop notice before starting another recording"
         }
         check(meeting.state.value.recording?.notice?.on!=true) {"A recording is already running"}
@@ -493,6 +512,10 @@ class RoomWork(
     /** Stop only the recording this caller owns: an old completion must never
      * turn off a newer recorder's notice. Call after capture has detached. */
     suspend fun stopRecording(id:String)=recordingMutex.withLock {
+        if(activeParticipantRecording?.recording?.notice?.id==id||recordingStops?.pendingCall(roomId,identity.devicePubkey)!=null) {
+            stopParticipantRecording(id)
+            return@withLock
+        }
         val retained=authority?.let { recordingStops?.pending(roomId,identity.devicePubkey,it) }
         if(retained!=null && retained.notice.id!=id) return@withLock
         if(retained!=null) mutableRecordingStopPending.value=id
@@ -526,6 +549,78 @@ class RoomWork(
             if(meeting.state.value.recording?.notice?.let { it.on&&it.id==id }==true)
                 mutableRecordingStopPending.value=id
             throw error
+        }
+    }
+
+    private suspend fun startParticipantRecording(capture:String,stillAllowed:()->Boolean,onArmed:(String)->Unit):RecordingNotice {
+        val call=participantRecordingCall()?:error("Join the call before recording.")
+        check(participantRecordingCompatible()) {"Everyone on this call needs a current KithMoot version before it can be recorded."}
+        check(pendingRecordingStop()==null) {"Confirm the earlier recording's stop notice before starting another recording"}
+        check(activeParticipantRecording==null) {"This device is already recording"}
+        val id=Entropy.bytes(16).toHex()
+        val previous=meeting.state.value.participantRecordings["$call:${identity.devicePubkey}"]?.state?.recording?.notice?.version?:0
+        val version=maxOf(nowMs(),previous+1)
+        val notice=RecordingNotice(true,id,version)
+        val details=RecordingCaptureNotice(id,version,capture,identity.participant,identity.devicePubkey)
+        val signed=SignedRecordingNotice(notice,signRecordingNotice(roomId,notice,identity.deviceSecretKey))
+        val signedDetails=SignedRecordingCaptureNotice(details,signRecordingCaptureNotice(roomId,details,identity.deviceSecretKey))
+        val off=notice.copy(on=false,version=version+1)
+        val signedOff=SignedRecordingNotice(off,signRecordingNotice(roomId,off,identity.deviceSecretKey))
+        recordingStops?.arm(roomId,identity.devicePubkey,signedOff,identity.devicePubkey,
+            checkNotNull(recordingStopGeneration),call)
+        val state=LiveRecordingState(signed,signedDetails,call,identity.participant,identity.devicePubkey)
+        try {
+            onArmed(id)
+            publishParticipantRecording(state,stillAllowed)
+            activeParticipantRecording=state
+        } catch(error:Exception) {
+            if(recordingStops!=null)mutableRecordingStopPending.value=id
+            throw error
+        }
+        recordingRepost=scope.launch {
+            while(isActive) {
+                delay(RECORDING_REPOST_SECONDS*1000)
+                recordingMutex.withLock {
+                    if(closed||activeParticipantRecording?.recording?.notice!=notice)return@launch
+                    try {publishParticipantRecording(state,stillAllowed)}
+                    catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){mutableError.value="The recording notice could not be refreshed."}
+                }
+            }
+        }
+        return notice
+    }
+
+    private suspend fun stopParticipantRecording(id:String) {
+        val retained=pendingRecordingStop()
+        if(retained!=null&&retained.notice.id!=id)return
+        val active=activeParticipantRecording?.takeIf {it.recording.notice.id==id}
+        val call=recordingStops?.pendingCall(roomId,identity.devicePubkey)?:active?.call?:return
+        check(!closed) {"This room has closed"}
+        recordingRepost?.cancel()
+        activeParticipantRecording=null
+        val signed=retained?:RecordingNotice(false,id,maxOf(nowMs(),checkNotNull(active).recording.notice.version+1)).let {
+            SignedRecordingNotice(it,signRecordingNotice(roomId,it,identity.deviceSecretKey))
+        }
+        mutableRecordingStopPending.value=id
+        try {
+            publishParticipantRecording(LiveRecordingState(signed,null,call,identity.participant,identity.devicePubkey))
+            if(retained!=null)recordingStops?.confirm(roomId,identity.devicePubkey,retained)
+            mutableRecordingStopPending.value=null
+        } catch(error:Exception) {throw error}
+    }
+
+    private suspend fun publishParticipantRecording(state:LiveRecordingState,stillAllowed:()->Boolean={true}) {
+        val publish=participantRecordingPublisher?:error("This connection cannot confirm a participant recording warning.")
+        val epoch=trafficRoomId
+        val allowed={stillAllowed()&&!closed&&trafficRoomId==epoch&&(ends==null||now()<ends)&&
+            (recordingStops==null||recordingStops.generation(roomId)==recordingStopGeneration)&&
+            (!state.recording.notice.on||(participantRecordingCall()==state.call&&participantRecordingCompatible()))}
+        check(allowed()) {"Recording publication is no longer allowed"}
+        check(publish(state,allowed)) {"No relay confirmed the recording notice"}
+        check(allowed()) {"Recording publication is no longer allowed"}
+        check(receiveLiveRecording(ReceivedLiveRecording(state,now(),identity.participant,identity.devicePubkey,participantRecordingCall()))) {
+            "A newer recording notice has already been received"
         }
     }
 
@@ -681,5 +776,5 @@ class RoomWork(
             catch(_:Exception){mutableError.value="Agent discovery disconnected. Refresh when the room reconnects."}
         }
     }
-    fun close() {closed=true;journal.close();collector?.cancel();liveRecordingCollector?.cancel();memberRecordingCollector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
+    fun close() {closed=true;journal.close();collector?.cancel();liveRecordingCollector?.cancel();participantRecordingCollector?.cancel();recordingRepost?.cancel();synchronized(names){nameCarry?.cancel()};synchronized(logos){logoCarry?.cancel()};synchronized(this){meetingRepost?.cancel()};mutableActions.value=emptyList()}
 }

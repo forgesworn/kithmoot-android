@@ -21,7 +21,7 @@ elif 'resolve-activity' in args: print('fixture.launcher/Home')
 elif 'start' in args and os.environ.get('FAKE_MODE') == 'home-failed': sys.exit(7)
 elif 'window' in args: print('mCurrentFocus=Window{fixture.launcher/Home}')
 elif 'instrument' in args:
-    count = int(os.environ.get('FAKE_COUNT', '23'))
+    count = int(os.environ.get('FAKE_COUNT', '25'))
     statuses = count - 1 if os.environ.get('FAKE_MODE') == 'missing-result' else count
     print('\n'.join(['INSTRUMENTATION_STATUS_CODE: 0'] * statuses))
     if os.environ.get('FAKE_MODE') == 'skipped': print('INSTRUMENTATION_STATUS_CODE: -3')
@@ -47,7 +47,7 @@ class CaptureRunnerTest(unittest.TestCase):
         self.env = dict(os.environ, ANDROID_HOME=str(sdk), ANDROID_SERIAL='emulator-9998',
                         FAKE_CALLS=str(self.calls))
 
-    def run_driver(self, mode='ok', suite='full', count='23'):
+    def run_driver(self, mode='ok', suite='full', count='25'):
         return subprocess.run(['bash', str(self.root / 'scripts/check-recording-emulator.sh'), suite],
                               env=dict(self.env, FAKE_MODE=mode, FAKE_COUNT=count),
                               capture_output=True, text=True, timeout=30)
@@ -59,7 +59,7 @@ class CaptureRunnerTest(unittest.TestCase):
         self.assertFalse(any('install' in args or 'instrument' in args for args in commands))
         self.assertTrue((self.root / 'app/build/reports/native-recording/launcher-command-failure.json').exists())
 
-    def test_all_23_results_and_readiness_pass(self):
+    def test_all_25_results_and_readiness_pass(self):
         result = self.run_driver()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertTrue((self.root / 'app/build/reports/native-recording/launcher-readiness.json').exists())
@@ -73,8 +73,8 @@ class CaptureRunnerTest(unittest.TestCase):
     def test_wrong_summary_count_is_refused(self):
         self.assertNotEqual(0, self.run_driver(count='22').returncode)
 
-    def test_explicit_local_suite_requires_all_21_results(self):
-        result = self.run_driver(suite='local-capture', count='21')
+    def test_explicit_local_suite_requires_all_23_results(self):
+        result = self.run_driver(suite='local-capture', count='23')
         self.assertEqual(0, result.returncode, result.stderr)
 
 

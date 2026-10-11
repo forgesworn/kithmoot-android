@@ -74,3 +74,8 @@ fun verifyLiveRecordingState(roomId: String, state: LiveRecordingState,
 private fun verifyLiveRecordingSignatures(roomId: String, state: LiveRecordingState, key: String): Boolean =
     verifyRecordingNotice(roomId, state.recording.notice, state.recording.sig, key) &&
         (state.capture?.let { verifyRecordingCaptureNotice(roomId, it.notice, it.sig, key) } ?: true)
+
+/** Compatibility entrypoint for authenticated profile-4 presence. */
+fun verifyParticipantRecordingState(roomId: String, state: LiveRecordingState,
+    participant: String, device: String, call: String?): Boolean =
+    state.call != null && verifyLiveRecordingState(roomId, state, participant, device, call, 4)

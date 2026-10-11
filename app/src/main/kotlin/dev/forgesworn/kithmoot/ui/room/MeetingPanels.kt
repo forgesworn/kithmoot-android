@@ -47,7 +47,14 @@ internal fun recordingLine(view: RecordingView, description: String? = null, inR
 }
 
 internal fun recordingCaptureDescription(state: RoomState): String? {
-    val capture = state.recordingCapture ?: return null
+    val captures = state.recordingCaptures.ifEmpty { listOfNotNull(state.recordingCapture) }
+    val description = captures.mapNotNull { capture -> recordingCaptureDescription(state, capture) }
+        .takeIf { it.isNotEmpty() }?.joinToString(" ") ?: return null
+    val others = state.recordingWarnings.size - captures.size
+    return description + if (others > 0) " There ${if (others == 1) "is" else "are"} $others other recording ${if (others == 1) "device" else "devices"} in this room." else ""
+}
+
+private fun recordingCaptureDescription(state: RoomState, capture: dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice): String? {
     val name = state.profiles[capture.recorder]?.name ?: state.tiles.firstOrNull { it.participant == capture.recorder }?.name
     val key = shortNpub(capture.recorder)
     val who = if (name.isNullOrBlank()) key else "$name ($key)"
@@ -58,8 +65,7 @@ internal fun recordingCaptureDescription(state: RoomState): String? {
         "screen-camera" -> "a screen share with camera and call audio"
         else -> return null
     }
-    val others = state.recordingWarnings.size - 1
-    return "$who is capturing $what." + if (others > 0) " There ${if (others == 1) "is" else "are"} $others other recording ${if (others == 1) "device" else "devices"} in this room." else ""
+    return "$who is capturing $what."
 }
 
 /** What meeting mode means for this person, or null when it is off. */

@@ -1,3 +1,43 @@
+# Recording profile 4 integration gate
+
+Current Android main `db9eb36c` includes merged PR #254 and the published
+0.6.82 release. It implements device-signed participant recording, independent
+warnings, retained Stop recovery after leaving/restarting, and the persistent
+call gallery with Hide/Show controls. These shipped features are retained by
+this integration. The original published protocol vectors remain unchanged.
+
+This branch adds source grants checked before retaining, mixing and drawing
+media; bounded history covering the two-second PCM window; complete independent
+warning details; and consent read directly from authenticated presence before
+collectors run. Consent binds every active recorder's call, person, device,
+recording ID and capture mode, while equivalent refreshes keep consent stable.
+Capture permission reads the original device's exact accepted notice directly;
+a matching public recording ID from another device cannot replace it.
+
+The pre-integration reception candidate `98395351` passed 490 protocol and 47
+focused app tests, then both debug APK assemblies. Its
+[build receipt](evidence/native-recording-profile4-reception-build-2026-10-11.json)
+records those artifacts. Those checks do not qualify the merged candidate.
+The strict capture driver now requires all 25 checks, preserving the upstream
+non-owner/gallery/export regression and every added source-revocation/history
+check. Its six fault checks pass, including readiness and complete-result
+requirements. The merged Kotlin candidate still needs fresh verification.
+
+Remaining release requirements include fresh complete JVM/lint/build, mixed
+profile-4 native/browser capture and Stop/Send recovery, source/own credential
+and access-expiry fences, quiet capacity and delegated acknowledgement, rekey,
+physical 45-minute capture/interruption/Save-provider acceptance and a signed
+production release containing these additional fixes. The earlier source-grant
+hosted run qualified `e3607e11` only; it does not prove this integration.
+
+The original 28 live-warning fixtures are archived verbatim in
+`protocol/src/test/resources/recording-live-profile3.json`. The reviewed SDK
+now regenerates 29 cases, including profile-4 carriage of legacy warnings and
+rejection of future profile 99. Both independent participant fixture suites
+remain alongside these complete-JSON wire checks.
+
+## Historical initial audit
+
 # Recording profile 4 parity gate
 
 Live upstream audited on 2026-10-11. Web main `676edeb` includes merged PR #395

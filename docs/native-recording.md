@@ -1,6 +1,7 @@
 # Native recording qualification
 
-Android recording remains a qualification candidate, not a production release.
+Android recording is published in 0.6.82. This branch adds further source-permission
+and consent fixes; its merged candidate remains unqualified for production.
 Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
@@ -15,13 +16,14 @@ records the actual reports: separate recipient processes completed short,
 daemon on Google APIs and AOSP images. The large fixture is three-second media
 padded to the transfer limit; this does not establish 45-minute live capture.
 
-Current web/desktop participant recording requires native profile 4 parity.
-The [parity gate](native-recording-profile4-parity.md) tracks independent signed
-warnings, consent, device-owned Start/Stop and restart/rekey. The new reception
-candidate has passed 490 protocol checks and 47 focused app tests. APK assembly
-is still running. It does not yet advertise profile 4. Historical results below
-apply only to their recorded source; the final native production release,
-physical acceptance and full profile-4 lifecycle remain open.
+Android main `db9eb36c` now supplies participant Start/Stop, retained device-signed
+Off recovery and a persistent call gallery. The [integration gate](native-recording-profile4-parity.md)
+tracks preserving those shipped features while integrating source grants, complete
+warning consent and direct original-device capture permission. The earlier
+reception candidate passed 490 protocol and 47 app tests and both debug APK
+assemblies. Its result does not qualify the current merge. Fresh complete gates,
+remaining expiry/quiet/rekey journeys, physical acceptance and signed delivery
+of these fixes remain open. Historical results below apply to their recorded source.
 
 An earlier [local runtime receipt](evidence/native-recording-atomic-ready-runtime-2026-10-11.json)
 records 19/20 checks passing on `c2fce0d2`, without skips. All three recording
