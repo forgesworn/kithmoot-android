@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.*
 import org.junit.Test
@@ -112,6 +113,52 @@ class RecordingVideoSceneTest {
                 feedUntil(scene, setOf(key), sources, 6400, clock)
                 assertEquals(mapOf(key to 6400L), scene.inputSamples())
             } finally { scene.dispose() }
+        }
+    }
+
+    @Test fun revoked_capture_drops_queued_video_and_cannot_resume_when_the_predicate_recovers() {
+        withSources { directory, egl, sources, tracks ->
+            val clock = AtomicLong()
+            val authorised = AtomicBoolean(true)
+            val permission = RecordingCapturePermission(authorised::get)
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY, listOf(first))
+            val scene = RecordingVideoScene(plan, permission::allowed)
+            val key = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val file = File(directory, "revoked-capture.mp4")
+            val writer = ComposedAvRecordingFile(file, egl.eglBaseContext, scene)
+            writer.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(key to tracks[0]))
+                repeat(30) { frame ->
+                    val sample = frame * 3200L
+                    if (frame < 15) {
+                        feedUntil(scene, setOf(key), sources, sample, clock)
+                    } else {
+                        // The last accepted picture is still queued when
+                        // permission changes. Rendering must drop it even
+                        // without another source callback.
+                        if (frame == 15) authorised.set(false)
+                        if (frame == 20) {
+                            authorised.set(true)
+                            scene.setPlan(plan, mapOf(key to tracks[0]))
+                        }
+                        clock.set(sample)
+                    }
+                    writer.write(ShortArray(3200))
+                    if (frame >= 15) {
+                        assertTrue(permission.revoked())
+                        assertTrue(scene.inputSamples().isEmpty())
+                        // New callbacks and a refreshed plan must not rearm
+                        // the revoked capture, even after state recovers.
+                        feedUntil(scene, emptySet(), sources, sample, clock)
+                        assertTrue(scene.inputSamples().isEmpty())
+                    }
+                }
+                writer.close()
+                assertRed(pixel(file, 500_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_200_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_800_000, plan.slots[0]))
+            } finally { writer.discard() }
         }
     }
 
