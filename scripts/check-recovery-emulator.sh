@@ -113,7 +113,7 @@ run_tests room-logo-editor 9 -e class dev.forgesworn.kithmoot.ui.RoomLogoEditorT
 run_tests project-logo-editor 6 -e class dev.forgesworn.kithmoot.ui.ProjectLogoEditorTest
 run_tests contextual-project-logo 5 -e class dev.forgesworn.kithmoot.ui.ContextualProjectLogoUiTest
 run_tests guest-admission-preview 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
-run_tests guest-admission-entry 4 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
