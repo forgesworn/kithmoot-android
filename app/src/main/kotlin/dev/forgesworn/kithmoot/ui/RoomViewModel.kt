@@ -5852,11 +5852,10 @@ class RoomViewModel @JvmOverloads constructor(
                     // The volatile generation and immutable flow snapshots
                     // fence the original owner before the UI's stop loop runs.
                     val captureAllowed = {
-                        nativeRecordingGeneration == ticket && media.callActive && originalSession.currentCall()?.id == origin.call &&
+                        nativeRecordingGeneration == ticket && media.callActive && originalSession.recordingCaptureAllowed(origin.call, liveWarnings) &&
                             (originalSession.epochState.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.epoch == originalEpoch &&
                             (originalState.endsAt == null || epochSeconds() < originalState.endsAt) &&
                             work.meeting.state.value.recording?.notice == recordingNotice &&
-                            (!liveWarnings || originalSession.liveRecordingCompatible(origin.call)) &&
                             (work.meeting.state.value.recordingView(epochSeconds()) as? RecordingView.On)?.id == recordingId
                     }
                     val capture = if (layout == null) media.startAudioRecording(source, captureAllowed) else media.startVideoRecording(source,

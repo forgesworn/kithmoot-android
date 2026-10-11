@@ -4,12 +4,47 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.test.*
 
 class LiveRecordingReceptionTest {
     private val secret = Fixtures.key(1)
     private val authority = Schnorr.publicKeyHex(secret)
     private val room = Fixtures.room()
+    @Test fun captureReadsDoNotWaitForSessionCollectorsAndTrackCallCompatibility() = runTest {
+        val reader = session(room, Fixtures.primary(room, 3, 4), FakeRelay(), authority = authority)
+        val caller = Fixtures.primary(room, 1, 2)
+        val call = CallMembership("ab".repeat(16), 0)
+        reader.join()
+        reader.setCall(call)
+        fun presence(profile: Int, left: Boolean = false) {
+            reader.onRosterEvent(encodeRosterEvent(RosterEntry(caller.participant, caller.devicePubkey, caller.credential,
+                updatedAt = 0, recordingProfile = profile, call = call, left = left), room.roomId, room.roomKey, caller.deviceSecretKey))
+        }
+        presence(3)
+        // Reproduces the lock ordering at a synchronous StateFlow collector:
+        // the session remains locked while another thread checks capture.
+        val field = RoomSession::class.java.getDeclaredField("lock").apply { isAccessible = true }
+        val lock = field.get(reader) as ReentrantLock
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            lock.lock()
+            try {
+                assertTrue(worker.submit<Boolean> { reader.recordingCaptureAllowed(call.id, true) }.get(1, TimeUnit.SECONDS))
+            } finally { lock.unlock() }
+            presence(2)
+            assertFalse(reader.recordingCaptureAllowed(call.id, true))
+            assertTrue(reader.recordingCaptureAllowed(call.id, false))
+            presence(2, left = true)
+            assertTrue(reader.recordingCaptureAllowed(call.id, true))
+            reader.setCall(call.copy(id = "cd".repeat(16)))
+            assertFalse(reader.recordingCaptureAllowed(call.id, false))
+            reader.leave()
+            assertFalse(reader.recordingCaptureAllowed("cd".repeat(16), false))
+        } finally { worker.shutdownNow() }
+    }
     private fun state(on: Boolean = true, version: Long = 17): LiveRecordingState {
         val notice = RecordingNotice(on, "12".repeat(16), version)
         val capture = RecordingCaptureNotice(notice.id, version, "gallery", authority, Schnorr.publicKeyHex(Fixtures.key(2)))

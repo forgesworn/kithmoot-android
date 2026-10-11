@@ -436,6 +436,23 @@ class RoomSession(
      */
     private var call: CallMembership? = null
 
+    private data class RecordingCaptureState(val callId: String?, val incompatibleCalls: Set<String>)
+    @Volatile private var recordingCaptureState = RecordingCaptureState(null, emptySet())
+
+    /** Updated under the session lock before any flow can invoke a media
+     * collector. Capture callbacks must never take that lock: collectors may
+     * already hold it while acquiring the capture's audio monitor. */
+    private fun refreshRecordingCaptureStateLocked() {
+        recordingCaptureState = RecordingCaptureState(call?.id, roster.values.mapNotNull {
+            if (!it.left && it.recordingProfile != 3) it.call?.id else null
+        }.toSet())
+    }
+
+    fun recordingCaptureAllowed(callId: String, requireLiveWarnings: Boolean): Boolean {
+        val snapshot = recordingCaptureState
+        return snapshot.callId == callId && (!requireLiveWarnings || callId !in snapshot.incompatibleCalls)
+    }
+
     private val _participants = MutableStateFlow<List<Participant>>(emptyList())
 
     /** The room as people, not as devices. */
@@ -842,6 +859,7 @@ class RoomSession(
             val leaving = call
             if (leaving != null && !othersOnCallLocked(leaving.id)) offCall = leaving
             call = null
+            refreshRecordingCaptureStateLocked()
             cancelling = jobs.toList()
             jobs.clear()
             traffic = trafficJobs.toList()
@@ -978,6 +996,7 @@ class RoomSession(
                 outgoingLiveRecording = state
                 outgoingLiveRecordingAllowed = stillAllowed
                 roster[identity.devicePubkey] = entry
+                refreshRecordingCaptureStateLocked()
                 _liveRecording.value = ReceivedLiveRecording(state, at)
             }
             recompute()
@@ -990,7 +1009,10 @@ class RoomSession(
         val entry = lock.withStateLock {
             if (outgoingLiveRecordingAllowed?.invoke() == false ||
                 outgoingLiveRecording?.let { !liveRecordingStillCurrent(it) } == true) clearOutgoingLiveRecordingLocked()
-            announcementEntryLocked(reply, left, outgoingLiveRecording).also { roster[identity.devicePubkey] = it }
+            announcementEntryLocked(reply, left, outgoingLiveRecording).also {
+                roster[identity.devicePubkey] = it
+                refreshRecordingCaptureStateLocked()
+            }
         }
         transport.publish(
             encodeRosterEvent(
@@ -1018,6 +1040,7 @@ class RoomSession(
             val previous = call
             val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
             call = next
+            refreshRecordingCaptureStateLocked()
             bellsFor(previous, next)
         }
         announce(reply = true)
@@ -1487,6 +1510,7 @@ class RoomSession(
                 seenAt[entry.device] = now()
                 respond = respondedTo.add(entry.device)
             }
+            refreshRecordingCaptureStateLocked()
         }
         if (!entry.left && entry.recordingProfile == 3) entry.liveRecording?.let { state ->
             val root = authority
@@ -1609,6 +1633,7 @@ class RoomSession(
                 respondedTo.remove(device)
                 changed = true
             }
+            refreshRecordingCaptureStateLocked()
         }
         if (changed) recompute()
     }
@@ -2124,6 +2149,7 @@ class RoomSession(
             notice.removed.forEach { removed ->
                 roster.entries.removeAll { it.value.participant.equals(removed, ignoreCase = true) }
             }
+            refreshRecordingCaptureStateLocked()
             respondedTo.clear()
             departed.clear()
             EpochGap(from.epoch, next.epoch, now()).takeIf { next.epoch > from.epoch + 1 + between.size }
