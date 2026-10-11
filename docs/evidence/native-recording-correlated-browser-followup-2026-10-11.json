@@ -22,7 +22,15 @@
   },
   "follow_up": {
     "bridge_commit": "21492dd5",
-    "change": "Preserve seq/re in both directions, matching production WebRtcEngine signal envelopes; compilation and runtime pending"
+    "change": "Preserve seq/re in both directions, matching production WebRtcEngine signal envelopes; compilation passed and runtime pending",
+    "build": {
+      "result": "passed",
+      "source_commit": "3f334998",
+      "duration_seconds": 87,
+      "debug_apk_sha256": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "test_apk_sha256": "5a3f879eac3c75785497491adf779368d6abfe9c4f28a4201690ac75101e6709"
+    },
+    "emulator_setup": "Owned disposable Android 35 ARM64 host-GPU AVD; unrelated com.google.android.apps.messaging disabled after observed system ANR"
   },
   "browser_validation": {
     "focused_peer_tests": 174,
