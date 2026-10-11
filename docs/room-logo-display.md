@@ -57,7 +57,9 @@ The complete source passed 427 protocol tests, 1,968 debug app unit tests and
 1,968 release app unit tests, with zero failures, errors or skipped cases.
 Debug and release lint passed with no errors; their existing warnings remain.
 
-The phone editor, project companion journal/inheritance, closed-room control
+The [phone editor](room-logo-editor.md) adds local crop, preview, replace and
+remove controls; it remains separate from physical photo-picker acceptance.
+Project companion journal/inheritance, closed-room control
 catch-up, admission and originating-call branding, fresh account recovery,
 cross-client journeys and physical acceptance remain open. Android's public
 release is unchanged by this implementation branch.

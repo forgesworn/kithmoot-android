@@ -7429,6 +7429,37 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.withRenameRead(roomId, rename) }
     }
 
+    /** Open a local image preview bound to this admitted room and epoch. */
+    fun openRoomLogoEditor(): dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? {
+        val work = roomWork ?: return null
+        val live = session ?: return null
+        val target = savedRoom ?: return null
+        val epoch = work.roomLogoEpoch()
+        // This predicate is also read beneath the transport dispatch guard:
+        // use snapshots/StateFlow values, never receiver locks or IO here.
+        fun current(): Boolean {
+            val state = _room.value
+            val phase = live.epochState.value
+            return session === live && roomWork === work && work.roomLogoEpoch() == epoch &&
+                phase is dev.forgesworn.kithmoot.session.RoomEpochState.Active && phase.epoch == epoch &&
+                savedRoom?.let { it.id == target.id && it.participant == target.participant && it.devicePubkey == target.devicePubkey } == true &&
+                state.roomId == target.id && !state.anonymous && !state.quiet && !state.privateConversation &&
+                state.movedOn == null && !state.conferenceEnded && (state.endsAt == null || state.endsAt > epochSeconds())
+        }
+        if (!current()) {
+            _room.update { it.copy(notice = "Wait for this room to finish connecting before changing its logo.") }
+            return null
+        }
+        return dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope(_room.value.name, _room.value.logo, ::current) { image, editorAllowed ->
+            withContext(Dispatchers.IO) {
+                check(current() && editorAllowed()) { "This room changed. Open the logo editor again." }
+                work.replaceRoomLogo(image) { current() && editorAllowed() }
+                _room.update { if (current()) it.copy(notice = if (image == null) "Removed the room logo for everyone."
+                    else "Shared the room logo with everyone.") else it }
+            }
+        }
+    }
+
     /** Rename the room for everybody in it: hidden in a two-person room,
      *  whose title is the other person, and in an anonymous room, which
      *  follows no shared work or names. */
