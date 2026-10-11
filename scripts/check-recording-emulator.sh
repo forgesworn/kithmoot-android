@@ -31,6 +31,11 @@ mkdir -p "$reports"
 # to a deliberately selected disposable emulator above.
 "$adb_bin" -s "$ANDROID_SERIAL" install -r -d app/build/outputs/apk/debug/app-debug.apk
 "$adb_bin" -s "$ANDROID_SERIAL" install -r -d app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Do bytecode verification before Android's process-start deadline. A large
+# freshly installed debug/test APK can otherwise ANR in DexFileVerifier before
+# any application or test code runs on a loaded disposable emulator.
+"$adb_bin" -s "$ANDROID_SERIAL" shell cmd package compile -m verify -f dev.forgesworn.kithmoot
+"$adb_bin" -s "$ANDROID_SERIAL" shell cmd package compile -m verify -f dev.forgesworn.kithmoot.test
 "$adb_bin" -s "$ANDROID_SERIAL" shell am instrument -w -r \
   -e class "$classes" \
   dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/instrumentation.txt"

@@ -17,7 +17,15 @@
     "result": "startup crash after reinstall",
     "log_sha256": "1aa634f2e4ad94c4c34b5876734bc6668d72f510280ee416afde24ccfd868ddf"
   },
-  "direct_local_capture": "18-case run is currently active; no final pass claimed",
+  "direct_local_capture": {
+    "result": "passed",
+    "tests": 18,
+    "skipped": 0,
+    "duration_seconds": 198.635,
+    "includes": "All local AAC/AV, video sinks, four scene cases, three real owner UI cases, playback and upload journal cases",
+    "log_sha256": "77932765a07e15e00b403fbb29735e9e1607c9dd6d5bc8a99cb31625b9256f18",
+    "scope": "Direct invocation on already installed exact receipt APKs; live browser RTP cases excluded and remain unqualified"
+  },
   "limits": [
     "Caption caching and encoder preparation do not yet qualify full live video capture",
     "Actual native/browser Session warning case passed separately; neither capture failure invalidates or replaces that recorded scope",

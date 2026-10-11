@@ -19,6 +19,9 @@ reports="${KITHMOOT_RECORDING_REPORTS:-$PWD/app/build/reports/native-recording-s
 mkdir -p "$reports"
 "$adb_bin" -s "$ANDROID_SERIAL" install -r -d app/build/outputs/apk/debug/app-debug.apk
 "$adb_bin" -s "$ANDROID_SERIAL" install -r -d app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Verify installed bytecode outside the app's bounded process-start window.
+"$adb_bin" -s "$ANDROID_SERIAL" shell cmd package compile -m verify -f dev.forgesworn.kithmoot
+"$adb_bin" -s "$ANDROID_SERIAL" shell cmd package compile -m verify -f dev.forgesworn.kithmoot.test
 "$adb_bin" -s "$ANDROID_SERIAL" shell am instrument -w -r \
   -e class dev.forgesworn.kithmoot.media.recording.LiveRecordingBrowserInteropTest \
   dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/instrumentation.txt"
