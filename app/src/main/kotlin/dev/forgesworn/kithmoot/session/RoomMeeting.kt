@@ -44,18 +44,18 @@ data class MeetingSnapshot(
 ) {
     val meeting: MeetingPolicy? get() = policy?.policy
     /** What the room should be told about recording at [now]. */
-    fun recordingView(now: Long, call: String? = null): RecordingView {
+    fun recordingView(now: Long, calls: Set<String>? = null): RecordingView {
         val views = listOf(recordingView(recording?.notice, recording?.since ?: 0, recording?.heardAt ?: 0, now)) +
-            participantRecordings.values.filter { call == null || it.state.call == call }.map { recordingView(it.state.recording.notice, it.since, it.heardAt, now) }
+            participantRecordings.values.filter { calls == null || it.state.call in calls }.map { recordingView(it.state.recording.notice, it.since, it.heardAt, now) }
         return views.firstOrNull { it is RecordingView.On } ?: views.firstOrNull { it is RecordingView.Unconfirmed } ?: RecordingView.Off
     }
     fun activeRecording(id: String, now: Long): Boolean =
         (recording?.notice?.id == id && recordingView(recording.notice, recording.since, recording.heardAt, now) is RecordingView.On) ||
             participantRecordings.values.any { it.state.recording.notice.id == id &&
                 recordingView(it.state.recording.notice, it.since, it.heardAt, now) is RecordingView.On }
-    fun recordingCaptures(now: Long, call: String? = null): List<RecordingCaptureNotice> =
+    fun recordingCaptures(now: Long, calls: Set<String>? = null): List<RecordingCaptureNotice> =
         listOfNotNull(recordingCapture()) + participantRecordings.values.filter {
-            (call == null || it.state.call == call) && recordingView(it.state.recording.notice, it.since, it.heardAt, now) != RecordingView.Off
+            (calls == null || it.state.call in calls) && recordingView(it.state.recording.notice, it.since, it.heardAt, now) != RecordingView.Off
         }.mapNotNull { it.state.capture?.notice }
     /** Details never describe another id/version or make an off notice live. */
     fun recordingCapture(): RecordingCaptureNotice? = capture?.notice?.takeIf {

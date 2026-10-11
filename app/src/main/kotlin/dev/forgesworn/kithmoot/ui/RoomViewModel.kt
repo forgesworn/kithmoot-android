@@ -5815,7 +5815,7 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private fun askRecordingConsent(action: RecordingConsent): Boolean {
         if (_room.value.onCall) return false
-        val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCall())
+        val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())
         val id = when (view) {
             is RecordingView.On -> view.id
             is RecordingView.Unconfirmed -> view.id
@@ -5832,7 +5832,7 @@ class RoomViewModel @JvmOverloads constructor(
         val asked = _room.value.recordingConsent ?: return
         _room.update { it.copy(recordingConsent = null) }
         if (!join) return
-        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCall())) {
+        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())) {
             is RecordingView.On -> view.id
             is RecordingView.Unconfirmed -> view.id
             RecordingView.Off -> null
@@ -6463,9 +6463,9 @@ class RoomViewModel @JvmOverloads constructor(
             meetingModerator = roomWork?.moderator == true,
             meetingSpeakers = policy?.speakers.orEmpty(),
             raisedHands = snapshot.hands,
-            recording = snapshot.recordingView(epochSeconds(), recordingWarningCall()),
-            recordingCapture = snapshot.recordingCaptures(epochSeconds(), recordingWarningCall()).firstOrNull(),
-            recordingCaptures = snapshot.recordingCaptures(epochSeconds(), recordingWarningCall()),
+            recording = snapshot.recordingView(epochSeconds(), recordingWarningCalls()),
+            recordingCapture = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
+            recordingCaptures = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()),
             recordingAllowed = roomWork?.canRecord == true,
         ) }
         // The host hears about a hand as it goes up, not one found in the log.
@@ -6476,12 +6476,12 @@ class RoomViewModel @JvmOverloads constructor(
         else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")
     }
 
-    private fun recordingWarningCall(): String? = session?.currentCall()?.id
-        ?: session?.participants?.value?.firstNotNullOfOrNull { it.call?.id }
+    private fun recordingWarningCalls(): Set<String> =
+        (listOfNotNull(session?.currentCall()?.id) + session?.participants?.value.orEmpty().mapNotNull { it.call?.id }).toSet()
 
     private fun showRecording() {
-        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds(), recordingWarningCall()), recordingCapture = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCall()).firstOrNull(),
-            recordingCaptures = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCall())) }
+        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls()), recordingCapture = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
+            recordingCaptures = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls())) }
     }
 
     /** Off the stage: everything this device sends is stopped, and it says what. */

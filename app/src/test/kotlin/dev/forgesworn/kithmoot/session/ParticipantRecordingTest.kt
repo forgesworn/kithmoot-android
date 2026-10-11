@@ -43,14 +43,14 @@ class ParticipantRecordingTest {
         val second = bw.startRecording("gallery"); runCurrent()
         assertTrue(aw.meeting.state.value.activeRecording(first.id, 0))
         assertTrue(aw.meeting.state.value.activeRecording(second.id, 0))
-        assertEquals(2, bw.meeting.state.value.recordingCaptures(0, call).size)
+        assertEquals(2, bw.meeting.state.value.recordingCaptures(0, setOf(call)).size)
         aw.stopRecording(first.id); runCurrent()
         assertFalse(bw.meeting.state.value.activeRecording(first.id, 0))
         assertTrue(bw.meeting.state.value.activeRecording(second.id, 0))
-        assertEquals(listOf(second.id), bw.meeting.state.value.recordingCaptures(0, call).map { it.id })
-        assertEquals(RecordingView.Off, bw.meeting.state.value.recordingView(0, "56".repeat(16)))
+        assertEquals(listOf(second.id), bw.meeting.state.value.recordingCaptures(0, setOf(call)).map { it.id })
+        assertEquals(RecordingView.Off, bw.meeting.state.value.recordingView(0, setOf("56".repeat(16))))
         bw.stopRecording(second.id); runCurrent()
-        assertEquals(RecordingView.Off, aw.meeting.state.value.recordingView(0, call))
+        assertEquals(RecordingView.Off, aw.meeting.state.value.recordingView(0, setOf(call)))
         aw.close(); bw.close(); a.leave(); b.leave()
     }
 
