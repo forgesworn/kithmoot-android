@@ -3,7 +3,8 @@
 
 Uses a deliberately selected disposable emulator, synthetic MP4, ephemeral TLS
 and an explicitly authorised storage identity. No public node or discovery.
-The recipient is a separate RoomSession in the same app process.
+The recipient uses its own RoomSession/socket in a separate Android process.
+Both processes share one debug installation on the selected emulator.
 """
 import hashlib
 import json
@@ -98,7 +99,7 @@ extendedKeyUsage = serverAuth
                     "-e", "recordingNetworkFixture", fixture, "-e", "recordingRealNode", "true",
                     "-e", "recordingNodePort", str(backend_port),
                     "-e", "class", "dev.forgesworn.kithmoot.media.recording.RecordingUploadSendUiTest#"
-                    "independent_recipient_receives_show_fetches_ciphertext_and_explicit_play_decodes_video",
+                    "separate_process_recipient_receives_and_plays_without_sender_memory",
                     "dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner"],
                     stdout=log, stderr=subprocess.STDOUT)
                 deadline = time.monotonic() + 90
@@ -145,8 +146,15 @@ extendedKeyUsage = serverAuth
                                fixture_path + "/node-responses.txt").stdout.decode().splitlines()
             if responses != ["PUT 201", "GET 200"]:
                 raise RuntimeError("Expected one real-node PUT 201 then GET 200")
+            sender_pid = int(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
+                                    fixture_path + "/sender-process.txt").stdout.decode())
+            recipient = json.loads(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
+                                          fixture_path + "/recipient-ready.json").stdout.decode())
+            if sender_pid <= 0 or recipient["pid"] <= 0 or sender_pid == recipient["pid"]:
+                raise RuntimeError("Recipient must run in a separate process")
             result = {"passed": True, "physical": False, "serial": serial,
-                      "real_wildbloom_daemon": True, "separate_recipient_process": False,
+                      "real_wildbloom_daemon": True, "separate_recipient_process": True,
+                      "sender_pid": sender_pid, "recipient_pid": recipient["pid"],
                       "responses": responses, "sample_sha256": digest(sample),
                       "daemon_sha256": digest(binary), "report_sha256": digest(reports / "instrumentation.txt")}
             (reports / "result.json").write_text(json.dumps(result, indent=2) + "\n")

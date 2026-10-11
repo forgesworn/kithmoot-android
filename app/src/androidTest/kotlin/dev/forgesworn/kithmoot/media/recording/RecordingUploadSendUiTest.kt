@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.media.recording
 
+import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.graphics.Color
@@ -7,13 +9,15 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.*
 import androidx.lifecycle.Lifecycle
 import androidx.activity.compose.setContent
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
-import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.projects.ProjectTestRelay
 import dev.forgesworn.kithmoot.protocol.Events
@@ -48,6 +52,7 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONObject
 import javax.net.ssl.*
 
 /** Real controls, TLS socket and signed relay publication. The driver provides
@@ -55,7 +60,7 @@ import javax.net.ssl.*
  * Default mode uses a Blossom-contract fixture. The guarded real-node driver
  * forwards unchanged requests through TLS to its explicitly allowlisted daemon. */
 class RecordingUploadSendUiTest {
-    @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
+    @get:Rule val activity = ActivityScenarioRule(ComponentActivity::class.java)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
     private val ui = RecoveryUi(useSwipeFallback = false)
     private lateinit var model: RoomViewModel
@@ -132,7 +137,16 @@ class RecordingUploadSendUiTest {
             start(InetAddress.getByName("127.0.0.1"), 39847)
         }
         relay = ProjectTestRelay()
+        // This chat-only fixture does not restore accounts. Refuse to reset
+        // anything except its own repeated-byte synthetic local identity.
+        app.accounts.load()?.let { retained ->
+            check(retained.method == "local" && retained.pubkey == Schnorr.publicKeyHex(ByteArray(32) { 59 })) {
+                "HTTPS fixture refuses an unrelated retained account"
+            }
+            app.accounts.clear()
+        }
         activity.scenario.onActivity { owner ->
+            owner.enableEdgeToEdge()
             model = ViewModelProvider(owner, object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(type: Class<T>): T =
                     RoomViewModel(app, chatOnly = true, recordingUploadClient = http) as T
@@ -140,11 +154,6 @@ class RecordingUploadSendUiTest {
             owner.setContent { KithMootTheme { KithMootApp(model) } }
         }
         ui.home()
-        if (app.accounts.load() != null) {
-            ui.await("fixture account loaded") { model.start.value.account != null }
-            activity.scenario.onActivity { model.signOut() }
-            ui.await("fixture account cleared") { model.start.value.account == null }
-        }
         app.recordings.export.value?.let(app.recordings::discard)
         app.savedRooms.reset()
         activity.scenario.onActivity {
@@ -162,20 +171,32 @@ class RecordingUploadSendUiTest {
     }
 
     @After fun cleanup() {
-        if (::model.isInitialized) {
-            if (model.stage.value == Stage.ROOM) {
-                activity.scenario.onActivity { model.leave() }
-                ui.await("fixture room closed") { model.stage.value == Stage.START && !model.start.value.busy }
+        var failure: Throwable? = null
+        try {
+            if (::model.isInitialized) {
+                if (model.stage.value == Stage.ROOM) {
+                    activity.scenario.onActivity { model.leave() }
+                    ui.await("fixture room closed") { model.stage.value == Stage.START && !model.start.value.busy }
+                }
+                room?.let(app::forgetRecordingsForRoom)
+                app.recordings.export.value?.let(app.recordings::discard)
+                activity.scenario.onActivity { model.signOut() }
+                ui.await("fixture account closed") { model.start.value.account == null }
             }
-            room?.let(app::forgetRecordingsForRoom)
-            app.recordings.export.value?.let(app.recordings::discard)
-            activity.scenario.onActivity { model.signOut() }
-            ui.await("fixture account closed") { model.start.value.account == null }
+        } catch (error: Throwable) { failure = error }
+        // A failed UI precondition must not leave the fixed TLS port occupied
+        // and substitute bind failures for the following cases' real results.
+        val close = listOf<() -> Unit>(
+            { redirectTarget?.close() },
+            { if (::server.isInitialized) server.close() },
+            { if (::relay.isInitialized) relay.close() },
+            { nodeClient.dispatcher.executorService.shutdown(); nodeClient.connectionPool.evictAll() },
+        )
+        for (action in close) try { action() } catch (error: Throwable) {
+            val previous = failure
+            if (previous == null) failure = error else previous.addSuppressed(error)
         }
-        redirectTarget?.close()
-        if (::server.isInitialized) server.close()
-        if (::relay.isInitialized) relay.close()
-        nodeClient.dispatcher.executorService.shutdown(); nodeClient.connectionPool.evictAll()
+        failure?.let { throw it }
     }
 
     /** Actual daemon response is forwarded, never replaced by a fixture receipt. */
@@ -333,6 +354,87 @@ class RecordingUploadSendUiTest {
             activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme { KithMootApp(model) } } }
             recipient.leave(); pool.stop(); scope.cancel(); peerRoom.roomKey.fill(0)
             identity.deviceSecretKey.fill(0)
+        }
+    }
+
+    @Test fun separate_process_recipient_receives_and_plays_without_sender_memory() {
+        val saved = requireNotNull(app.savedRooms.get(requireNotNull(room)))
+        val secret = saved.secret
+        try {
+            File(fixture, "recipient-seed.json").writeText(JSONObject().put("secret", secret.toHex())
+                .put("authority", requireNotNull(saved.authority)).put("relay", relay.url).toString())
+        } finally { secret.fill(0) }
+        val original = requireNotNull(app.recordings.export.value)
+        chooseAndUpload()
+        ui.await("uploaded receipt enables explicit Send") { ui.hasText("Send recording") }
+        ui.click("Send recording")
+        ui.await("sender finishes separate Send") {
+            app.recordingShareDrafts.list(requireNotNull(room)).isEmpty() && !model.room.value.mediaBusy
+        }
+        assertEquals(1, originalChatWrites().distinctBy { it.id }.size)
+        assertEquals(0, gets.get())
+        fun recipientIntent(action: String? = null) = Intent(app, RecordingRecipientFixtureActivity::class.java)
+            .putExtra(RecordingRecipientFixtureActivity.FIXTURE, fixture.name)
+            .setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val cache = File(app.cacheDir, "recording-playback") // Do not initialise the sender's lazy cache owner.
+        try {
+            File(fixture, "sender-process.txt").writeText(android.os.Process.myPid().toString())
+            app.startActivity(recipientIntent())
+            ui.await("recipient joins in separate process") { File(fixture, "recipient-ready.json").isFile }
+            val ready = JSONObject(File(fixture, "recipient-ready.json").readText())
+            assertNotEquals(android.os.Process.myPid(), ready.getInt("pid"))
+            assertEquals(room, ready.getString("room"))
+            ui.await("separate process receives through its own relay subscription") {
+                File(fixture, "recipient-received.json").isFile
+            }
+            val received = JSONObject(File(fixture, "recipient-received.json").readText())
+            assertEquals(ready.getInt("pid"), received.getInt("pid"))
+            assertNotEquals(ready.getString("participant"), received.getString("participant"))
+            assertNotEquals(ready.getString("device"), received.getString("device"))
+            assertEquals(uploadedHash, received.getString("sha256"))
+            assertEquals(requireNotNull(uploadedBytes).size.toLong(), received.getLong("size"))
+            val name = model.room.value.chat.single { it.attachments.isNotEmpty() }.attachments.single().name ?: "Recording"
+            val show = "Show recording: $name"
+            ui.await("production received chat card in separate process") { ui.hasText(show) }
+            SystemClock.sleep(600)
+            assertEquals("Receiving and rendering must not fetch", 0, gets.get())
+            ui.click(show)
+            ui.await("separate process authenticates and prepares MP4") { ui.enabled("Play recording") && hasClock(0) }
+            assertEquals(1, gets.get())
+            val expected = MessageDigest.getInstance("SHA-256").digest(File(fixture, "sample.mp4").readBytes())
+            assertTrue(cache.walkTopDown().filter { it.isFile }.any {
+                MessageDigest.getInstance("SHA-256").digest(it.readBytes()).contentEquals(expected)
+            })
+            SystemClock.sleep(600)
+            assertTrue("Show does not autoplay", hasClock(0) && ui.hasText("Play recording"))
+            ui.click("Play recording")
+            ui.await("separate process native decoder advances") { hasActiveRecordingPlayback() }
+            ui.await("separate process renders decoded red camera pixels") {
+                val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                try {
+                    var red = 0
+                    for (y in 0 until screenshot.height step 4) for (x in 0 until screenshot.width step 4) {
+                        val pixel = screenshot.getPixel(x, y)
+                        if (Color.red(pixel) > 180 && Color.green(pixel) < 80 && Color.blue(pixel) < 80) red++
+                    }
+                    red > 1000
+                } finally { screenshot.recycle() }
+            }
+            assertTrue(InstrumentationRegistry.getInstrumentation().uiAutomation
+                .performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME))
+            SystemClock.sleep(500)
+            app.startActivity(recipientIntent())
+            ui.await("separate recipient background return remains paused") { ui.hasText("Play recording") }
+            ui.click("Close recording")
+            ui.await("separate recipient chat restored") { ui.hasText(show) }
+            ui.await("separate recipient removes private plaintext on Close") { cache.listFiles()?.isEmpty() == true }
+            assertEquals(1, gets.get()); assertEquals(1, puts.get())
+            ui.click("Close recipient fixture")
+            ui.await("sender room returns") { ui.hasText("Synthetic HTTPS recording") }
+            assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
+        } finally {
+            app.startActivity(recipientIntent(RecordingRecipientFixtureActivity.CLOSE))
+            File(fixture, "recipient-seed.json").delete()
         }
     }
 

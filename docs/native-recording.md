@@ -15,6 +15,10 @@ separate recipient app process. The later
 [real-node UI receipt](evidence/native-recording-real-node-ui-2026-10-11.json)
 now qualifies that UI journey against an actual private Wildbloom daemon, still
 with both participants in one app process.
+The later [separate-process receipt](evidence/native-recording-recipient-process-2026-10-11.json)
+qualifies the production chat-card/player journey in a recipient process with
+its own identity and relay socket. Both processes share one debug installation
+and emulator filesystem; independent-device acceptance remains open.
 
 The [startup cancellation receipt](evidence/native-recording-start-cancellation-2026-10-11.json)
 qualifies cancelling a pending announcement through the native room controls,
@@ -24,7 +28,7 @@ The [scheduled-wait and local-export receipt](evidence/native-recording-cadence-
 qualifies transport-aware announcement waits and local Save/Discard while a
 stop acknowledgement remains pending. Quiet heartbeat capacity remains open.
 
-Quiet announcement timing/heartbeat capacity, full room/restart/rekey journeys,
+Quiet heartbeat capacity and delegated confirmation, full room/restart/rekey journeys,
 load reliability, physical endurance/interruption/Save providers and final
 hosted CI, signing and production distribution remain open. This implementation
 does not close G11. Historical results below apply only to their recorded
@@ -81,6 +85,27 @@ remain open. Call-dock cancellation is implemented; the new automated UI journey
 runs through the main room controls. Physical acceptance remains separate.
 
 ## Independent recipient Show and Play
+
+The later separate-process fixture launches a non-exported debug-only activity
+in a distinct Android process. It derives its synthetic room capability,
+creates its own participant/device identity and subscribes through a new relay
+socket. No attachment descriptor is passed to the UI: production `ChatPane`
+renders received encrypted chat and opens the production player on Show.
+
+All four HTTPS UI checks pass in 29.384 seconds. The real private Wildbloom
+journey passes in 51.545 seconds, with different sender/recipient process IDs,
+one PUT 201 and one GET 200. Show authenticates byte-identical MP4 into private
+cache; explicit Play advances and renders red camera pixels. Background return
+stays paused, Close removes plaintext and the sender retains its local export.
+The driver confirms app shutdown, daemon shutdown and fixture removal.
+
+The synthetic UI host uses one activity/model owner. It refuses to reset an
+unrelated retained account and clears only its own known synthetic local
+identity; a chat-only model deliberately does not restore accounts. Teardown
+always releases servers and preserves failures. Earlier room/account setup
+timeouts and cascading bind failures are retained in the receipt. This is a
+separate-process emulator check, not an independent installation/device or a
+full signed-room capture acceptance run. The fixture is absent from release.
 
 The sender Upload/Send fixture now joins a second participant using distinct
 participant and device keys, a separate production relay socket and its own
