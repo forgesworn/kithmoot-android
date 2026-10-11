@@ -94,6 +94,9 @@ import kotlin.random.Random
 data class PendingChat(val id: String, val text: String, val messageId: String, val state: PendingChatState, val editable: Boolean, val sentAt: Long)
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
+// Recording controls must release a refused notice promptly so an explicit
+// retry can confirm the retained stop, independently of the chat send budget.
+private const val RECORDING_CONFIRM_TIMEOUT_MS = 15_000L
 private const val DEFAULT_EPOCH_SETTLE_MS = 1_500L
 private const val EPOCH_RECOVERY_TIMEOUT_MS = 30_000L
 /** How long an unprompted epoch question waits for an answer: the web client's request timeout. */
@@ -1002,7 +1005,7 @@ class RoomSession(
                     now() < at + timing.presenceTtlSeconds
             }
             val event = encodeRosterEvent(entry, epoch.id, epoch.key, identity.deviceSecretKey, roomEnds = ends)
-            val confirmed = transport.publishConfirmedGuarded(event, transportGeneration, allowed, CHAT_CONFIRM_TIMEOUT_MS)
+            val confirmed = transport.publishConfirmedGuarded(event, transportGeneration, allowed, RECORDING_CONFIRM_TIMEOUT_MS)
             if (!confirmed) return@withLock false
             val currentTransportGeneration = transport.publicationGeneration()
             lock.withStateLock {

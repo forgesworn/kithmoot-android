@@ -156,6 +156,13 @@ class RecordingOwnerUiTest {
         val saved = requireNotNull(app.savedRooms.get(requireNotNull(recordingRoom)))
         val secret = saved.secret
         val original = try { dev.forgesworn.kithmoot.protocol.deriveRoom(secret) } finally { secret.fill(0) }
+        fun memberNotice(event: dev.forgesworn.kithmoot.protocol.NostrEvent): dev.forgesworn.kithmoot.protocol.LiveRecordingState? {
+            val entry = dev.forgesworn.kithmoot.protocol.decodeRosterEvent(event, original.roomId,
+                original.roomKey, System.currentTimeMillis() / 1000) ?: return null
+            val state = entry.liveRecording ?: return null
+            return state.takeIf { dev.forgesworn.kithmoot.protocol.verifyParticipantRecordingState(
+                original.roomId, it, entry.participant, entry.device, entry.call?.id) }
+        }
         try {
             relay.acknowledge = false
             ui.click("Record call"); ui.click("Start recording")
@@ -171,23 +178,17 @@ class RecordingOwnerUiTest {
             assertNull(app.recordings.export.value)
             ui.await("relay has withheld the exact Off acknowledgement") {
                 relay.writes.any { event -> event.id in relay.withheldAcknowledgements &&
-                    dev.forgesworn.kithmoot.session.decodeChatEvent(event, original.roomId, original.roomKey,
-                        System.currentTimeMillis() / 1000, channel = "control")?.body?.let {
-                            dev.forgesworn.kithmoot.protocol.decodeRecordingOp(it)?.notice?.on == false
-                        } == true
+                    memberNotice(event)?.recording?.notice?.on == false
                 }
             }
             relay.acknowledge = true
             ui.click("Retry stop notice")
             ui.await("explicit retry confirms exact Off") { !model.room.value.recordingStopPending && !model.room.value.recordingStopRetrying }
             assertFalse(model.room.value.nativeRecording)
-            val controls = relay.writes.filter { it.kind == KIND_CHAT }.mapNotNull {
-                dev.forgesworn.kithmoot.session.decodeChatEvent(it, original.roomId, original.roomKey,
-                    System.currentTimeMillis() / 1000, channel = "control")?.body
-            }
-            val notices = controls.mapNotNull { dev.forgesworn.kithmoot.protocol.decodeRecordingOp(it) }
-            assertTrue("Cancelled startup must never offer On", notices.none { it.notice.on })
-            assertEquals("Retries retain one exact Off", 1, notices.distinct().size)
+            val notices = relay.writes.mapNotNull(::memberNotice).filter { !it.recording.notice.on }
+            assertTrue("Cancellation publishes an authenticated participant Off", notices.isNotEmpty())
+            assertTrue("Off never advertises capture", notices.all { it.capture == null })
+            assertEquals("Retries retain one exact device-signed Off", 1, notices.distinct().size)
             assertNull(app.recordings.export.value)
         } finally { relay.acknowledge = true; original.roomKey.fill(0) }
     }
