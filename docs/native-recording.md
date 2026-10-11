@@ -487,6 +487,14 @@ source/binary digests, responses, independent process IDs and cleanup results.
 The job is a qualification candidate until its runtime passes; these are
 three-second synthetic tracks, not 45-minute capture or physical acceptance.
 
+The private-node driver now writes its success receipt only after app/process,
+proxy, reverse mapping and fixture cleanup succeeds and temporary host storage
+has been removed. A reused reports directory first removes the earlier result.
+A host simulation exercised both clean cleanup and a failing app force-stop:
+only the clean case produced a final receipt, and the failure retained cleanup
+diagnostics without stale success. This qualifies report finalisation only;
+the updated driver's actual Android/private-node qualification remains pending.
+
 The optional `scripts/check-recording-private-node-host.py` requires Python
 `cryptography`, Node 24, an explicitly selected `nostr-tools` package, an
 existing private daemon binary and a synthetic 1-256 MiB MP4. Its signer is

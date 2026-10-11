@@ -81,6 +81,10 @@ def main():
     reports = Path(os.environ.get("KITHMOOT_RECORDING_REPORTS",
                                   str(root / "app/build/reports/native-recording-private-node"))).resolve()
     reports.mkdir(parents=True, exist_ok=True)
+    result_path = reports / "result.json"
+    # A reused reports directory must not retain success from an earlier run.
+    result_path.unlink(missing_ok=True)
+    result = None
 
     def device(*args, **kwargs):
         return subprocess.run([adb, "-s", serial, *args], check=True,
@@ -210,8 +214,6 @@ extendedKeyUsage = serverAuth
                       "proxy_chunk_delay_seconds": delay,
                       "responses": responses, "sample_sha256": digest(sample),
                       "daemon_sha256": digest(binary), "report_sha256": digest(reports / "instrumentation.txt")}
-            (reports / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-            print("Private Wildbloom UI Upload/Send and recipient Show/Play passed")
         finally:
             active_error = sys.exc_info()[0] is not None
             cleanup_codes = {}
@@ -261,6 +263,13 @@ extendedKeyUsage = serverAuth
             if not active_error and (cleanup_errors or any(cleanup_codes.values()) or
                                      not cleanup["daemon_stopped"] or not cleanup["proxy_stopped"]):
                 raise RuntimeError("Private fixture cleanup incomplete; inspect cleanup report")
+    # Temporary storage and every fixture process have been removed before a
+    # success receipt can exist. Any original or cleanup exception bypasses this.
+    if result is None:
+        raise RuntimeError("Private fixture produced no qualification result")
+    result["cleanup"] = cleanup
+    result_path.write_text(json.dumps(result, indent=2) + "\n")
+    print("Private Wildbloom UI Upload/Send and recipient Show/Play passed")
 
 
 if __name__ == "__main__":
