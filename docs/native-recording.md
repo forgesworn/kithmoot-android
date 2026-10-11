@@ -1278,3 +1278,13 @@ settled-runtime receipts prove this checkpoint's local gates; earlier failures
 under load remain recorded and require investigation. Sender Add/Upload/Send,
 durable node cleanup, stop-notice recovery, live-call video, hosted CI, physical
 endurance/interruption and signed production delivery remain open.
+
+## Capture driver readiness correction
+
+The capture script now owns launcher readiness before installation or
+instrumentation, requires an individual successful result for every test, and
+explicitly exits on failure or skip. The workflow retains a separate readiness
+check for the Session suite. The [six driver fault checks](evidence/native-recording-capture-driver-2026-10-11.json)
+pass with fake adb, including failed readiness preventing all instrumentation
+and a misleading OK summary failing without complete results. This does not
+qualify capture on a real device or close the [profile-4 parity gate](native-recording-profile4-parity.md).

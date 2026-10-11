@@ -81,6 +81,7 @@ jobs:
           bash -n scripts/*.sh
           python3 -m py_compile scripts/*.py
           python3 scripts/check-recovery-runner.py
+          python3 scripts/check-recording-capture-runner.py
           python3 scripts/check-sharing-restart-runner.py
           python3 scripts/test-pull-recovery-proof.py
           python3 scripts/test_recording_private_node_proxy.py
@@ -352,8 +353,12 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
           script: |
-            python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports "$KITHMOOT_RECORDING_REPORTS"
-            if [ "$KITHMOOT_RECORDING_SUITE" = capture ]; then bash scripts/check-recording-emulator.sh full; else bash scripts/check-recording-session-interop-emulator.sh; fi
+            if [ "$KITHMOOT_RECORDING_SUITE" = capture ]; then
+              bash scripts/check-recording-emulator.sh full
+            else
+              python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports "$KITHMOOT_RECORDING_REPORTS"
+              bash scripts/check-recording-session-interop-emulator.sh
+            fi
       - name: Keep full capture and Session interoperability reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

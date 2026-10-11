@@ -41,3 +41,8 @@ Required integration and evidence:
 The existing 28 profile-3 vectors and published canonical interop vectors remain
 unchanged. Published fixture input must be copied verbatim from reviewed upstream,
 with its source hash recorded. No profile-4 qualification follows from this audit.
+
+The five fixture cases are now copied verbatim to
+`protocol/src/test/resources/participant-recording.json`; both declared source
+hashes match reviewed web main. Native fixture decoding and verification tests
+remain to be implemented after the current Kotlin build is terminal.
