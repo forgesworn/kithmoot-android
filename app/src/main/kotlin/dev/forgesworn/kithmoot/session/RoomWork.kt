@@ -567,7 +567,7 @@ class RoomWork(
         val off=notice.copy(on=false,version=version+1)
         val signedOff=SignedRecordingNotice(off,signRecordingNotice(roomId,off,identity.deviceSecretKey))
         recordingStops?.arm(roomId,identity.devicePubkey,signedOff,identity.devicePubkey,
-            checkNotNull(recordingStopGeneration),call)
+            checkNotNull(recordingStopGeneration),call,identity.participant)
         val state=LiveRecordingState(signed,signedDetails,call,identity.participant,identity.devicePubkey)
         try {
             onArmed(id)
@@ -596,6 +596,8 @@ class RoomWork(
         if(retained!=null&&retained.notice.id!=id)return
         val active=activeParticipantRecording?.takeIf {it.recording.notice.id==id}
         val call=recordingStops?.pendingCall(roomId,identity.devicePubkey)?:active?.call?:return
+        val participant=recordingStops?.pendingParticipant(roomId,identity.devicePubkey)?:active?.recorder?:identity.participant
+        check(participant==identity.participant) {"Retry this recording's stop notice with its original account."}
         check(!closed) {"This room has closed"}
         recordingRepost?.cancel()
         activeParticipantRecording=null
@@ -604,7 +606,7 @@ class RoomWork(
         }
         mutableRecordingStopPending.value=id
         try {
-            publishParticipantRecording(LiveRecordingState(signed,null,call,identity.participant,identity.devicePubkey))
+            publishParticipantRecording(LiveRecordingState(signed,null,call,participant,identity.devicePubkey))
             if(retained!=null)recordingStops?.confirm(roomId,identity.devicePubkey,retained)
             mutableRecordingStopPending.value=null
         } catch(error:Exception) {throw error}

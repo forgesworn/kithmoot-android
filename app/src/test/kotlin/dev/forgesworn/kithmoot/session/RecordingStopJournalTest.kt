@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlin.test.*
+import kotlinx.serialization.json.*
 
 class RecordingStopJournalTest {
     private class Store: RoomStorage {
@@ -54,5 +55,47 @@ class RecordingStopJournalTest {
         // A newly opened owner may record after an explicit rejoin.
         journal.arm(room, device, signed, authority, journal.generation(room))
         assertEquals(signed, journal.pending(room, device, authority))
+    }
+
+    @Test fun `restoration retains original call and person and refuses rewritten context`() {
+        val storage = Store(); val journal = RecordingStopJournal(storage); val signed = off()
+        val call = "12".repeat(16); val person = "34".repeat(32)
+        journal.arm(room, device, signed, authority, call = call, participant = person)
+        val restored = RecordingStopJournal(storage)
+        assertEquals(signed, restored.pending(room, device, authority))
+        assertEquals(call, restored.pendingCall(room, device))
+        assertEquals(person, restored.pendingParticipant(room, device))
+        restored.arm(room, device, signed, authority, call = call, participant = person)
+        assertFails { restored.arm(room, device, signed, authority, call = "56".repeat(16), participant = person) }
+        assertFails { restored.arm(room, device, signed, authority, call = call, participant = "78".repeat(32)) }
+        assertFails { restored.arm(room, device, signed, authority, call = call) }
+        assertEquals(person, RecordingStopJournal(storage).pendingParticipant(room, device))
+    }
+
+    @Test fun `legacy participant stop with call only remains readable`() {
+        val storage = Store(); val journal = RecordingStopJournal(storage); val signed = off()
+        val call = "12".repeat(16)
+        journal.arm(room, device, signed, authority, call = call)
+        val restored = RecordingStopJournal(storage)
+        assertEquals(signed, restored.pending(room, device, authority))
+        assertEquals(call, restored.pendingCall(room, device))
+        assertNull(restored.pendingParticipant(room, device))
+    }
+
+    @Test fun `malformed retained context cannot fall back to legacy authority`() {
+        val storage = Store(); val signed = off(); val person = "34".repeat(32)
+        fun invalid(call: JsonElement?, participant: JsonElement?) {
+            storage.bytes = buildJsonArray { add(buildJsonObject {
+                put("room", room); put("device", device); put("body", encodeRecordingOp(signed))
+                call?.let { put("call", it) }; participant?.let { put("participant", it) }
+            }) }.toString().toByteArray()
+            assertFails { RecordingStopJournal(storage).pending(room, device, authority) }
+        }
+        invalid(JsonPrimitive(123), null)
+        invalid(JsonNull, null)
+        invalid(JsonPrimitive("12".repeat(16)), JsonPrimitive(123))
+        invalid(JsonPrimitive("12".repeat(16)), JsonNull)
+        invalid(null, JsonPrimitive(person))
+        assertFails { RecordingStopJournal(Store()).arm(room, device, signed, authority, participant = person) }
     }
 }

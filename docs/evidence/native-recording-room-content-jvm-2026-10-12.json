@@ -27,7 +27,7 @@
   "limits": [
     "Local lint and APK packaging were stopped after equivalent hosted verification passed on the same app source. Local unfinished gates are not claimed as passed.",
     "Hosted recording restart passed, but capture and Session jobs failed before tests because android-emulator-runner split the shell conditional. A single-script launcher correction needs fresh hosted qualification.",
-    "Private-node instrumentation remains in progress.",
+    "Both private-node matrix images passed short, maximum-size and slow-transfer checks with separate recipient processes.",
     "JUnit pass counts do not claim implementation of uncovered protocol vector groups.",
     "No physical 45-minute capture or signed production publication is established."
   ],
@@ -60,5 +60,97 @@
     "instrumentation_invocations": 9,
     "instrumentation_tests": 9,
     "log_sha256": "7b4ae3527d513a6579a18dc6240fd39c94edb612245b059fdd64fe95adff0632"
+  },
+  "hosted_private_node_google_apis": {
+    "job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803/job/114608661795",
+    "result": "passed",
+    "cases": [
+      {
+        "case": "short",
+        "sample_bytes": 32583,
+        "proxy_chunk_delay_seconds": 0.0,
+        "result_sha256": "322391763cf6a2bf1e7889b487aee6f6899ef7ce7877bad899bd238345c2a25b",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      },
+      {
+        "case": "maximum",
+        "sample_bytes": 268435456,
+        "proxy_chunk_delay_seconds": 0.0,
+        "result_sha256": "723b530ef9f8b4f5d6b4a71a58e40e05bab8cbb1080089df78732a1a0b8ad1cc",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      },
+      {
+        "case": "maximum-slow",
+        "sample_bytes": 268435456,
+        "proxy_chunk_delay_seconds": 0.08,
+        "result_sha256": "2058e713311a2009d07673039d7cb606102ebac1a2beb704b6d245404a36f480",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      }
+    ],
+    "limit": "Synthetic three-second media padded to 256 MiB proves size/slow-transfer behaviour, not physical 45-minute recording."
+  },
+  "hosted_private_node_default": {
+    "job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803/job/114608661915",
+    "result": "passed",
+    "cases": [
+      {
+        "case": "short",
+        "sample_bytes": 32583,
+        "proxy_chunk_delay_seconds": 0.0,
+        "result_sha256": "9a160c4228abe101f0a0ca3405f961d3ddd83c191095e450e9c60d319a7b771a",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      },
+      {
+        "case": "maximum",
+        "sample_bytes": 268435456,
+        "proxy_chunk_delay_seconds": 0.0,
+        "result_sha256": "6b62faf390252941c53a2dda13fcc582caed0e6cef5f339ee25d435d3711d3dd",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      },
+      {
+        "case": "maximum-slow",
+        "sample_bytes": 268435456,
+        "proxy_chunk_delay_seconds": 0.08,
+        "result_sha256": "bbe593e4e3539b6d08e46087cf9329fdb206751667971bee8514b0b5a1ec2a32",
+        "real_wildbloom_daemon": true,
+        "separate_recipient_process": true,
+        "responses": [
+          "PUT 201",
+          "GET 200"
+        ],
+        "cleanup": "passed"
+      }
+    ],
+    "limit": "Synthetic three-second media padded to 256 MiB proves size/slow-transfer behaviour, not physical 45-minute recording."
   }
 }

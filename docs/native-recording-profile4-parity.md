@@ -76,8 +76,12 @@ PR #400. The older fixture provenance remains historical rather than rewritten.
 The restart follow-up retains the original participant alongside the call and
 device-signed Off. Retry refuses another account even when it retains the same
 device key, and preserves the pending notice for the original account. Older
-call-only entries remain readable. Focused verification of this follow-up is
-running; it is not covered by the earlier `c1457a24` restart result.
+call-only entries remain readable. All ten focused journal and participant-recording checks pass, with no failures
+or skips; the [original-person Stop receipt](evidence/native-recording-original-person-stop-2026-10-12.json)
+records the tested source hashes. Fresh hosted restart qualification remains
+required because the earlier `c1457a24` result predates this follow-up. Both
+private-node emulator images passed real Wildbloom Upload/Send/Show/Play,
+including 256 MiB and slow transfers, on the earlier `c1457a24` source.
 
 ## Historical initial audit
 

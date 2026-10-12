@@ -99,6 +99,34 @@ class ParticipantRecordingTest {
         restored.close(); a.leave()
     }
 
+    @Test fun retainedStopCannotBePublishedAsAnotherPersonWithTheSameDevice() = runTest {
+        val relay = FakeRelay(); val a = session(room, alice, relay)
+        a.join(); a.setCall(CallMembership(call, 0)); runCurrent()
+        val store = Stops(); val original = work(alice, a, relay, RecordingStopJournal(store))
+        relay.confirmsPublications = false
+        var id: String? = null
+        assertFailsWith<IllegalStateException> { original.startRecording("audio", onArmed = { id = it }) }
+        original.close(); a.leave(); runCurrent()
+        relay.confirmsPublications = true
+        val changed = Fixtures.primary(room, 3, 2)
+        assertEquals(alice.devicePubkey, changed.devicePubkey)
+        assertNotEquals(alice.participant, changed.participant)
+        val b = session(room, changed, relay); b.join(); runCurrent()
+        val wrongAccount = work(changed, b, relay, RecordingStopJournal(store))
+        assertEquals(id, wrongAccount.recordingStopPending.value)
+        val error = assertFailsWith<IllegalStateException> { wrongAccount.stopRecording(id!!) }
+        assertTrue(error.message!!.contains("original account"))
+        assertTrue(b.participantRecordings.value.isEmpty())
+        assertNotNull(RecordingStopJournal(store).pending(room.roomId, alice.devicePubkey, alice.devicePubkey))
+        wrongAccount.close(); b.leave(); runCurrent()
+        val restoredSession = session(room, alice, relay); restoredSession.join(); runCurrent()
+        val restored = work(alice, restoredSession, relay, RecordingStopJournal(store))
+        restored.stopRecording(id!!); runCurrent()
+        assertNull(RecordingStopJournal(store).pending(room.roomId, alice.devicePubkey, alice.devicePubkey))
+        assertEquals(alice.participant, restoredSession.participantRecordings.value["$call:${alice.devicePubkey}"]!!.state.recorder)
+        restored.close(); restoredSession.leave()
+    }
+
     @Test fun onlyOlderDevicesOnThisCallBlockParticipantRecording() = runTest {
         val relay = FakeRelay(); val a = session(room, alice, relay)
         a.join(); a.setCall(CallMembership(call, 0)); runCurrent()
