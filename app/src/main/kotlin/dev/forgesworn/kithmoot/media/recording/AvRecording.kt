@@ -47,7 +47,7 @@ class AvRecordingFile(
         try {
             check(parts.mkdir()) { "Recording temporary storage is unavailable" }
             ownParts = true
-            audio = AacRecordingFile(audioFile, maxBytes)
+            audio = AacRecordingFile(audioFile, maxBytes, deferPlaybackClock = true)
         } catch (error: Throwable) {
             if (ownParts) parts.deleteRecursively()
             file.delete()
@@ -164,6 +164,7 @@ class AvRecordingFile(
             requireNotNull(muxer).stop()
             check(audioFile.length() + videoFile.length() <= maxBytes) { "Recording reached its file limit" }
             remux(durationUs)
+            Mp4PlaybackClock.apply(file, samples, RecordingCodecs.AAC_PRIMING_SAMPLES, maxBytes)
             check(file.length() in 1..maxBytes) { "Recording exceeds its file limit" }
         } catch (error: Throwable) {
             file.delete()
@@ -192,7 +193,6 @@ class AvRecordingFile(
             val buffer = ByteBuffer.allocateDirect(4 * 1024 * 1024)
             val sampleInfo = MediaCodec.BufferInfo()
             val last = longArrayOf(-1, -1)
-            var audioPaddingDiscarded = false
             while (true) {
                 check(!Thread.currentThread().isInterrupted) { "Recording finalisation was interrupted" }
                 val next = readers.indices.filter { readers[it].sampleTime >= 0 }.minByOrNull { readers[it].sampleTime } ?: break
@@ -201,16 +201,8 @@ class AvRecordingFile(
                 val count = reader.readSampleData(buffer, 0)
                 check(count in 1..buffer.capacity()) { "Invalid recording sample size" }
                 val time = reader.sampleTime
-                if (next == 0 && !audioPaddingDiscarded && isFinalAacPadding(time, last[next], durationUs)) {
-                    // AAC flush padding can start just beyond the PCM end.
-                    // Retain the preceding partial access unit and its exact
-                    // EOS duration, without publishing an extra padded unit.
-                    audioPaddingDiscarded = true
-                    last[next] = time
-                    reader.advance()
-                    continue
-                }
-                check(time >= last[next] && time <= durationUs) {
+                val trackEnd = if (next == 0) audio.codedDurationUs else durationUs
+                check(time >= last[next] && time <= trackEnd) {
                     "Invalid recording sample timestamp: track=$next timeUs=$time previousUs=${last[next]} " +
                         "sourceEndUs=$durationUs audioEncoder=${RecordingCodecs.audioEncoder} " +
                         "videoEncoder=${RecordingCodecs.videoEncoder}"
@@ -222,8 +214,8 @@ class AvRecordingFile(
                 reader.advance()
             }
             check(last.all { it >= 0 }) { "Recording is missing a track" }
-            tracks.forEach { destination ->
-                sampleInfo.set(0, 0, durationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            tracks.forEachIndexed { index, destination ->
+                sampleInfo.set(0, 0, if (index == 0) audio.codedDurationUs else durationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                 output.writeSampleData(destination, ByteBuffer.allocate(0), sampleInfo)
             }
             output.stop()

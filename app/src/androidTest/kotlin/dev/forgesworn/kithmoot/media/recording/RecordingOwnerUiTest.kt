@@ -243,7 +243,7 @@ class RecordingOwnerUiTest {
             assertEquals(2, extractor.trackCount)
             val formats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
             assertEquals(setOf("audio/mp4a-latm", "video/avc"), formats.map { it.getString(MediaFormat.KEY_MIME) }.toSet())
-            val durations = formats.map { it.getLong(MediaFormat.KEY_DURATION) }
+            val durations = formats.map(AvRecordingTest()::playbackDurationUs)
             assertTrue(durations.all { it > 0 })
             assertTrue(kotlin.math.abs(durations[0] - durations[1]) <= 999)
         } finally { extractor.release() }
