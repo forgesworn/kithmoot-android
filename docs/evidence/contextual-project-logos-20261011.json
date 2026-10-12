@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-11",
+  "baseRevision": "e86790bbfdd9b02ebb700532d0527722ca34de8b",
+  "implementationFilesSHA256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/SharedProjectsUiTest.kt": "5f61778526ff68c219f44c6816ab9538515d00bc9fcb427006393abd04cb64e6",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "b4aaf128e4dead9c0c6754d2ebb98635e449d3ce26c1775804de22bc5f44c912",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/ContextualProjectLogoUiTest.kt": "6c707b7878b0a38c4ce81d638ea7ba65f2dc0bf0e4f597a14cb192182758dc18",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/MainActivity.kt": "0c3699dc5938797db150e4df59c0e55c376abe2fa33d389b3e5391044ff37b5d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/account/ProjectBrands.kt": "9fd8c68595f9a1d5c6c6c50d4519f6681c20932ec55d60b2452609f955208ab0",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/storage/SavedRoom.kt": "747e07b9a44272dc6ba5e6c4641c33fdcb097c4bb76cfd16dc318d209d0ae449",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/GuestAdmissionDialog.kt": "16ca960c6a4bfbbc134042cb6ae99bfeb96345b1d7c46bbf01cd033413e94c3e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "294c099cc27b4a3be1e7deff11e4eb29bc5412fde0833db94600af6c9ab050e4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "81d54d4a43d6ce875be3b6019593e00e5e0b5d9a412b4bf8a51a16e95a17e98c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/CallDock.kt": "1643b64fbd10f3e044dfde17756afcd593133a09d58ea707c728a5053691a9e3",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomBrands.kt": "781d269afdc954017bcfad6293b4a9a24d2aba75b1a9b6d54bdcfdebcd0c8cd8",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "c68474000a859bc1a324a7deb027124092fe3889ad66327045cf0a313931b904",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/start/ProjectsPanel.kt": "36dfc5b525232fb22c745516f528916a8b036158dc73cbb7176ad6d9e30bbe8f",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/start/RoomRows.kt": "4dea3d121437e010fe6c4a8bf94a54f0e68df78c00ba1419814d42787749f045",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/start/StartScreen.kt": "a1c7644ad466f7d0fd9faf29c691281e90ce3b023e707ffd60ca8098c2596d74",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/account/ProjectBrandsTest.kt": "0e7290432af29f31e86c0fd89f4e7d9f0049d18de5c2ff6dba05627a25cf46aa",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/room/RoomBrandsTest.kt": "68b5627fbdc64490358dfb4eeb7ce5c14a21e510dbd4b9bd882d716306d4ed2f"
+  },
+  "local": {
+    "protocolTests": 443,
+    "debugAppTests": 2009,
+    "releaseAppTests": 2009,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "lintDebug": "passed",
+    "lintRelease": "passed",
+    "assemblies": [
+      "debug",
+      "instrumentation",
+      "unsigned release"
+    ]
+  },
+  "installedEmulator": {
+    "serial": "emulator-5582",
+    "ownedAVD": "kithmoot-project-logos-20261011",
+    "api": 35,
+    "architecture": "arm64-v8a",
+    "testCases": 28,
+    "strictResult": "OK (28 tests)",
+    "classes": [
+      "ContextualProjectLogoUiTest",
+      "GuestAdmissionUiTest",
+      "ProjectLogoEditorTest",
+      "RoomLogoUiTest",
+      "SharedProjectsUiTest"
+    ],
+    "sourceFileHashMismatches": 0,
+    "actualProjectRoomNavigation": true,
+    "actualCallMembership": true,
+    "microphoneAndCameraEnabled": false,
+    "physicalMediaQualification": false,
+    "additionalViewportQualification": {
+      "size": "1080x2400",
+      "dpi": 420,
+      "animations": "disabled",
+      "result": "OK (28 tests)"
+    }
+  },
+  "artifacts": {
+    "debugSHA256": "f504a063d38635e971f3735b44b1fbd5970581d146a793ab4ea67daaeeca8e7d",
+    "instrumentationSHA256": "cc3002af47e1b2ff9bb06d7b3d6448860a4a252cf4a1bef67d7acff5dce014ea",
+    "unsignedReleaseSHA256": "cc85d3c1c99f39c7d2954a8af285e129991d2ba7c51fcdcd7dde2ba8458d0183"
+  },
+  "preservedFailures": [
+    "First installed call journey failed during cleanup when the Android background-battery dialog covered Home; fixture now explicitly denies that exception.",
+    "First wider screen batch failed two admission feedback visibility checks; restored the original invitation wording, placed device feedback above controls and reset scroll on state transitions.",
+    "Initial navigation assertion accepted the project card before room entry; strengthened it to require the actual chat-only room and its selected project.",
+    "Hosted run 38142986057 passed all four SharedProjectsUiTest cases but failed the stale three-case runner expectation; corrected the count and added the contextual/admission screen classes to hosted recovery.",
+    "Hosted run 38144754531 lost Share Build room with project from the visible accessibility tree after its first reveal. The helper now reveals a moved control again and still requires its successful click. The installed 28-case batch passed at 1080x2400, 420 dpi with animations disabled."
+  ],
+  "publication": {
+    "newProductionAPK": false,
+    "zapstore": false,
+    "physicalPhoneAcceptance": false,
+    "g15Complete": false
+  },
+  "remaining": [
+    "real persistent-project invitation preview; branded dialog checks use synthetic state",
+    "closed-room logo catch-up",
+    "independent browser/native account recovery",
+    "physical-phone acceptance",
+    "new signed Android release publication"
+  ],
+  "previousInstrumentationSHA256": "8a856a05c51595d738df1692dc0f1d5154f6927b28d1345920c11d7422d0af64",
+  "previousHelperSHA256": "f44481f22da5f04caf8047b49f6a19e546aafa12aa09cbdac525c5fa80e4f764"
+}

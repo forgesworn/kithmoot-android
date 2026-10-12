@@ -1,0 +1,45 @@
+{
+  "production_ready": false,
+  "fixture_only": true,
+  "fixtures": [
+    {
+      "name": "synthetic-browser-audio.ogg",
+      "type": "audio/ogg;codecs=opus",
+      "size": 65608,
+      "sourceSha256": "f33adf95c129fd4aadb6ea374b1a90c0836a8b336cac3809499f1a16f70676e7",
+      "sha256": "7f57d675e815c185b3519d7d6a518f8f9a9e9f83ed926f6baedf084622ba0729"
+    },
+    {
+      "name": "synthetic-browser-audio.webm",
+      "type": "audio/webm;codecs=opus",
+      "size": 65608,
+      "sourceSha256": "ed012f0970d5f71a13f8bd32a6d72f8c4d6c025b55b80ca10a45637390d09039",
+      "sha256": "bc8d62ef6401df54ffb9ea2d564fd91f6f67779e859feb5951abb0a2f6e7df03"
+    },
+    {
+      "name": "synthetic-browser-video.webm",
+      "type": "video/webm;codecs=vp8,opus",
+      "size": 65608,
+      "sourceSha256": "1ed2cba7ff4bc865957b422c1956da868d1c07f1de1f918cb9605470c12bc6fa",
+      "sha256": "f0abaab6d5105cb4bb194f1a1751f1a0731eccb49b2f246194a34618e52540dc"
+    }
+  ],
+  "sources": {
+    "reference_call_recorder_sha256": "1b1d5e7c75d9068046807276b017807a52354e44a0e4b46123bb22bcf08623d1",
+    "independent_wildbloom_writer_sha256": "36e4d12acad2ab79ce14df50d96a65e8aa52e9fb7fc4b6dbb7a91fc6b8e1e00d"
+  },
+  "browser_video": {
+    "video_codec": "vp8",
+    "audio_codec": "opus",
+    "width": 320,
+    "height": 180,
+    "declared_duration": false
+  },
+  "runtime_qualified": false,
+  "limits": [
+    "Synthetic silence and canvas colours only",
+    "Ogg is an Opus remux, not a Firefox capture",
+    "ffmpeg logged an Opus packet warning while decoding browser output; native playback not yet qualified",
+    "No real-room delivery or live-call recording claim"
+  ]
+}

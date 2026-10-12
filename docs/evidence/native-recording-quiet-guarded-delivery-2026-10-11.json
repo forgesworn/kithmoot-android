@@ -1,0 +1,84 @@
+{
+  "production_ready": false,
+  "base_commit": "ef4236e260d4cc473504393dbe6bd9ec5b99a215",
+  "scope": "Guarded publication through quiet slot receipts, caller-owned temporary requests, exact-event late acknowledgement ownership, pre-dispatch counter and occupied-slot persistence. JVM fixtures and JSON round trip; no real-room UI, real relay, delegated box, actual Android restart or physical-device acceptance claim.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "910a849a293f903e645a1582790be894efd55e6c5d73c432bb80fc89fd0b0da2",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "5da48e11ec036a70785c41e4ddb6158b6fba555afce93f4fd9574979f79de5ba",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietGuardedPublicationTest.kt": "3a85501167f6897ec62c285f304c917c59a678c48ef922f4b08a6208faddb86b",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietTransportTest.kt": "2cc83b0f01a7e865ae0045234085fbb6af9d3a692b65cc1aabf15d7a9a0f3dc6",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/QuietStateJsonTest.kt": "dd99561389a161feef11125250168a2ff748e2fbb5314b87e3b775a9b544e64f"
+  },
+  "local_full_ci": {
+    "passed": true,
+    "elapsed": "11m 13s",
+    "tasks": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleRelease"
+    ],
+    "log_sha256": "5cd6e9261d26ced22d6debca219cbcc741c53aac93ea0adac584bd0764f9ee2e"
+  },
+  "jvm": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2051,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "guarded": {
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "guarded_cases": [
+    "ordinary queue removal in flight cannot consume a new guarded owner",
+    "cancellation before dispatch leaves no replayable request",
+    "restart retains spent counters but cannot replay a guarded recording event",
+    "a denied guard cannot retain or publish anything",
+    "restart after an unknown offer preserves the occupied slot",
+    "a late receipt completes the current retry of the same exact event",
+    "failed counter persistence prevents an offer and leaves retry authority with the caller",
+    "an unknown offer never sends a replacement wrap in the same slot after timeout",
+    "rekey rejects waiting owners and invalidates captured generations",
+    "guarded receipt waits for delivery and never joins the restart or box queue",
+    "timeout before dispatch removes only the temporary request",
+    "ownership withdrawn before a slot rejects the request and only posts filler",
+    "the underlying dispatch rechecks ownership after slot selection",
+    "rekey after an unknown offer cannot occupy the same slot again"
+  ],
+  "apk_inputs": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "0896ba2fba6fee49745d8959c485553889c153e45a1346c359686bf412258039"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "724e9324ea44cd68a2516909df2802c33f48dbed4447d7e7408d16a87c3d1d39"
+    }
+  ],
+  "remaining": [
+    "Cadence-aware caller waiting and cancellation UI for recording notices and prepared Send",
+    "Recording notice heartbeat timing and quiet counter budget",
+    "Cadence wrapper and delegated box delivery confirmation",
+    "Full saved-room process recovery and independent recipient journey through real private storage",
+    "Reliability under load and physical 45-minute endurance/interruption/provider exports",
+    "Integrate current main before final release qualification",
+    "Final hosted CI, signing-lineage and signed production distribution"
+  ],
+  "runtime": {
+    "physical": false,
+    "instrumentation_run": false
+  }
+}

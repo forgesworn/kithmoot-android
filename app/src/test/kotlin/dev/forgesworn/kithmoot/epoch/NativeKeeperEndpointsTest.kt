@@ -230,6 +230,44 @@ class NativeKeeperEndpointsTest {
         } finally { courier?.close() ?: queue.close(); journal.close(); live.leave(); internet.stop(); secret.fill(0) }
     }
 
+    @Test fun recoveryHoldAfterOriginalAdoptionDoesNotHoldTheNextEpoch() = runTest {
+        val creation = NativeKeeperCreation.fresh(0)
+        val secret = creation.roomSecret()
+        val derived = deriveRoom(secret)
+        val identity = Fixtures.primary(derived, 5, 6)
+        val vault = EpochVault(Store())
+        vault.initialise(derived.roomId, creation.authority, secret, 0)
+        var commits = 0
+        val live = session(derived, identity, FakeRelay(), authority = creation.authority,
+            epochGate = { event, notice ->
+                assertNotNull(vault.follow(derived.roomId, notice, event.id, 0))
+                commits++
+                EpochGateResult.COMMITTED
+            })
+        val journal = NativeKeeperJournal.create(Store(), NativeKeeperBinding(derived.roomId,
+            creation.authority, identity.participant, identity.devicePubkey, RoomRoute.NEARBY, emptyList()),
+            creation, identity.credential) { 0 }
+        try {
+            live.join(); runCurrent(); journal.bind { true }
+            live.holdKeeperTransition(derived.roomId, creation.authority, identity.participant, identity.devicePubkey)
+            val original = journal.prepareRekey(listOf(identity.credential)).single()
+            // The receiver wins the race after recovery observed epoch zero.
+            live.applyKeeperRekey(original, identity.participant, identity.devicePubkey)
+            assertEquals(1, live.epochKeys().epoch)
+            live.holdKeeperTransition(derived.roomId, creation.authority, identity.participant,
+                identity.devicePubkey, recoveringEpoch = 1)
+            live.applyKeeperRekey(original, identity.participant, identity.devicePubkey)
+            assertEquals(RoomEpochState.Active(1, live.epochKeys().id), live.epochState.value)
+            assertEquals(1, commits, "Replay must not repeat the durable receiver commit")
+            assertEquals(original.id, vault.get(derived.roomId)!!.activationCause)
+            live.sendChat("Current owner can still publish after recovery replay")
+            // A genuinely new source transaction must still hold publication.
+            live.holdKeeperTransition(derived.roomId, creation.authority, identity.participant, identity.devicePubkey)
+            assertEquals(RoomEpochState.Updating(2), live.epochState.value)
+            assertFails { live.sendChat("Next source transaction remains held") }
+        } finally { journal.close(); live.leave(); secret.fill(0) }
+    }
+
     @Test fun originalClosureAndRetirementFinishOnTheSelectedControlPathAfterTheLocalSessionStops() = runTest {
         val creation = NativeKeeperCreation.fresh(0); val secret = creation.roomSecret(); val derived = deriveRoom(secret)
         val owner = Fixtures.primary(derived, 5, 6)

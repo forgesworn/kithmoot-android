@@ -1,0 +1,24 @@
+{
+  "production_ready": false,
+  "scope": "Diagnostic-only owner test after full CI; same production debug APK",
+  "build_successful": true,
+  "build_elapsed": "1m 40s",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "7a90c5e61d8b716868ac8ae7575e951c23320bdf29f750f5ed8e361b6d656f78"
+  },
+  "app_apk_sha256": "4f4b9bb83ee36104289ede333d65ce8f3ebdbd82613a3ebf19c707dbad7a67ae",
+  "test_apk_sha256": "ca369227386e813513d6ac1bc67bbc99c5504de497bd2c36a23b26e4c1bfa974",
+  "runtime": {
+    "qualified": true,
+    "serial": "emulator-5586",
+    "tests": 1,
+    "failures": 0,
+    "elapsed_seconds": 26.509,
+    "report": "app/build/reports/native-recording-owner-diagnostic/instrumentation.txt",
+    "report_sha256": "c43cf93a07fed09e40108e11cd0d58f1b880a6e75e754e5c96229cdb632f857f",
+    "concurrent_gradle_build": false,
+    "assertions_unchanged": true
+  },
+  "root_cause_proven": false,
+  "prior_full_and_single_case_background_failures_remain_in_evidence": true
+}

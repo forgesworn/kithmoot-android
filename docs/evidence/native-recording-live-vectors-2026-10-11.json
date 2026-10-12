@@ -1,0 +1,30 @@
+{
+  "qualification": "Independent signed live recording wire interoperability",
+  "native_source_commit": "035cbbc3",
+  "web_source_commit": "fb5285e",
+  "fixture_cases": 28,
+  "fixture_sha256": "9fec606c5ad487a59d3e4f624c5159fee794e66b45d96c566f0b9510bf9bb160",
+  "native_protocol": {
+    "tests": 474,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "web_focused_tests": 32,
+  "web_typecheck": "passed",
+  "deterministic_regeneration": "Two generated outputs matched the committed web fixture byte for byte",
+  "source_sha256": {
+    "protocol/src/test/resources/recording-live.json": "9fec606c5ad487a59d3e4f624c5159fee794e66b45d96c566f0b9510bf9bb160",
+    "protocol/src/test/kotlin/dev/forgesworn/kithmoot/protocol/LiveRecordingVectorsTest.kt": "7aef2076391a3e9657e4d2993ecc6d69f699d06ddb4770039e2eb53bf2aea199"
+  },
+  "log_sha256": {
+    "kithmoot-live-recording-vectors-native-tests.log": "e7ca5b45363ddcd7813ac06a27dfb65ee56dd4aa0552ae624b94f56fdd575827",
+    "kithmoot-live-recording-vectors-web-tests.log": "e60529d2c798a9ab8c7400f0eb2766902a272191bd2d73a49b4586fbd4d67be3",
+    "kithmoot-live-recording-vectors-typecheck.log": "caa298209aa942cc5ab18c6756f73b50b8a325269b5da448077f6e2ab19f7e45"
+  },
+  "limits": [
+    "Wire codec and root signature decisions only; does not prove live cross-client Session delivery",
+    "Per-source capture revocation, quiet Send restart/rekey and physical device acceptance remain separate gates",
+    "Existing main vector file and its coverage groups are unchanged"
+  ]
+}

@@ -389,9 +389,9 @@ internal class NativeKeeperController private constructor(private val source: Na
                 val target = requireNotNull(peekRekeyEpoch(event, source.binding.room, source.binding.authority))
                 if (session.epochKeys().epoch < target && session.epochState.value !is RoomEpochState.Closed) {
                     val b = source.binding
-                    // The ordinary receiver owns the epoch barrier. An echo
-                    // can adopt this original while recovery waits for it;
-                    // a second hold would then block the following epoch.
+                    // The receiver owns the transition barrier under its mutex.
+                    // An echo may adopt this original while recovery waits; a
+                    // separate hold would then block the already adopted epoch.
                     session.applyKeeperRekey(event, b.participant, b.device)
                 }
             }

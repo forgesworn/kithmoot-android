@@ -1,0 +1,75 @@
+{
+  "qualification": "integrated-main Link dispatch cancellation and consent checks",
+  "source_base": "d74ee281",
+  "main_included": "23db8b58",
+  "tests": {
+    "dev.forgesworn.kithmoot.relay.LinkTransportTest": {
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "3fb2e441c0602e2fb697d5ed70b87003f309d8f44c4b57b170c1067fc797125f"
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceClientTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "4469d06d45c535791c91a8063db508063cc12f944371c70f4db47c5da4aa2da2"
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceGuardedPublicationTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "639f9aa9a7cd8862c3dcc6d036961884018de28697dd9ed286183edd4a524573"
+    },
+    "dev.forgesworn.kithmoot.epoch.NativeKeeperControllerTest": {
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "c9ddd7dd8e45a0d54b33aca7de686050045fd63ce1626836715a4b5577d5bcf1"
+    },
+    "dev.forgesworn.kithmoot.account.SharedProjectsTest": {
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "efde08baf53f167999f54a642ff850b1cbd9b86bb0d4a4be471c71849d48708c"
+    }
+  },
+  "app_tests": 85,
+  "protocol_tests": {
+    "tests": 443,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "log_sha256": "4afb37a3d50c256670b670eae5a727f4c61fd9fe34de74e14a92c965ec119632",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/LinkTransport.kt": "6e6a85f17aa853e427ce40b4845a75e2ea14e5ec2e0ec85d16d6a37ccb3006b9",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "94bbc1d7559b426f197853f697a8a733435d3b96055d973d4d91edd44d38f859"
+  },
+  "limits": [
+    "JVM fixtures, not real Link or delegated node delivery",
+    "A native request already offered cannot be retracted by cancelling its future",
+    "Quiet delegated recording remains disabled; capacity and physical gates remain open"
+  ],
+  "startup_followup": {
+    "source_base": "c913d468",
+    "suite": "LinkTransportTest",
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "cancellation during native startup prevents the request offer",
+      "withdrawn permission during native startup prevents the request offer"
+    ],
+    "report_sha256": "d55f96f3adeb2500ae5be49ff3c3e186206533725f87a961454addcc2ae0e79c",
+    "log_sha256": "83d79eb0c9305a5727d9298921a0a18dd83f777c6a368345e9c82c17d0f83c12",
+    "test_source_sha256": "52a07f0282979bc3f2831d411d1faddaeb15942e44d9289946823ece7723e1b7",
+    "scope": "JVM worker/native-startup fixture; no delegated delivery qualification"
+  }
+}

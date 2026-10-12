@@ -1,0 +1,48 @@
+{
+  "source_commit": "b0ff83401c550c6339ad52eba3ff773e61d0993c",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38143508802",
+  "overall_conclusion": "failure",
+  "passed_jobs": [
+    "verify",
+    "recovery-emulator",
+    "signing-lineage-emulator (33)",
+    "signing-lineage-emulator (35)",
+    "recording-private-node-emulator (default)"
+  ],
+  "default_image_cases": {
+    "short": {
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "bdab0236eb9bdd28fe86e16a8adde9f10447f99b28f3bceee011f314e2eb9ca9"
+    },
+    "maximum": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "fe37cea4178d501dd88c9ae5e557895b261e96270223a09162d5707b885b8097"
+    },
+    "maximum-slow": {
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "92aa2a6672a324f0bcddffd7184c7ccfda90f4adff9d6b26daef26d3f8969b4b"
+    }
+  },
+  "google_apis": {
+    "passed": false,
+    "stage": "HTTPS setup before transfer journeys",
+    "observed": "Pixel Launcher ANR: input dispatch timed out because application does not have a focused window",
+    "diagnostics": {
+      "failure-last-anr.txt": "43170f694005e1cd3af27955d29e2649ed445c8ae6a36ada55020267a7df6344",
+      "failure-logcat.txt": "68ccd65d896222729e111975992bea527cbc541f4d3cf92657ca3e5a43adc82a",
+      "failure-screen.png": "b866ad04397c0d13d1c947c4a4c6b0c6a5af6a837c72baed134f15551f7f49a6",
+      "failure-diagnostics.json": "dc53f34606a7caa89d4ccc8a597593048511a289a1f05bc139d466f26f97ddf4"
+    }
+  },
+  "limits": [
+    "Emulator synthetic transfer, not physical recording endurance",
+    "Later live warning integration is not qualified by this run",
+    "Google APIs fixture stability remains open"
+  ]
+}

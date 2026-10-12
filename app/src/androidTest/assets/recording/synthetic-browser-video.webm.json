@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "name": "synthetic-browser-video.webm",
+  "type": "video/webm;codecs=vp8,opus",
+  "url": "https://synthetic.example/f0abaab6d5105cb4bb194f1a1751f1a0731eccb49b2f246194a34618e52540dc",
+  "sha256": "f0abaab6d5105cb4bb194f1a1751f1a0731eccb49b2f246194a34618e52540dc",
+  "key": "a30f81f926bba0ef91c28bffa50bbe15d0aefe202f70e114b45f99ada2797875",
+  "size": 65608,
+  "sourceSha256": "1ed2cba7ff4bc865957b422c1956da868d1c07f1de1f918cb9605470c12bc6fa"
+}

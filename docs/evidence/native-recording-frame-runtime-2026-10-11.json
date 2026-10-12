@@ -1,0 +1,32 @@
+{
+  "qualification": "Native encoded video scene capture revocation",
+  "source_base": "7547ab4c",
+  "emulator": "Android 35 Google APIs arm64, host GPU renderer",
+  "tests": 4,
+  "new_case": "revoked_capture_drops_queued_video_and_cannot_resume_when_the_predicate_recovers",
+  "assertions": [
+    "Decode MP4 camera pixels before revocation",
+    "Drop the last queued camera frame at composition without a new input callback",
+    "Reject subsequent callbacks after revocation",
+    "Restoring the predicate and plan cannot rearm the same capture",
+    "Decode blank video after revocation and attempted restoration"
+  ],
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoSceneTest.kt": "0bd442cfb0cea682ac68cb41c693c4201431bb8eaac3b6a5fe4433a9817b079d",
+    "scripts/check-recording-emulator.sh": "8de3a958072b9dd656ae032d7dfb44c59bc5ab1cb732a07337610e77c5c8de4d"
+  },
+  "log_sha256": "4893b3d18b1dc5843349c8048165fb552a42ed5c425bda929d3ddcbcc4ffb9ad",
+  "prior_renderer_failure": {
+    "renderer": "swiftshader_indirect",
+    "full_suite_tests": 20,
+    "failures": 5,
+    "diagnostic": "Unsupported GLES RGBA readback errors; decoded colour checks failed and live video capture exceeded its bounded audio queue",
+    "log_sha256": "401773f7d34a8292fd38aa9de53c9cbf56e419cc01d8fe20c429a762e639c14a",
+    "emulator_log_sha256": "3cb8ac1b560dda6291f0f9769eb179891c51dae2fdcefd5a7fc27938fdcbf00e"
+  },
+  "limits": [
+    "Whole capture ownership revocation; per-source meeting and roster revocation remain separate",
+    "The complete host-renderer capture suite is running; this receipt qualifies only the four scene tests",
+    "Synthetic emulator evidence does not establish physical device, long recording or Save provider acceptance"
+  ]
+}

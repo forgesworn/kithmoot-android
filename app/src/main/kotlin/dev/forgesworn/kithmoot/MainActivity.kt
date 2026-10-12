@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -44,6 +45,8 @@ import kotlinx.coroutines.sync.withLock
  * standing up a second copy of the application on top of a live session.
  */
 class MainActivity : ComponentActivity() {
+
+    private val roomModel: RoomViewModel by viewModels()
 
     /** A link that has arrived and not yet been acted on. */
     private val incoming = MutableStateFlow<String?>(null)
@@ -126,7 +129,7 @@ class MainActivity : ComponentActivity() {
             val textSetting = remember(textSize) { TextSizeSetting(textSize) { chosen -> TextSize.save(this, chosen); textSize = chosen } }
             KithMootTheme(textScale = textSize.scale) {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
-                val model: RoomViewModel = viewModel()
+                val model = roomModel
                 model.signerBridge = signerRelay
                 // Beside a call, another room opens in a second, chat-only
                 // instance, so the call's session, engine and notifications
@@ -137,6 +140,8 @@ class MainActivity : ComponentActivity() {
                 var visiting by rememberSaveable { mutableStateOf(false) }
                 val callStage by model.stage.collectAsState()
                 val callRoom by model.room.collectAsState()
+                val callVideos by model.videos.collectAsState()
+                val callAccount by model.start.collectAsState()
                 val visitorStage by visitor.stage.collectAsState()
                 // With the call gone and the visited room closed, there is only
                 // one instance left worth showing.
@@ -244,7 +249,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val onScreen by visible.collectAsState()
-                LaunchedEffect(onScreen) { model.setAppVisible(onScreen) }
                 // Update checks run only on screen; installing ends the
                 // process, so never while a call is joined or joining.
                 val updates = (application as KithMootApplication).updates
@@ -286,15 +290,20 @@ class MainActivity : ComponentActivity() {
                         visitor,
                         accountModel = model,
                         dock = if (callStage == Stage.ROOM) ({
-                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom, onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave)
+                            dev.forgesworn.kithmoot.ui.room.CallDock(callRoom.copy(projectBrand =
+                                dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(callRoom, callAccount)),
+                                onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave,
+                                onStopRecording = model::stopNativeRecording, onToggleRecordingPause = model::toggleNativeRecordingPause,
+                                videos = callVideos, eglBase = model.eglBase, onSetVolume = model::setCallVolume)
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,
+                        onOpenRecordingChat = { notificationRoom.value = it },
                     )
                 } else KithMootApp(model, inPip, if (packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) ({
                     val opened = runCatching { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().setAspectRatio(android.util.Rational(16, 9)).build()) }.getOrDefault(false)
                     if (!opened) model.showNotice("Picture-in-picture could not open. You can still zoom in fullscreen.")
-                }) else null, onRoomsKeepingCall = {
+                }) else null, onOpenRecordingChat = { notificationRoom.value = it }, onRoomsKeepingCall = {
                     visitor.borrowAccount(model)
                     visitor.callRoomId = callRoom.roomId
                     visitor.refreshSavedRooms()
@@ -352,11 +361,15 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         visible.value = true
+        roomModel.setAppVisible(true)
     }
 
     override fun onStop() {
-        super.onStop()
         visible.value = false
+        // Compose can stop processing state as the activity becomes hidden.
+        // Revoke recording/camera inputs directly at the lifecycle boundary.
+        roomModel.setAppVisible(false)
+        super.onStop()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {

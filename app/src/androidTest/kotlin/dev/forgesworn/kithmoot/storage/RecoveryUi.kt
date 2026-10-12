@@ -12,8 +12,24 @@ import androidx.test.platform.app.InstrumentationRegistry
 
 /** Whole-activity acceptance uses Android's accessibility tree and real clock.
  * No Compose test dispatcher replaces the app's asynchronous state collectors. */
-internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
+internal class RecoveryUi(
+    private val useSwipeFallback: Boolean = true,
+    private val freshNodes: Boolean = false,
+    private val declineBackgroundBatteryAsk: Boolean = false,
+) {
     private val automation get() = InstrumentationRegistry.getInstrumentation().uiAutomation
+
+    /** Confirm the chosen radio option before the next accessibility action. */
+    fun checked(label: String): Boolean {
+        var node = nodes().firstOrNull { it.text?.toString() == label }
+        while (node != null) {
+            if (node.isCheckable) return node.isChecked
+            if (node.isClickable) return node.isSelected || (0 until node.childCount)
+                .mapNotNull(node::getChild).any { it.isCheckable && it.isChecked }
+            node = node.parent
+        }
+        return false
+    }
 
     fun await(description: String, timeoutMs: Long = 60_000, predicate: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
@@ -37,10 +53,18 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         if (nodes().any { it.text?.toString() == "Know when someone writes" }) {
             button("Not now")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
+        // Call journeys can surface this OS question during teardown. This
+        // explicit fixture choice denies the exception; it never grants one.
+        if (declineBackgroundBatteryAsk && nodes().any { it.text?.toString() == "Let app always run in background?" }) {
+            button("Deny")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
         return false
     }
 
     private fun nodes(): List<AccessibilityNodeInfo> {
+        // Dynamic labels may otherwise be read from UiAutomation's node cache.
+        // Opt in where a lifecycle test must observe the current rendered control.
+        if (freshNodes) automation.clearCache()
         val result = mutableListOf<AccessibilityNodeInfo>()
         fun visit(node: AccessibilityNodeInfo) {
             result += node
@@ -51,6 +75,7 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
     }
 
     fun hasText(text: String) = nodes().any { it.isVisibleToUser && it.text?.toString() == text }
+    fun enabled(text: String) = button(text)?.isEnabled == true
     fun hasDescription(text: String) = nodes().any { it.isVisibleToUser && it.contentDescription?.toString() == text }
 
     fun descriptionBounds(text: String): Rect = Rect().also { bounds ->
@@ -113,11 +138,12 @@ internal class RecoveryUi(private val useSwipeFallback: Boolean = true) {
         // later enabled state, particularly with animations disabled in CI.
         reveal { button(text) }
         await("$text to become enabled") { button(text)?.isEnabled == true }
-        // Removing a row can replace Compose's accessibility node between
-        // lookup and dispatch. Re-query only when Android refused the click.
+        // Recomposition can replace a node or move it outside the scroll
+        // viewport between lookup and dispatch. Reveal it again if it moved;
+        // the same visible, enabled control still has to accept the action.
         await("$text to accept a click") {
-            val target = button(text)
-            target?.isEnabled == true && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            val target = button(text) ?: reveal { button(text) }
+            target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }
     }
 

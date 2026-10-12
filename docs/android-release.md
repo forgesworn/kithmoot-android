@@ -1,3 +1,29 @@
+## 0.6.81 (104): private room and project artwork, invitation review
+
+Authorised room/project editors crop, preview, replace and remove artwork.
+Artwork travels in encrypted room controls or account project companions,
+without arbitrary remote-image requests. Room overrides, project inheritance
+and removals retain their authority and epoch checks. Headers, saved-room rows,
+project navigation and the originating-call label show the applicable artwork;
+browsing another project cannot relabel an active call.
+
+Known persistent-project invitations open a deliberate review screen using
+only the current account's joined directory. Reviewing does not fetch the
+invitation or create membership. Open room checks the reviewed account,
+project and authenticated room before saving; cancellation, changed account,
+withdrawn project access and a mismatched room prevent late entry. Unknown
+links do not gain guessed project branding. Guest camera/microphone checks
+stay local and stop before admission; room media remains separate.
+
+This release also retains the relay-echo rekey recovery repair and the existing
+repeat-send, activity-time and authenticated admission fixes. Android call
+capture/export, independent browser/native replacement-device artwork recovery
+and unfamiliar-person physical acceptance remain open.
+
+This is release preparation. Exact-head hosted checks, the production-signed
+APK, website/GitHub/Zapstore publication and physical-phone acceptance are
+separate gates; this source section does not claim shipment.
+
 ## 0.6.80 (103): authenticated admission decisions
 
 Temporary-room admission verifies a signed account proof before treating an

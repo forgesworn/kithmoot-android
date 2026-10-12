@@ -1,0 +1,34 @@
+{
+  "qualification": "Recording integration with invitation review and artwork recovery main",
+  "source_commit": "ff6deebda1361006c82ed090d5d6844de9f190a6",
+  "main_commit": "bb3b5c81",
+  "conflict_resolution": "Retain both unknown-delivery storage switch and held project-invitation replies in the disposable relay",
+  "tests": 34,
+  "suites": {
+    "LiveRecordingReceptionTest": {
+      "tests": 4,
+      "sha256": "53cfcb373c118edeb7fff61e203776361ccd858762e9d51dcf529f9fb9633df7"
+    },
+    "CallAudioCaptureTest": {
+      "tests": 8,
+      "sha256": "fde36f44e7cf6340aee3339f57f7b3a8f0127fb58a6dc5281f039d56212509dd"
+    },
+    "LiveRecordingPublicationTest": {
+      "tests": 10,
+      "sha256": "3acd9f543fd4cc3f4d2dac76e7a55172e8725033b5102db60ab19fe4c29a88a4"
+    },
+    "ProjectInvitationReviewTest": {
+      "tests": 4,
+      "sha256": "79191c450297d0d126f06bd6645d11b9d8f3bbb6946855843fbdc596c69ab737"
+    },
+    "GuestAdmissionGateTest": {
+      "tests": 8,
+      "sha256": "d679eabd71eed69e7a835dce045113c078e6742df4803249065b661178a21a4d"
+    }
+  },
+  "build": "Debug and instrumentation APKs passed",
+  "log_sha256": "4bd35b8400a4c5c1dd04cce220bb6fdbf6508c86c18d51d3b58f0abb6a70f079",
+  "limits": [
+    "Build and JVM integration only; live-video worker failure and remaining recording qualification gates remain open"
+  ]
+}

@@ -21,19 +21,36 @@ internal fun resetProjectTestVault(context: Context, signer: ParticipantSigner) 
 }
 
 /** Disposable loopback relay. No production account or external relay is used. */
-internal class ProjectTestRelay : AutoCloseable {
+internal class ProjectTestRelay(port: Int = 0) : AutoCloseable {
     private val server = MockWebServer()
     val events = CopyOnWriteArrayList<NostrEvent>()
     val writes = CopyOnWriteArrayList<NostrEvent>()
+    val withheldAcknowledgements = CopyOnWriteArrayList<String>()
     val requests = CopyOnWriteArrayList<JsonObject>()
     private val sockets = ConcurrentHashMap<WebSocket, ConcurrentHashMap<String, List<JsonObject>>>()
     @Volatile var acknowledge = true
+    /** Simulate an offer whose delivery is unknown, without a history echo. */
+    @Volatile var storeReceivedEvents = true
+    @Volatile var holdInvitationReplies = false
+    private val heldInvitations = ConcurrentHashMap<Pair<WebSocket, String>, List<JsonObject>>()
+    val heldInvitationQueries: Int get() = heldInvitations.size
     val url: String get() = "ws://127.0.0.1:${server.port}/"
     fun publish(event: NostrEvent) {
         require(Events.verify(event))
         if (events.none { it.id == event.id }) events.add(event)
         for ((socket, subs) in sockets) for ((id, filters) in subs) {
             if (filters.any { matches(it, event) }) socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+        }
+    }
+    fun releaseHeldInvitations() {
+        holdInvitationReplies = false
+        for ((key, filters) in heldInvitations.toMap()) {
+            if (heldInvitations.remove(key) == null) continue
+            val (socket, id) = key
+            events.filter { event -> filters.any { matches(it, event) } }.forEach { event ->
+                socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
+            }
+            socket.send(buildJsonArray { add("EOSE"); add(id) }.toString())
         }
     }
     init {
@@ -47,6 +64,11 @@ internal class ProjectTestRelay : AutoCloseable {
                         "REQ" -> {
                             val id = frame[1].jsonPrimitive.content
                             val filters = frame.drop(2).map { it.jsonObject }; requests.addAll(filters); subs[id] = filters
+                            if (holdInvitationReplies && filters.any { filter -> filter["kinds"]?.jsonArray?.any {
+                                    it.jsonPrimitive.int == KIND_GROUP_INVITATION } == true }) {
+                                heldInvitations[socket to id] = filters
+                                return
+                            }
                             events.filter { event -> filters.any { matches(it, event) } }.forEach { event ->
                                 socket.send(buildJsonArray { add("EVENT"); add(id); add(event.toJson()) }.toString())
                             }
@@ -54,8 +76,10 @@ internal class ProjectTestRelay : AutoCloseable {
                         }
                         "CLOSE" -> subs.remove(frame[1].jsonPrimitive.content)
                         "EVENT" -> {
-                            val event = NostrEvent.fromJson(frame[1]); writes.add(event); publish(event)
+                            val event = NostrEvent.fromJson(frame[1]); writes.add(event)
+                            if (storeReceivedEvents) publish(event) else require(Events.verify(event))
                             if (acknowledge) socket.send(buildJsonArray { add("OK"); add(event.id); add(true); add("Synthetic stored event") }.toString())
+                            else withheldAcknowledgements.add(event.id)
                         }
                     }
                 }
@@ -63,7 +87,8 @@ internal class ProjectTestRelay : AutoCloseable {
                 override fun onClosed(socket: WebSocket, code: Int, reason: String) { sockets.remove(socket) }
             })
         }
-        server.start()
+        require(port in 0..65535)
+        server.start(port)
     }
     override fun close() { sockets.keys.forEach { it.close(1001, "Synthetic relay closing") }; server.close() }
     private fun matches(filter: JsonObject, event: NostrEvent): Boolean =

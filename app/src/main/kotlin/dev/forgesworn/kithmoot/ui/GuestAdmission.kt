@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class GuestAdmissionPhase {
-    PREVIEW, SIGNING, SENDING, WAITING, RECONNECTING, ADMITTED,
+    PREVIEW, OPENING, SIGNING, SENDING, WAITING, RECONNECTING, ADMITTED,
     DECLINED, EXPIRED, UNAVAILABLE, REVOKED, ROOM_ENDED, CANCELLED,
 }
 
@@ -16,12 +16,14 @@ data class GuestAdmissionView(
     val name: String,
     val phase: GuestAdmissionPhase = GuestAdmissionPhase.PREVIEW,
     val detail: String? = null,
+    val projectInvitation: ProjectInvitationReview? = null,
 )
 
 internal class GuestAdmissionAttempt internal constructor(
     val id: Long,
     val url: String,
     val name: String,
+    val projectInvitation: ProjectInvitationReview? = null,
 )
 
 /** One explicit action owns entry. Cancelling or retrying retires the old token. */
@@ -32,24 +34,24 @@ internal class GuestAdmissionGate {
     private var url: String? = null
     private var active: GuestAdmissionAttempt? = null
 
-    @Synchronized fun prepare(link: String, roomName: String, name: String) {
+    @Synchronized fun prepare(link: String, roomName: String, name: String, projectInvitation: ProjectInvitationReview? = null) {
         active = null
         url = link
-        mutable.value = GuestAdmissionView(++nextId, roomName, name)
+        mutable.value = GuestAdmissionView(++nextId, roomName, name, projectInvitation = projectInvitation)
     }
 
     @Synchronized fun editName(name: String) {
         val current = mutable.value ?: return
-        if (current.phase == GuestAdmissionPhase.PREVIEW) mutable.value = current.copy(name = name.take(80))
+        if (current.phase == GuestAdmissionPhase.PREVIEW && current.projectInvitation == null) mutable.value = current.copy(name = name.take(80))
     }
 
     @Synchronized fun request(): GuestAdmissionAttempt? {
         val current = mutable.value ?: return null
         val link = url ?: return null
         if (current.phase != GuestAdmissionPhase.PREVIEW || active != null) return null
-        return GuestAdmissionAttempt(current.id, link, current.name.trim()).also {
+        return GuestAdmissionAttempt(current.id, link, current.name.trim(), current.projectInvitation).also {
             active = it
-            mutable.value = current.copy(phase = GuestAdmissionPhase.SENDING, detail = null)
+            mutable.value = current.copy(phase = if (current.projectInvitation == null) GuestAdmissionPhase.SENDING else GuestAdmissionPhase.OPENING, detail = null)
         }
     }
 
@@ -68,6 +70,11 @@ internal class GuestAdmissionGate {
     @Synchronized fun cancel() {
         active = null
         mutable.value = mutable.value?.copy(phase = GuestAdmissionPhase.CANCELLED, detail = null)
+    }
+
+    @Synchronized fun unavailable(detail: String) {
+        active = null
+        mutable.value = mutable.value?.copy(phase = GuestAdmissionPhase.UNAVAILABLE, detail = detail)
     }
 
     @Synchronized fun retry(): Boolean {

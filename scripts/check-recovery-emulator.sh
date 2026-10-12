@@ -85,8 +85,8 @@ run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
-run_tests guest-admission-ui 8 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
-run_tests guest-admission-entry 4 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
+run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 run_tests missing-index-storage 3 -e class dev.forgesworn.kithmoot.storage.MissingRoomIndexStorageTest
 run_tests missing-index-maintenance 1 -e class dev.forgesworn.kithmoot.ui.MissingIndexMaintenanceTest
 run_tests atomic-file-overlap 5 -e class dev.forgesworn.kithmoot.storage.AtomicFileOverlapTest
@@ -116,6 +116,8 @@ done
 run_tests artwork-picker 5 -e class dev.forgesworn.kithmoot.ui.ArtworkPickerUiTest
 run_tests room-logo-display 5 -e class dev.forgesworn.kithmoot.ui.RoomLogoUiTest
 run_tests room-logo-editor 9 -e class dev.forgesworn.kithmoot.ui.RoomLogoEditorTest
+run_tests project-logo-editor 6 -e class dev.forgesworn.kithmoot.ui.ProjectLogoEditorTest
+run_tests contextual-project-logo 5 -e class dev.forgesworn.kithmoot.ui.ContextualProjectLogoUiTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest
@@ -136,7 +138,7 @@ run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAdd
 
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png"
 
-run_tests shared-projects-ui 2 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
+run_tests shared-projects-ui 8 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
 for picture in three-shared-projects project-room-admission restored-project-membership project-room-assignment; do
   pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png"
 done

@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.relay.Filter
+import dev.forgesworn.kithmoot.relay.HybridRoomTransport
+import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
@@ -40,6 +42,73 @@ class QuietTransportTest {
         body = text, participant = from.participant, credential = from.credential, roomId = room.roomId,
         roomKey = room.roomKey, deviceSecretKey = from.deviceSecretKey, sentAt = clock,
     )
+
+    private fun TestScope.hybridReader(mesh: FakeRelay, relay: FakeRelay): Pair<QuietTransport, HybridRoomTransport> {
+        val internet = object : RoomTransport by relay.transport() {
+            override fun receivedViaRelays(eventId: String) = listOf("wss://fixture.invalid/")
+        }
+        val hybrid = HybridRoomTransport(mesh.transport(), internet) { clock }
+        return QuietTransport(hybrid, room.roomKey, rowan.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false,
+            slotOffset = { 0 }) to hybrid
+    }
+
+    @Test fun `unwrapped relay event retains the outer hybrid delivery evidence`() = runTest {
+        val relay = FakeRelay()
+        val sender = quiet(relay, ada)
+        val (reader, hybrid) = hybridReader(FakeRelay(), relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "relay delivery")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertEquals(listOf(message), seen)
+        assertFalse(hybrid.receivedEventConfirmsPublication(message.id))
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        sender.stop(); reader.stop()
+    }
+
+    @Test fun `mesh first wrap gains relay evidence without rendering a second message`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay()
+        val sender = quiet(mesh, ada)
+        val (reader, _) = hybridReader(mesh, relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "mesh then relay")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertEquals(listOf(message), seen)
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        assertTrue(reader.receivedViaRelays(message.id).isEmpty())
+        relay.publish(mesh.published.single()); runCurrent()
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        assertEquals(listOf(message), seen)
+        sender.stop(); reader.stop()
+    }
+
+    @Test fun `a new authenticated wrap of a seen inner event can prove relay delivery`() = runTest {
+        val mesh = FakeRelay(); val relay = FakeRelay()
+        val sender = quiet(mesh, ada)
+        val (reader, _) = hybridReader(mesh, relay)
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect { seen += it } }
+        runCurrent()
+        val message = chat(ada, "same inner event")
+        sender.publish(message); sender.tick(); runCurrent()
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        val original = mesh.published.single()
+        clock += 60
+        sender.publish(message); sender.tick(); runCurrent()
+        val retry = mesh.published.last()
+        assertTrue(original.id != retry.id)
+        relay.publish(retry); runCurrent()
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        assertEquals(listOf("wss://fixture.invalid/"), reader.receivedViaRelays(message.id))
+        assertEquals(listOf(message), seen)
+        sender.stop(); reader.stop()
+    }
 
     @Test
     fun `chat crosses as gift wraps and the other side reads it`() = runTest {
@@ -172,6 +241,78 @@ class QuietTransportTest {
         val a = quiet(relay, ada)
         assertFailsWith<IllegalArgumentException> { a.publish(chat(ada, "x".repeat(2000)).let { it.copy(content = it.content + "y".repeat(6000)) }) }
         assertEquals(0, a.pending)
+        a.stop()
+    }
+
+    @Test
+    fun `a refused slot retains its exact wrap and message until a receipt`() = runTest {
+        val relay = FakeRelay().apply { confirmsPublications = false }
+        val delegate = relay.transport()
+        val offered = mutableListOf<NostrEvent>()
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by delegate {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean {
+                offered += event
+                return delegate.publishConfirmed(event, timeoutMs)
+            }
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 })
+        val message = chat(ada, "wait for the receipt")
+        a.publish(message)
+        a.tick(); a.tick()
+        assertEquals(1, a.pending)
+        assertTrue(relay.published.isEmpty())
+        assertEquals(1, offered.map { it.id }.distinct().size)
+        assertEquals(1, a.exportState().used.getValue(ada.participant).counters.size)
+        relay.confirmsPublications = true
+        a.tick()
+        assertEquals(0, a.pending)
+        assertEquals(1, relay.countOfKind(RoomDrops.GIFT_WRAP_KIND))
+        assertEquals(0, relay.countOfKind(KIND_CHAT))
+        assertEquals(1, offered.map { it.id }.distinct().size)
+        a.stop()
+    }
+
+    @Test
+    fun `an unsupported receipt cannot silently use fire and forget`() = runTest {
+        val relay = FakeRelay()
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by relay.transport() {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+                throw UnsupportedOperationException("no durable receipt")
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 })
+        a.publish(chat(ada, "keep the retry copy"))
+        a.tick()
+        assertEquals(1, a.pending)
+        assertTrue(relay.published.isEmpty())
+        a.stop()
+    }
+
+    @Test
+    fun `a failed durable removal preserves the accepted wrap for exact retry`() = runTest {
+        val relay = FakeRelay()
+        var storageLocked = false
+        val delegate = relay.transport()
+        var failAfterReceipt = true
+        val transport = object : dev.forgesworn.kithmoot.relay.RoomTransport by delegate {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean =
+                delegate.publishConfirmed(event, timeoutMs).also { if (failAfterReceipt) storageLocked = true }
+        }
+        val a = QuietTransport(transport, room.roomKey, ada.participant, policy.members!!, 0,
+            backgroundScope, intervalSeconds = 60, now = { clock }, ticking = false, slotOffset = { 0 },
+            onState = { if (storageLocked) error("storage locked") })
+        val message = chat(ada, "persist the receipt before removal")
+        a.publish(message)
+        assertFailsWith<IllegalStateException> { a.tick() }
+        assertEquals(listOf(message.id), a.queuedEvents().map { it.id })
+        val accepted = relay.published.single()
+        failAfterReceipt = false
+        storageLocked = false
+        a.tick()
+        assertEquals(0, a.pending)
+        assertEquals(setOf(accepted.id), relay.published.map { it.id }.toSet())
+        assertEquals(1, a.exportState().used.getValue(ada.participant).counters.size)
         a.stop()
     }
 

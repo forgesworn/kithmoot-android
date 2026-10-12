@@ -1,0 +1,58 @@
+{
+  "qualification": "Main-integrated hosted recording follow-up",
+  "source_commit": "ff6deebda1361006c82ed090d5d6844de9f190a6",
+  "run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230",
+  "status": "completed",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "verify",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114512810310"
+    },
+    {
+      "name": "recovery-emulator",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114512810592"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114516506724"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114516506730"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114516506736"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38153906230/job/114516506750"
+    }
+  ],
+  "failures": {
+    "recording-private-node-emulator (default)": "Cold launcher input-dispatch ANR; strict launcher readiness failed before instrumentation tests started",
+    "recovery-emulator": "ADB device went offline while copying project-room-assignment.png; required proof copy failed after three attempts"
+  },
+  "diagnostic_sha256": {
+    "kithmoot-recording-ff-default-hosted.log": "78ad0bd0bedc1f420ebf7d2ae389ba16efd7c8ab03173f645d03d0073d5b7615",
+    "kithmoot-recording-ff-recovery-hosted.log": "ad6f2623a032fe9d9496734f6d27db6c608dd1fc52d1eec2ee7923154ca57cc3"
+  },
+  "limits": [
+    "This complete hosted run failed; it is not a production qualification",
+    "The Google APIs private-node job passed on the exact source, while the default image did not reach its tests",
+    "Local encoder preparation and bounded launcher restart follow-ups are newer and not covered by this run"
+  ]
+}

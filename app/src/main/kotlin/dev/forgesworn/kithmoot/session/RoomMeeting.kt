@@ -7,6 +7,9 @@ import dev.forgesworn.kithmoot.protocol.RecordingView
 import dev.forgesworn.kithmoot.protocol.SignedMeetingPolicy
 import dev.forgesworn.kithmoot.protocol.SignedRecordingNotice
 import dev.forgesworn.kithmoot.protocol.SignedRecordingCaptureNotice
+import dev.forgesworn.kithmoot.protocol.LiveRecordingState
+import dev.forgesworn.kithmoot.protocol.verifyLiveRecordingState
+import dev.forgesworn.kithmoot.protocol.verifyParticipantRecordingState
 import dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice
 import dev.forgesworn.kithmoot.protocol.decodeRecordingCaptureOp
 import dev.forgesworn.kithmoot.protocol.verifyRecordingCaptureNotice
@@ -28,18 +31,32 @@ data class HeardRecording(val signed: SignedRecordingNotice, val since: Long, va
     val notice: RecordingNotice get() = signed.notice
 }
 
+data class HeardParticipantRecording(val state: LiveRecordingState, val since: Long, val heardAt: Long)
+
 /** Everything a room's control log has said about meeting mode and recording. */
 data class MeetingSnapshot(
     val policy: SignedMeetingPolicy? = null,
     val recording: HeardRecording? = null,
     val capture: SignedRecordingCaptureNotice? = null,
+    val participantRecordings: Map<String, HeardParticipantRecording> = emptyMap(),
     /** Raised hands: participant -> unix seconds raised. */
     val hands: Map<String, Long> = emptyMap(),
 ) {
     val meeting: MeetingPolicy? get() = policy?.policy
     /** What the room should be told about recording at [now]. */
-    fun recordingView(now: Long): RecordingView =
-        recordingView(recording?.notice, recording?.since ?: 0, recording?.heardAt ?: 0, now)
+    fun recordingView(now: Long, calls: Set<String>? = null): RecordingView {
+        val views = listOf(recordingView(recording?.notice, recording?.since ?: 0, recording?.heardAt ?: 0, now)) +
+            participantRecordings.values.filter { calls == null || it.state.call in calls }.map { recordingView(it.state.recording.notice, it.since, it.heardAt, now) }
+        return views.firstOrNull { it is RecordingView.On } ?: views.firstOrNull { it is RecordingView.Unconfirmed } ?: RecordingView.Off
+    }
+    fun activeRecording(id: String, now: Long): Boolean =
+        (recording?.notice?.id == id && recordingView(recording.notice, recording.since, recording.heardAt, now) is RecordingView.On) ||
+            participantRecordings.values.any { it.state.recording.notice.id == id &&
+                recordingView(it.state.recording.notice, it.since, it.heardAt, now) is RecordingView.On }
+    fun recordingCaptures(now: Long, calls: Set<String>? = null): List<RecordingCaptureNotice> =
+        listOfNotNull(recordingCapture()) + participantRecordings.values.filter {
+            (calls == null || it.state.call in calls) && recordingView(it.state.recording.notice, it.since, it.heardAt, now) != RecordingView.Off
+        }.mapNotNull { it.state.capture?.notice }
     /** Details never describe another id/version or make an off notice live. */
     fun recordingCapture(): RecordingCaptureNotice? = capture?.notice?.takeIf {
         recording?.notice?.on == true && it.id == recording.notice.id && it.version == recording.notice.version
@@ -83,6 +100,55 @@ class RoomMeeting(
     }
 
     private fun fresh(sentAt: Long) = sentAt >= now() - 60
+
+    /** Admission and outer roster authentication happened in RoomSession;
+     * recheck the complete warning against that exact publisher here. */
+    fun receiveParticipant(received: ReceivedLiveRecording): Boolean {
+        val state = received.state
+        val participant = received.participant ?: return false
+        val device = received.device ?: return false
+        if (!verifyParticipantRecordingState(roomId, state, participant, device, received.call)) return false
+        var news: MeetingNews? = null
+        synchronized(this) {
+            val key = "${state.call}:$device"
+            val before = mutable.value.participantRecordings[key]
+            if (before != null && before.state.recording.notice.version > state.recording.notice.version) return false
+            if (before != null && before.state.recording.notice.version == state.recording.notice.version && before.state != state) return false
+            val same = before?.state?.recording?.notice?.id == state.recording.notice.id
+            val next = HeardParticipantRecording(state, if (same) before!!.since else received.sentAt,
+                maxOf(received.sentAt, before?.heardAt ?: 0))
+            mutable.update { it.copy(participantRecordings = it.participantRecordings + (key to next)) }
+            if (fresh(received.sentAt) && (before?.state?.recording?.notice?.on == true) != state.recording.notice.on)
+                news = if (state.recording.notice.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
+        }
+        news?.let { runCatching { onNews(it) } }
+        return true
+    }
+
+    /** Adopt the complete live warning atomically; neither half authorises the other. */
+    fun receiveLive(state: LiveRecordingState, sentAt: Long): Boolean {
+        val auth = authority ?: return false
+        if (!verifyLiveRecordingState(roomId, state, auth)) return false
+        var news: MeetingNews? = null
+        synchronized(this) {
+            val snapshot = mutable.value
+            val before = snapshot.recording
+            val next = state.recording.notice
+            if (before != null && before.notice.version > next.version) return false
+            if (before != null && before.notice.version == next.version && before.notice != next) return false
+            if (before?.notice?.version == next.version && snapshot.capture?.notice?.let {
+                it.id == next.id && it.version == next.version && it != state.capture?.notice
+            } == true) return false
+            val same = before?.notice?.on == true && next.on && before.notice.id == next.id
+            val since = if (same) before!!.since else sentAt
+            val heardAt = if (before?.notice?.version == next.version) maxOf(before.heardAt, sentAt) else sentAt
+            mutable.value = snapshot.copy(recording = HeardRecording(state.recording, since, heardAt), capture = state.capture)
+            if (fresh(sentAt) && (before?.notice?.on == true) != next.on)
+                news = if (next.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
+        }
+        news?.let { runCatching { onNews(it) } }
+        return true
+    }
 
     private fun ingestCapture(signed: SignedRecordingCaptureNotice) {
         val auth = authority ?: return

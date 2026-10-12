@@ -57,6 +57,25 @@ class CadenceClientTest {
         assertTrue(received?.body?.toString(Charsets.UTF_8)?.contains("\"device\":\"$device\"") == true)
     }
 
+    @Test fun cancellationReachesTheQueuedLinkRequest() {
+        val fixture = fixture()
+        val pending = CompletableFuture<LinkJsonResponse>()
+        val result = CadenceClient(LinkJsonTransport { pending }, fixture.consents)
+            .status(fixture.identity.participant, fixture.scope, "11".repeat(16), fixture.identity, fixture.now)
+        assertTrue(result.cancel(true))
+        assertTrue(pending.isCancelled)
+    }
+
+    @Test fun dispatchGuardRejectsConsentWithdrawnAfterQueueing() {
+        val fixture = fixture()
+        var request: LinkJsonRequest? = null
+        CadenceClient(LinkJsonTransport { request = it; CompletableFuture() }, fixture.consents)
+            .status(fixture.identity.participant, fixture.scope, "11".repeat(16), fixture.identity, fixture.now)
+        assertTrue(request!!.stillAllowed())
+        fixture.consents.remove(fixture.identity.participant, fixture.scope.room, "cc".repeat(32))
+        assertFalse(request!!.stillAllowed())
+    }
+
     @Test fun withdrawnConsentRejectsALateStatusResult() {
         val now = 1_800_000_000L
         val room = "42".repeat(32)
@@ -117,6 +136,43 @@ class CadenceClientTest {
         ), requests.map { it.path })
         assertEquals("rekeyed", rekeyed.lease.receipt?.code)
         assertEquals(CadenceOwnership.BOX_OWNED, rekeyed.lease.ownership)
+    }
+
+    @Test fun queueDispatchTracksOwnershipAndCallerCancellation() {
+        val fixture = fixture()
+        var queuedRequest: LinkJsonRequest? = null
+        val pending = CompletableFuture<LinkJsonResponse>()
+        val transport = LinkJsonTransport { request ->
+            if (request.path.endsWith("/queue")) {
+                queuedRequest = request
+                pending
+            } else CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0, "staged"),
+                LinkPathState("direct", "route", null, "")))
+        }
+        val vault = CadenceLeaseVault(MemoryStorage())
+        val client = CadenceClient(transport, fixture.consents)
+        val options = CadenceLeaseOptions(fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0,
+            500000, 500002, 500004, ByteArray(32) { 9 },
+            listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now)
+        val lease = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault).get().lease
+        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now,
+            listOf(listOf("d", fixture.scope.trafficRoom)), "cipher", ByteArray(32))
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val result = client.queue(fixture.identity.participant, fixture.scope, fixture.identity, lease,
+            "44".repeat(16), event, fixture.now, vault, allowed::get)
+        assertTrue(queuedRequest!!.stillAllowed())
+        allowed.set(false)
+        assertFalse(queuedRequest!!.stillAllowed())
+        allowed.set(true)
+        assertTrue(queuedRequest!!.stillAllowed())
+        vault.accept(lease, lease.receipt!!.copy(code = "status", state = "ended"), fixture.now + 1)
+        assertFalse(queuedRequest!!.stillAllowed())
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            client.queue(fixture.identity.participant, fixture.scope, fixture.identity, lease,
+                "55".repeat(16), event, fixture.now + 1, vault)
+        }
+        assertTrue(result.cancel(true))
+        assertTrue(pending.isCancelled)
     }
 
     @Test fun aLostLeaseResponseKeepsTheExactRequestExcludedForRetry() {

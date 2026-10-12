@@ -1,0 +1,121 @@
+{
+  "production_ready": false,
+  "base_commit": "b4e4398b68af1efb2c3777d2bbb26a8fc01db9d9",
+  "scope": "Explicit native Upload/Send and production recipient ChatPane Show/Play, separate participant, socket and Android process through actual private Wildbloom daemon. Same debug installation and emulator filesystem; synthetic MP4 and temporary local TLS proxy. No physical or independent-device acceptance.",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "40269e4534423bd71bf772b7a32938dd2066be4ae9a03e3fb37027f0cfea4d14",
+    "app/src/debug/AndroidManifest.xml": "82cc2208e4e69e7010f6a3b604fb08a7d818cbe03b0313b2627d7dced2852683",
+    "scripts/check-recording-private-node-emulator.py": "3aa63624a846ce38486cb50990d69c7fa9fb948ab37c00112340eda215d95b5a",
+    "scripts/check-recording-upload-send-emulator.sh": "60038ad5867261685e05ad0a74548b4fa64c71af32813449cd31ae4209d0b1bf",
+    "app/src/debug/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingRecipientFixtureActivity.kt": "667442d7e4f946147204763626a0fb2d849bbb4eff8fec3c59efff3e8119647f",
+    "docs/native-recording.md": "9e5b580e7b9792fb53c3c9e37bb02311779d71e1ec0d7ec7ea9f0fc232dc88eb"
+  },
+  "https_contract": {
+    "tests": 4,
+    "failures": 0,
+    "elapsed_seconds": 29.384,
+    "report_sha256": "c70d95723b6545ea4e41da98bf3c167548d887572b5bcc744018bb0347522097"
+  },
+  "real_node": {
+    "passed": true,
+    "physical": false,
+    "serial": "emulator-5586",
+    "real_wildbloom_daemon": true,
+    "separate_recipient_process": true,
+    "sender_pid": 5265,
+    "recipient_pid": 5546,
+    "responses": [
+      "PUT 201",
+      "GET 200"
+    ],
+    "sample_sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+    "daemon_sha256": "7f12e5677d4b1842a0054e6fb761fb611d44d93e6720c2387a5fce199dce566f",
+    "report_sha256": "c8cb09431c6a2b0745654caff11b56e69f21742f3b1b6d403da320935166fb13"
+  },
+  "real_node_elapsed_seconds": 51.545,
+  "real_node_cleanup": {
+    "device_exit_codes": {
+      "app_force_stop": 0,
+      "fixture_removed": 0
+    },
+    "daemon_stopped": true
+  },
+  "cases": [
+    "Different sender and recipient process IDs, independent participant/device and relay subscription",
+    "Recipient receives encrypted chat; no attachment descriptor supplied directly to UI",
+    "No storage fetch before Show; exactly one unauthenticated TLS GET of uploaded ciphertext",
+    "Authenticated private-cache MP4 SHA-256 matches original synthetic sample",
+    "Explicit Play advances native decoder and renders red camera pixels",
+    "Background return remains paused and Close removes private plaintext",
+    "Sender local export retained; exactly one Upload and separate Send"
+  ],
+  "fixture_changes": [
+    "Use one ComponentActivity/ViewModel owner for synthetic production UI",
+    "Chat-only ViewModel does not restore accounts; clear only the exact known synthetic local account before setup, refuse unrelated accounts",
+    "Teardown always closes TLS and relay servers while preserving original failures"
+  ],
+  "earlier_failures": {
+    "https_suite_report_sha256": "8621b4257927d60424d92ef1c5b2d72b1fb3d737a3f5a57a2e30636a53e5e55e",
+    "observed": "Room creation UI precondition timed out; teardown account timeout prevented server closure and caused subsequent bind errors. New process test did not execute.",
+    "real_node_report_sha256": "0f1f7f09c9df361e855b2f7ae00dc9b979eefbd93d96ed9cdf4826e87fffe6d2",
+    "real_node_observed": "Chat-only fixture waited for account restoration that its model deliberately skips. Driver cleaned up; storage authorisation and playback were not reached."
+  },
+  "lint_release": {
+    "status": "passed",
+    "elapsed": "3m 23s",
+    "log_sha256": "9e9e3907a4b441e3b1f6ab298eacb5a57a78be3f5e869cf1c0bb5add4e89c98b",
+    "tasks": [
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleRelease"
+    ]
+  },
+  "remaining": [
+    "Quiet heartbeat slot/counter capacity and delegated confirmation",
+    "Full saved-room stop-notice and prepared-Send restart/rekey UI",
+    "Independent recipient installation/device",
+    "Full signed-room capture, physical camera/screen/sync, load reliability and 45-minute endurance/interruption/provider exports",
+    "Large/slow uploads",
+    "Final exact-head hosted gates, signing and production distribution"
+  ],
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "c8a5b4cbf7e6029c22703429150e5f39d0e2c32e1990656c61be2b031f870c9b",
+      "bytes": 117684543
+    },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "sha256": "eba89cbabe14bb4d0c3b03fd1d287f011706c1225229a3189ca6f350ebfe848a",
+      "bytes": 5057642
+    },
+    "app/build/outputs/apk/release/app-release-unsigned.apk": {
+      "sha256": "354a6c54dceaf2fe95001c23cf48a9a2a7d1414b9d5338effe2927d83ce45afc",
+      "bytes": 79570254
+    }
+  },
+  "release_exclusion": {
+    "merged_manifest_fixture_absent": true,
+    "fixture_descriptor_absent_in_all_dex": true,
+    "dex_files": 6,
+    "minification": false,
+    "production_viewer_descriptor_present": true,
+    "release_apk_identical_to_qualified_base": false,
+    "changed_members_from_qualified_base": [
+      "META-INF/version-control-info.textproto"
+    ],
+    "all_other_zip_members_identical": true,
+    "metadata_only_revision_changed": true
+  },
+  "immutable_archive": "kithmoot-recipient-process-qualified-192pgejl",
+  "hosted_base": {
+    "head": "b4e4398b68af1efb2c3777d2bbb26a8fc01db9d9",
+    "run_id": 38119243103,
+    "conclusion": "success",
+    "gates": [
+      "verify",
+      "recovery-emulator",
+      "signing-lineage-emulator (33)",
+      "signing-lineage-emulator (35)"
+    ],
+    "new_fixture_head_still_requires_hosted_run": true
+  }
+}

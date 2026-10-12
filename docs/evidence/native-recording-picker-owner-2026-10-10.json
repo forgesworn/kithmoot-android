@@ -1,0 +1,77 @@
+{
+  "apk_artifacts": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "33e310f583e3891dee0740855872e1e7fca10a6ae8fc9a89aa4eab54a1a44d8c",
+      "local_snapshot": "/tmp/kithmoot-recording-picker-qualified/33e310f583e3891dee0740855872e1e7fca10a6ae8fc9a89aa4eab54a1a44d8c.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "928eed7c152cf9862eda49a57eef9cba18ae82b73247c81a6d6fceae206d442c",
+      "local_snapshot": "/tmp/kithmoot-recording-picker-qualified/928eed7c152cf9862eda49a57eef9cba18ae82b73247c81a6d6fceae206d442c.apk"
+    }
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/MainActivity.kt": "57b2b06798f3240761d5c15c39bae0aa0230a9ec386521044ea75a3535791198",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "b221931cb4fc020494d790a4355702727bc4e41e53d6a429870b309b7cfc3a48",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RoomScreen.kt": "c8cc8f2684e49549b4d1fefe6f07d99a72789a9a7fc5595a91d3d417ebb76dbd",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt": "ff63dc0a5cad7cc170c24d8a8d46794b6c6f6e3782b60168fce6a2c6731dc021",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AacRecording.kt": "b86cab3e1eae0998a330308c6ee28d60060a2ec045a042000ad18798e000267a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "1a049bdd481b4ebbff59476b2a3cb4a8043ea342bbd58f6117e307ab6321f1d1",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/CallAudioCapture.kt": "9b3fe3e5af1a733f6dcf1c6f70522bf678d27644d3409d00709e3778bf2f0f5b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/ComposedAvRecording.kt": "8df1fa4b6b2c283612db2fb41f27a68080f955b4cc9430f6ea5c359ec35b3742",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/LocalRecordingStore.kt": "30d32e21b24b943fa38002be053f4105de73b68a05f7ded673e76b5730c585e2",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/PcmRecording.kt": "69093b8665f7fbfc6edb99ae4e29795ab33a6c71b246f789d981a5af3f036180",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingCodecs.kt": "7d5d2cb350cc45be0f6c5b17d6adf877499f67ffb01fd9d010c93d8779bae099",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingSpeaker.kt": "34ca9cd82b1d916d4b3efa993bc81251dcb511858bfc859d246d799611675c8a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoAuthority.kt": "2377027774d134201be29c6f7ef685b0b91e76775bb805e10b98df15ad090a82",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoPlan.kt": "bf004f75ec4b096cf20ff3c45974b9361bcf5daf0efd42bcfa84e14b376beaf1",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoScene.kt": "835d0253e5eb9226b8a660c49008b0497195fdb52647744fbd1ea1111032d3ef",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AacRecordingTest.kt": "7d3b0dda32df2df34905dc63f1d338a92b0b47854e32830eab21db3af187769d",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecordingTest.kt": "38513084cf8bce40ff21186b682628a76e36025ca65ef34df8a39ea1a64d94a0",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/NativeVideoSinkTest.kt": "5e57ca7b0435d062c2f66ea784d69e29430a7598cb1748804ca96a816de4cb0e",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "e18e8363e69760edf9a97fe13b9d8125c351079a00a5a58598df4bb4ae0cdfe9",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoSceneTest.kt": "43217ef9e43ae00d587caa85dd016873cda012aeffb65ab106b53fe6ba7cde7c"
+  },
+  "captured_at_utc": "2026-10-10T17:16:35.361079+00:00",
+  "production_ready": false,
+  "scope": "Synthetic local native encoder/compositor and actual app-owned gallery controls. Live browser interop excluded.",
+  "focused_jvm": {
+    "tests": 35,
+    "failures": 0
+  },
+  "runtime": {
+    "tests": 10,
+    "failures": 0,
+    "live_browser_interop_included": false,
+    "report": "app/build/reports/native-recording-picker/instrumentation.txt",
+    "report_sha256": "0e0afddef742edd2106c5b86fdba4d3fe3439288eec8d68685d361a6508887e6"
+  },
+  "app_owner": {
+    "actual_accessibility_controls": true,
+    "gallery_selection_confirmed": true,
+    "signed_gallery_notice": true,
+    "hidden_pauses": true,
+    "return_remains_paused": true,
+    "explicit_resume": true,
+    "original_room_metadata": true,
+    "aac_h264_mp4_same_duration": true,
+    "explicit_discard": true,
+    "system_document_provider_save": false,
+    "physical_camera_or_microphone": false
+  },
+  "device": {
+    "serial": "emulator-5584",
+    "sdk": 35,
+    "gpu": "host",
+    "physical": false
+  },
+  "open": [
+    "Production-representative browser/native live video",
+    "Origin-bound private-node sharing and recipient playback UI",
+    "Notice freshness and leave/stop lifecycle acceptance",
+    "Current-main full CI",
+    "Physical 45-minute and interruption qualification",
+    "Signed production delivery"
+  ]
+}

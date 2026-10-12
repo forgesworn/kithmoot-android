@@ -1,0 +1,26 @@
+{
+  "source": "5d96574d",
+  "build": {
+    "status": "passed",
+    "duration": "11m 23s",
+    "tasks": [
+      ":app:assembleDebug",
+      ":app:assembleDebugAndroidTest"
+    ],
+    "apks": {
+      "app/build/outputs/apk/debug/app-debug.apk": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "d4229bc6909d9ece695e4a1e4c329e1f55a75baf680785e3135d363c0f553448"
+    }
+  },
+  "hosted_recovery": {
+    "run": 38161227634,
+    "source": "fe426a68",
+    "status": "cancelled",
+    "job_limit_minutes": 30,
+    "last_started_test": "RecordingSendRecoveryUiTest#explicit_send_reopens_its_original_chat_and_retries_identical_ciphertext",
+    "last_started_stage": "prepare",
+    "result": "No terminal instrumentation result; Send recovery remains unqualified"
+  },
+  "change": "Run the same three recording restart drivers in an independent job consuming verify APKs; preserve all assertions and recovery checks",
+  "runtime_followup": "pending"
+}

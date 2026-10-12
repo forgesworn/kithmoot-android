@@ -67,7 +67,9 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     val privatePeer: String? = null,
     val route: RoomRoute = RoomRoute.INTERNET,
     val logo: LogoImage? = null,
-    internal val logoScope: String? = null)
+    internal val logoScope: String? = null,
+    /** Quiet rooms must not borrow project identity in navigation. */
+    val quiet: Boolean = false)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
@@ -209,7 +211,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         val ended = retired || movedOn || ended(now)
         return SavedRoomSummary(id, name, secondary, openedAt, project, participant.takeIf { viaAccount }, anonymous,
             ended = ended, canShareInvite = !ended && !secondary && joinUrl.substringAfter('#', "").isNotBlank(), endsAt = ends,
-            pinned = pinned, destruct = destruct, startsAt = startsAt, route = route,
+            pinned = pinned, destruct = destruct, startsAt = startsAt, route = route, quiet = policy?.quiet == true,
             privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant),
             logo = sharedLogo?.record?.image.takeUnless { ended },
             logoScope = "${participant}:${devicePubkey}".takeUnless { ended || anonymous || policy?.quiet == true ||

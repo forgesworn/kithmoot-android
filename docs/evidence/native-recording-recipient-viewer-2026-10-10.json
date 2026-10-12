@@ -1,0 +1,52 @@
+{
+  "captured_at_utc": "2026-10-10T18:09:27.086806+00:00",
+  "production_ready": false,
+  "base_commit": "1bee1e8",
+  "build_successful": true,
+  "build_elapsed": "13m",
+  "focused_jvm": {
+    "tests": 3,
+    "failures": 0
+  },
+  "lint": {
+    "debug": "passed",
+    "release": "passed"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingAttachmentRequest.kt": "dd1d3749eb03d928433a7c480a96c96f95d0e649cbbbe66d2c48529da82b8aa3",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/RecordingAttachmentViewer.kt": "7db35e72c8670f7ffa9e5874b4ca63e45a909be8a94a0b1c03c99296f2e7137a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/KithMootApplication.kt": "92b76d31c636a1b45aa4c44a7820681b38a0ce1ed7170a739e02ec042659ae0d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "858048f83ac4f8a4456aa0c2d21c754260ae0fd8d5cc3339606d61e565c1f2a1",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/AttachmentViewer.kt": "b523ee51d24546a0bd47b1b1e1ad5f94429792341a3c058a7ae8e3b7120d132a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/ChatPane.kt": "b7c2cfe9ccd458a5f6a2de4a70a0379554ed14da7ffdd2c800c9c2139a6ff91a",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RecordingAttachmentRequestTest.kt": "76dc188cd5b715c62d7b83964f4a23c995f89953d213bfc5c1fcc72be35a87d6",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingPlaybackUiTest.kt": "eac251745bafed46cf3d3065cd284ebce95044c05e53e34753fffb0556035a38",
+    "scripts/check-recording-emulator.sh": "5221a246cffc5902c66644b3846b8e7e9d0b0dd5741112a2a7a901e3fe011c66"
+  },
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "bca42ab7f41ccd4ce099c4f9551567352621ca7775812b68f6cc446475e1a8d5",
+      "snapshot": "/tmp/kithmoot-recording-viewer-qualified/bca42ab7f41ccd4ce099c4f9551567352621ca7775812b68f6cc446475e1a8d5.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "63297123da7456b3b6a358a3ebd110da46de21b4cf8add157252ad76295f7b0f",
+      "snapshot": "/tmp/kithmoot-recording-viewer-qualified/63297123da7456b3b6a358a3ebd110da46de21b4cf8add157252ad76295f7b0f.apk"
+    },
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "sha256": "f4b8d1c7401edaa2297628dc0594667c394c3d0a8764d6fad3e3a9986012a526",
+      "snapshot": "/tmp/kithmoot-recording-viewer-qualified/f4b8d1c7401edaa2297628dc0594667c394c3d0a8764d6fad3e3a9986012a526.apk"
+    }
+  ],
+  "runtime": {
+    "tests": 11,
+    "failures": 1,
+    "passed_tests": 10,
+    "report": "app/build/reports/native-recording-recipient-viewer/instrumentation.txt",
+    "report_sha256": "9910a4333dc8b28699fee4ffbbfb474697904dcb202e95f42be7fa51abdb4a1c",
+    "failed": "RecordingPlaybackUiTest: playback reaches one second but subsequent Pause label assertion failed",
+    "live_browser_included": false
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "qualification": "Recording callback session lock inversion regression",
+  "source_commit": "c6c44909",
+  "runtime_commit": "1b754f70",
+  "unit_suites": {
+    "LiveRecordingReceptionTest": {
+      "tests": 4,
+      "sha256": "575531d5158bf52b5f017defbac53b4e967a7afcccfa2bf0ea40a42397019e97"
+    },
+    "CallAudioCaptureTest": {
+      "tests": 8,
+      "sha256": "2cb200b5c3c22df61b3e8096abd310394f3436ec5319a63e71a79ec3d1eebbcd"
+    },
+    "LiveRecordingPublicationTest": {
+      "tests": 10,
+      "sha256": "1d40164dce9c518bd21ab1e1977dde6a6c29abdc296de596dfe6ad8d99504060"
+    }
+  },
+  "unit_tests": 22,
+  "build": "debug and instrumentation APKs passed",
+  "runtime": {
+    "emulator": "Android 35 Google APIs ARM64, host GPU, 2048 MiB",
+    "tests": 20,
+    "passed": 19,
+    "failures": 1,
+    "recording_owner_ui_tests": 3,
+    "recording_owner_ui_result": "passed",
+    "remaining_failure": "nativeVideoRecordingExportsBothSidesOfTheBrowserCall exceeded the bounded local audio queue; encoder/capture startup performance remains unqualified"
+  },
+  "diagnosis": "The session held its state lock during a synchronous flow collector waiting for the audio capture monitor; the recording worker held that monitor while currentCall waited for the session lock",
+  "fix": "Publish an immutable volatile capture snapshot at every call or roster mutation before delivering flows; the media callback reads call membership and warning compatibility without taking the session lock",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "8016bf2559db59ba5f78e6be1906e5dd609fbcdce2cc0a308ee9e270952a8f9b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "e98dfe23d2ab478a47fa5174b220a188f6505b6e2e8699732d49cb0a880347aa",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/LiveRecordingReceptionTest.kt": "dacda072379e582796624377348dd6db94a749b4f78583af875bacf012ec59ee"
+  },
+  "log_sha256": {
+    "unit_and_build": "3eb95e0bbd9a0031d922fd07b902080aec9a545226991a4daae84d460a5a81ea",
+    "runtime": "ae6c4686cbf4b50ff447b09fb88b41ffdb3230b7b1616873e145966adffc4419",
+    "deadlocked_thread_dump": "b2e3541518cb03b4dce213a39a41d663ccf65e97f650d452bc7451f16ee546aa"
+  },
+  "limits": [
+    "The entire capture suite did not pass; the live video worker failure remains open",
+    "Per-source media permission revocation, quiet Send restart/rekey, full cross-client Session warning delivery, physical long recording/export and production delivery remain open"
+  ]
+}

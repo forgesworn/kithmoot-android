@@ -1,0 +1,31 @@
+{
+  "qualification": "quiet ingress candidate local full build gates",
+  "production_source": "085331f3",
+  "command": "./gradlew --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease",
+  "tests": {
+    "protocol": {
+      "tests": 436,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_debug": {
+      "tests": 2108,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "log_sha256": "b76498fdf96c120cd232707a9f24b54a4c6ac95487419a26192ed2d1059f9c39",
+  "artifacts_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "5766a069261de96f66bb174f02ba722484e9932eda88c241c039f5192568939a",
+    "app/build/outputs/apk/release/app-release-unsigned.apk": "60963bcadb662fd32640a9e4dff8b11dbe6784286c4ff80b5b316f4d3078daa9",
+    "app/build/reports/lint-results-debug.xml": "98742cbb8e3fdb68290a9078e67f8f7b1c1a987538542dfd84bda4527c77744b",
+    "app/build/reports/lint-results-release.xml": "e74a3b5af0a4a0326a8ef75f267aa2b161d59a2bfbb5b3efee2738740ff10d39"
+  },
+  "limits": [
+    "Local JVM, lint and unsigned builds only",
+    "New main commits 1168a4a8 and 23db8b58 not included",
+    "No delegated confirmation, quiet capacity, physical capture or production distribution qualification"
+  ]
+}

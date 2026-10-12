@@ -10,6 +10,10 @@ import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
+import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -22,6 +26,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A quiet room's transport: the chosen kinds ride the kind 1059 stream as
@@ -82,6 +88,8 @@ class QuietTransport(
         const val CANNOT_SEND: String = "This device cannot post in a quiet room. Two devices per person can: the one holding your identity and the one it paired. Others read."
         const val TOO_LONG: String = "This message is too long for a quiet room. Every message in a quiet room is padded to one size, and this one does not fit."
         private val EVENT_ID = Regex("[0-9a-f]{64}")
+        private const val MAX_INGRESS_EVENTS = 4096
+        private const val MAX_WRAPS_PER_EVENT = 8
         const val MEANING: String = "Quiet room. Messages ride the gift-wrap stream as dead drops, one every five minutes at most, and a relay cannot tell whether anything was said, by whom, or when. Being here still shows while you are here, and calls are not quiet."
 
         fun counterRange(slot: Int): IntRange? {
@@ -102,6 +110,8 @@ class QuietTransport(
         val queued: List<NostrEvent>,
         val boxPending: Set<String> = emptySet(),
         val keyFingerprint: String? = null,
+        /** Conservatively occupied before dispatch; restart waits for a later slot. */
+        val offeredThroughSlot: Long = -1,
     )
 
     private val member = member.lowercase()
@@ -123,11 +133,30 @@ class QuietTransport(
     private val lock = Mutex()
     private val queue = ArrayDeque<NostrEvent>()
     private val boxPending = mutableSetOf<String>()
-    private var current: Triple<Long, NostrEvent, NostrEvent?>? = null
+    private class GuardedPublication(val event: NostrEvent, val generation: Long,
+        val innerGeneration: Long, val stillAllowed: () -> Boolean) {
+        val receipt = CompletableDeferred<Boolean>()
+        @Volatile var attempted = false
+    }
+    private data class SlotPublication(val slot: Long, val wrap: NostrEvent,
+        val event: NostrEvent?, val guard: GuardedPublication? = null,
+        var countersSaved: Boolean = false)
+    // These requests are owned by the caller's recording journal/draft, not
+    // the ordinary quiet queue. Restoring the queue must never replay them.
+    private val guarded = linkedMapOf<String, GuardedPublication>()
+    private val confirmedGuarded = linkedSetOf<String>()
+    private val generation = AtomicLong()
+    @Volatile private var stopped = false
+    private var current: SlotPublication? = null
     private var lastSlot = -1L
+    private var offeredThroughSlot = -1L
     private var offsetSlot = -1L
     private var offset = 0L
     private val delivered = LinkedHashSet<String>()
+    // Hybrid ingress is tracked under the outer ID. Keep only authenticated
+    // wrap mappings, and consult the lane at receipt time: a mesh-first copy
+    // can subsequently be observed on a relay without being emitted twice.
+    private val ingressWraps = linkedMapOf<String, LinkedHashSet<String>>()
     private val opened = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 512)
     private var broadcast: Job? = null
     private var timer: Job? = null
@@ -139,6 +168,9 @@ class QuietTransport(
         keys.set(DeadDrop.roomIkm(roomKey), this.members)
         keys.refresh(now())
         if (restore != null) {
+            require(restore.offeredThroughSlot >= -1) { "invalid quiet slot marker" }
+            offeredThroughSlot = restore.offeredThroughSlot
+            lastSlot = offeredThroughSlot
             require(restore.keyFingerprint == null || restore.keyFingerprint == keyFingerprint) {
                 "quiet state belongs to an earlier room epoch"
             }
@@ -176,30 +208,41 @@ class QuietTransport(
 
     /** Exact inner events retained on this device until their delegated box
      * queue receipt has also been saved. */
-    fun queuedEvents(): List<NostrEvent> = synchronized(queue) { queue.toList() }
+    fun queuedEvents(): List<NostrEvent> = synchronized(queue) { queue.filterNot { it.id in guarded } }
 
     /** Remove a box-confirmed inner event only after the smaller durable state
      * has been written. A failed write leaves the event available for retry. */
     fun confirmQueued(eventId: String): Boolean = synchronized(queue) {
+        if (eventId in guarded) return@synchronized false
         if (queue.none { it.id == eventId }) return@synchronized false
-        val retained = queue.filterNot { it.id == eventId }
-        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId, keyFingerprint))
+        val retained = queue.filterNot { it.id == eventId || it.id in guarded }
+        onState(QuietState(keys.exportUsed(), retained, boxPending - eventId, keyFingerprint, offeredThroughSlot))
         queue.removeAll { it.id == eventId }
         boxPending.remove(eventId)
         true
     }
 
     fun stop() {
+        stopped = true
+        generation.incrementAndGet()
+        synchronized(queue) { guarded.values.toList().forEach(::rejectGuarded); confirmedGuarded.clear() }
         timer?.cancel(); timer = null
         broadcast?.cancel(); broadcast = null
         pastBackfill?.cancel(); pastBackfill = null
     }
 
+    override fun guardedConfirmationTimeoutMs(kind: Int): Long = if (kind in quietKinds) {
+        // An occupied current slot plus the next slot's random offset can
+        // require almost two intervals. This is a wait hint, not a delivery receipt.
+        intervalSeconds.coerceAtMost((Long.MAX_VALUE - 15_000) / 2_000) * 2_000 + 15_000
+    } else inner.guardedConfirmationTimeoutMs(kind)
     override fun describe(): List<String> = inner.describe()
     override fun circleRelays(): Set<String> = inner.circleRelays()
 
     override suspend fun beginRekey() {
         publicationBlocked = true
+        generation.incrementAndGet()
+        synchronized(queue) { guarded.values.toList().forEach(::rejectGuarded); confirmedGuarded.clear() }
         inner.beginRekey()
         lock.withLock { /* wait for an in-flight slot to finish or fail */ }
     }
@@ -211,9 +254,10 @@ class QuietTransport(
         val rejected = lock.withLock {
             synchronized(queue) {
                 val old = queue.toList()
-                onState(QuietState(emptyMap(), emptyList(), emptySet(), nextFingerprint))
+                onState(QuietState(emptyMap(), emptyList(), emptySet(), nextFingerprint, offeredThroughSlot))
                 queue.clear()
                 boxPending.clear()
+                lastSlot = maxOf(lastSlot, offeredThroughSlot)
                 current = null
                 val left = this.roomKey
                 keys.set(DeadDrop.roomIkm(roomKey), members)
@@ -275,9 +319,17 @@ class QuietTransport(
      * bucket is refused here, to the caller, not discovered at its slot.
      * Anything else goes straight to the relays.
      */
-    override fun receivedEventConfirmsPublication(eventId: String): Boolean =
-        inner.receivedEventConfirmsPublication(eventId)
-    override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
+    override fun receivedEventConfirmsPublication(eventId: String): Boolean {
+        val wraps = synchronized(delivered) { ingressWraps[eventId]?.toList() }
+            ?: return inner.receivedEventConfirmsPublication(eventId)
+        return wraps.any(inner::receivedEventConfirmsPublication)
+    }
+    override fun receivedViaRelays(eventId: String): List<String> {
+        val wraps = synchronized(delivered) { ingressWraps[eventId]?.toList() }
+            ?: return inner.receivedViaRelays(eventId)
+        return wraps.filter(inner::receivedEventConfirmsPublication)
+            .flatMap(inner::receivedViaRelays).distinct()
+    }
 
     override fun publish(event: NostrEvent) = retain(event, forBox = false)
 
@@ -286,11 +338,13 @@ class QuietTransport(
     fun retainForBox(event: NostrEvent) = retain(event, forBox = true)
 
     private fun retain(event: NostrEvent, forBox: Boolean) {
-        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
+        check(!stopped && !publicationBlocked) { "Room publication is closed or blocked during a secure update" }
         if (event.kind !in quietKinds) return inner.publish(event)
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
         synchronized(queue) {
+            check(!stopped && !publicationBlocked) { "Room publication is closed or blocked during a secure update" }
+            check(event.id !in guarded) { "This event already has a guarded publication owner" }
             val added = queue.none { it.id == event.id }
             if (added) check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
             val marked = forBox && event.id !in boxPending
@@ -298,7 +352,7 @@ class QuietTransport(
             if (marked) boxPending += event.id
             if (added || marked) {
                 try {
-                    onState(QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint))
+                    onState(state())
                 } catch (error: Exception) {
                     if (added) queue.removeAll { it.id == event.id }
                     if (marked) boxPending.remove(event.id)
@@ -315,7 +369,62 @@ class QuietTransport(
         return true
     }
 
-    private fun state(): QuietState = synchronized(queue) { QuietState(keys.exportUsed(), queue.toList(), boxPending.toSet(), keyFingerprint) }
+    override fun publicationGeneration(): Long = generation.get()
+
+    /** Unlike ordinary chat's queue receipt, this waits for the exact inner
+     * event's wrap to be accepted. No guarded request survives cancellation,
+     * timeout, stop or restart; its caller retains the retry authority. */
+    override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        require(timeoutMs > 0)
+        if (stopped || publicationBlocked || generation != this.generation.get() || !stillAllowed())
+            throw PublicationNotOfferedException()
+        val innerGeneration = inner.publicationGeneration()
+        if (event.kind !in quietKinds) return inner.publishConfirmedGuarded(event, innerGeneration,
+            { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }, timeoutMs)
+        check(canSend) { CANNOT_SEND }
+        try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
+        val request = synchronized(queue) {
+            if (stopped || publicationBlocked || generation != this.generation.get() || !stillAllowed())
+                throw PublicationNotOfferedException()
+            if (event.id in confirmedGuarded) return true
+            check(queue.none { it.id == event.id }) { "This event already has a quiet publication owner" }
+            check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
+            GuardedPublication(event, generation, innerGeneration, stillAllowed).also {
+                guarded[event.id] = it
+                queue.addLast(event)
+            }
+        }
+        try {
+            return withTimeoutOrNull(timeoutMs) { request.receipt.await() } ?: run {
+                if (request.attempted) throw PublicationUnconfirmedException()
+                throw PublicationNotOfferedException("The quiet slot did not dispatch before the wait ended")
+            }
+        } finally {
+            synchronized(queue) {
+                if (guarded[event.id] === request) {
+                    guarded.remove(event.id)
+                    queue.removeAll { it.id == event.id }
+                }
+            }
+        }
+    }
+
+    private fun allowed(request: GuardedPublication): Boolean =
+        !stopped && !publicationBlocked && generation.get() == request.generation &&
+            synchronized(queue) { guarded[request.event.id] === request } && request.stillAllowed()
+
+    /** Caller holds queue's monitor. A possible offer remains ambiguous. */
+    private fun rejectGuarded(request: GuardedPublication) {
+        guarded.remove(request.event.id)
+        queue.removeAll { it.id == request.event.id }
+        request.receipt.completeExceptionally(if (request.attempted) PublicationUnconfirmedException()
+            else PublicationNotOfferedException())
+    }
+
+    private fun state(): QuietState = synchronized(queue) {
+        QuietState(keys.exportUsed(), queue.filterNot { it.id in guarded }, boxPending.toSet(), keyFingerprint, offeredThroughSlot)
+    }
 
     fun exportState(): QuietState = state()
 
@@ -340,10 +449,10 @@ class QuietTransport(
      * burns no counter. Two ticks never overlap.
      */
     suspend fun tick() {
-        if (publicationBlocked) return
+        if (stopped || publicationBlocked) return
         if (!lock.tryLock()) return
         try {
-            if (publicationBlocked) return
+            if (stopped || publicationBlocked) return
             val t = now()
             val slot = slotIndex(t)
             if (slot <= lastSlot) return
@@ -354,34 +463,89 @@ class QuietTransport(
                 current = null
                 return
             }
-            val built = current?.takeIf { it.first == slot } ?: buildForSlot(slot).also { current = it }
+            var built = current?.takeIf { it.slot == slot } ?: buildForSlot(slot).also { current = it }
+            val stale = built.guard?.takeUnless(::allowed)
+            if (stale != null) {
+                synchronized(queue) { if (guarded[stale.event.id] === stale) rejectGuarded(stale) }
+                current = null
+                // An unconfirmed offer already occupied this slot. Never
+                // replace it with another visible wrap in the same slot.
+                if (stale.attempted) { lastSlot = slot; return }
+                built = buildForSlot(slot).also { current = it }
+            }
+            // Persist spent counters before any offer, including temporary
+            // guarded requests; a process restart must not reuse their key.
+            if (!built.countersSaved) {
+                offeredThroughSlot = maxOf(offeredThroughSlot, slot)
+                onState(state())
+                built.countersSaved = true
+            }
             val taken = try {
-                if (inner is RelayPool) inner.publishConfirmed(built.second) else { inner.publish(built.second); true }
+                val guard = built.guard
+                if (guard == null) inner.publishConfirmed(built.wrap)
+                else {
+                    guard.attempted = true
+                    inner.publishConfirmedGuarded(built.wrap, guard.innerGeneration, { allowed(guard) })
+                }
+            } catch (cancel: CancellationException) { throw cancel
             } catch (_: Exception) { false }
             if (!taken) return
+            // Receipt and durable removal are separate gates. Keep the exact
+            // wrap and queued event if saving the smaller queue fails, so a
+            // retry cannot lose the message or consume another counter.
+            val sentEvent = built.event
+            synchronized(queue) {
+                // A timed-out caller may already be retrying the same exact
+                // event. Its late receipt belongs to that valid current owner
+                // too; never remove the new request without completing it.
+                val confirming = built.guard?.let { previous ->
+                    guarded[previous.event.id]?.takeIf {
+                        it.generation == previous.generation && allowed(it)
+                    } ?: previous
+                }
+                val ownsHead = if (built.guard == null) sentEvent?.id !in guarded
+                    else sentEvent != null && guarded[sentEvent.id] === confirming
+                if (ownsHead && sentEvent != null && queue.firstOrNull()?.id == sentEvent.id) {
+                    val retained = queue.drop(1).filterNot { it.id in guarded }
+                    onState(QuietState(keys.exportUsed(), retained, boxPending.toSet(), keyFingerprint, offeredThroughSlot))
+                    queue.removeFirst()
+                }
+                built.guard?.let { guard ->
+                    if (guard.generation == generation.get()) {
+                        confirmedGuarded.add(guard.event.id)
+                        while (confirmedGuarded.size > MAX_PENDING) confirmedGuarded.remove(confirmedGuarded.first())
+                    }
+                    if (guarded[guard.event.id] === confirming) guarded.remove(guard.event.id)
+                    confirming?.receipt?.complete(true)
+                    guard.receipt.complete(true)
+                }
+            }
             lastSlot = slot
-            synchronized(queue) { if (built.third != null && queue.firstOrNull()?.id == built.third!!.id) queue.removeFirst() }
             current = null
-            if (built.third != null) onState(state())
         } finally {
             lock.unlock()
         }
     }
 
-    private fun buildForSlot(slot: Long): Triple<Long, NostrEvent, NostrEvent?> {
+    private fun buildForSlot(slot: Long): SlotPublication {
         val t = now()
         keys.refresh(t)
         while (true) {
             val head = synchronized(queue) { queue.firstOrNull()?.takeUnless { it.id in boxPending } } ?: break
+            val guard = synchronized(queue) { guarded[head.id] }
+            if (guard != null && !allowed(guard)) {
+                synchronized(queue) { rejectGuarded(guard) }
+                continue
+            }
             val key = try { keys.sendKey(member, t, range!!) } catch (_: QuietKeys.EpochExhausted) { break }
             try {
-                return Triple(slot, RoomDrops.createRoomDrop(head, key.publicKey, bucket, t, random), head)
+                return SlotPublication(slot, RoomDrops.createRoomDrop(head, key.publicKey, bucket, t, random), head, guard)
             } catch (_: RoomDrops.RumorTooLarge) {
                 // The key is burnt and the message cannot be carried: drop it, try the next.
                 synchronized(queue) { queue.removeFirst() }
             }
         }
-        return Triple(slot, RoomDrops.createRoomFiller(quietKinds.first(), bucket, t, random), null)
+        return SlotPublication(slot, RoomDrops.createRoomFiller(quietKinds.first(), bucket, t, random), null)
     }
 
     /** Match a wrap by its tag, open it, and hand the inner event to every quiet subscriber. */
@@ -395,6 +559,10 @@ class QuietTransport(
         val hit = current ?: lookupPast(tag, t) ?: return
         val inner = RoomDrops.openRoomDrop(wrap, hit.key.privateKey) ?: return
         synchronized(delivered) {
+            val wraps = ingressWraps.getOrPut(inner.id) { linkedSetOf() }
+            wraps.add(wrap.id)
+            while (wraps.size > MAX_WRAPS_PER_EVENT) wraps.remove(wraps.first())
+            while (ingressWraps.size > MAX_INGRESS_EVENTS) ingressWraps.remove(ingressWraps.keys.first())
             keep("w:" + wrap.id)
             if ("i:" + inner.id in delivered) return
             keep("i:" + inner.id)

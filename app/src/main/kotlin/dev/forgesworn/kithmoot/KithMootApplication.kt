@@ -25,6 +25,56 @@ import dev.forgesworn.kithmoot.epoch.RoomMembers
 private const val VMLS_PREVIEW = "preview"
 
 class KithMootApplication : Application() {
+    /** App-private recordings are excluded from Android cloud/device backup. */
+    val recordings by lazy {
+        dev.forgesworn.kithmoot.media.recording.LocalRecordingStore(java.io.File(noBackupFilesDir, "recordings"))
+            .apply { recover() }
+    }
+    /** Ciphertext drafts and device-wrapped per-file keys never enter backup. */
+    val recordingShareDrafts by lazy {
+        dev.forgesworn.kithmoot.media.recording.RecordingShareDraftStore(
+            java.io.File(noBackupFilesDir, "recording-share-drafts"),
+            EncryptedRoomStorage(this, "kithmoot.recording-drafts.v1"),
+        ).apply { recover() }
+    }
+    /** Storage-only identities renew exact-file cleanup after room keys go. */
+    val recordingUploadJournal by lazy {
+        dev.forgesworn.kithmoot.media.recording.RecordingUploadJournal(
+            EncryptedRoomStorage(this, "kithmoot.recording-uploads.v1"),
+        ).apply { recover() }
+    }
+    val recordingStops by lazy {
+        dev.forgesworn.kithmoot.session.RecordingStopJournal(
+            EncryptedRoomStorage(this, "kithmoot.recording-stops.v1"),
+        )
+    }
+    fun forgetRecordingsForRoom(room: String) {
+        var failure: Exception? = null
+        try { recordings.forgetRoom(room) } catch (error: Exception) { failure = error }
+        try { recordingShareDrafts.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        try { recordingUploadJournal.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        try { recordingStops.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
+        failure?.let { throw it }
+    }
+    /** A new process removes abandoned private playback files before its first
+     * viewer opens. This lazy owner is shared by all activities in the process. */
+    val recordingPlaybackCache by lazy {
+        java.io.File(cacheDir, "recording-playback").apply {
+            check(!exists() || deleteRecursively()) { "Private playback cleanup failed" }
+            check(mkdirs()) { "Private playback storage is unavailable" }
+        }
+    }
+    /** Finalising an explicit local recording outlives room/Activity teardown. */
+    val recordingExports = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     /** Where signer intents wait for their answer, so an activity recreated meanwhile does not lose it. */
     val signerRelay = dev.forgesworn.kithmoot.account.SignerRelay()
 

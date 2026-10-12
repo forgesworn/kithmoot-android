@@ -2,11 +2,14 @@ package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -15,8 +18,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -30,11 +39,17 @@ import dev.forgesworn.kithmoot.ui.RoomState
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit) {
+fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit,
+    onStopRecording: () -> Unit = {}, onToggleRecordingPause: () -> Unit = {},
+    videos: Map<String, org.webrtc.VideoTrack> = emptyMap(), eglBase: org.webrtc.EglBase? = null,
+    onSetVolume: (String, Float) -> Unit = { _, _ -> }) {
+    var galleryVisible by androidx.compose.runtime.saveable.rememberSaveable(call.roomId) { mutableStateOf(true) }
+    val chrome = remember(call.roomId) { CallChrome() }
     val others = call.tiles.count { !it.isSelf }
     // Mute keeps the microphone running and says so separately; either way
     // nobody hears this device.
     val heard = call.micOn && !call.micMuted
+    val regular = !call.anonymous && !call.quiet && !call.privateConversation && !call.conferenceEnded
     val room = call.name.ifBlank { "your room" }
     val summary = when {
         !call.onCall -> "Still in $room."
@@ -44,9 +59,27 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
     }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(summary, style = MaterialTheme.typography.titleSmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (regular)
+                    PrivateLogo(call.logo ?: call.projectBrand?.image, room, Modifier.size(28.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(summary, style = MaterialTheme.typography.titleSmall)
+                    call.projectBrand?.takeIf { regular }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall) }
+                }
+            }
             RecordingBanner(call.recording, description = recordingCaptureDescription(call))
+            if (call.onCall && galleryVisible) CallView(
+                state = call, videos = videos, eglBase = eglBase, chrome = chrome,
+                preferGrid = false, swapped = false, onSwap = {}, hideSelf = false,
+                onExpandScreen = { onBack() }, onSetVolume = onSetVolume,
+                alone = {}, modifier = Modifier.fillMaxWidth().height(180.dp)
+                    .semantics { contentDescription = "Call gallery" },
+            )
             FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (call.onCall) TextButton(onClick = { galleryVisible = !galleryVisible }) {
+                    Text(if (galleryVisible) "Hide gallery" else "Show gallery")
+                }
                 if (call.onCall) FilledTonalButton(
                     onClick = onToggleMic,
                     modifier = Modifier.heightIn(min = 48.dp).semantics {
@@ -55,6 +88,12 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                     },
                 ) { Text(if (heard) "Mic on" else "Mic off") }
                 Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to the call") }
+                if (call.nativeRecordingPreparing) OutlinedButton(onClick = onStopRecording,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("Cancel recording start") }
+                if (call.nativeRecording) OutlinedButton(onClick = onStopRecording, enabled = !call.nativeRecordingBusy,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("Stop recording") }
+                if (call.nativeRecording) OutlinedButton(onClick = onToggleRecordingPause, enabled = !call.nativeRecordingBusy,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text(if (call.nativeRecordingPaused) "Resume recording" else "Pause recording") }
                 if (call.onCall) OutlinedButton(
                     onClick = onLeave,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),

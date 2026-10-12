@@ -1,0 +1,76 @@
+{
+  "production_ready": false,
+  "base_commit": "dc9cdae72ca35bac1e00c88dc2abdc775d5ef26b",
+  "scope": "Production MainActivity native recording, saved-room/account restoration and actual Retry stop notice after prepare/explicit force-stop/new-process verify. Synthetic local account, loopback relay and short native audio export on a disposable emulator; no physical, active-capture crash, rekey or long-recording qualification.",
+  "source_sha256": {
+    ".github/workflows/ci.yml": "99f88c4fec97f0f3da187c4740f0246b1156707562e89e6affbf1cc5a0b269c2",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/projects/ProjectTestRelay.kt": "94c12e51e969b29424841a9197cf3e2d82df23b652263c3478132e70d0d3cbc1",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingStopRecoveryUiTest.kt": "03f6b34a8defd9896bec881b554ffe671c4ecdd4a34d3a54fb73b7e8ec7a5791",
+    "scripts/check-recording-stop-ui-restart-emulator.sh": "1eb6f4795f1f340e330860ccee0ed90639fd2a2793ccfcc9622dad5048832243"
+  },
+  "runtime": {
+    "physical": false,
+    "serial": "emulator-5586",
+    "stages": {
+      "prepare": {
+        "passed": true,
+        "elapsed_seconds": 59.424,
+        "report_sha256": "2e586c4365f6cc55a8ce3f1758c054cd7f5e6a8b2392a13bf8a2c9701b6a80ab"
+      },
+      "verify": {
+        "passed": true,
+        "elapsed_seconds": 10.535,
+        "report_sha256": "899a4d66f93a5abcfb540a70caca871ffb303bf0f779985127893512b0bcf9ed"
+      },
+      "cleanup": {
+        "passed": true,
+        "elapsed_seconds": 3.793,
+        "report_sha256": "bd9793069f991e1227cf3d557901fa100b14a4e58da89fa09095c491fabeeca6"
+      }
+    }
+  },
+  "cases": [
+    "Native UI creates a room, joins call and starts confirmed audio recording",
+    "Local export completes while relay withholds Off receipt; exact signed Off retained",
+    "Explicit process death followed by different process ID and restored Keystore-backed saved room/account",
+    "Original room reopened through its unique visible name and room ID checked before stop assertions",
+    "Actual Retry stop notice confirms exact authority signature in a verified Nostr event; pending journal clears",
+    "Original local export filename and SHA-256 retained across restart and confirmation",
+    "Cleanup removes only the fixture room recording/journal and saved record"
+  ],
+  "earlier_failures": {
+    "port_rebind": {
+      "prepare_sha256": "2f5ed2981d0112d5370ebb8a650defeab53b2e430214c83d9d9ef8237a44241b",
+      "verify_sha256": "e8e6ffd2cebcb148d222d56d9ca8de7b6da68d87c99da85d65fb5360a007ef08",
+      "observed": "First ephemeral listener disabled socket reuse; restart listener could not rebind. Both listeners now request the same selected nonzero port."
+    },
+    "ambiguous_room_name": {
+      "verify_sha256": "1ac50fba9a40c73afcb4c660a6e9ebb56862b78e805188dc53c7e67832bfd89e",
+      "observed": "Clicked an older cached bookmark with the same fixture title, a different room ID and obsolete relay port. Each run now uses a unique visible title and checks original room ID immediately."
+    }
+  },
+  "lint": {
+    "status": "passed",
+    "task": ":app:lintDebug",
+    "elapsed_seconds": 164,
+    "log_sha256": "ebfd5fdb529bb4f874bea2865e9e75b52de54d374a4e11ff8b3e0dce87e57b36"
+  },
+  "hosted_new_head": "required",
+  "remaining": [
+    "Quiet heartbeat slot/counter capacity and delegated confirmation",
+    "Prepared-Send restart/rekey UI",
+    "Independent recipient installation/device",
+    "Full signed-room capture, physical camera/screen/sync, load reliability and 45-minute endurance/interruption/provider exports",
+    "Large/slow uploads",
+    "Final versioned signing, hosted gates and production delivery"
+  ],
+  "base_hosted_ci": {
+    "run_id": 38120993127,
+    "conclusion": "failure",
+    "verify": "success",
+    "signing_lineage_api_33": "success",
+    "signing_lineage_api_35": "success",
+    "recovery_emulator": "failure",
+    "observed": "ArtworkPickerUiTest timed out; recovery job did not complete."
+  }
+}

@@ -25,3 +25,22 @@ process-death controls, complete debug/release reports and all nine exact-head
 CI jobs before qualification. New upstream main `763a1c52` is still a separate
 integration and requalification requirement before merge. No hardware, MQTT,
 group/public messaging, firmware or lab-key operation is included.
+
+
+## Current-main integration candidate, 2026-10-12
+
+A separate integration branch combines corrective `eb26d296` with main
+`db9eb36c`. Guest admission freshness checks surround the qualified openForRoom
+path; receiver barrier behaviour, replacement cases, and both logo/replacement
+driver profiles are retained. The five-case AtomicFile fixture and corrective
+EncryptedRoomStorage source remain byte-identical. The merged guest suites
+run once at their complete current counts, 10 UI and 6 entry cases. A static
+full-class count audit reports no mismatch; this is not Android execution.
+
+The combined source is still being compiled and qualified. Three local fake
+recovery-driver checks hit their existing 30-second deadlines; those failures
+are retained, not waived. Earlier own-head nine-job green evidence does not
+qualify this combined head. Its own workflow retains all nine gates, both
+upstream and native ordinary suites, process-death boundaries and pending
+refusal shards. No merge or current-source timing/physical qualification is
+claimed by publishing this candidate.

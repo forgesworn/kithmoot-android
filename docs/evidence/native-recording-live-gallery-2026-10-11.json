@@ -1,0 +1,86 @@
+{
+  "production_ready": false,
+  "base_commit": "580650b41b5673427aebf6b33a30a725409b5941",
+  "scope": "Actual browser Peer inside Chromium and native WebRTC, without early callback diagnostic sinks, followed by adapter-level mixed audio and gallery MP4 export. Synthetic source pictures/tones and explicitly supplied endpoint permissions/capabilities; not a complete signed-room recording UI journey or physical-input claim.",
+  "source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "22a3b96aad7e0fc27e3555a49c553346b136ac9674e94d4adc62eb6691133739",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecordingTest.kt": "384cc2d4fa407048013679220e6ba0a1521e3acaffd11bd4f7307523ba8e20c5",
+    "scripts/check-recording-emulator.sh": "b7c31f52a1227176ca7deb4b602754deec0ed4ebcdeadc46a872027b405ff83e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/RemoteTrackIds.kt": "68f8c48ee40c5e8bc47f1e896db27f0932cea3d8120cb21072b82bf922893f46",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/CallAudioCapture.kt": "9b3fe3e5af1a733f6dcf1c6f70522bf678d27644d3409d00709e3778bf2f0f5b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingVideoScene.kt": "835d0253e5eb9226b8a660c49008b0497195fdb52647744fbd1ea1111032d3ef",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/ComposedAvRecording.kt": "8df1fa4b6b2c283612db2fb41f27a68080f955b4cc9430f6ea5c359ec35b3742"
+  },
+  "build": {
+    "instrumentation": true,
+    "elapsed": "32s",
+    "debug_lint": true,
+    "lint_elapsed": "45s",
+    "main_app_unchanged": true,
+    "preceding_full_ci": "See native-recording-stop-journal-2026-10-10.json; this change adds instrumentation and driver coverage only"
+  },
+  "runtime": {
+    "physical": false,
+    "serial": "emulator-5586",
+    "all_browser_interop": {
+      "tests": 6,
+      "failures": 0,
+      "elapsed_seconds": 39.751,
+      "report_sha256": "af83cacaecb3c7d69cf264f02c08f738d94e2c0fd2cf41146531b984be0b8462",
+      "polite_and_impolite": true,
+      "turn": true,
+      "answering_only_bindings": true,
+      "audio_export": true,
+      "gallery_export": true
+    },
+    "full_recording": {
+      "tests": 17,
+      "failures": 0,
+      "elapsed_seconds": 51.301,
+      "report_sha256": "363e5061cfbb5699126e896809becc7754997faf7f3c77a52bed3000ccf3d0e0",
+      "includes_both_live_exports": true
+    }
+  },
+  "gallery_export": {
+    "first_pass_audio_samples": 229376,
+    "first_pass_video_frames": 72,
+    "first_pass_bytes": 415501,
+    "full_suite_audio_samples": 232448,
+    "full_suite_video_frames": 73,
+    "full_suite_bytes": 447629,
+    "decoded_native_picture": true,
+    "decoded_browser_picture": true,
+    "decoded_browser_picture_changes": true,
+    "both_440_and_660_hz_tones_above_600_amplitude": true,
+    "camera_replacement": true,
+    "encrypted_round_trip_identical": true,
+    "declared_capability_fixture_only": true,
+    "signed_recording_notice_included": false
+  },
+  "prior_evidence": {
+    "diagnostic_sinks_on_starting_head_passed": true,
+    "earlier_failures_not_erased": true,
+    "first_new_test_failure": "The reused decoder assumed exactly two seconds. Live call duration was about 4.8 seconds; parameterised the decoder while preserving the existing two-second default invariant.",
+    "first_new_test_failure_sha256": "d89821b5c8012797a7a91de02f0b9a64ed283d34412df5a16cd2ad6244387941"
+  },
+  "remaining": [
+    "Production room/UI capture with verified live participant capabilities and signed notices",
+    "Physical camera/screen and live lip-sync acceptance",
+    "Reliability under load; earlier zero-frame/background failures have no established root cause",
+    "QuietTransport delivery-aware recording notices and prepared Send",
+    "Independent recipient through real private storage",
+    "Complete stop-retry UI through actual saved-room process recovery",
+    "Physical 45-minute endurance/interruption and Save providers",
+    "Hosted CI on final head and signed production distribution"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "74b82485d4e5d9372957458623552bdb9e91f92920ce7bd7abff2f142c1c5b15"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "719c6d096f08e4739804c6beb7cf1acda26c31aeaed27e48f1d37dac19ea05c7"
+    }
+  ]
+}

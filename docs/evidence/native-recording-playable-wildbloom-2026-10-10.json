@@ -1,0 +1,83 @@
+{
+  "captured_at_utc": "2026-10-10T16:44:19.717246+00:00",
+  "production_ready": false,
+  "scope": "Hash-verified synthetic emulator gallery MP4 encrypted by compiled Android writer on JVM, independently opened by Wildbloom and fully decoded by host ffmpeg. No node, public upload, recipient app or physical device claim.",
+  "passed": true,
+  "source_movie": {
+    "sha256": "a8e9a974aeeb0ff7eb8da7b7bbd1f82f0f625ab964127c747f98f9d31e6b8b76",
+    "size": 95327,
+    "evidence": "docs/evidence/native-recording-retention-alignment-2026-10-10.json"
+  },
+  "encrypted_movie": {
+    "sha256": "5289de7563908390a28e2058b538964025cc2f260df01c9b21a0e2781840d96c",
+    "size": 131144
+  },
+  "reader": {
+    "passed": true,
+    "synthetic": true,
+    "results": [
+      {
+        "name": "synthetic-gallery.mp4",
+        "size": 95327,
+        "scope": "playable synthetic native gallery MP4",
+        "independentlyDecoded": true,
+        "tracks": [
+          {
+            "codec": "aac",
+            "duration": "2.000000"
+          },
+          {
+            "codec": "h264",
+            "duration": "2.000000"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "path": "app/src/main/kotlin/dev/forgesworn/kithmoot/session/FileAttachment.kt",
+        "sha256": "81c5ce4f163b00acfd4926ba1840ecab148109dea46f71da72ddf1b10c2cf96f"
+      },
+      {
+        "path": "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/PcmRecording.kt",
+        "sha256": "69093b8665f7fbfc6edb99ae4e29795ab33a6c71b246f789d981a5af3f036180"
+      },
+      {
+        "path": "../wildbloom/src/core/crypto.ts",
+        "sha256": "36e4d12acad2ab79ce14df50d96a65e8aa52e9fb7fc4b6dbb7a91fc6b8e1e00d"
+      }
+    ]
+  },
+  "writer": {
+    "compiled_jar": "app/build/intermediates/compile_app_classes_jar/debug/bundleDebugClassesToCompileJar/classes.jar",
+    "jar_sha256": "4e239f7a95fa1426217108fc5ed38879da2d5d8024681fa18582ca6e413899f9",
+    "classes": [
+      {
+        "class": "dev/forgesworn/kithmoot/session/OpenedFile.class",
+        "sha256": "5c4880f2f71643c97f6d1beb8959f406db6ddbd18fa65d1545fd12c5bd5acab1"
+      },
+      {
+        "class": "dev/forgesworn/kithmoot/session/FileAttachmentKt.class",
+        "sha256": "629ad19c1d9e2bb2a89985a868bfcf8a25a8ba66cc7ff3a47b1a0a4b9610d47c"
+      },
+      {
+        "class": "dev/forgesworn/kithmoot/session/SealedFile.class",
+        "sha256": "cf6326443dac20472099cebc9df23931f617135e8f69ab97e96876edffa63ad6"
+      },
+      {
+        "class": "dev/forgesworn/kithmoot/session/ChatAttachment.class",
+        "sha256": "b0d29ad72596e70f72f3fe2a80d5ab100d8dd81855d6f46c7c297c7f8c2711f3"
+      }
+    ]
+  },
+  "verifier_sha256": "64a484f579028bbb8b1051eaa0e92930ad2236176055bd9d88ba8883d120e2fb",
+  "local_artifacts": "/tmp/kithmoot-playable-recording-interop",
+  "open": [
+    "Private HTTPS node upload acceptance",
+    "Origin-bound Add, Upload selected files and separate Send app flow",
+    "Recipient explicit Show and Android audio/video playback",
+    "Production representative live call video",
+    "Physical endurance and interruption qualification",
+    "Current-main full CI and signed release"
+  ]
+}

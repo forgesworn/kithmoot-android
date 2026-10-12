@@ -1,0 +1,71 @@
+{
+  "source_commit": "3fd3b0fcdfba13f311f7d57960b3926d120d9e95",
+  "integrated_main": "44857b84",
+  "production_ready": false,
+  "build": {
+    "protocol_and_app_jvm_debug_and_instrumentation": true,
+    "elapsed": "4m 12s",
+    "android_lint_included": false,
+    "release_build_included": false
+  },
+  "jvm": {
+    "protocol": {
+      "tests": 417,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite_files": 68,
+      "reports_sha256": "3fdf381f0c19f27df9ef37406d54e06b9012c943014fdda7410185f5be275699"
+    },
+    "app": {
+      "tests": 2010,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite_files": 237,
+      "reports_sha256": "fe9fc386466b931e0daf1aa7caf9ab7a4cb71e4538c60adffa87a3d25d256014"
+    }
+  },
+  "runtime": {
+    "recording": {
+      "tests": 15,
+      "failures": 0,
+      "elapsed_seconds": 42.659,
+      "report_sha256": "8d16beb164f777dc7706e48412c7ca3cd2f20b4c9f0107b68a077393c50bee9c",
+      "serial": "emulator-5586",
+      "physical": false,
+      "live_browser_interop_included": false
+    },
+    "admission_ui": {
+      "tests": 6,
+      "failures": 0,
+      "elapsed_seconds": 6.184,
+      "report_sha256": "48778d23bbd6586a854bedc790d1ff27f731c9fe25df9fc58b9a70cd59a2190e",
+      "serial": "emulator-5586",
+      "physical": false
+    }
+  },
+  "hosted": {
+    "run": 38086034518,
+    "snapshot": "verify and recovery-emulator in progress; final hosted qualification remains open"
+  },
+  "remaining": [
+    "Durable Send/outbox ownership",
+    "UI-driven HTTPS transfer",
+    "Stop-notice recovery across close/restart",
+    "Live browser/native video capture",
+    "Background reliability under load",
+    "Physical endurance/interruption and Save-provider acceptance",
+    "Complete final hosted CI and signed production delivery"
+  ],
+  "apks": [
+    {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "13aa008e3c21e6b5d269c0674640bab4648ad2b0208dbfe3aa37c4d8868e5b98"
+    },
+    {
+      "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "sha256": "57af2dcfd155fda40e8a39fce968b37552495e5491bd5ab46497a726b181f1d4"
+    }
+  ]
+}

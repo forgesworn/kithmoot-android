@@ -1,0 +1,49 @@
+{
+  "qualification": "quiet hybrid authenticated ingress provenance",
+  "source_base": "815e765fc28151d358f76bee98ec78aaee9e516b",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "f2aa8a84d0b80117c4d90a9649f39edfa11c3ff3b4cd780b37c0013209376490",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietTransportTest.kt": "81cb4ce23cf6ed781e7dc59dcf98b1174a38e9fde63826c2b4f8b2b4dd22f3e4"
+  },
+  "tests": {
+    "dev.forgesworn.kithmoot.session.QuietTransportTest": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "f1c5351d76b8b17307820f543f311ad3bd4682c060af16d862e1979ff9f3b07a"
+    },
+    "dev.forgesworn.kithmoot.session.QuietGuardedPublicationTest": {
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "449059c5359daf85b9cdf9f6b4e4311e73450967dbac5f5d9e8d869e5c00bd5e"
+    },
+    "dev.forgesworn.kithmoot.relay.HybridRoomTransportTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "5d12d210f16972c9e22b9e8044f55e0572b458e9c10c59bf6bbb151cf9f5c415"
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceGuardedPublicationTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sha256": "e05838604a3f6bd6b2851b44180690829ac5f8d566a41410c8f0310afcfc6f79"
+    }
+  },
+  "total_tests": 51,
+  "log_sha256": "9ba862c914f2430a2e54031c34027bf20a09a40a5c488f26dc228f2d5a23a55c",
+  "cases": [
+    "relay-first authenticated wrap proves inner event delivery",
+    "mesh-first gains relay proof without rendering a second message",
+    "fresh authenticated wrap of the same inner event can prove delivery"
+  ],
+  "limits": [
+    "JVM hybrid transport fixtures, not actual delegated node delivery",
+    "No quiet heartbeat capacity, delegated guarded dispatch, rekey UI or physical capture qualification"
+  ]
+}
