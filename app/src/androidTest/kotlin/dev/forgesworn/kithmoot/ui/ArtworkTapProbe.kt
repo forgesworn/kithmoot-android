@@ -21,7 +21,9 @@ internal class ArtworkTapProbe {
     private var preparedBounds: Rect? = null
     private var pickerAtPreparation: Boolean? = null
 
-    fun prepare(node: SemanticsNode, pickerExists: Boolean) {
+    fun prepare(node: SemanticsNode, pickerExists: Boolean?) {
+        armed.set(false)
+        synchronized(events) { events.clear() }
         target = node
         preparedBounds = node.boundsInWindow
         pickerAtPreparation = pickerExists
