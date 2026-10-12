@@ -3,6 +3,10 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.support.FakeRelay
+import dev.forgesworn.kithmoot.cadence.CadenceRoomTransport
+import dev.forgesworn.kithmoot.cadence.CadenceLeasePlan
+import dev.forgesworn.kithmoot.cadence.CadenceOwnership
+import dev.forgesworn.kithmoot.cadence.StoredCadenceLease
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
 import kotlin.test.*
@@ -141,5 +145,54 @@ class ParticipantRecordingTest {
         assertTrue(a.participantRecordingCompatible(call))
         val notice = work.startRecording("audio")
         work.stopRecording(notice.id); work.close(); a.leave()
+    }
+
+    @Test fun delegatedQuietScheduleKeepsParticipantWarningsConfirmedWithoutChatCounters() = runTest {
+        val relay = FakeRelay()
+        val policy = RoomPolicy(KindredTier.OPEN, null, listOf(alice.participant, bob.participant), quiet = true)
+        var quietWrites = 0
+        var boxCalls = 0
+        val quiet = QuietTransport(relay.transport(), room.roomKey, alice.participant,
+            policy.members!!, 0, backgroundScope, now = { currentTime / 1000 },
+            slotOffset = { 0 }, reservedCounters = { (0 until 8).toSet() }, onState = { quietWrites++ })
+        val lease = StoredCadenceLease(CadenceLeasePlan("a".repeat(52), room.roomId, room.roomId,
+            1, alice.devicePubkey, "22".repeat(16), 1, "11".repeat(16), "{}", 0, 2, 0, 8),
+            CadenceOwnership.BOX_OWNED, CadenceReceipt("status", "22".repeat(16), 1,
+                "active", 0, 0, 2, 0, emptyList(), emptyList()), 0)
+        val cadence = CadenceRoomTransport(quiet, backgroundScope, leaseAt = { lease },
+            retain = { boxCalls++; error("Recording warning used chat retention") },
+            queue = { _, _ -> boxCalls++; error("Recording warning used a box queue receipt") },
+            release = { boxCalls++; error("Recording warning released a queued chat") },
+            ownershipGeneration = { 0 }, now = { currentTime / 1000 })
+        val sender = session(room, alice, relay, policy = policy, transport = cadence)
+        val recipient = session(room, bob, relay, policy = policy)
+        sender.join(); recipient.join()
+        sender.setCall(CallMembership(call, 0)); recipient.setCall(CallMembership(call, 0)); runCurrent()
+        val journal = RecordingStopJournal(Stops())
+        val recorder = work(alice, sender, relay, journal)
+        assertFalse(recorder.moderator)
+        val notice = recorder.startRecording("gallery"); runCurrent()
+        val flowKey = "$call:${alice.devicePubkey}"
+        repeat(90) {
+            advanceTimeBy(30_000)
+            sender.announce(); recipient.announce(); runCurrent()
+            assertTrue(sender.participantRecordingActive(notice, call))
+            assertEquals(notice, recipient.participantRecordings.value[flowKey]!!.state.recording.notice)
+        }
+        assertEquals(2_700_000, currentTime)
+        relay.confirmsPublications = false
+        assertFailsWith<IllegalStateException> { recorder.stopRecording(notice.id) }
+        assertEquals(notice.id, recorder.recordingStopPending.value)
+        assertFalse(sender.participantRecordingActive(notice, call))
+        val retained = journal.pending(room.roomId, alice.devicePubkey, alice.devicePubkey)!!
+        relay.confirmsPublications = true
+        recorder.stopRecording(notice.id); runCurrent()
+        assertEquals(retained, recipient.participantRecordings.value[flowKey]!!.state.recording)
+        assertNull(recorder.recordingStopPending.value)
+        assertEquals(0, boxCalls)
+        assertEquals(0, quiet.pending)
+        assertEquals(0, quietWrites)
+        assertTrue(relay.published.none { it.kind == 1059 || it.kind == KIND_CHAT })
+        recorder.close(); sender.leave(); recipient.leave(); quiet.stop()
     }
 }

@@ -83,6 +83,22 @@ required because the earlier `c1457a24` result predates this follow-up. Both
 private-node emulator images passed real Wildbloom Upload/Send/Show/Play,
 including 256 MiB and slow transfers, on the earlier `c1457a24` source.
 
+The [participant quiet-capacity receipt](evidence/native-recording-participant-quiet-capacity-2026-10-12.json)
+adds a 45-minute simulated-clock check with the quiet slot timer enabled and
+the complete phone counter range owned by a delegated lease. A non-moderator's
+gallery warning reaches a separate Session, refreshes every 30 seconds, and
+retries its exact retained Off after a refused Stop. It spends no chat counters,
+writes no quiet queue state and makes no box queue calls. All six participant
+tests pass. This qualifies warning routing and simulated capacity, not physical
+capture endurance or guarded recording-message delivery through a node.
+
+Guarded delegated Send must not reuse ordinary chat's durable box queue:
+`QuietTransport.queuedEvents()` exposes those entries to ordinary queue retry,
+which does not retain the original recording Send guard. A box queue receipt
+also does not establish relay delivery. The current refusal remains until the
+original guard, actual authenticated relay confirmation, cancellation/withdrawal
+and process-restart behaviour are integrated and qualified together.
+
 ## Historical initial audit
 
 # Recording profile 4 parity gate
