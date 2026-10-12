@@ -131,6 +131,23 @@ class RecordingOwnerUiTest {
         assertFalse(model.room.value.meetingModerator)
     }
 
+    @Test fun unavailable_save_destination_shows_the_error_in_the_prompt_and_keeps_the_export() {
+        val source = app.recordings.begin().apply { writeText("synthetic retained export") }
+        val export = app.recordings.complete(source)
+        ui.await("retained export offers Save") { ui.hasText("Recording ready") && ui.enabled("Save") }
+        activity.scenario.onActivity {
+            model.saveRecording(export.name, android.net.Uri.parse(
+                "content://dev.forgesworn.kithmoot.missing-test-provider/recording"))
+        }
+        ui.await("failed Save is visible inside the recording prompt") {
+            val error = model.recordingExportError.value
+            error != null && ui.hasText(error) && !model.recordingExportBusy.value && ui.enabled("Save")
+        }
+        assertEquals(export, app.recordings.export.value)
+        assertEquals("synthetic retained export", export.readText())
+        assertTrue(requireNotNull(model.recordingExportError.value).contains("The local export is still available."))
+    }
+
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
         ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }

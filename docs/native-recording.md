@@ -6,6 +6,13 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
+The Save follow-up also puts document-provider failures inside the
+"Recording ready" dialog, instead of leaving the error behind that modal.
+An unsuccessful copy keeps the local export available to retry. The short
+Pixel audio Save/cancel/retry proof covers the earlier unlocked-dialog fix;
+it does not qualify the latest candidate's video, playback or endurance.
+These changes are not yet included in the public Android release.
+
 
 The current integrated candidate is `4bc02225`, which includes Android main
 `5cac2b5f`, the unlocked Save-dialog fix and the AAC playback-clock correction.

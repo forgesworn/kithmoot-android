@@ -10,8 +10,8 @@ esac
 adb_bin="$ANDROID_HOME/platform-tools/adb"
 classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest,dev.forgesworn.kithmoot.media.recording.NativeVideoSinkTest,dev.forgesworn.kithmoot.media.recording.RecordingVideoSceneTest,dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest,dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest,dev.forgesworn.kithmoot.media.recording.RecordingUploadJournalAndroidTest'
 case "${1:-full}" in
-  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=25 ;;
-  local-capture) expected=23 ;;
+  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=26 ;;
+  local-capture) expected=24 ;;
   codecs) classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest'; expected=4 ;;
   *) echo 'Choose full, local-capture or codecs.' >&2; exit 2 ;;
 esac

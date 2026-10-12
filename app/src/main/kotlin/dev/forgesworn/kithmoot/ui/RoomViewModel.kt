@@ -6318,6 +6318,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun saveRecording(sourceName: String, uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             if (!recordingExportMutex.tryLock()) return@launch
+            _recordingExportError.value = null
             _recordingExportBusy.value = true
             try {
                 val file = recordingApplication.recordings.selectedExport(sourceName)
@@ -6340,8 +6341,10 @@ class RoomViewModel @JvmOverloads constructor(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 val remains = recordingExport.value?.let { runCatching { recordingApplication.recordings.details(it) }.isSuccess } == true
-                note("Recording could not be saved: ${error.message ?: "storage unavailable"}." +
-                    if (remains) " The local export is still available." else " The original recording is no longer available.")
+                val message = "Recording could not be saved: ${error.message ?: "storage unavailable"}." +
+                    if (remains) " The local export is still available." else " The original recording is no longer available."
+                _recordingExportError.value = message
+                note(message)
             }
             finally { _recordingExportBusy.value = false; recordingExportMutex.unlock() }
         }
