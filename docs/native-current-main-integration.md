@@ -57,3 +57,24 @@ the primary error or prevent cleanup. Privacy, timeout isolation and physical
 serial refusal controls pass. No production path, assertion, sample size,
 chunk delay, test/job deadline or success requirement changes. The successor
 still needs all 16 jobs and actual reports; earlier failures remain retained.
+
+The diagnostic successor completes with 14 successful jobs and two failures.
+Both real-node image profiles now pass full-size slow transfers. Ordinary
+recovery fails the original corrupt/restored native-index journey: repository
+read refuses while Home no longer shows storageError. The capture suite executes
+all 22 cases with one browser/native video answer-order failure. Neither prior
+success nor diagnostic-only source equivalence waives these failures.
+
+Saved-room reads now own their Home publication. Only the newest observation
+can commit; storage failures from mutations invalidate older readable snapshots.
+Token checks and synchronous state publication share a monitor, with all storage
+IO outside it. The two paths that explicitly clear storageError both use this
+boundary; mutation completion also finishes superseded loading. Clearing the
+ViewModel closes publication. Storage, native reset/refusal, signer/courier
+ownership and the complete 11-case native-host fixture remain unchanged.
+Three controlled stale-publication failures become six passing controls,
+including restoration, lifetime and an overlapping publication. Full local
+validation and actual native-host acceptance are still running; this is not
+Android filesystem/key or whole-suite qualification. The pre-code designs and
+actual failures remain in private mesh-kit lab/spec. Video negotiation requires
+separate diagnosis, and all 16 successor jobs remain mandatory before merge.

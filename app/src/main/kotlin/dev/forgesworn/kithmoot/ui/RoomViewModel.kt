@@ -910,6 +910,7 @@ class RoomViewModel @JvmOverloads constructor(
         ),
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
+    private val savedRoomObservation = SavedRoomObservation()
     private val guestAdmissionGate = GuestAdmissionGate()
     private var projectPreviewAccount: AccountSession? = null
     val guestAdmission: StateFlow<GuestAdmissionView?> = guestAdmissionGate.view
@@ -2450,7 +2451,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun savedRoomSummaries() = roomLogos.decorate(savedRooms.list(), epochSeconds())
 
     fun refreshSavedRooms() {
-        _start.update { it.copy(loadingRooms = true) }
+        val observation = savedRoomObservation.begin { _start.update { it.copy(loadingRooms = true) } }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 recoverLinkActivation()
@@ -2466,9 +2467,14 @@ class RoomViewModel @JvmOverloads constructor(
                 val pendingNative = NativeRoomCreation.open(getApplication(), savedRooms).use { it.pending() }
                 sweepForgottenRooms()
                 val linked = activeLinkRooms()
-                _start.update { it.copy(savedRooms = rooms, unfinishedNativeRoom = pendingNative, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), loadingRooms = false, storageError = false, error = null) }
-            } catch (_: RoomStorageException) { storageFailed() }
-            catch (error: Exception) { _start.update { it.copy(loadingRooms = false, error = error.message ?: "Room creation recovery could not be inspected.") } }
+                val grantOwners = activeGrantOwnerRooms()
+                savedRoomObservation.commit(observation) {
+                    _start.update { it.copy(savedRooms = rooms, unfinishedNativeRoom = pendingNative, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, loadingRooms = false, storageError = false, error = null) }
+                }
+            } catch (_: RoomStorageException) { savedRoomObservation.commit(observation) { storageFailed() } }
+            catch (error: Exception) { savedRoomObservation.commit(observation) {
+                _start.update { it.copy(loadingRooms = false, error = error.message ?: "Room creation recovery could not be inspected.") }
+            } }
         }
     }
 
@@ -2780,8 +2786,10 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun storageFailed() {
-        _start.update { it.copy(loadingRooms = false, storageError = true, savedRooms = emptyList(),
-            error = "Saved rooms could not be unlocked or saved. Try again. Your saved data has been kept.") }
+        savedRoomObservation.failed {
+            _start.update { it.copy(loadingRooms = false, storageError = true, savedRooms = emptyList(),
+                error = "Saved rooms could not be unlocked or saved. Try again. Your saved data has been kept.") }
+        }
     }
 
     fun forgetRoom(id: String) = changeSavedRooms {
@@ -3025,15 +3033,20 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun changeSavedRooms(change: suspend () -> Unit) {
         if (!takeStartScreenGate()) return
-        _start.update { it.copy(busy = true) }
+        val observation = savedRoomObservation.begin { _start.update { it.copy(busy = true) } }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 change()
                 val rooms = savedRoomSummaries()
                 val linked = activeLinkRooms()
-                _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = activeGrantOwnerRooms(), storageError = false, error = null) }
+                val grantOwners = activeGrantOwnerRooms()
+                savedRoomObservation.commit(observation) {
+                    _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, loadingRooms = false, storageError = false, error = null) }
+                }
             } catch (_: RoomStorageException) { storageFailed() }
-            catch (e: Exception) { _start.update { it.copy(error = e.message ?: "The saved room could not be changed.") } }
+            catch (e: Exception) { savedRoomObservation.commit(observation) {
+                _start.update { it.copy(loadingRooms = false, error = e.message ?: "The saved room could not be changed.") }
+            } }
             finally { entering.release(); _start.update { it.copy(busy = false) } }
         }
     }
@@ -5719,6 +5732,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        savedRoomObservation.close()
         closeWorkspaceActivity()
         stopRoomSharing()
         if (!chatOnly) dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
