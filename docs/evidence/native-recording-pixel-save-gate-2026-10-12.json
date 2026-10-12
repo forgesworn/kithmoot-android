@@ -1,0 +1,28 @@
+{
+  "source_commit": "da2b4dd604d818edc18f396ac23387c73f566b8c",
+  "save_offered_without_back": true,
+  "answered_call_entry_checked": false,
+  "picker_cancel_retained_export": true,
+  "picker_retry_saved": true,
+  "provider": "Android DocumentsUI local Downloads",
+  "bytes": 294726,
+  "sha256": "fecba337a689c3e32ad19445d050ac6617e716a0d431990cd42f5a165b57d9b8",
+  "codec": "aac",
+  "duration_seconds": "35.520000",
+  "complete_ffmpeg_decode_passed": true,
+  "video_export_qualified": false,
+  "date": "2026-10-12",
+  "device_model": "Pixel 10 Pro XL",
+  "android_api": 37,
+  "public_release": false,
+  "local_microphone_silenced": true,
+  "local_camera_off": true,
+  "synthetic_peer_only": true,
+  "physical_recording_qualified": false,
+  "limitations": [
+    "Unlocked call Save prompt and local Downloads cancellation/retry passed",
+    "The actual Answer intent entry and secure lock-screen transition have not yet been retested",
+    "Complete AAC decoding is not proof of exact original sample duration or final-source fidelity",
+    "Video export, endurance and production qualification remain open"
+  ]
+}
