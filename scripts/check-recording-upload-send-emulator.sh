@@ -22,7 +22,7 @@ mkdir -p "$reports"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/kithmoot-ui-network.XXXXXX")"
 fixture_name="recording-ui-network-$(openssl rand -hex 6)"
 cleanup() {
-  local status="$?"
+  local status="$?" force_stop=0 fixture_removed=0
   if [[ "$status" != 0 ]]; then
     # Preserve the original failure and the selected emulator's runtime state;
     # a system ANR must not be mistaken for a recording/transfer result.
@@ -46,12 +46,23 @@ for name, args in [
 (reports / "failure-diagnostics.json").write_text(json.dumps(results, indent=2) + "\n")
 PY
   fi
+  for observation in recipient-cleanup-started.json recipient-cleanup.json; do
+    "$adb_bin" -s "$ANDROID_SERIAL" exec-out run-as dev.forgesworn.kithmoot cat "no_backup/$fixture_name/$observation" \
+      > "$reports/$observation" 2> "$reports/$observation.error.txt" || true
+  done
   if [[ "$restart_mode" == 1 ]]; then
     run_restart_stage cleanup || status=1
   fi
-  "$adb_bin" -s "$ANDROID_SERIAL" shell "run-as dev.forgesworn.kithmoot rm -rf no_backup/$fixture_name" >/dev/null 2>&1 || true
-  rm -rf "$fixture_root"
-  return "$status"
+  "$adb_bin" -s "$ANDROID_SERIAL" shell am force-stop dev.forgesworn.kithmoot >/dev/null 2>&1 || force_stop="$?"
+  "$adb_bin" -s "$ANDROID_SERIAL" shell "run-as dev.forgesworn.kithmoot rm -rf no_backup/$fixture_name" >/dev/null 2>&1 || fixture_removed="$?"
+  python3 - "$reports/cleanup.json" "$force_stop" "$fixture_removed" <<'PYJSON'
+import json, sys
+from pathlib import Path
+Path(sys.argv[1]).write_text(json.dumps({"appForceStop": int(sys.argv[2]), "fixtureRemoved": int(sys.argv[3])}) + "\n")
+PYJSON
+  [[ "$force_stop" == 0 && "$fixture_removed" == 0 ]] || status=1
+  rm -rf "$fixture_root" || status=1
+  exit "$status"
 }
 run_restart_stage() {
   local stage="$1" statuses=()

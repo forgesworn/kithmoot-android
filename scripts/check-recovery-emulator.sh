@@ -75,7 +75,9 @@ run_tests() {
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
     if [[ "$report" == artwork-picker ]]; then
-      pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review" || echo 'Could not capture artwork failure proof' >&2
+      # The fixture saves these before teardown; retain its bounded opener
+      # observations and synthetic screenshots even when the batch fails.
+      pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review" || echo 'Could not copy pre-teardown artwork observations' >&2
     fi
     exit 1
   fi

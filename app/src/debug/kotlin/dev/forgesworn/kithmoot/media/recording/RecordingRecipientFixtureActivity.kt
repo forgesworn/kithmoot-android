@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.media.recording
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.os.Process
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +28,7 @@ import okhttp3.Protocol
 import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
+import kotlin.concurrent.thread
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
@@ -40,6 +42,7 @@ class RecordingRecipientFixtureActivity : ComponentActivity() {
     private var http: OkHttpClient? = null
     private var identity: PrimaryIdentity? = null
     private var roomKey: ByteArray? = null
+    private var fixtureDirectory: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +50,7 @@ class RecordingRecipientFixtureActivity : ComponentActivity() {
         check(Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator fixture only" }
         val name = requireNotNull(intent.getStringExtra(FIXTURE))
         require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
-        val fixture = File(noBackupFilesDir, name)
+        val fixture = File(noBackupFilesDir, name).also { fixtureDirectory = it }
         val seed = JSONObject(File(fixture, "recipient-seed.json").readText())
         val relay = seed.getString("relay")
         require(relay.matches(Regex("ws://127\\.0\\.0\\.1:[0-9]{1,5}/?")))
@@ -107,10 +110,55 @@ class RecordingRecipientFixtureActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        scope.cancel(); session?.leave(); pool?.stop()
-        identity?.deviceSecretKey?.fill(0); roomKey?.fill(0)
-        http?.dispatcher?.executorService?.shutdown(); http?.connectionPool?.evictAll()
+        val fixture = fixtureDirectory
+        val ownedSession = session.also { session = null }
+        val ownedPool = pool.also { pool = null }
+        val ownedHttp = http.also { http = null }
+        val ownedIdentity = identity.also { identity = null }
+        val ownedRoomKey = roomKey.also { roomKey = null }
+        val roomJob = scope.coroutineContext[Job]
+        val idleBefore = ownedHttp?.connectionPool?.idleConnectionCount() ?: 0
+        fixtureDirectory = null
+        scope.cancel()
         super.onDestroy()
+        // A CLOSE intent can create an empty Activity after the real fixture
+        // has finished. It must not overwrite the real process's observation.
+        if (fixture == null) return
+        // This operation owns the detached resources and survives cancellation
+        // of the room scope. TLS eviction may write close-notify bytes.
+        thread(name = "recording-recipient-cleanup", isDaemon = true) {
+            val completed = mutableListOf<String>()
+            val errors = org.json.JSONArray()
+            fun attempt(label: String, action: () -> Unit) {
+                try { action(); completed.add(label) } catch (error: Throwable) {
+                    errors.put(JSONObject().put("action", label).put("errorClass", error.javaClass.name))
+                }
+            }
+            fun observation() = JSONObject().put("pid", Process.myPid())
+                .put("mainThread", Looper.myLooper() == Looper.getMainLooper())
+                .put("idleConnectionsBefore", idleBefore)
+            fun write(name: String, value: JSONObject) {
+                val temporary = File(fixture, "$name.tmp")
+                temporary.writeText(value.toString())
+                check(temporary.renameTo(File(fixture, "$name.json")))
+            }
+            try {
+                try { write("recipient-cleanup-started", observation()) } catch (error: Throwable) {
+                    errors.put(JSONObject().put("action", "observation").put("errorClass", error.javaClass.name))
+                }
+                attempt("roomScope") { runBlocking { roomJob?.join() } }
+                attempt("session") { ownedSession?.leave() }
+                attempt("relay") { ownedPool?.stop() }
+                attempt("httpCalls") { ownedHttp?.dispatcher?.cancelAll() }
+                attempt("httpExecutor") { ownedHttp?.dispatcher?.executorService?.shutdown() }
+                attempt("httpPool") { ownedHttp?.connectionPool?.evictAll() }
+            } finally {
+                attempt("keys") { ownedIdentity?.deviceSecretKey?.fill(0); ownedRoomKey?.fill(0) }
+            }
+            write("recipient-cleanup", observation()
+                .put("connectionsAfter", ownedHttp?.connectionPool?.connectionCount() ?: 0)
+                .put("completedActions", org.json.JSONArray(completed)).put("errors", errors))
+        }
     }
 
     companion object {
