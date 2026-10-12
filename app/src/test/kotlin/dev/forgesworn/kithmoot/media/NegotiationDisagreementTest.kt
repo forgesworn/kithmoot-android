@@ -74,7 +74,7 @@ class NegotiationDisagreementTest {
     private fun link(
         local: String,
         remote: String,
-        connection: DescribingPeerConnection,
+        connection: PeerConnectionHandle,
         wire: Wire,
         scope: CoroutineScope? = null,
     ) = PeerLink(local, remote, connection, roomId, wire::send, scope = scope)
@@ -324,6 +324,41 @@ class NegotiationDisagreementTest {
         assertEquals(described, here.localDescriptions.size)
         assertEquals(0, wire.count(SignalType.OFFER), "answering again is not a renegotiation")
         assertEquals("sendrecv", here.negotiatedAudio())
+    }
+
+    @Test
+    fun `a repeated unchanged offer replays only when the caller reports its sender media`() = runTest {
+        // Compare the capture fixture's omitted media view with the engine's
+        // sender-owned view, keeping the same connection and signal sequence.
+        for (mediaKnown in listOf(false, true)) {
+            val far = DescribingPeerConnection("far").apply { hasLocalAudio = true }
+            val here = DescribingPeerConnection("and").apply { hasLocalAudio = true }
+            val caller = object : PeerConnectionHandle by here {
+                override fun localMedia(): Set<String>? = if (mediaKnown) here.localMedia() else null
+            }
+            val wire = Wire()
+            val android = link(politeDevice, impoliteDevice, caller, wire)
+            val first = far.setLocalDescription()
+            deliver(android, wire, offer(first.sdp))
+            far.setRemoteDescription(SdpData(SignalType.ANSWER, wire.last(SignalType.ANSWER).sdp!!))
+            val applied = here.remoteDescriptions.size
+            val described = here.localDescriptions.size
+            far.gatherCandidate(candidate)
+            val repeated = far.localDescription()!!
+            assertNotEquals(first.sdp, repeated.sdp)
+            assertTrue(SdpShape.same(first.sdp, repeated.sdp))
+
+            deliver(android, wire, offer(repeated.sdp))
+
+            assertNull(wire.label, "both caller views must keep the pair usable")
+            assertEquals(2, wire.count(SignalType.ANSWER))
+            assertEquals(if (mediaKnown) 1 else 0, android.answersReplayed)
+            assertEquals(applied + if (mediaKnown) 0 else 1, here.remoteDescriptions.size)
+            assertEquals(described + if (mediaKnown) 0 else 1, here.localDescriptions.size)
+            if (mediaKnown) assertEquals(wire.of(SignalType.ANSWER)[0].sdp, wire.last(SignalType.ANSWER).sdp)
+            assertEquals(0, wire.count(SignalType.OFFER))
+            assertEquals("sendrecv", here.negotiatedAudio())
+        }
     }
 
     // -- interop: the two far ends this pairs with ---------------------------
