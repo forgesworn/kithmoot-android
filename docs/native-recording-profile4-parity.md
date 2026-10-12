@@ -60,6 +60,25 @@ consent passed: 43 tests, no failures, errors or skips. This proves the focused
 shutdown, expiry and consent cases; it does not qualify the subsequent room-screen
 composition refactor or replace full release gates.
 
+The complete composition refactor `c1457a24` has now passed hosted JVM tests,
+debug/release lint, debug/release APK assembly, 61 recovery instrumentation
+invocations (204 tests), and all nine recording Stop/Send restart checks. The
+[current verification receipt](evidence/native-recording-room-content-jvm-2026-10-12.json)
+records the exact source and log hashes. This clears the previous ART verifier
+blocker. Capture and mixed-client Session jobs failed before instrumentation:
+the emulator action ran each line of the shell conditional separately. Their
+launcher is now a single script, with capture/session dispatch, readiness
+failure and unknown-suite behaviour checked locally; fresh hosted qualification
+is still required. Browser interoperability now pins merged web main
+`9993950a`, including the recording credential/admission expiry guards from
+PR #400. The older fixture provenance remains historical rather than rewritten.
+
+The restart follow-up retains the original participant alongside the call and
+device-signed Off. Retry refuses another account even when it retains the same
+device key, and preserves the pending notice for the original account. Older
+call-only entries remain readable. Focused verification of this follow-up is
+running; it is not covered by the earlier `c1457a24` restart result.
+
 ## Historical initial audit
 
 # Recording profile 4 parity gate

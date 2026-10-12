@@ -25,9 +25,40 @@
   ],
   "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803",
   "limits": [
-    "Local lint and APK packaging are still running.",
-    "Hosted recovery and recording instrumentation are still pending.",
+    "Local lint and APK packaging were stopped after equivalent hosted verification passed on the same app source. Local unfinished gates are not claimed as passed.",
+    "Hosted recording restart passed, but capture and Session jobs failed before tests because android-emulator-runner split the shell conditional. A single-script launcher correction needs fresh hosted qualification.",
+    "Private-node instrumentation remains in progress.",
     "JUnit pass counts do not claim implementation of uncovered protocol vector groups.",
     "No physical 45-minute capture or signed production publication is established."
-  ]
+  ],
+  "hosted_verify": {
+    "job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803/job/114605273480",
+    "result": "passed",
+    "log_sha256": "2f4893a082b3ee49ba1ef2cb2ee8a83164cf8868bc429a7dd8b7de6d2f20c052",
+    "gates": [
+      ":protocol:test",
+      ":app:testDebugUnitTest",
+      ":app:testReleaseUnitTest",
+      ":app:lintDebug",
+      ":app:lintRelease",
+      ":app:assembleDebug",
+      ":app:assembleDebugAndroidTest",
+      ":app:assembleRelease",
+      ":app:assembleRelease -Pkithmoot.releaseEmulatorAbi=true"
+    ]
+  },
+  "hosted_recovery": {
+    "job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803/job/114605273424",
+    "result": "passed",
+    "instrumentation_invocations": 61,
+    "instrumentation_tests": 204,
+    "log_sha256": "e81e0e864506d84cd02bdeb08e07f6bcc98d1633b464fc9f94f49a86b8b97382"
+  },
+  "hosted_recording_restart": {
+    "job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184965803/job/114608661805",
+    "result": "passed",
+    "instrumentation_invocations": 9,
+    "instrumentation_tests": 9,
+    "log_sha256": "7b4ae3527d513a6579a18dc6240fd39c94edb612245b059fdd64fe95adff0632"
+  }
 }
