@@ -3036,11 +3036,11 @@ class RoomViewModel @JvmOverloads constructor(
         val observation = savedRoomObservation.begin { _start.update { it.copy(busy = true) } }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                change()
+                val changedObservation = savedRoomObservation.afterChange(change)
                 val rooms = savedRoomSummaries()
                 val linked = activeLinkRooms()
                 val grantOwners = activeGrantOwnerRooms()
-                savedRoomObservation.commit(observation) {
+                savedRoomObservation.commit(changedObservation) {
                     _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, loadingRooms = false, storageError = false, error = null) }
                 }
             } catch (_: RoomStorageException) { storageFailed() }

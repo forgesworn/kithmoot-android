@@ -13,6 +13,13 @@ internal class SavedRoomObservation {
         }
     }
 
+    suspend fun afterChange(change: suspend () -> Unit): Token {
+        // A refresh can read while the write is suspended. Own the fresh
+        // post-write read, so that earlier snapshot cannot supersede it.
+        change()
+        return begin()
+    }
+
     @Synchronized fun commit(token: Token, publish: () -> Unit) {
         if (!closed && current === token) publish()
     }

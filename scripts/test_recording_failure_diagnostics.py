@@ -3,7 +3,7 @@ import json
 import subprocess
 import unittest
 
-from recording_failure_diagnostics import collect_failure
+from recording_failure_diagnostics import collect_failure, crash_metadata
 
 
 class RecordingFailureDiagnosticsTest(unittest.TestCase):
@@ -32,6 +32,48 @@ class RecordingFailureDiagnosticsTest(unittest.TestCase):
         self.assertEqual([202], report["probes"]["crash"]["appCrashPids"])
         self.assertEqual(["java.io.IOException", "java.lang.OutOfMemoryError"],
                          report["probes"]["crash"]["exceptionClasses"])
+
+    def test_only_owned_bounded_source_locations_survive_crash_parsing(self):
+        rows = [
+            "E/AndroidRuntime( 101): Process: other.application, PID: 101",
+            "E/AndroidRuntime( 101): at dev.forgesworn.kithmoot.Fake.call(Fake.kt:1)",
+            "E/AndroidRuntime( 202): Process: dev.forgesworn.kithmoot:recipient, PID: 202",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.RoomViewModel$upload.invoke(RoomViewModel.kt:123)",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.RoomViewModel$upload.invoke(RoomViewModel.kt:123)",
+            "E/AndroidRuntime( 202): at okhttp3.internal.connection.RealCall.execute(RealCall.kt:456)",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.Secret.call(/private/SYNTHETIC_SECRET.kt:1)",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.Secret.call(Secret.kt:0)",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.Secret.call(Secret.kt:100000)",
+            "E/AndroidRuntime( 202): at unknown.package.Secret.call(SYNTHETIC_SECRET.kt:1)",
+            "E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.fake.Secret.call(Unknown Source)",
+            "E/AndroidRuntime( 303): Process: dev.forgesworn.kithmoot.fake, PID: 303",
+            "E/AndroidRuntime( 303): at dev.forgesworn.kithmoot.ui.Secret.call(SYNTHETIC_SECRET.kt:1)",
+            "E/AndroidRuntime( 404): Process: dev.forgesworn.kithmoot, PID: 405",
+            "E/AndroidRuntime( 404): at dev.forgesworn.kithmoot.ui.Secret.call(SYNTHETIC_SECRET.kt:1)",
+        ]
+        result = crash_metadata("\n".join(rows))
+        self.assertEqual([{"file": "RoomViewModel.kt", "line": 123},
+                          {"file": "RealCall.kt", "line": 456}], result["sourceFrames"])
+        self.assertNotIn("SYNTHETIC_SECRET", json.dumps(result))
+        self.assertNotIn("upload", json.dumps(result))
+        self.assertNotIn("okhttp3", json.dumps(result))
+
+    def test_source_locations_have_a_fixed_cap(self):
+        rows = ["E/AndroidRuntime( 202): Process: dev.forgesworn.kithmoot, PID: 202"]
+        rows += [f"E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.Fixture.call(Fixture.kt:{line})"
+                 for line in range(1, 30)]
+        result = crash_metadata("\n".join(rows))
+        self.assertEqual(12, len(result["sourceFrames"]))
+        self.assertEqual({"file": "Fixture.kt", "line": 12}, result["sourceFrames"][-1])
+
+    def test_library_frames_do_not_crowd_out_the_application_location(self):
+        rows = ["E/AndroidRuntime( 202): Process: dev.forgesworn.kithmoot, PID: 202"]
+        rows += [f"E/AndroidRuntime( 202): at okhttp3.internal.Fixture.call(Library.kt:{line})"
+                 for line in range(1, 30)]
+        rows += ["E/AndroidRuntime( 202): at dev.forgesworn.kithmoot.ui.RoomViewModel.call(RoomViewModel.kt:123)"]
+        result = crash_metadata("\n".join(rows))
+        self.assertEqual({"file": "RoomViewModel.kt", "line": 123}, result["sourceFrames"][0])
+        self.assertEqual(12, len(result["sourceFrames"]))
 
     def test_timeout_and_command_failure_do_not_prevent_later_observations(self):
         calls = []

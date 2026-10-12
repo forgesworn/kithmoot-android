@@ -67,6 +67,10 @@ run_tests() {
     # A disconnected emulator must not hide the original command failure.
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
+    if [[ "$report" == artwork-picker ]]; then
+      pull_proof /sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review/media-tabs-failure.json || echo 'Could not copy pre-teardown artwork metadata' >&2
+      pull_proof /sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review/tray-media-tabs-failure.png || echo 'Could not copy pre-teardown artwork screenshot' >&2
+    fi
     exit 1
   fi
 }

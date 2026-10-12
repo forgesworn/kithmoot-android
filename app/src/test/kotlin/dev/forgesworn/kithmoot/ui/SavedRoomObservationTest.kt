@@ -4,12 +4,49 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SavedRoomObservationTest {
+    @Test fun `post-write observation replaces a refresh read while the mutation was pending`() = runBlocking {
+        val observations = SavedRoomObservation()
+        var stored = "before write"
+        var shown = stored
+        val writing = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val mutation = async {
+            observations.afterChange {
+                writing.complete(Unit)
+                releaseWrite.await()
+                stored = "after write"
+            }
+        }
+        writing.await()
+        val duringWrite = observations.begin()
+        val oldSnapshot = stored
+        observations.commit(duringWrite) { shown = oldSnapshot }
+        releaseWrite.complete(Unit)
+        val postWrite = mutation.await()
+        val newSnapshot = stored
+        observations.commit(postWrite) { shown = newSnapshot }
+        assertEquals("after write", shown)
+    }
+
+    @Test fun `refresh started after post-write read retains newer failure ownership`() = runBlocking {
+        val observations = SavedRoomObservation()
+        var shown = "before write"
+        val postWrite = observations.afterChange { }
+        val laterRead = observations.begin()
+        observations.commit(laterRead) { shown = "storage error" }
+        observations.commit(postWrite) { shown = "after write" }
+        assertEquals("storage error", shown)
+    }
+
     @Test fun `late readable snapshot cannot hide a newer corrupt index`() {
         val observations = SavedRoomObservation()
         var shown = "loading"

@@ -14,6 +14,8 @@ def crash_metadata(text):
     owners = {}
     pids = set()
     classes = set()
+    app_frames = []
+    library_frames = []
     for line in text.splitlines():
         record = re.match(r"[A-Z]/AndroidRuntime\(\s*([1-9][0-9]*)\s*\):\s*(.*)", line)
         if not record:
@@ -29,7 +31,18 @@ def crash_metadata(text):
         exception = re.match(r"(?:Caused by: )?([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)(?=[:\s]|$)", body)
         if owners.get(pid) and exception and exception[1].endswith(("Exception", "Error")):
             classes.add(exception[1])
-    return {"appCrashPids": sorted(pids), "exceptionClasses": sorted(classes)}
+        frame = re.fullmatch(
+            r"\s*at (?:dev\.forgesworn\.kithmoot\.|android\.|java\.|javax\.|kotlin\.|kotlinx\.|okhttp3\.|okio\.)"
+            r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(([A-Za-z][A-Za-z0-9_]{0,79}\.(?:kt|java)):([1-9][0-9]{0,4})\)", body)
+        if owners.get(pid) and frame:
+            frames = app_frames if body.lstrip().startswith("at dev.forgesworn.kithmoot.") else library_frames
+            source = {"file": frame[1], "line": int(frame[2])}
+            if len(frames) < 12 and source not in frames:
+                frames.append(source)
+    # A long networking stack must not discard the first-party caller.
+    sources = app_frames + [source for source in library_frames if source not in app_frames]
+    return {"appCrashPids": sorted(pids), "exceptionClasses": sorted(classes),
+            "sourceFrames": sources[:12]}
 
 
 def collect_failure(adb, serial, phase, error, instrumentation_returncode, run=subprocess.run):

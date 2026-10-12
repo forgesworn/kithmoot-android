@@ -8,6 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import org.json.JSONObject
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.runtime.*
@@ -33,6 +36,32 @@ class ArtworkPickerUiTest {
         val bitmap = instrumentation.uiAutomation.takeScreenshot()
         File(folder, "tray-$label.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
+    }
+
+    private fun observeMediaTabFailure(scenario: ActivityScenario<MainActivity>) {
+        // Observe the synthetic fixture before ActivityScenario tears it down.
+        // Diagnostics cannot replace the original ten-second UI failure.
+        runCatching {
+            val observation = JSONObject()
+            scenario.onActivity { activity ->
+                observation.put("imeVisible", activity.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()))
+                observation.put("orientation", activity.resources.configuration.orientation)
+            }
+            observation.put("stickersExists", runCatching {
+                ui.onNodeWithText("Stickers").fetchSemanticsNode(); true
+            }.getOrDefault(false))
+            observation.put("stickersDisplayed", runCatching {
+                ui.onNodeWithText("Stickers").isDisplayed()
+            }.getOrDefault(false))
+            observation.put("composerFocused", runCatching {
+                ui.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().any {
+                    it.config.getOrNull(SemanticsProperties.Focused) == true
+                }
+            }.getOrNull() ?: JSONObject.NULL)
+            val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+            File(folder, "media-tabs-failure.json").writeText(observation.toString())
+        }
+        runCatching { capture("media-tabs-failure") }
     }
 
     private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false) {
@@ -158,7 +187,12 @@ class ArtworkPickerUiTest {
             ui.onNodeWithContentDescription("Emoji").performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
-            ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
+            try {
+                ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
+            } catch (error: ComposeTimeoutException) {
+                observeMediaTabFailure(scenario)
+                throw error
+            }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")
             ui.onNodeWithText("GIFs").performClick()
