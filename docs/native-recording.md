@@ -41,6 +41,15 @@ or qualified on the physical phone. Physical Save cancellation/retry, long recor
 and independent playback remain release gates. The published Android APK is
 still 0.6.82/code 105; these follow-up candidates have not replaced it.
 
+A [separate fresh worker fixture](evidence/native-recording-fresh-worker-lead-in-2026-10-12.json)
+staged a new lease through the actual SDK and passed inactive-window refusal
+without queuing. The original expired lease, journal, emulator and node remain
+untouched. The new worker uses the normal protocol clock, with activation at
+18:00 UTC on 2026-10-12 (19:00 UK time). A single guarded delivery driver is
+armed for that lease, validating the exact node, routes, installed APKs and
+staged authority before submission. No automatic retry, deadline extension,
+recording delivery or physical acceptance is claimed.
+
 The browser camera-answer fix is independently merged in web PR #407 and
 published from web main `a3ab2659`, release `20261012T153859Z`. All 306 public
 files matched the built release. This browser publication does not qualify or
