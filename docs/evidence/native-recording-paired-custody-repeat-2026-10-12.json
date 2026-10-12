@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "paired_link_custody_qualified": false,
+  "relay_delivery_qualified": false,
+  "production_authorizer_qualified": false,
+  "inputs": {
+    "apk_sha256": [
+      "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+      "54546e9270e392d9f10c686db2cad9c089a2738d952e1ad716dbed8363b06b6e"
+    ],
+    "source_sha256": {
+      "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "702a620410776309cf82d72e7cbd04c6757394dc7706f9b7ff685618f2525f06",
+      "scripts/check-recording-node-paired-emulator.py": "4be126a6ac987892f65cb6d15950bb3739f127d3531defde41b14d74e48ba2c0"
+    }
+  },
+  "steps": [
+    {
+      "action": "recording-queue",
+      "passed": true
+    },
+    {
+      "action": "recording-lost-withdrawal",
+      "passed": false,
+      "failure": "Link transport request timed out before real node withdrawal reply"
+    },
+    {
+      "action": "node-restart-and-withdrawal-replay",
+      "executed": false
+    }
+  ],
+  "log_sha256": {
+    "recording-queue.log": "be535f79bb8b20439ad88686f6f138e54cd5f90eaa125581696f38598fd58e56",
+    "recording-lost-withdrawal.log": "3c3d1b27baaf5c160a034da156bf1f8a636072810ae33a9931e64a90ef42299a"
+  },
+  "observation": "Node relay reported a newer session registering its node ID or tag during Android process reconnection, then QUIC idle timeout",
+  "limitations": [
+    "Observation does not establish the cause of the transport timeout",
+    "Original journal and pending withdrawal retained; no re-pairing or automatic enqueue claimed",
+    "Queue custody is not authenticated relay delivery"
+  ]
+}

@@ -21,6 +21,11 @@ separate successful phases, with an explicit withdrawal retry after transport
 timeout. The fixture uses a grant authorizer and has no scheduler worker or
 carrier publication; this does not qualify production delegated Send. The
 emulator-only runner records inputs before execution and retains them on failure.
+Its [fresh complete repeat](evidence/native-recording-paired-custody-repeat-2026-10-12.json)
+passed queue acceptance but failed withdrawal with a Link request timeout; node
+restart and replay were not reached. The node relay reported session replacement
+during Android reconnection. This is an investigation lead, not an established
+cause or a successful restart qualification.
 
 An earlier complete [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
 passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
