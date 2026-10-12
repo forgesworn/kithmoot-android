@@ -11,6 +11,8 @@ import dev.forgesworn.kithmoot.protocol.BoxCadence
 import dev.forgesworn.kithmoot.protocol.CadenceLeaseOptions
 import dev.forgesworn.kithmoot.protocol.CadenceScope
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.DeadDrop
+import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.protocol.createDeviceCredential
 import dev.forgesworn.kithmoot.relay.LinkConsent
 import dev.forgesworn.kithmoot.relay.LinkConsentState
@@ -30,6 +32,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -51,6 +55,8 @@ class G7CadenceStatusTest {
             "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
             "recording-withdrawal-replay" -> replayRecordingWithdrawal()
             "recording-worker-stage" -> stageRecordingWorkerLease()
+            "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
+            "recording-worker-delivery" -> observeRecordingWorkerDelivery()
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -242,6 +248,107 @@ class G7CadenceStatusTest {
             put("recordingQueued", false); put("relayDeliveryQualified", false)
             put("clockCompressed", false)
         })
+    }
+
+    private fun verifyRecordingWorkerLeadIn() {
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
+        check(epochSeconds() / 3600 < lease.plan.startEpoch) { "Lead-in check requires the original inactive lease" }
+        val participant = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(PERSONA_SECRET.hexToBytes())
+        val before = app.recordingNodeHandoffs.pending(participant)
+        assertTrue(before.isEmpty())
+        val refusal = assertThrows(IllegalStateException::class.java) { observeRecordingWorkerDelivery() }
+        assertEquals("The original recording worker lease is not active; no recording was queued", refusal.message)
+        assertEquals(before, app.recordingNodeHandoffs.pending(participant))
+        assertEquals(lease, app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == lease.plan.leaseId })
+        val ready = get("ready")
+        assertEquals(lease.plan.nodeId, ready.getValue("link_node_id").jsonPrimitive.content)
+        assertTrue(ready.getValue("worker").jsonObject.getValue("running").jsonPrimitive.boolean)
+        assertFalse(ready.getValue("lab_slot_override_built").jsonPrimitive.boolean)
+        put("recording-worker-lead-in", buildJsonObject {
+            put("inactiveLeaseRefusedBeforeQueue", true); put("journalUnchanged", true)
+            put("originalLeaseRetained", true); put("separateWorkerRunning", true)
+            put("clockCompressed", false); put("relayDeliveryQualified", false)
+        })
+    }
+
+    private fun observeRecordingWorkerDelivery() {
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
+        val now = epochSeconds()
+        check(now / 3600 >= lease.plan.startEpoch && now / 3600 < lease.plan.endEpoch) {
+            "The original recording worker lease is not active; no recording was queued"
+        }
+        val ready = get("ready")
+        assertFalse(ready.getValue("lab_slot_override_built").jsonPrimitive.boolean)
+        assertEquals(lease.plan.nodeId, ready.getValue("link_node_id").jsonPrimitive.content)
+        val leaseBody = Json.parseToJsonElement(lease.plan.requestBody).jsonObject
+        val identity = PrimaryIdentity(LocalSigner(PERSONA_SECRET.hexToBytes()), DEVICE_SECRET.hexToBytes(),
+            dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(leaseBody.getValue("credential")))
+        val originalScope = scope(identity, lease.plan.nodeId)
+        val event = Events.sign(identity.deviceSecretKey, 1460, now, listOf(listOf("d", ROOM)),
+            "guarded recording worker fixture ciphertext", ByteArray(32) { 9 })
+        val binding = dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
+            "00000000-0000-0000-0000-000000000083", identity.participant, lease.plan.nodeId,
+            lease.plan.requestBody, "84".repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
+        val journal = app.recordingNodeHandoffs
+        check(journal.pending(identity.participant).none { it.binding.draftId == binding.draftId }) {
+            "Original recording custody is retained; never enqueue again automatically"
+        }
+        val ikm = DeadDrop.roomIkm(ByteArray(32) { 1 })
+        val keys = (lease.plan.counterLo until lease.plan.counterHi).map {
+            DeadDrop.deriveDropKey(ikm, now / 3600, identity.participant, it)
+        }.associateBy { it.publicKey }
+        val relays = leaseBody.getValue("public_relays").jsonArray.map { it.jsonPrimitive.content }
+        assertEquals("Receiver must use the original lease routes", relays, fixtureRelays())
+        assertEquals("Delivery requires both original relay routes", 2, relays.distinct().size)
+        val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val pools = relays.associateWith { relay -> dev.forgesworn.kithmoot.relay.RelayPool(
+            listOf(relay), dev.forgesworn.kithmoot.relay.OkHttpRelaySockets(), receiverScope) }
+        val exactRelayIngress = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val received = CompletableDeferred<Unit>()
+        try {
+            // Production relay parsing and room-drop decryption. Never publish
+            // from this receiver, inject an echo, or trust a node item list.
+            pools.forEach { (relay, pool) ->
+                receiverScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    pool.subscribe(listOf(dev.forgesworn.kithmoot.relay.Filter(
+                        kinds = listOf(RoomDrops.GIFT_WRAP_KIND), tags = mapOf("#p" to keys.keys.toList()))))
+                        .collect { wrap ->
+                            if (!Events.verify(wrap)) return@collect
+                            val key = keys[RoomDrops.tagOf(wrap)] ?: return@collect
+                            val inner = RoomDrops.openRoomDrop(wrap, key.privateKey) ?: return@collect
+                            if (inner.toJson() != event.toJson()) return@collect
+                            if (!pool.receivedEventConfirmsPublication(wrap.id)) return@collect
+                            exactRelayIngress.add(relay)
+                            if (exactRelayIngress.containsAll(relays)) received.complete(Unit)
+                        }
+                }
+                pool.start()
+            }
+            journal.prepare(binding)
+            val queued = app.cadenceClient.queueRecording(identity.participant, originalScope, identity, lease,
+                binding, now, app.cadenceLeases, journal) { epochSeconds() < binding.publishBefore }
+                .get(120, TimeUnit.SECONDS)
+            assertEquals("queued", queued.custody.lease.receipt?.code)
+            assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED, queued.handoff.state)
+            assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED,
+                journal.pending(identity.participant).single { it.binding == binding }.state)
+            // The SDK ACK above deliberately leaves custody pending. Only
+            // matching signed inner bytes from both TLS relays close it.
+            runBlocking { withTimeout((binding.publishBefore - epochSeconds()).coerceAtLeast(1) * 1000) { received.await() } }
+            assertTrue(exactRelayIngress.containsAll(relays))
+            val confirmed = journal.confirmRelay(binding) { id -> id == event.id && exactRelayIngress.containsAll(relays) }
+            assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CONFIRMED, confirmed.state)
+            put("recording-worker-delivery", buildJsonObject {
+                put("realLinkQueueAccepted", true); put("queueAckRemainedPending", true)
+                put("exactSignedEventReceivedFromBothRelays", true); put("journalConfirmedAfterIngress", true)
+                put("clockCompressed", false); put("physicalAcceptance", false)
+            })
+        } finally {
+            pools.values.forEach { it.stop() }
+            runBlocking { receiverScope.coroutineContext[Job]?.cancelAndJoin() }
+            keys.values.forEach { it.privateKey.fill(0) }
+            ikm.bytes.fill(0)
+        }
     }
 
     private fun pairAndQueueRecording() {
