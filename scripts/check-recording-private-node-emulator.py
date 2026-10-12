@@ -147,6 +147,10 @@ extendedKeyUsage = serverAuth
                 device("reverse", "tcp:39847", "tcp:39847")
                 reverse_created = True
             (reports / "fixture.json").write_text(json.dumps({"fixture": fixture}) + "\n")
+            # Only this selected disposable emulator's current case contributes
+            # crash evidence; an older recipient failure must not be attributed
+            # to a later maximum upload.
+            device("logcat", "-b", "crash", "-c")
             with (reports / "instrumentation.txt").open("wb") as log:
                 instrumentation = subprocess.Popen([
                     adb, "-s", serial, "shell", "am", "instrument", "-w", "-r",
@@ -216,7 +220,18 @@ extendedKeyUsage = serverAuth
                                           fixture_path + "/recipient-ready.json").stdout.decode())
             if sender_pid <= 0 or recipient["pid"] <= 0 or sender_pid == recipient["pid"]:
                 raise RuntimeError("Recipient must run in a separate process")
+            phase = "recipient-cleanup-validation"
+            teardown = json.loads(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
+                                         fixture_path + "/recipient-cleanup.json").stdout.decode())
+            if (teardown.get("pid") != recipient["pid"] or teardown.get("mainThread") is not False or
+                    teardown.get("connectionsAfter") != 0 or teardown.get("errors") != [] or
+                    teardown.get("completedActions") !=
+                    ["roomScope", "session", "relay", "httpCalls", "httpExecutor", "httpPool", "keys"] or
+                    (not host_mode and teardown.get("idleConnectionsBefore", 0) <= 0)):
+                raise RuntimeError("Same-process recipient cleanup did not complete safely")
+            (reports / "recipient-cleanup.json").write_text(json.dumps(teardown, indent=2) + "\n")
             result = {"passed": True, "physical": False, "serial": serial,
+                      "recipient_cleanup": teardown,
                       "real_wildbloom_daemon": True, "separate_recipient_process": True,
                       "sender_pid": sender_pid, "recipient_pid": recipient["pid"],
                       "host_streaming_proxy": host_mode, "sample_bytes": sample.stat().st_size,

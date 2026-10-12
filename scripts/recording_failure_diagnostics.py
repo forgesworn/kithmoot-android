@@ -6,7 +6,7 @@ APP = "dev.forgesworn.kithmoot"
 PHASES = {
     "fixture-setup", "storage-key-authorisation", "daemon-startup",
     "recipient-ui-and-transfer", "report-validation", "response-validation",
-    "recipient-identity-validation",
+    "recipient-identity-validation", "recipient-cleanup-validation",
 }
 
 
