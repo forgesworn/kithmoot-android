@@ -30,8 +30,10 @@ the original single pointer click and picker assertion. The fix is not yet
 qualified on hosted CI. [Hosted full capture](evidence/native-recording-integrated-hosted-capture-2026-10-12.json)
 subsequently passed all 25 individual cases. The earlier queue overrun did not
 recur, but its cause remains unexplained. API33 codecs, browser Session, both
-signing-lineage jobs and all five cold-refusal shards also passed. Restart and
-both private-node jobs are still running; physical endurance remains open.
+signing-lineage jobs and all five cold-refusal shards also passed. The [terminal integrated run](evidence/native-recording-integrated-hosted-terminal-2026-10-12.json)
+finished with 16 of 17 jobs passing, including restart and both private-node
+jobs. Its only failure was the missed artwork tap, corrected locally as above.
+Hosted qualification of that correction and physical endurance remain open.
 
 The [Pixel Save receipt](evidence/native-recording-pixel-save-gate-2026-10-12.json)
 qualifies short audio Save on the earlier private Save-dialog candidate. The
