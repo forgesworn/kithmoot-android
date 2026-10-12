@@ -8633,7 +8633,10 @@ class RoomViewModel @JvmOverloads constructor(
         val how = when (id) { existing -> "joined"; remembered -> "rejoined"; else -> "started" }
         Log.i(JOIN_LOG, "call $how id=${id.take(8)} by=${if (pressed) "press" else "self-heal"}")
         stopRoomSharing()
-        runCatching { live.setCall(CallMembership(id, epochSeconds())) }
+        runCatching {
+            val membership = CallMembership(id, epochSeconds())
+            if (pressed) live.setCall(membership) else live.restoreCall(membership)
+        }
             .onSuccess {
                 lastCallId = id
                 _room.update { if (session === live) dev.forgesworn.kithmoot.ui.room.captureCallProjectOrigin(it, _start.value).copy(onCall = true) else it }

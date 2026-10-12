@@ -1101,12 +1101,22 @@ class RoomSession(
      * Mirrors `Session.setCall` in the web client's `src/session.ts`.
      */
     fun setCall(membership: CallMembership?) {
+        updateCall(membership, announceStart = true)
+    }
+
+    /** Recover membership after media/session recovery without announcing a
+     * new incoming call. Missing peer presence is not a fresh Start press. */
+    fun restoreCall(membership: CallMembership) {
+        updateCall(membership, announceStart = false)
+    }
+
+    private fun updateCall(membership: CallMembership?, announceStart: Boolean) {
         val bells = lock.withStateLock {
             val previous = call
             val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
             call = next
             refreshRecordingCaptureStateLocked()
-            bellsFor(previous, next)
+            bellsFor(previous, next).filter { announceStart || it.first != CallBellState.START }
         }
         announce(reply = true)
         for ((state, on) in bells) ringBell(state, on)

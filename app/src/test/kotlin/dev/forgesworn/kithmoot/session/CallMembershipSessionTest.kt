@@ -31,6 +31,57 @@ class CallMembershipSessionTest {
     private val OTHER = "1234567890abcdef1234567890abcdef"
 
     @Test
+    fun `chat the next morning never starts a call`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val identity = Fixtures.primary(room, 1, 2)
+        val yesterday = session(room, identity, relay)
+        yesterday.join()
+        advanceTimeBy(1_000); runCurrent()
+        yesterday.setCall(CallMembership(CALL, 1))
+        advanceTimeBy(100); runCurrent()
+        yesterday.leave()
+        advanceTimeBy(100); runCurrent()
+        advanceTimeBy(12 * 3_600_000L); runCurrent()
+        val today = session(room, identity, relay)
+        today.join()
+        advanceTimeBy(100); runCurrent()
+        val before = relay.published.count { it.kind == 1464 }
+        today.sendChat("Morning")
+        advanceTimeBy(100); runCurrent()
+        assertNull(today.currentCall())
+        assertEquals(before, relay.published.count { it.kind == 1464 })
+    }
+
+    @Test
+    fun `restoring remembered call membership never rings the room again`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val rebuilt = session(room, Fixtures.primary(room, 1, 2), relay)
+        rebuilt.join()
+        advanceTimeBy(12 * 3_600_000L); runCurrent()
+        val before = relay.published.count { it.kind == 1464 }
+        // The recovery path has a remembered id but no peer presence yet.
+        rebuilt.restoreCall(CallMembership(CALL, testScheduler.currentTime / 1000))
+        advanceTimeBy(100); runCurrent()
+        assertEquals(CALL, rebuilt.currentCall()?.id)
+        assertEquals(before, relay.published.count { it.kind == 1464 }, "Recovery must not send a fresh start bell")
+    }
+
+    @Test
+    fun `an explicit start still rings after a session rebuild`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val rebuilt = session(room, Fixtures.primary(room, 1, 2), relay)
+        rebuilt.join()
+        advanceTimeBy(12 * 3_600_000L); runCurrent()
+        val before = relay.published.count { it.kind == 1464 }
+        rebuilt.setCall(CallMembership(CALL, testScheduler.currentTime / 1000))
+        advanceTimeBy(100); runCurrent()
+        assertEquals(before + 1, relay.published.count { it.kind == 1464 })
+    }
+
+    @Test
     fun `a device on a call says so on every announcement`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()

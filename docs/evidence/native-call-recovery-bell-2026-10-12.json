@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-12",
+  "production_release": false,
+  "physical_acceptance": false,
+  "reported_incident_cause_confirmed": false,
+  "reproduction": {
+    "tests": 10,
+    "failures": 1,
+    "next_morning_chat_without_call_bell": "passed",
+    "remembered_call_recovery_without_call_bell": "failed",
+    "log_sha256": "7a9cfae5fc2fc918acbfc795b55dd5edd4118d158afeea29218af4522ec4e787",
+    "junit_sha256": "8cb90a87cb5c36c1a9a137f5e0aa709f5c2701a62739c2ced7502c1ab3936b37"
+  },
+  "fix_validation": "pending",
+  "limitations": [
+    "Sender platform and overnight room state were unknown",
+    "Reproduction proves a recovery path can emit a fresh bell, not that it caused the reported incident",
+    "Physical notification acceptance remains open"
+  ]
+}
