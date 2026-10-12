@@ -15,12 +15,19 @@ val requiredLinkBridgeFiles = listOf(
 )
 val verifyLinkBridgePrepared by tasks.registering {
     inputs.files(requiredLinkBridgeFiles.map { relative -> linkBridgeDirectory.map { it.file(relative) } })
+    inputs.file(rootProject.file("scripts/prepare-link-bridge.py"))
     doLast {
         val root = linkBridgeDirectory.get().asFile
         val missing = requiredLinkBridgeFiles.filter { !root.resolve(it).isFile || root.resolve(it).length() == 0L }
         require(missing.isEmpty()) {
             "ForgeSworn Link bridge is not prepared; missing: ${missing.joinToString()}. " +
                 "Run scripts/fetch-link-bridge.sh and scripts/prepare-link-bridge.py first."
+        }
+        val verification = providers.exec {
+            commandLine("python3", rootProject.file("scripts/prepare-link-bridge.py"), "--verify-prepared")
+        }
+        check(verification.result.get().exitValue == 0) {
+            verification.standardError.asText.get().trim()
         }
     }
 }

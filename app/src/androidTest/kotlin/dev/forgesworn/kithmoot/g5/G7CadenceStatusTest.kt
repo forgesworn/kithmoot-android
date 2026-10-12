@@ -57,6 +57,7 @@ class G7CadenceStatusTest {
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
+            "recording-worker-retained-delivery" -> observeRecordingWorkerDelivery(retained = true)
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -271,7 +272,7 @@ class G7CadenceStatusTest {
         })
     }
 
-    private fun observeRecordingWorkerDelivery() {
+    private fun observeRecordingWorkerDelivery(retained: Boolean = false) {
         val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
         val now = epochSeconds()
         check(now / 3600 >= lease.plan.startEpoch && now / 3600 < lease.plan.endEpoch) {
@@ -284,18 +285,34 @@ class G7CadenceStatusTest {
         val identity = PrimaryIdentity(LocalSigner(PERSONA_SECRET.hexToBytes()), DEVICE_SECRET.hexToBytes(),
             dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(leaseBody.getValue("credential")))
         val originalScope = scope(identity, lease.plan.nodeId)
-        val event = Events.sign(identity.deviceSecretKey, 1460, now, listOf(listOf("d", ROOM)),
-            "guarded recording worker fixture ciphertext", ByteArray(32) { 9 })
-        val binding = dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
-            "00000000-0000-0000-0000-000000000083", identity.participant, lease.plan.nodeId,
-            lease.plan.requestBody, "84".repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
         val journal = app.recordingNodeHandoffs
-        check(journal.pending(identity.participant).none { it.binding.draftId == binding.draftId }) {
-            "Original recording custody is retained; never enqueue again automatically"
+        val draftId = "00000000-0000-0000-0000-000000000083"
+        val previous = journal.pending(identity.participant).singleOrNull { it.binding.draftId == draftId }
+        val binding = if (retained) {
+            // An explicitly invoked lab retry reuses the persisted signed event,
+            // request, node, lease and deadline. Recovery never invokes it.
+            val original = requireNotNull(previous) { "No original recording custody to retry" }
+            check(original.state in setOf(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.PREPARED,
+                dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.OFFERED)) {
+                "The original recording cannot be offered again"
+            }
+            original.binding.also {
+                assertEquals(lease.plan.nodeId, it.nodeId)
+                assertEquals(lease.plan.requestBody, it.leaseBody)
+                check(now < it.publishBefore) { "Original publication expired; no retry" }
+            }
+        } else {
+            check(previous == null) { "Original recording custody is retained; never enqueue again automatically" }
+            val event = Events.sign(identity.deviceSecretKey, 1460, now, listOf(listOf("d", ROOM)),
+                "guarded recording worker fixture ciphertext", ByteArray(32) { 9 })
+            dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
+                draftId, identity.participant, lease.plan.nodeId, lease.plan.requestBody,
+                "84".repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
         }
+        val event = binding.event
         val ikm = DeadDrop.roomIkm(ByteArray(32) { 1 })
         val keys = (lease.plan.counterLo until lease.plan.counterHi).map {
-            DeadDrop.deriveDropKey(ikm, now / 3600, identity.participant, it)
+            DeadDrop.deriveDropKey(ikm, event.createdAt / 3600, identity.participant, it)
         }.associateBy { it.publicKey }
         val relays = leaseBody.getValue("public_relays").jsonArray.map { it.jsonPrimitive.content }
         assertEquals("Receiver must use the original lease routes", relays, fixtureRelays())
@@ -342,6 +359,7 @@ class G7CadenceStatusTest {
                 put("realLinkQueueAccepted", true); put("queueAckRemainedPending", true)
                 put("exactSignedEventReceivedFromBothRelays", true); put("journalConfirmedAfterIngress", true)
                 put("clockCompressed", false); put("physicalAcceptance", false)
+                put("retainedOriginalBinding", retained)
             })
         } finally {
             pools.values.forEach { it.stop() }
