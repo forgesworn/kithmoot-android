@@ -79,6 +79,34 @@ class ArtworkPickerUiTest {
         } } }
     }
 
+    private fun observeSearchOpening(scenario: ActivityScenario<MainActivity>, tap: ArtworkTapProbe, phase: String, passed: Boolean) {
+        // Observe only after the original wait; diagnostics never replace its result.
+        runCatching {
+            val observation = JSONObject().put("searchWaitPassed", passed).put("tap", tap.snapshot())
+            scenario.onActivity { activity ->
+                observation.put("imeVisible", activity.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()))
+                observation.put("orientation", activity.resources.configuration.orientation)
+            }
+            observation.put("searchExists", runCatching {
+                ui.onAllNodes(hasContentDescription("Search artwork")).fetchSemanticsNodes().isNotEmpty()
+            }.getOrNull() ?: JSONObject.NULL)
+            observation.put("searchDisplayed", runCatching {
+                ui.onNodeWithContentDescription("Search artwork").isDisplayed()
+            }.getOrNull() ?: JSONObject.NULL)
+            observation.put("pickerExists", runCatching {
+                ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
+            }.getOrNull() ?: JSONObject.NULL)
+            observation.put("composerFocused", runCatching {
+                ui.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().any {
+                    it.config.getOrNull(SemanticsProperties.Focused) == true
+                }
+            }.getOrNull() ?: JSONObject.NULL)
+            val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+            File(folder, "$phase-${if (passed) "success" else "failure"}.json").writeText(observation.toString())
+        }
+        if (!passed) runCatching { capture("$phase-failure") }
+    }
+
     private fun waitForKeyboard(scenario: ActivityScenario<MainActivity>) {
         ui.waitUntil(10_000) {
             var shown = false
@@ -118,11 +146,21 @@ class ArtworkPickerUiTest {
 
     @Test fun search_keyboard_rotation_close_and_original_unicode_are_preserved() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            mount(scenario)
+            val tap = ArtworkTapProbe()
+            mount(scenario, tap = tap)
             ui.onNodeWithText("Say something").performTextInput("Unsent ")
             waitForKeyboard(scenario)
+            tap.prepare(ui.onNodeWithContentDescription("Emoji").fetchSemanticsNode(), runCatching {
+                ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
+            }.getOrNull())
             ui.onNodeWithContentDescription("Emoji").performClick()
-            ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
+            try {
+                ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
+            } catch (error: ComposeTimeoutException) {
+                observeSearchOpening(scenario, tap, "search-first-open", passed = false)
+                throw error
+            }
+            observeSearchOpening(scenario, tap, "search-first-open", passed = true)
             ui.onNodeWithContentDescription("Search artwork").performClick()
             ui.onNodeWithTag("artwork-search").performClick()
             waitForKeyboard(scenario)
@@ -140,8 +178,17 @@ class ArtworkPickerUiTest {
             ui.onNodeWithText("Unsent 🦄").assertExists()
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
             ui.waitUntil(10_000) { instrumentation.targetContext.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT }
+            tap.prepare(ui.onNodeWithContentDescription("Emoji").fetchSemanticsNode(), runCatching {
+                ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
+            }.getOrNull())
             ui.onNodeWithContentDescription("Emoji").performClick()
-            ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
+            try {
+                ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
+            } catch (error: ComposeTimeoutException) {
+                observeSearchOpening(scenario, tap, "search-return-open", passed = false)
+                throw error
+            }
+            observeSearchOpening(scenario, tap, "search-return-open", passed = true)
             ui.onNodeWithContentDescription("Search artwork").performClick()
             ui.onNodeWithTag("artwork-search").performClick()
             waitForKeyboard(scenario)
