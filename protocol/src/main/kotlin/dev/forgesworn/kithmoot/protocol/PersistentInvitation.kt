@@ -40,6 +40,36 @@ fun invitationRelaysOf(element: JsonElement?): List<String>? {
 fun invitationRelaysFrom(urls: List<String>): List<String> =
     urls.mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct().take(MAX_INVITATION_RELAYS)
 
+private fun persistentInvitationBody(room: String, secret: String, now: Long,
+    ends: Long?, relays: List<String>?, destruct: Boolean): JsonObject {
+    ends?.let { require(it > now) { "this conference room has ended" } }
+    relays?.let { require(invitationRelaysOf(JsonArray(it.map(::JsonPrimitive))) != null) {
+        "room relays must be one to $MAX_INVITATION_RELAYS distinct canonical relay URLs"
+    } }
+    return buildJsonObject {
+        put("v", 3)
+        put("room", room)
+        put("secret", secret)
+        ends?.let { put("ends", it) }
+        if (destruct) put("destruct", true)
+        relays?.let { put("relays", JsonArray(it.map(::JsonPrimitive))) }
+    }
+}
+
+/** Exact signed-envelope size before minting any bearer, key, nonce or signature.
+ * Only fixed-width public hex/base64url placeholders and the real UTF-8 policy
+ * layout are used. No placeholder event escapes to a signing or export surface. */
+fun persistentInvitationEventBytes(now: Long, ends: Long? = null,
+    relays: List<String>? = null, destruct: Boolean = false): Int {
+    val hex = "0".repeat(64)
+    val body = persistentInvitationBody(hex, "A".repeat(43), now, ends, relays, destruct)
+    val encryptedLength = Nip44.encodedLength(body.toString().toByteArray(Charsets.UTF_8).size)
+    val layout = NostrEvent(KIND_GROUP_INVITATION, now,
+        withRoomExpiration(listOf(listOf("d", hex)), ends),
+        "A".repeat(encryptedLength), hex, hex, "0".repeat(128))
+    return layout.toCompactJson().toByteArray(Charsets.UTF_8).size
+}
+
 /**
  * A durable bearer envelope, signed by the link's pinned inviter. No delegation is granted.
  *
@@ -62,17 +92,8 @@ fun encodePersistentInvitation(
     destruct: Boolean = false,
 ): NostrEvent {
     require(Schnorr.publicKeyHex(host.inviterSecretKey) == host.invitation.canonicalInviter)
-    ends?.let { require(it > now) { "this conference room has ended" } }
-    relays?.let { require(invitationRelaysOf(JsonArray(it.map(::JsonPrimitive))) != null) { "room relays must be one to $MAX_INVITATION_RELAYS distinct canonical relay URLs" } }
     val room = deriveRoom(roomSecret)
-    val body = buildJsonObject {
-        put("v", 3)
-        put("room", room.roomId)
-        put("secret", base64UrlEncode(roomSecret))
-        ends?.let { put("ends", it) }
-        if (destruct) put("destruct", true)
-        relays?.let { put("relays", JsonArray(it.map(::JsonPrimitive))) }
-    }
+    val body = persistentInvitationBody(room.roomId, base64UrlEncode(roomSecret), now, ends, relays, destruct)
     return Events.sign(host.inviterSecretKey, KIND_GROUP_INVITATION, now,
         withRoomExpiration(listOf(listOf("d", deriveInvitationId(host.invitation))), ends),
         Nip44.encrypt(body.toString(), groupInvitationKey(host.invitation), nonce), auxRand)

@@ -51,7 +51,7 @@ class RecordingShareDraftStore(
 
     @Synchronized fun recover() {
         check(!recovered && reservations.isEmpty())
-        check(directory.isDirectory || directory.mkdirs()) { "Private recording draft storage is unavailable" }
+        check(!directory.exists() || directory.isDirectory) { "Private recording draft storage is unavailable" }
         val bytes = journal.read()
         val decoded = if (bytes == null) emptyList() else try {
             Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonArray.map(::decode)
@@ -80,6 +80,7 @@ class RecordingShareDraftStore(
         check(entries.size + reservations.size < MAX_DRAFTS) { "Send or remove an existing recording draft first" }
         check(entries.none { it.origin == origin && it.sourceName == sourceName } &&
             reservations.values.none { it.origin == origin && it.sourceName == sourceName }) { "This recording is already added to its original chat" }
+        check(directory.isDirectory || directory.mkdirs()) { "Private recording draft storage is unavailable" }
         val id = UUID.randomUUID().toString()
         return RecordingDraftTicket(id, origin, sourceName, discardAt, File(directory, "$id.pending"), this).also { reservations[id] = it }
     }

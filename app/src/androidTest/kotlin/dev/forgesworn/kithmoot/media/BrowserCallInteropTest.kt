@@ -21,6 +21,7 @@ import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -231,6 +232,24 @@ class BrowserCallInteropTest {
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.RECORD_AUDIO)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val failure = AtomicReference<String?>(null)
+        val sectionHistory = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        fun rememberSections(side: String, type: String, sdp: String?) {
+            if (sdp == null || type !in setOf(SignalType.OFFER, SignalType.ANSWER)) return
+            // Synthetic section shape only, with bounded fields and history.
+            // Never retain SDP, ICE addresses/passwords, identities or media.
+            val sections = sdp.lineSequence().map { it.trim() }.mapNotNull { line ->
+                when {
+                    line.startsWith("m=") -> line.substringAfter("m=").substringBefore(' ')
+                        .takeIf { it in setOf("audio", "video", "application") }
+                    line.startsWith("a=mid:") -> "mid=" + line.substringAfter("a=mid:").take(12)
+                        .replace(Regex("[^a-zA-Z0-9_-]"), "?")
+                    line in setOf("a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive") -> line.substringAfter("a=")
+                    else -> null
+                }
+            }.take(12).toList()
+            sectionHistory.add("$side:$type:${sections.joinToString(",")}")
+            while (sectionHistory.size > 16) sectionHistory.poll()
+        }
         val nativeVideo = AtomicInteger(); val browserVideo = AtomicInteger(); val browserAudio = AtomicInteger()
         val capturedVideo = AtomicInteger(); val nativeVideoPackets = AtomicInteger(); val nativeDecodedVideo = AtomicInteger()
         val nativeEncodedVideo = AtomicInteger(); val nativeSentVideoPackets = AtomicInteger()
@@ -243,7 +262,7 @@ class BrowserCallInteropTest {
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
         lateinit var view: WebView
         lateinit var link: PeerLink
-        var ready = false
+        val ready = AtomicBoolean(false)
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
         val egl = EglBase.create()
         var syntheticSample = 0L
@@ -298,7 +317,7 @@ class BrowserCallInteropTest {
                 scope.launch { link.onLocalCandidate(IceCandidateData(candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex)) }
             }
             override fun onRenegotiationNeeded() {
-                if (ready) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
+                if (ready.get()) scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } }
             }
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) { receiver?.track()?.let(::observeTrack) }
             override fun onTrack(transceiver: RtpTransceiver?) {
@@ -346,15 +365,20 @@ class BrowserCallInteropTest {
         link = PeerLink(
             localDevice = (if (nativeLow) "11" else "22").repeat(32),
             remoteDevice = (if (nativeLow) "22" else "11").repeat(32),
-            connection = WebRtcPeerConnection(pc, ::bindReceivedVideo),
+            connection = WebRtcPeerConnection(pc, ::bindReceivedVideo,
+                // Match the engine's sender-owned media view for answer replay.
+                localMedia = { setOf(video.id(), audio.id()) }),
             roomId = "33".repeat(32),
             send = { signal ->
+                rememberSections("native", signal.type, signal.sdp)
                 val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) }; signal.seq?.let { put("seq", it) }; signal.re?.let { put("re", it) } }
                 withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
             },
         )
         scope.launch {
             for (body in incoming) runCatching {
+                rememberSections("browser", body.getValue("type").jsonPrimitive.content,
+                    body["sdp"]?.jsonPrimitive?.content)
                 link.onRemoteSignal(SignalEnvelope("", body.getValue("type").jsonPrimitive.content,
                     body.getValue("roomId").jsonPrimitive.content,
                     sdp = body["sdp"]?.jsonPrimitive?.content,
@@ -366,7 +390,7 @@ class BrowserCallInteropTest {
         val bridge = object {
             @JavascriptInterface fun signal(body: String) { incoming.trySend(Json.parseToJsonElement(body).jsonObject) }
             @JavascriptInterface fun failure(message: String) { failure.set(message) }
-            @JavascriptInterface fun ready() { ready = true; scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } } }
+            @JavascriptInterface fun ready() { ready.set(true); scope.launch { runCatching { link.onNegotiationNeeded() }.onFailure { failure.set(it.toString()) } } }
             @JavascriptInterface fun camera(id: String) { expectedCamera.set(id) }
             @JavascriptInterface fun stats(video: Int, audio: Int, state: String) { browserVideo.set(video); browserAudio.set(audio) }
         }
@@ -404,12 +428,12 @@ class BrowserCallInteropTest {
             }
             val deadline = SystemClock.elapsedRealtime() + 45_000
             while (SystemClock.elapsedRealtime() < deadline) {
-                failure.get()?.let { fail(it) }
+                failure.get()?.let { fail("$it; signal sections=${sectionHistory.toList()}") }
                 // SDK track callbacks can follow description application.
                 // Observe the current receivers, as the engine's track flow does,
                 // rather than keeping a one-off empty description snapshot.
                 bindReceivedVideo()
-                if (ready) js("window.report && window.report()")
+                if (ready.get()) js("window.report && window.report()")
                 pc.getStats { report ->
                     val outboundVideo = report.statsMap.values.filter { it.type == "outbound-rtp" && it.members["kind"] == "video" }
                     // A separate RTX record has no framesEncoded. Summing avoids
@@ -433,7 +457,8 @@ class BrowserCallInteropTest {
                 "capturedVideo=${capturedVideo.get()}; nativeVideoPackets=${nativeVideoPackets.get()}; nativeDecodedVideo=${nativeDecodedVideo.get()}; " +
                 "nativeEncodedVideo=${nativeEncodedVideo.get()}; nativeSentVideoPackets=${nativeSentVideoPackets.get()}; " +
                 "videoSource=${videoSource.state()}; videoEnabled=${video.enabled()}; remoteEnabled=${monitoredVideo?.enabled()}; remoteReceiving=${monitoredVideo?.shouldReceive()}; " +
-                "receivers=${received.values.map { it.kind() }}; cameraBound=${receivedCamera.get().isNotEmpty()}", nativeVideo.get() >= 10)
+                "receivers=${received.values.map { it.kind() }}; cameraBound=${receivedCamera.get().isNotEmpty()}; " +
+                "signal sections=${sectionHistory.toList()}", nativeVideo.get() >= 10)
             assertTrue("Browser decoded native video: ${browserVideo.get()}", browserVideo.get() >= 10)
             android.util.Log.i("KithMootRecordingTest", "Production bindings: boundFrames=${nativeVideo.get()} encoded=${nativeEncodedVideo.get()} browserFrames=${browserVideo.get()}")
             assertTrue("Native received audio packets: ${nativeAudio.get()}", nativeAudio.get() > 10)
@@ -457,7 +482,7 @@ class BrowserCallInteropTest {
             js("window.changeCamera().catch(e=>Native.failure(String(e)))")
             val changeDeadline = SystemClock.elapsedRealtime() + 20_000
             while (SystemClock.elapsedRealtime() < changeDeadline) {
-                failure.get()?.let { fail(it) }
+                failure.get()?.let { fail("$it; signal sections=${sectionHistory.toList()}") }
                 bindReceivedVideo()
                 if (expectedCamera.get() != originalCamera && nativeVideo.get() > beforeFrames + 30 && receivedCamera.get() == expectedCamera.get()) break
                 SystemClock.sleep(100)
@@ -525,7 +550,7 @@ class BrowserCallInteropTest {
         } finally {
             recording.getAndSet(null)?.discard()
             recordingScene.getAndSet(null)?.dispose()
-            ready = false; scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
+            ready.set(false); scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
             videoSource.capturerObserver.onCapturerStopped()
             instrumentation.runOnMainSync { view.destroy() }
             monitoredVideo?.removeSink(videoSink)

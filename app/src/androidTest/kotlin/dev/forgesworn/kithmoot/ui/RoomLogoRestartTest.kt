@@ -115,7 +115,21 @@ class RoomLogoRestartTest {
                 f.app.roomLogos.seed(saved, f.now())?.record?.id == record && f.model.room.value.logo?.sha256 == hash
             }
             await("recovered private artwork subscription is active") { f.controlQueries() > 0 }
-            assertFalse(f.events.any { it.kind == KIND_CHAT })
+            await("startup discovery reaches its relay") { f.events.any { it.kind == KIND_CHAT } }
+            fun assertOnlyStartupDiscovery() {
+                val controls = f.events.filter { it.kind == KIND_CHAT }
+                assertEquals("Recovery may send only its one startup discovery", 1, controls.size)
+                val control = dev.forgesworn.kithmoot.session.decodeChatEvent(controls.single(), f.room.roomId,
+                    f.room.roomKey, f.now(), channel = "control")
+                    ?: throw AssertionError("Recovery publication is not an authenticated room control")
+                assertEquals(expected.getValue("participant").jsonPrimitive.content, control.participant)
+                assertEquals(expected.getValue("device").jsonPrimitive.content, control.device)
+                assertEquals("{\"op\":\"catalogue?\"}", control.body)
+                assertNull(control.roomLogo)
+                assertTrue(control.attachments.isEmpty())
+                assertNull(control.assignment)
+            }
+            assertOnlyStartupDiscovery()
             // A stale encrypted logo arriving after reopening cannot resurrect
             // an accepted removal; image mode also keeps its exact record.
             assertTrue("Stale encrypted artwork must reach a recovered subscription",
@@ -123,6 +137,7 @@ class RoomLogoRestartTest {
             delay(350)
             assertEquals(record, f.app.roomLogos.seed(saved, f.now())?.record?.id)
             assertEquals(hash, f.model.room.value.logo?.sha256)
+            assertOnlyStartupDiscovery()
             assertTrue(f.model.room.value.chat.isEmpty())
             assertFalse(f.model.room.value.onCall); assertFalse(f.model.room.value.micOn); assertFalse(f.model.room.value.cameraOn)
             InstrumentationRegistry.getInstrumentation().sendStatus(2, Bundle().apply {

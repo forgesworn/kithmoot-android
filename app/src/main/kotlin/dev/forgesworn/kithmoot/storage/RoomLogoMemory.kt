@@ -44,6 +44,13 @@ class RoomLogoMemory {
         return logo
     }
 
+    /** Keep ordering and synchronous display together so old callbacks cannot overtake removals. */
+    @Synchronized fun rememberForDisplay(room: SavedRoom, record: RoomLogoRecord?, epoch: Int, now: Long,
+        display: (SavedRoomLogo?) -> Unit) {
+        val accepted = remember(room, record, epoch, now)
+        display(accepted)
+    }
+
     @Synchronized fun decorate(rooms: List<SavedRoomSummary>, now: Long): List<SavedRoomSummary> {
         val scopes = rooms.associate { it.id to it.logoScope }
         val expired = held.keys.filter { id ->

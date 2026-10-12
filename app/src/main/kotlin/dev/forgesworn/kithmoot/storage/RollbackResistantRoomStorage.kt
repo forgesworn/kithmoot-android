@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
+import dev.forgesworn.kithmoot.BuildConfig
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -172,8 +173,12 @@ interface SealKeys {
 object AndroidKeyStoreSealKeys : SealKeys {
     override fun get(alias: String): SecretKey? = keyStore().getKey(alias, null) as SecretKey?
 
-    override fun create(alias: String): SecretKey =
-        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+    override fun create(alias: String): SecretKey {
+        // Alias filtering stays at the key boundary; the observer never receives
+        // an alias or key. Release/default execution has no active observer.
+        val observation = if (BuildConfig.DEBUG && alias.startsWith("kithmoot.epoch.v1.entry."))
+            ReceiverKeyCreationProbe.requested() else null
+        return try { KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
             init(
                 KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                     .setKeySize(256)
@@ -183,7 +188,12 @@ object AndroidKeyStoreSealKeys : SealKeys {
                     .build(),
             )
             generateKey()
+        }.also { ReceiverKeyCreationProbe.completed(observation, ReceiverKeyCreationProbe.Outcome.CREATED) } }
+        catch (error: Throwable) {
+            ReceiverKeyCreationProbe.completed(observation, ReceiverKeyCreationProbe.Outcome.FAILED)
+            throw error
         }
+    }
 
     override fun delete(alias: String) = keyStore().deleteEntry(alias)
     override fun aliases(): List<String> = keyStore().aliases().toList()

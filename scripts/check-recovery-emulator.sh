@@ -67,6 +67,10 @@ run_tests() {
     # A disconnected emulator must not hide the original command failure.
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
+    if [[ "$report" == artwork-picker ]]; then
+      pull_proof /sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review/media-tabs-failure.json || echo 'Could not copy pre-teardown artwork metadata' >&2
+      pull_proof /sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review/tray-media-tabs-failure.png || echo 'Could not copy pre-teardown artwork screenshot' >&2
+    fi
     exit 1
   fi
 }
@@ -79,11 +83,17 @@ run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEn
 run_tests nearby-room-entry 1 -e class dev.forgesworn.kithmoot.ui.NearbyRoomEntryTest
 run_tests fresh-nearby-entry 6 -e class dev.forgesworn.kithmoot.ui.FreshNearbyEntryTest
 run_tests native-host-entry 11 -e class dev.forgesworn.kithmoot.ui.NativeHostEntryTest
+run_tests native-invitation-replacement 3 -e class dev.forgesworn.kithmoot.ui.NativeInvitationReplacementTest
 run_tests native-member-commands 5 -e class dev.forgesworn.kithmoot.epoch.NativeMemberCommandAndroidTest
 run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.NativeRetirementStoreRefusalTest
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
+run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
+run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests missing-index-storage 3 -e class dev.forgesworn.kithmoot.storage.MissingRoomIndexStorageTest
+run_tests missing-index-maintenance 1 -e class dev.forgesworn.kithmoot.ui.MissingIndexMaintenanceTest
+run_tests atomic-file-overlap 5 -e class dev.forgesworn.kithmoot.storage.AtomicFileOverlapTest
 run_tests restart-prepare 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#a_prepare
 adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests restart-reopen 1 -e class dev.forgesworn.kithmoot.storage.RoomRestartTest#b_reopen -e requireRestart true
@@ -112,8 +122,6 @@ run_tests room-logo-display 5 -e class dev.forgesworn.kithmoot.ui.RoomLogoUiTest
 run_tests room-logo-editor 9 -e class dev.forgesworn.kithmoot.ui.RoomLogoEditorTest
 run_tests project-logo-editor 6 -e class dev.forgesworn.kithmoot.ui.ProjectLogoEditorTest
 run_tests contextual-project-logo 5 -e class dev.forgesworn.kithmoot.ui.ContextualProjectLogoUiTest
-run_tests guest-admission-preview 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
-run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review"
 
 run_tests box-discovery-consent 1 -e class dev.forgesworn.kithmoot.ui.BoxDiscoveryUiTest

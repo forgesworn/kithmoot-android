@@ -1,0 +1,49 @@
+{
+  "baseHead": "9ff9c94a480017c812bcc48830a0cc9021c1b100",
+  "preCodeDesignsRetainedInPrivateLab": true,
+  "mutationOrdering": {
+    "actualBoundaryFreshlyCompiled": true,
+    "red": {
+      "tests": 8,
+      "failures": 1,
+      "failure": "post-write read remains hidden behind a refresh begun during the write",
+      "logSha256": "132feeb577ff7c1c9be24c24a4f0da3af50115c20c185c6d497dd25b8b267774"
+    },
+    "green": {
+      "tests": 8,
+      "failures": 0,
+      "logSha256": "3e9ff3849f748eeaa84cb4029250b17431fe4b404c8f30bcc706083e21b83bc6"
+    },
+    "androidViewModelAndStorageNotExecutedByTheseControls": true
+  },
+  "failureDiagnostics": {
+    "tests": 6,
+    "failures": 0,
+    "logSha256": "1e43b905e11ca028139fe5078016515111aaf7cebf8d6a3e224b7d03b9cb6ac9",
+    "newControlsRefuseOriginalObserver": true,
+    "sourceFrameCap": 12,
+    "firstPartyLocationsPrioritised": true,
+    "rawMessagesPathsClassMethodsOrKeysRetained": false
+  },
+  "recoveryDriver": {
+    "tests": 11,
+    "failures": 0,
+    "logSha256": "65d0e4ce2af7076ef1dd895c104a6eed7ec6fe8b47c1492ebea27cd4d6296019"
+  },
+  "originalFixtureAssertionsAndDeadlinesChanged": false,
+  "productionNetworkingOrArtworkUiChanged": false,
+  "sourceSha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/SavedRoomObservation.kt": "6339b6e4970406fbda4497b127def371ba1299f49228fb57ca19aee93dbf8309",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "d0d76f1855f353eb7f737b93f53cd5fc4c57d5898c0dc5c7175d5e86e490cd3d",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/ui/SavedRoomObservationTest.kt": "30907304679fa5cc325f080bf6dea3d8278ba21ff95573551a7b66cb7129a4fb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/ui/ArtworkPickerUiTest.kt": "9f66a398ac6dc5956432e2b74b73d5d476e6b16780a52419a89d68d22b9d9e0b",
+    "scripts/recording_failure_diagnostics.py": "bc2482e71ae3c34cf6a4ae27cfa388654ef8d297784b9e51361c2bb12094c5b9",
+    "scripts/test_recording_failure_diagnostics.py": "f6f4a6d32cbae9c61f5f145d61781bb9015f4304ac6d93eda2b812f1ac1de2a7",
+    "scripts/check-recovery-emulator.sh": "ded2da8b58e94dedf83dcf90c4fc75916e5b09524107173e4fa846cd4d2d3dfc"
+  },
+  "fullLocalValidation": "running",
+  "sameHeadHostedQualification": "not yet started",
+  "physicalHardwareOpened": false,
+  "temporaryLabKeysCreated": false,
+  "wholeSuiteQualified": false
+}
