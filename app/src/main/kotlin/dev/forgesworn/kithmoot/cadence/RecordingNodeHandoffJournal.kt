@@ -59,6 +59,13 @@ class RecordingNodeHandoffJournal(
             it.state !in setOf(RecordingNodeHandoffState.WITHDRAWN, RecordingNodeHandoffState.CONFIRMED) }
     }
 
+    /** Cleanup retry may reuse only the same durably confirmed original. */
+    @Synchronized fun isConfirmed(accountPubkey: String, event: NostrEvent): Boolean {
+        ready()
+        return entries.any { it.binding.accountPubkey == accountPubkey && it.binding.event == event &&
+            it.state == RecordingNodeHandoffState.CONFIRMED }
+    }
+
     /** Must finish before reserving or offering any Link request. */
     @Synchronized fun prepare(binding: RecordingNodeHandoffBinding): RecordingNodeHandoff {
         ready(); validate(binding)

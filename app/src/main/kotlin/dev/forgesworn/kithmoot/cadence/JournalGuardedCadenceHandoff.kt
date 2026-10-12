@@ -44,7 +44,11 @@ class JournalGuardedCadenceHandoff(
     }
 
     override fun confirmed(event: NostrEvent) {
-        val original = journal.pending(accountPubkey).singleOrNull { it.binding.event == event } ?: return
+        val original = journal.pending(accountPubkey).singleOrNull { it.binding.event == event }
+        if (original == null) {
+            check(journal.isConfirmed(accountPubkey, event)) { "The original recording node handoff is missing" }
+            return
+        }
         journal.confirmRelay(original.binding, receivedEventConfirmsPublication)
     }
 

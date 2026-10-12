@@ -29,6 +29,18 @@ fault checks passed. Product authority/recovery races, full hosted verification
 and physical capture/playback/endurance remain production gates.
 
 
+The [confirmation follow-up receipt](evidence/native-recording-confirmation-fix-2026-10-12.json)
+records the reproduced unseen-event failure and its correction. Quiet transport
+now requires a received authenticated wrap for the specific inner event, and
+the journal adapter refuses a missing original handoff. A queue ACK remains
+uncertain; later receipt of the matching wrap reconciles without another offer.
+Bounded startup replay also keeps authenticated history received before the
+chat collector attaches. All 501 protocol and 2,324 app tests passed, both lint
+reports have no Error/Fatal issues, and both APK variants plus instrumentation
+built. These local checks do not qualify actual SDK/worker recording delivery
+or physical recording; normal delegated recording Send remains disabled.
+
+
 The earlier integrated baseline was `4bc02225`, which includes Android main
 `5cac2b5f`, the unlocked Save-dialog fix and the AAC playback-clock correction.
 The [capture follow-up receipt](evidence/native-recording-ed8-capture-followup-2026-10-12.json)

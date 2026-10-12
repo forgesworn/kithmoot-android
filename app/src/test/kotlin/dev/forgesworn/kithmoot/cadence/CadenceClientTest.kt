@@ -292,6 +292,9 @@ class CadenceClientTest {
             receivedEventConfirmsPublication = { it == relayProof }, onRevoked = revoked::add,
             now = { fixture.now })
         val handoff = adapter(journal)
+        relayProof = first.id
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) { handoff.confirmed(first) }
+        relayProof = null
         handoff.queue(lease, first, fixture.now + 60) { true }.get()
         assertEquals(RecordingNodeHandoffState.QUEUED, journal.pending(fixture.identity.participant).single().state)
         org.junit.Assert.assertThrows(IllegalStateException::class.java) { handoff.confirmed(first) }
@@ -308,6 +311,7 @@ class CadenceClientTest {
             restarted.pending(fixture.identity.participant).single { it.binding.event == second }.state)
         relayProof = second.id
         recovered.confirmed(second)
+        recovered.confirmed(second) // Cleanup retry may see an already confirmed original.
         assertEquals(listOf(first), restarted.pending(fixture.identity.participant).map { it.binding.event })
         assertEquals(2, requests.count { it.path.endsWith("/queue-guarded") })
     }
