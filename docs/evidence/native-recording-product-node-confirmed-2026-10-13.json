@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-13",
+  "source": "99c650719c0eee42504f23e42379fb16ee53b28f",
+  "full_recording_release_qualified": false,
+  "production_delegated_recording_send_enabled": false,
+  "published": false,
+  "fresh_independent_synthetic_fixture": true,
+  "earlier_false_positive_receipt_replaced": false,
+  "original_fresh_fixture": {
+    "lease_start_utc": "2026-10-12T23:00:00Z",
+    "lease_end_utc": "2026-10-13T11:00:00Z",
+    "pairing_replaced": false,
+    "upload_repeated": false,
+    "lease_extended": false,
+    "clock_compressed": false,
+    "uid_and_first_install_preserved": true,
+    "all_16_files_preserved_on_source99_upgrade": true,
+    "initial_prepare_case_failed_on_mutable_receipt_comparison": true,
+    "separate_read_only_prepared_recovery_passed": true
+  },
+  "sdk_worker_delivery": {
+    "passed": true,
+    "actual_RoomViewModel_Send_control": true,
+    "real_generated_JNI_Link_bridge": true,
+    "real_NodeRuntime_and_OS_cadence_worker": true,
+    "exact_original_draft_handoff_CONFIRMED_required": true,
+    "authenticated_matching_ingress_required": true,
+    "sender_instrumentation_seconds": 427.761,
+    "original_local_export_retained": true,
+    "source_apk_hashes": {
+      "dev.forgesworn.kithmoot": "2d7a72d49674aabb604b252e4dca72726089b8437bed7004c0f31698af0f18c8",
+      "dev.forgesworn.kithmoot.test": "7ee218136cf4f73be8094fe59aadf2790c8be3b9eafa58b590cb91d39d09ea34"
+    }
+  },
+  "process_restart": {
+    "completedDraftStayedFinished": true,
+    "localSaveOffered": true,
+    "originalLeasePlanUnchanged": true,
+    "originalMessageRecoveredFromNodeHistory": true,
+    "originalSourceRetained": true,
+    "replacementPairing": false,
+    "sendInvoked": false,
+    "uploadInvoked": false
+  },
+  "independent_offline_node_snapshot": {
+    "state": "passed",
+    "offline_only": true,
+    "sdk_ingress_proved_by_this_check": false,
+    "original_database_rows": 5,
+    "snapshot_rows": 5,
+    "snapshot_truncated": false,
+    "matching_original_attachment": {
+      "decodedOriginalRoomChats": 1,
+      "offlineSnapshotOnly": true,
+      "originalAttachmentMatches": 1,
+      "originalLeaseKeyMatches": 1,
+      "queueInvoked": false,
+      "sdkIngressProved": false,
+      "sendInvoked": false,
+      "storedWraps": 5,
+      "verifiedInnerEvents": 1
+    },
+    "send_invoked": false,
+    "upload_invoked": false,
+    "queue_invoked": false,
+    "node_restarted": false,
+    "lease_changed": false
+  },
+  "retained_preceding_failures": {
+    "read_only_apk_guard_timeout_before_instrumentation": true,
+    "instrumentation_startup_ANR_before_Send": true,
+    "read_only_after_ANR_signed_recording_prepared": false,
+    "read_only_after_ANR_handoff_count": 0,
+    "emulator_launcher_warmed_before_actual_Send": true
+  },
+  "report_sha256": {
+    "send-after-startup-anr-instrumentation.txt": "3fc72c8820bce7bf362a0209bdff58771c096c14eef7503ddebe9e9dab41c575",
+    "confirmed-restart-after-startup-anr-instrumentation.txt": "0fc9bc5599f16629060edec02573f8a4a45e3dd14ec107ada5017d71f0ca630c",
+    "owned-drop-inspection-instrumentation.txt": "d9f4fcad9dadb3ec581fb9e1a9a7f39ab2e13a778f7dea7aa6d7d7f5bf0eda32"
+  },
+  "limits": [
+    "Keeper Tor I2P and relay inputs are emulated; this is not real carrier acceptance",
+    "Original authority rekey withdrawal and lost-reply product matrix still requires qualification",
+    "Physical 45-minute Stop Save and full decode still blocked by owner keyguard",
+    "Physical playback and interruption/provider acceptance remain open",
+    "Normal production activities keep delegated recording Send disabled pending complete qualification",
+    "Versioned production public release and exact live artifact verification remain open"
+  ]
+}

@@ -7,12 +7,53 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The Save follow-up also puts document-provider failures inside the
-"Recording ready" dialog, instead of leaving the error behind that modal.
-An unsuccessful copy keeps the local export available to retry. The short
-Pixel audio Save/cancel/retry proof covers the earlier unlocked-dialog fix;
-it does not qualify the latest candidate's video, playback or endurance.
-These changes are not yet included in the public Android release.
+The current tested source is `99c650719c0eee42504f23e42379fb16ee53b28f`.
+[All 17 hosted jobs passed](https://github.com/forgesworn/kithmoot-android/actions/runs/38312984958),
+including both private-node emulator images. The Google APIs job required a
+rerun after its first attempt failed downloading the emulator image, before
+launch; that infrastructure failure is retained separately.
+
+The [current product confirmation receipt](evidence/native-recording-product-node-confirmed-2026-10-13.json)
+records actual RoomViewModel Send through the paired SDK and OS worker. The
+original handoff reached durable `CONFIRMED` after authenticated ingress;
+process restart recovered the original attachment from node history without
+another Send or Upload. An independent stored-drop inspection also found the
+original attachment, but is not itself SDK ingress proof. The earlier false
+positive below remains invalidated, rather than being rewritten as a pass.
+
+The [current physical Save receipt](evidence/native-recording-physical-short-save-2026-10-13.json)
+records the exact source's production-signed diagnostic APK on the Pixel.
+Short audio and video saved through Android Downloads and both exported files
+passed full decoding. Cancelling the picker retained the audio export and a
+retry reopened the picker. Save errors are visible inside the Recording ready
+dialog, and an unsuccessful copy retains the export for retry.
+
+The long test observed the requested 2,700-second wait with the app process
+retained, but owner keyguard prevented Stop and Save. Neither action was
+invoked; no long exported duration or complete capture is proved by that wait.
+The original temporary power preference was restored. Finish the original
+capture after owner unlock rather than substituting a fresh short recording.
+Physical interruption, further document providers and independent Android
+playback still require acceptance.
+
+Normal delegated recording Send remains disabled. The actual product
+original-authority, rekey, withdrawal and lost-reply matrix remains open.
+In particular, audit room departure: `leave()` clears RoomState before
+session teardown, while the `onRevoked` withdrawal callback currently checks
+that RoomState still names the original room. Confirm that accepted original
+custody is withdrawn using its pinned authority, without republishing or
+borrowing a replacement room, account, grant, lease or deadline. A retained
+`CANCEL_PENDING` journal entry alone does not prove node withdrawal.
+
+These changes have not replaced the public 0.6.83/code 106 APK. Release still
+requires a new version, the exact signed artifact, public manifest/download
+verification and the remaining physical and product acceptance above.
+
+## Earlier qualification history
+
+The following notes describe their named sources and attempts. Current status
+is given above; a historic missing gate is not a statement about the latest
+source, and a historic pass does not qualify subsequent changes.
 
 The [product SDK/worker receipt](evidence/native-recording-product-sdk-worker-send-2026-10-12.json)
 invalidates the earlier apparent Send pass. An unseen quiet event inherited
