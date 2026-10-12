@@ -28,7 +28,11 @@ private fun <T, R> CompletableFuture<T>.thenApplyCancellable(transform: (T) -> R
     }
 
 /** All cadence control stays inside one consented, pinned ForgeSworn Link route. */
-class CadenceClient(private val link: LinkJsonTransport, private val consents: LinkConsentVault) {
+class CadenceClient(
+    private val link: LinkJsonTransport,
+    private val consents: LinkConsentVault,
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+) {
     fun status(
         accountPubkey: String,
         scope: CadenceScope,
@@ -91,6 +95,35 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         now: Long,
         vault: CadenceLeaseVault,
         stillAllowed: () -> Boolean = { true },
+    ): CompletableFuture<CadenceLeaseResult> = queueRequest(
+        accountPubkey, scope, identity, current, requestId, event, now, vault, null, stillAllowed)
+
+    /** Queue acceptance is custody evidence only, never confirmed recording delivery. */
+    fun queueGuarded(
+        accountPubkey: String,
+        scope: CadenceScope,
+        identity: RoomIdentity,
+        current: StoredCadenceLease,
+        requestId: String,
+        event: NostrEvent,
+        publishBefore: Long,
+        now: Long,
+        vault: CadenceLeaseVault,
+        stillAllowed: () -> Boolean,
+    ): CompletableFuture<CadenceLeaseResult> = queueRequest(
+        accountPubkey, scope, identity, current, requestId, event, now, vault, publishBefore, stillAllowed)
+
+    private fun queueRequest(
+        accountPubkey: String,
+        scope: CadenceScope,
+        identity: RoomIdentity,
+        current: StoredCadenceLease,
+        requestId: String,
+        event: NostrEvent,
+        now: Long,
+        vault: CadenceLeaseVault,
+        publishBefore: Long?,
+        stillAllowed: () -> Boolean,
     ): CompletableFuture<CadenceLeaseResult> {
         val ownership = vault.publicationGeneration(scope.room, scope.device)
         validateLeaseScope(scope, identity, current)
@@ -98,11 +131,17 @@ class CadenceClient(private val link: LinkJsonTransport, private val consents: L
         require(vault.all(scope.room, scope.device).singleOrNull {
             it.plan.leaseId == current.plan.leaseId && it.plan.generation == current.plan.generation
         } == current) { "cadence lease changed before queueing" }
-        check(stillAllowed()) { "cadence queue request was cancelled" }
-        val body = BoxCadence.queueBody(exactLeaseBody(current), requestId, event)
-        val signed = BoxCadence.sign(scope.nodeId, "POST", BoxCadence.queuePath(current.plan.leaseId), body, identity.deviceSecretKey, now)
+        require(publishBefore == null || publishBefore > now) { "cadence publication deadline expired" }
+        fun allowed(): Boolean = stillAllowed() && (publishBefore == null || nowSeconds() < publishBefore)
+        check(allowed()) { "cadence queue request was cancelled or expired" }
+        val lease = exactLeaseBody(current)
+        val body = if (publishBefore == null) BoxCadence.queueBody(lease, requestId, event)
+            else BoxCadence.guardedQueueBody(lease, requestId, event, publishBefore)
+        val path = if (publishBefore == null) BoxCadence.queuePath(current.plan.leaseId)
+            else BoxCadence.guardedQueuePath(current.plan.leaseId)
+        val signed = BoxCadence.sign(scope.nodeId, "POST", path, body, identity.deviceSecretKey, now)
         return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault) {
-            vault.publicationGeneration(scope.room, scope.device) == ownership && stillAllowed()
+            vault.publicationGeneration(scope.room, scope.device) == ownership && allowed()
         }
     }
 

@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.CadenceScope
 import dev.forgesworn.kithmoot.protocol.CadenceLeaseOptions
+import dev.forgesworn.kithmoot.protocol.toRustWireJson
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.createDeviceCredential
 import dev.forgesworn.kithmoot.relay.LinkJsonRequest
@@ -136,6 +137,54 @@ class CadenceClientTest {
         ), requests.map { it.path })
         assertEquals("rekeyed", rekeyed.lease.receipt?.code)
         assertEquals(CadenceOwnership.BOX_OWNED, rekeyed.lease.ownership)
+    }
+
+    @Test fun guardedQueueKeepsDeadlineAndRevokesDispatchWithoutOrdinaryFallback() {
+        val fixture = fixture()
+        var clock = fixture.now
+        var bounded: LinkJsonRequest? = null
+        val pending = CompletableFuture<LinkJsonResponse>()
+        var ordinaryQueues = 0
+        val client = CadenceClient(LinkJsonTransport { request ->
+            when {
+                request.path.endsWith("/queue-guarded") -> { bounded = request; pending }
+                request.path.endsWith("/queue") -> { ordinaryQueues++; error("recording used ordinary queue") }
+                else -> CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0, "staged"),
+                    LinkPathState("direct", "route", null, "")))
+            }
+        }, fixture.consents) { clock }
+        val vault = CadenceLeaseVault(MemoryStorage())
+        val options = CadenceLeaseOptions(fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0,
+            500000, 500002, 500004, ByteArray(32) { 9 },
+            listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now)
+        val lease = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault).get().lease
+        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now,
+            listOf(listOf("d", fixture.scope.trafficRoom)), "recording ciphertext", ByteArray(32))
+        val deadline = fixture.now + 60
+        var allowed = true
+        val result = client.queueGuarded(fixture.identity.participant, fixture.scope, fixture.identity,
+            lease, "44".repeat(16), event, deadline, fixture.now, vault) { allowed }
+        assertTrue(bounded!!.stillAllowed())
+        val body = kotlinx.serialization.json.Json.parseToJsonElement(bounded!!.body.toString(Charsets.UTF_8)).let {
+            it as kotlinx.serialization.json.JsonObject
+        }
+        assertEquals(setOf("queue", "publish_before"), body.keys)
+        assertEquals(deadline.toString(), body.getValue("publish_before").toString())
+        val queue = body.getValue("queue") as kotlinx.serialization.json.JsonObject
+        assertEquals(event.toRustWireJson(), queue.getValue("event"))
+        assertEquals("route", bounded!!.routeId)
+        allowed = false
+        assertFalse(bounded!!.stillAllowed())
+        allowed = true
+        clock = deadline
+        assertFalse(bounded!!.stillAllowed())
+        assertEquals(0, ordinaryQueues)
+        assertTrue(result.cancel(true))
+        assertTrue(pending.isCancelled)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            client.queueGuarded(fixture.identity.participant, fixture.scope, fixture.identity,
+                lease, "55".repeat(16), event, deadline, deadline, vault) { true }
+        }
     }
 
     @Test fun queueDispatchTracksOwnershipAndCallerCancellation() {

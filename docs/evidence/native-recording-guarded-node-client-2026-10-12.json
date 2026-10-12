@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "delegated_recording_send_enabled": false,
+  "physical_acceptance": false,
+  "paired_link_delivery_qualified": false,
+  "production_release": false,
+  "source_sha256": {
+    "protocol/src/main/kotlin/dev/forgesworn/kithmoot/protocol/BoxCadence.kt": "8c66e39339b251965414f04cb0c82c2c84143e8dc7464972180651c8ca68e551",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "35ec5e06e8036c775d1df6b62a606aae915e0eec7ff2af702b809a549cbf16d9",
+    "protocol/src/test/resources/kithmoot-vectors.json": "70f1acb751ad28eb62df3d533fb3403e6b519ff969c14d6c0f371186c079e683"
+  },
+  "checks": {
+    "protocol": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "client": {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "invariants": [
+    "Explicit queue-guarded route with signed nested queue and original UTC deadline",
+    "Existing ordinary request wire and interop vectors unchanged",
+    "Exact signed event retained in queue body",
+    "Deadline bounded by original lease end",
+    "Live dispatch guard checks original deadline after caller authority callback",
+    "Caller cancellation and ownership generation fence Link dispatch",
+    "Queue result is not recording delivery confirmation",
+    "No ordinary queue fallback"
+  ],
+  "remaining": [
+    "Encrypted durable phone handoff journal for original node lease event deadline and request identity",
+    "Guarded withdrawal API with retained exact cancellation request",
+    "Typed original deadline propagation through recording transport wrappers",
+    "Actual paired-Link queue restart rekey withdrawal and lost-reply qualification",
+    "Authenticated relay event confirmation before draft completion",
+    "Full current native checks and hosted qualification",
+    "Physical Android acceptance and signed production release"
+  ]
+}
