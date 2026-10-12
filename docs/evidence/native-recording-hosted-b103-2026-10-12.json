@@ -50,12 +50,38 @@
       "job_id": 114764024712
     }
   ],
-  "artifact_contents_reinspected": false,
+  "artifact_contents_reinspected": true,
   "qualified": false,
   "production_release": false,
   "limitations": [
-    "Status proof only until reports are inspected",
+    "Unit and guest recovery reports inspected; other jobs retain status evidence until their reports are inspected",
     "Later local Link verification and lab probe changes require their own hosted gates",
     "Physical Save and playback remain pending"
-  ]
+  ],
+  "inspected_artifacts": [
+    "native-check-reports",
+    "recovery-emulator-reports"
+  ],
+  "unit_reports": {
+    "protocol": {
+      "tests": 495,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_debug": {
+      "tests": 2238,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_release": {
+      "tests": 2238,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "guest_artwork_removal_regression_passed": true,
+  "guest_admission_tests": 6
 }
