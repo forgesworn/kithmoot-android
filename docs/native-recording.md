@@ -6,18 +6,42 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The current journal-backed handoff baseline `78e7b7f1` completed
+The journal-backed handoff candidate `19e0a94f` passed all nine hosted jobs.
+Its [complete hosted receipt](evidence/native-recording-journal-handoff-hosted-2026-10-12.json)
+also verifies all six real private-node transfer journeys and nine recording
+restart stages from individual artifact reports. This exact-source automated
+result does not qualify later local changes, physical acceptance, delegated
+node-worker publication or signed production delivery.
+
+The preceding journal-backed handoff baseline `78e7b7f1` completed
 [eight of nine hosted jobs](https://github.com/forgesworn/kithmoot-android/actions/runs/38207229646).
 Capture failed when Chromium rejected an answer whose media-section order did
 not match its offer. The [local negotiation diagnostic](evidence/native-recording-video-negotiation-diagnostic-2026-10-12.json)
 instead recorded matching section order and `sendrecv` directions throughout,
 but no delivered video sink frames or native encoding progress. Neither failure
-is resolved or explained by this diagnostic; live capture/export remains open.
+is resolved or explained by this diagnostic. The
+[subsequent hosted capture receipt](evidence/native-recording-diagnostic-hosted-capture-2026-10-12.json)
+confirms 25 successful capture checks on `19e0a94f`, including live A/V export,
+with no failures or skips. Earlier signalling failure did not recur, but its
+cause is not established; physical acceptance remains open.
 The [production track-set harness follow-up](evidence/native-recording-production-track-set-2026-10-12.json)
 supplies the local sender IDs as `WebRtcEngine` does. One local run passed live
 video exchange, camera replacement and both exported audio tone assertions,
 then failed because both decoded gallery camera regions were black. This does
 not qualify export or establish that earlier signalling failures are resolved.
+An [explicit synthetic-file retention attempt](evidence/native-recording-retained-export-attempt-2026-10-12.json)
+subsequently failed on the original PCM queue bound before finalisation; it
+produced no retained MP4 and does not explain the preceding black export.
+The [generated export inspection](evidence/native-recording-synthetic-export-inspection-2026-10-12.json)
+confirmed black/grey bands in an independently decoded MP4. Isolated encoder
+and compositor checks also failed with software rendering; the emulator logged
+unsupported RGBA readback. Restarting only the owned emulator with `-gpu host`
+made both isolated checks pass on unchanged APKs. This renderer comparison is
+evidence about the local lab, not physical device acceptance or a product fix.
+The [complete host-renderer capture receipt](evidence/native-recording-host-renderer-full-2026-10-12.json)
+then passed all 25 checks without failures, skips, worker sampling or export
+diagnostics, including live gallery export. It records the unchanged APK and
+harness hashes; latest-source hosted checks and physical acceptance are separate.
 
 The [paired custody observation](evidence/native-recording-paired-custody-observation-2026-10-12.json)
 records real JNI/Link queue acceptance, a deliberately lost withdrawal reply,

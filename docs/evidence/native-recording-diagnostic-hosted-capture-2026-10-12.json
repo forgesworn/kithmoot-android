@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-12",
+  "commit": "19e0a94f13876dc5ee0e94d1ebb2a98446962eba",
+  "run": 38217935966,
+  "job": 114712492755,
+  "artifact": 11733658268,
+  "capture_checks_passed": 25,
+  "failed_checks": 0,
+  "skipped_checks": 0,
+  "instrumentation_sha256": "3beaaab19d3c9df3bf40e96d45d59ad3e41f4e506686e317f7a48c7bb4d3817c",
+  "capture_runtime_passed": true,
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "limitations": [
+    "Other jobs are separate gates; this receipt does not claim the complete run",
+    "Later local sender-tracking harness changes are not covered",
+    "Earlier media-section-order failure did not recur; no causal fix established",
+    "Physical endurance, source interruption, Save providers and signed production release remain open"
+  ]
+}

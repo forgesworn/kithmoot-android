@@ -510,6 +510,12 @@ class BrowserCallInteropTest {
                 SystemClock.sleep(1200)
                 val capture = requireNotNull(recording.getAndSet(null))
                 val file = capture.finish()
+                if (captureVideo && InstrumentationRegistry.getArguments()
+                        .getString("recordingExportDiagnostics") == "true") {
+                    // Explicit emulator-only diagnosis, after finalisation:
+                    // this fixture contains only generated pictures and tones.
+                    file.copyTo(java.io.File(context.cacheDir, "synthetic-gallery-diagnostic.mp4"), overwrite = true)
+                }
                 val decodedAudio = ArrayList<Short>()
                 if (captureVideo) AvRecordingTest().decode(file, android.media.MediaFormat.MIMETYPE_AUDIO_AAC, expectedDurationUs = null) { codec, index, info ->
                     val samples = requireNotNull(codec.getOutputBuffer(index)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
