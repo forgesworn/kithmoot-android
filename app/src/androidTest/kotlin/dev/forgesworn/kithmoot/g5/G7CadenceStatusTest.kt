@@ -56,6 +56,8 @@ class G7CadenceStatusTest {
             "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
             "recording-withdrawal-replay" -> replayRecordingWithdrawal()
             "recording-room-stage" -> stageRecordingRoomModelLease()
+            "recording-room-prepare" -> prepareRecordingRoomModelDraft()
+            "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
@@ -222,6 +224,155 @@ class G7CadenceStatusTest {
             put("pendingFailureRetained", true)
             put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })
+    }
+
+    /** Actual Add/Upload controls against an explicitly authorised private
+     * daemon. Preparation stays separate from the future explicit Send. */
+    private fun prepareRecordingRoomModelDraft() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        val saved = requireNotNull(app.savedRooms.get(room.roomId))
+        check(app.savedRooms.list().size == 1 && app.accounts.load() == null)
+        check(saved.participant == LocalSigner(PERSONA_SECRET.hexToBytes()).pubkey && saved.devicePubkey == DEVICE)
+        val lease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+        check(epochSeconds() / 3600 < lease.plan.startEpoch) { "Prepare before original activation; never send early" }
+        assertEquals(lease.plan.nodeId, get("ready").getValue("link_node_id").jsonPrimitive.content)
+        val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
+        require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
+        val fixture = java.io.File(app.noBackupFilesDir, name)
+        val marker = java.io.File(fixture, "room-recording-prepared.json")
+        check(!marker.exists() && app.recordingShareDrafts.list(room.roomId).isEmpty() && app.recordings.export.value == null) {
+            "Original recording preparation is retained; never replace or upload it automatically"
+        }
+        val keys = java.security.KeyStore.getInstance("PKCS12").apply {
+            java.io.File(fixture, "fixture.p12").inputStream().use { load(it, "synthetic-test-only".toCharArray()) }
+        }
+        val trust = java.security.KeyStore.getInstance("PKCS12").apply {
+            load(null); setCertificateEntry("fixture", keys.getCertificate(keys.aliases().nextElement()))
+        }
+        val managers = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()).apply { init(trust) }
+        val tls = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
+        val http = okhttp3.OkHttpClient.Builder().sslSocketFactory(tls.socketFactory,
+            managers.trustManagers.filterIsInstance<javax.net.ssl.X509TrustManager>().single()).build()
+        val origin = "https://127.0.0.1:39847"
+        val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
+        lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
+        val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
+        try {
+            scenario.onActivity { owner ->
+                model = androidx.lifecycle.ViewModelProvider(owner, object : androidx.lifecycle.ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST") override fun <T : androidx.lifecycle.ViewModel> create(type: Class<T>): T =
+                        dev.forgesworn.kithmoot.ui.RoomViewModel(app, chatOnly = true,
+                            recordingUploadClient = http, recordingNodeQualification = true) as T
+                })["recording-node-product", dev.forgesworn.kithmoot.ui.RoomViewModel::class.java]
+                owner.setContent { dev.forgesworn.kithmoot.ui.theme.KithMootTheme {
+                    dev.forgesworn.kithmoot.ui.KithMootApp(model)
+                } }
+                model.reopenRoom(room.roomId)
+            }
+            ui.await("original quiet recording room reopened", timeoutMs = 120_000) {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
+            }
+            val source = app.recordings.begin(dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO,
+                dev.forgesworn.kithmoot.media.recording.RecordingOrigin(room.roomId, "cd".repeat(16), saved.name))
+            val encoder = dev.forgesworn.kithmoot.media.recording.AacRecordingFile(source)
+            try {
+                repeat(100) { block -> encoder.write(ShortArray(960) { index ->
+                    (12_000 * kotlin.math.sin(2 * Math.PI * 660 * (block * 960 + index) / 48_000)).toInt().toShort()
+                }) }
+                encoder.close()
+            } catch (error: Throwable) { encoder.discard(); throw error }
+            app.recordings.complete(source)
+            val completed = requireNotNull(app.recordings.export.value)
+            ui.await("native AAC export offered") { ui.hasText("Add to original chat") }
+            ui.click("Add to original chat")
+            ui.await("original private recording draft") { ui.hasText("Upload recording") }
+            ui.click("Upload recording"); ui.replace("Recording storage server", origin); ui.click("Get storage key")
+            ui.await("separate storage identity") { ui.hasText("Copy storage key") }
+            val choice = requireNotNull(model.room.value.recordingStorageChoice)
+            check(choice.publicKey != saved.participant && choice.publicKey != saved.devicePubkey)
+            java.io.File(fixture, "storage-public-key.txt").writeText(choice.publicKey)
+            ui.await("private daemon explicitly authorised original storage key", timeoutMs = 120_000) {
+                java.io.File(fixture, "node-ready").isFile
+            }
+            ui.click("Allow this encrypted recording to be uploaded to $origin"); ui.click("Upload")
+            ui.await("actual encrypted private upload completed", timeoutMs = 120_000) {
+                !model.room.value.recordingUploadRunning && app.recordingShareDrafts.list(room.roomId).single().uploaded != null
+            }
+            assertEquals(null, model.room.value.chatSendError)
+            val draft = app.recordingShareDrafts.list(room.roomId).single()
+            val attachment = requireNotNull(draft.uploaded)
+            val stats = http.newCall(okhttp3.Request.Builder().url("$origin/__fixture/$name").build()).execute().use {
+                check(it.code == 200); org.json.JSONObject(requireNotNull(it.body).string())
+            }
+            assertEquals(1, stats.getInt("puts")); assertEquals(0, stats.getInt("gets"))
+            assertEquals(draft.sealed.hash, stats.getString("sha256"))
+            assertEquals(draft.sealed.file.length(), stats.getLong("size"))
+            assertEquals(draft.sealed.hash, attachment.sha256)
+            assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
+            assertTrue(model.room.value.chat.none { it.attachments.isNotEmpty() })
+            assertEquals(null, draft.preparedSend)
+            assertTrue(completed.isFile)
+            assertEquals(completed, app.recordings.selectedExport(draft.sourceName))
+            marker.writeText(org.json.JSONObject().put("draft", draft.id).put("source", completed.name)
+                .put("encryptedSha256", draft.sealed.hash).put("origin", origin).toString())
+            put("recording-room-prepare", buildJsonObject {
+                put("actualAddAndUploadControlsPassed", true); put("privateDaemonCiphertextPutCount", 1)
+                put("storageIdentitySeparate", true); put("originalDraftRetained", true)
+                put("recordingQueued", false); put("recordingSendQualified", false); put("clockCompressed", false)
+            })
+            scenario.onActivity { model.leave() }
+            ui.await("original draft retained while product room closes") {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.START && !model.start.value.busy
+            }
+            assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room.roomId))
+            assertEquals(lease, app.cadenceLeases.all(room.roomId, DEVICE).single())
+        } finally {
+            scenario.close(); room.roomKey.fill(0)
+            http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll()
+        }
+    }
+
+    /** Read the original retained result after process death. No Add, Upload,
+     * lease staging or Send is invoked by this recovery verification. */
+    private fun verifyPreparedRecordingRoomModelDraft() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        try {
+            val saved = requireNotNull(app.savedRooms.get(room.roomId))
+            check(saved.participant == LocalSigner(PERSONA_SECRET.hexToBytes()).pubkey && saved.devicePubkey == DEVICE)
+            val draft = app.recordingShareDrafts.list(room.roomId).single()
+            val source = app.recordings.selectedExport(draft.sourceName)
+            val details = app.recordings.details(source)
+            assertEquals(room.roomId, details.origin?.room)
+            assertEquals(dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO, details.format)
+            assertTrue(source.isFile && source.length() > 0)
+            val uploaded = requireNotNull(draft.uploaded)
+            assertEquals(draft.sealed.hash, uploaded.sha256)
+            assertEquals(draft.sealed.file.length(), uploaded.size)
+            assertEquals("https://127.0.0.1:39847", draft.storageOrigin)
+            assertTrue(app.recordingUploadJournal.readyToSend(room.roomId, requireNotNull(draft.storageOrigin), draft.sealed.hash))
+            assertEquals(null, draft.preparedSend)
+            assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
+            val lease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+            val stage = get("journey/recording-room-stage")
+            assertEquals(stage.getValue("leaseId").jsonPrimitive.content, lease.plan.leaseId)
+            assertEquals(stage.getValue("generation").jsonPrimitive.content.toLong(), lease.plan.generation)
+            assertEquals(stage.getValue("startEpoch").jsonPrimitive.content.toLong(), lease.plan.startEpoch)
+            assertEquals(stage.getValue("endEpoch").jsonPrimitive.content.toLong(), lease.plan.endEpoch)
+            assertEquals(lease.plan.nodeId, get("ready").getValue("link_node_id").jsonPrimitive.content)
+            val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
+            require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
+            java.io.File(java.io.File(app.noBackupFilesDir, name), "room-recording-prepared.json").writeText(
+                org.json.JSONObject().put("draft", draft.id).put("source", source.name)
+                    .put("encryptedSha256", draft.sealed.hash).put("origin", draft.storageOrigin).toString())
+            put("recording-room-prepared-verify", buildJsonObject {
+                put("originalExportAndUploadedDraftSurvivedProcessRestart", true)
+                put("originalUploadReceiptReady", true); put("originalNodeLeaseUnchanged", true)
+                put("sourcePathResolvedThroughExportOwner", true); put("uploadRepeated", false)
+                put("recordingQueued", false); put("recordingSendQualified", false)
+            })
+        } finally { room.roomKey.fill(0) }
     }
 
     /** Product-model authority setup for the separate derived-room fixture.
