@@ -687,7 +687,7 @@ private fun RoomScreenContent(
                             !state.recordingStopPending),
                     ) { Text(when {
                         state.nativeRecordingPreparing -> "Announcing recording…"
-                        state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Preparing recording…"
+                        state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Finalising recording…"
                         state.nativeRecording -> "Stop recording"
                         else -> "Record call"
                     }) }

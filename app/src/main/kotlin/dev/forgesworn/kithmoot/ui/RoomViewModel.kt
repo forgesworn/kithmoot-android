@@ -1044,6 +1044,8 @@ class RoomViewModel @JvmOverloads constructor(
     private var nativeRecordingOwner: NativeRecordingOwner? = null
     private val recordingApplication get() = getApplication<dev.forgesworn.kithmoot.KithMootApplication>()
     val recordingExport get() = recordingApplication.recordings.export
+    val recordingExportFailed get() = recordingApplication.recordings.exportFailed
+    fun dismissRecordingExportFailure() = recordingApplication.recordings.dismissExportFailure()
     fun recordingExportDetails(file: java.io.File) = recordingApplication.recordings.details(file)
     private val _recordingExportBusy = MutableStateFlow(false)
     val recordingExportBusy = _recordingExportBusy.asStateFlow()
@@ -6249,6 +6251,8 @@ class RoomViewModel @JvmOverloads constructor(
                 check(capture != null) { "Recording capture was interrupted" }
                 recordingApplication.recordings.complete(capture.finish())
             } catch (error: Exception) {
+                Log.e("KithMootRecording", "Capture finalisation failed", error)
+                recordingApplication.recordings.reportExportFailure()
                 runCatching { capture?.discard() }
                 runCatching { recordingApplication.recordings.abandon(owner.file) }
                 if (roomWork === owner.work) note("Recording could not be exported: ${error.message ?: "capture failed"}")

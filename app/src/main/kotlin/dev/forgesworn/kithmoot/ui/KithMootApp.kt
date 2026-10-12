@@ -123,6 +123,7 @@ fun KithMootApp(
     val actualRoomState by model.room.collectAsState()
     val recordingModel = accountModel
     val recordingExport by recordingModel.recordingExport.collectAsState()
+    val recordingExportFailed by recordingModel.recordingExportFailed.collectAsState()
     val recordingExportBusy by recordingModel.recordingExportBusy.collectAsState()
     val recordingExportError by recordingModel.recordingExportError.collectAsState()
     val recordingAdded by recordingModel.recordingAdded.collectAsState()
@@ -131,6 +132,14 @@ fun KithMootApp(
     var savingRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
     var deferredRecordingName by rememberSaveable { mutableStateOf<String?>(null) }
     val recordingPromptAllowed = !lockedCallOnly && !inPictureInPicture && !callAnswering
+    if (recordingExportFailed && recordingPromptAllowed) {
+        AlertDialog(
+            onDismissRequest = recordingModel::dismissRecordingExportFailure,
+            title = { Text("Recording not saved") },
+            text = { Text("This recording could not be finalised. Start another recording when you are ready.") },
+            confirmButton = { TextButton(onClick = recordingModel::dismissRecordingExportFailure) { Text("Close") } },
+        )
+    }
     LaunchedEffect(recordingAdded, recordingPromptAllowed) {
         val added = recordingAdded ?: return@LaunchedEffect
         // Add can finish after the call view becomes restricted. Keep the
