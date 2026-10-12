@@ -55,20 +55,21 @@
     "log_sha256": "4686b7837939d57229ce36cbf0b8e6251c876bfd8d9bd8e49f18f78e34f65d40"
   },
   "first_publication": {
-    "passed": true,
+    "passed": false,
     "seconds": 3.936,
     "actual_room_view_model_and_rendered_send_control": true,
     "generated_jni_link_transport": true,
     "node_runtime_and_os_worker": true,
     "fixture_clock_override": false,
-    "authenticated_incoming_event_required_by_product": true,
+    "authenticated_incoming_event_required_by_product": false,
     "original_uploaded_draft_finished": true,
     "original_local_export_retained": true,
     "original_lease_plan_unchanged": true,
     "replacement_upload": false,
     "automatic_retry": false,
     "queue_ack_alone_counted_as_delivery": false,
-    "log_sha256": "e12acd9d576bc8f6349605bdd9deb88834c76fa06fe8f9ba56419d59a7c3d625"
+    "log_sha256": "e12acd9d576bc8f6349605bdd9deb88834c76fa06fe8f9ba56419d59a7c3d625",
+    "test_reported_pass": true
   },
   "physical_recording_qualified": false,
   "production_published": false,
@@ -76,5 +77,22 @@
     "Disposable API35 emulator and synthetic recording source; no physical capture or playback claim",
     "Actual product restart, rekey, withdrawal and lost-reply paths still need qualification with this SDK integration",
     "Full hosted checks are outstanding; preceding Save commit failed capture-runner fixture count checks, corrected here"
-  ]
+  ],
+  "status": "invalidated_false_positive",
+  "invalidation": {
+    "reason": "Unseen quiet inner event fell back to underlying relay lane trust, falsely confirming publication before queueing.",
+    "actual_node_delivery_proved": false,
+    "original_uploaded_draft_removed_without_delivery_proof": true,
+    "original_local_export_retained": true,
+    "restart_attempts_without_attachment_history": 2,
+    "offline_owned_node_snapshot": {
+      "stored_wraps": 21,
+      "original_lease_key_matches": 0,
+      "verified_inner_events": 0,
+      "original_attachment_matches": 0
+    },
+    "historic_logs_preserved": true,
+    "synthetic_fixture_has_no_account_offer_archive": true,
+    "original_upload_key_recovery_proved": false
+  }
 }

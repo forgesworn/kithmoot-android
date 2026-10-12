@@ -14,10 +14,12 @@ it does not qualify the latest candidate's video, playback or endurance.
 These changes are not yet included in the public Android release.
 
 The [product SDK/worker receipt](evidence/native-recording-product-sdk-worker-send-2026-10-12.json)
-records the original privately uploaded recording passing the rendered Android
-Send control through the pinned JNI SDK, NodeRuntime and OS worker, with
-authenticated incoming-event confirmation. The original lease plan and local
-export remain intact; no replacement upload or automatic queue retry was used.
+invalidates the earlier apparent Send pass. An unseen quiet event inherited
+relay-lane trust and was treated as confirmed before queueing. The uploaded
+draft was removed without delivery proof; its local export remains available.
+Two restart checks found no attachment, and a read-only snapshot of 21 owned
+node wraps contained no original lease-key or attachment matches. Actual
+SDK/worker recording delivery remains unqualified; the historic logs are retained.
 Quiet Link rooms now read gift wraps from the consented node's broadcast
 `/drops` endpoint and filter locally, while circle traffic keeps `/events`.
 Recording Send waits for quiet-schedule readiness. An earlier UI attempt
