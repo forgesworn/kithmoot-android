@@ -33,8 +33,12 @@ class AacRecordingTest {
                     val buffer = ByteBuffer.allocate(960).order(ByteOrder.LITTLE_ENDIAN)
                     repeat(480) { offset ->
                         val frame = block * 480 + offset
-                        buffer.putShort((4000 * sin(frame * 2 * PI * 440 / 48_000) +
-                            4000 * sin(frame * 2 * PI * 660 / 48_000)).toInt().toShort())
+                        // A distinct final 100 ms makes delayed source sound
+                        // distinguishable from encoder flush silence.
+                        val value = if (frame >= 91_200) 4000 * sin(frame * 2 * PI * 1100 / 48_000)
+                            else 4000 * sin(frame * 2 * PI * 440 / 48_000) +
+                                4000 * sin(frame * 2 * PI * 660 / 48_000)
+                        buffer.putShort(value.toInt().toShort())
                     }
                     buffer.flip()
                     capture.localSamples(buffer, 16, 48_000, 1, 480)
@@ -49,7 +53,6 @@ class AacRecordingTest {
             assertEquals(MediaFormat.MIMETYPE_AUDIO_AAC, format.getString(MediaFormat.KEY_MIME))
             assertEquals(48_000, format.getInteger(MediaFormat.KEY_SAMPLE_RATE))
             assertEquals(1, format.getInteger(MediaFormat.KEY_CHANNEL_COUNT))
-            assertTrue("Two-second sample clock survives encoding", abs(format.getLong(MediaFormat.KEY_DURATION) - 2_000_000) < 100_000)
             extractor.selectTrack(0)
             val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
             decoder = codec
@@ -91,6 +94,8 @@ class AacRecordingTest {
             }
             assertTrue("Complete export decodes", outputEnded)
             android.util.Log.i("KithMootRecordingTest", "AAC decoded=${samples.size}, packets=$packets, lastPacketUs=$lastPacketTime, inputFormat=$format, outputFormat=${codec.outputFormat}, bytes=${file.length()}")
+            assertTrue("Two-second PCM clock survives encoding without priming or flush extending playback: $format",
+                abs(format.getLong(MediaFormat.KEY_DURATION) - 2_000_000) <= 21)
             assertTrue("At least two seconds of audio: decoded ${samples.size} samples; packets=$packets; lastPacketUs=$lastPacketTime; input=$format; output=${codec.outputFormat}", samples.size >= 96_000)
             // Measure a complete second away from encoder priming and tail.
             for (frequency in listOf(440, 660)) {
@@ -102,6 +107,15 @@ class AacRecordingTest {
                 }
                 assertTrue("$frequency Hz survives AAC export", 2 * hypot(sine, cosine) / 48_000 > 2000)
             }
+            var tailSine = 0.0; var tailCosine = 0.0
+            repeat(2400) { offset ->
+                val frame = 93_600 + offset
+                val phase = frame * 2 * PI * 1100 / 48_000
+                tailSine += samples[frame] * sin(phase)
+                tailCosine += samples[frame] * cos(phase)
+            }
+            assertTrue("Final source tone survives within the original playback interval",
+                2 * hypot(tailSine, tailCosine) / 2400 > 3000)
         } catch (error: Throwable) {
             if (file.isFile) file.copyTo(File(directory.parentFile, "synthetic-aac-failed.m4a"), overwrite = true)
             throw error

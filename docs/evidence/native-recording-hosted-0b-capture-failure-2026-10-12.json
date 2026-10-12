@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "0b318451bfa16ec3592e171c0c922db75e3aba5c",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38243565689",
+  "capture_job_id": 114797331385,
+  "capture_job_conclusion": "failure",
+  "capture_instrumentation_tests": 25,
+  "capture_instrumentation_failures": 1,
+  "failed_test": "BrowserCallInteropTest.nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+  "failure": "InvalidAccessError: remote answer SDP media-section order does not match the current offer",
+  "root_cause_confirmed": false,
+  "unit_artifacts_inspected": true,
+  "unit_reports": {
+    "protocol": {
+      "tests": 495,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_debug": {
+      "tests": 2238,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app_release": {
+      "tests": 2238,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "all_nine_jobs_passed": false,
+  "physical_recording_qualified": false,
+  "production_release": false,
+  "limitations": [
+    "The two private-node jobs were still running at first inspection and subsequently passed; final run remains eight of nine",
+    "The subsequent AAC-tail change is not part of this hosted source",
+    "Historical nine-job successes remain separate evidence; this failure is not erased by rerunning"
+  ],
+  "terminal_status": "completed",
+  "terminal_conclusion": "failure",
+  "terminal_passed_jobs": 8,
+  "terminal_failed_jobs": 1,
+  "private_node_jobs_terminal_passed": true
+}
