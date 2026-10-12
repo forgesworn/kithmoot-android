@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.g5
 
 import android.os.SystemClock
+import androidx.activity.compose.setContent
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.account.LocalSigner
@@ -54,6 +55,7 @@ class G7CadenceStatusTest {
             "recording-queue" -> pairAndQueueRecording()
             "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
             "recording-withdrawal-replay" -> replayRecordingWithdrawal()
+            "recording-room-stage" -> stageRecordingRoomModelLease()
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
@@ -220,6 +222,97 @@ class G7CadenceStatusTest {
             put("pendingFailureRetained", true)
             put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })
+    }
+
+    /** Product-model authority setup for the separate derived-room fixture.
+     * This stages real cadence through RoomViewModel; it does not claim Send. */
+    private fun stageRecordingRoomModelLease() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        check(app.savedRooms.list().isEmpty() && app.accounts.load() == null) {
+            "Product-room qualification refuses retained rooms or accounts"
+        }
+        val now = epochSeconds()
+        val secret = ByteArray(32) { 61 }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(secret)
+        val ready = get("ready")
+        assertEquals("emulated", ready.getValue("evidence").jsonPrimitive.content)
+        assertEquals(room.roomId, ready.getValue("fixture_room").jsonPrimitive.content)
+        assertFalse(ready.getValue("lab_slot_override_built").jsonPrimitive.boolean)
+        assertTrue(ready.getValue("worker").jsonObject.getValue("running").jsonPrimitive.boolean)
+        val grantEvents = ready.getValue("fixture_grant_plan").jsonArray.map {
+            dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(it)
+        }
+        assertEquals(2, grantEvents.size)
+        val plan = dev.forgesworn.kithmoot.relay.CircleGrantPlan(grantEvents[0], grantEvents[1])
+        val who = PrimaryIdentity.create(room.roomId, now + 43_200, now,
+            PERSONA_SECRET.hexToBytes(), DEVICE_SECRET.hexToBytes())
+        assertEquals(room.roomId, plan.active.tagValue("d"))
+        assertEquals(who.participant, plan.active.tagValue("p"))
+        assertEquals(who.devicePubkey, plan.active.tagValue("device"))
+        assertEquals(GRANT_ID, plan.active.tagValue("grant"))
+        assertEquals(ready.getValue("claimed_by").jsonPrimitive.content, plan.active.pubkey)
+        val pairing = parsePairing(post("pairing").getValue("uri").jsonPrimitive.content, now)
+        val route = app.linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
+        val node = ready.getValue("link_node_id").jsonPrimitive.content
+        val canonical = "ws://$node/events"
+        val relays = fixtureRelays()
+        app.linkConsents.put(LinkConsent(who.participant, room.roomId, plan.active.pubkey,
+            route.routeId, canonical, relays, LinkConsentState.ACTIVE, listOf(plan)))
+        val policy = dev.forgesworn.kithmoot.protocol.RoomPolicy(
+            dev.forgesworn.kithmoot.protocol.KindredTier.OPEN, members = listOf(who.participant), quiet = true)
+        val saved = dev.forgesworn.kithmoot.storage.SavedRoom.create(secret, who,
+            dev.forgesworn.kithmoot.protocol.encodeJoinUrl("https://kithmoot.app/j/", secret, listOf(canonical), policy),
+            listOf(canonical), "Synthetic node recording", now, null, null)
+        app.savedRooms.saveNew(saved)
+        val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
+        lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
+        val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
+        try {
+            scenario.onActivity { owner ->
+                model = androidx.lifecycle.ViewModelProvider(owner, object : androidx.lifecycle.ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST") override fun <T : androidx.lifecycle.ViewModel> create(type: Class<T>): T =
+                        dev.forgesworn.kithmoot.ui.RoomViewModel(app, chatOnly = true, recordingNodeQualification = true) as T
+                })["recording-node-product", dev.forgesworn.kithmoot.ui.RoomViewModel::class.java]
+                owner.setContent { dev.forgesworn.kithmoot.ui.theme.KithMootTheme {
+                    dev.forgesworn.kithmoot.ui.KithMootApp(model)
+                } }
+                model.refreshSavedRooms()
+                model.reopenRoom(room.roomId)
+            }
+            ui.await("actual model opens its derived quiet room", timeoutMs = 120_000) {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
+            }
+            assertEquals(room.roomId, model.room.value.roomId)
+            assertEquals(who.participant, model.room.value.selfParticipant)
+            assertEquals(who.devicePubkey, model.room.value.selfDevice)
+            assertTrue(model.room.value.quiet)
+            assertTrue(model.room.value.cadence?.eligible == true)
+            scenario.onActivity { model.startCadence() }
+            ui.await("actual model stages its original node lease", timeoutMs = 120_000) {
+                !model.room.value.cadence!!.busy &&
+                    app.cadenceLeases.all(room.roomId, who.devicePubkey).any { it.ownership == CadenceOwnership.BOX_OWNED }
+            }
+            val lease = app.cadenceLeases.all(room.roomId, who.devicePubkey).single()
+            assertEquals(node, lease.plan.nodeId)
+            assertEquals(room.roomId, lease.plan.room)
+            assertEquals(room.roomId, lease.plan.trafficRoom)
+            assertEquals("staged", lease.receipt?.code)
+            assertTrue(app.recordingNodeHandoffs.pending(who.participant).isEmpty())
+            put("recording-room-stage", buildJsonObject {
+                put("leaseId", lease.plan.leaseId); put("generation", lease.plan.generation)
+                put("startEpoch", lease.plan.startEpoch); put("endEpoch", lease.plan.endEpoch)
+                put("trafficRoom", room.roomId); put("actualRoomViewModelStageAccepted", true)
+                put("recordingQueued", false); put("recordingSendQualified", false); put("clockCompressed", false)
+            })
+            scenario.onActivity { model.leave() }
+            ui.await("product model closed while original node schedule stays retained") {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.START && !model.start.value.busy
+            }
+            assertEquals(lease, app.cadenceLeases.all(room.roomId, who.devicePubkey).single())
+        } finally {
+            scenario.close()
+            secret.fill(0); room.roomKey.fill(0); who.deviceSecretKey.fill(0)
+        }
     }
 
     private fun stageRecordingWorkerLease() {
