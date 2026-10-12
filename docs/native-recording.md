@@ -1,10 +1,35 @@
 # Native recording qualification
 
 Android recording is published in 0.6.82. This branch adds further source-permission
-and consent fixes; its merged candidate remains unqualified for production.
+and consent fixes; its candidate remains unqualified for production.
 Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
+
+Current follow-up `85368a70` includes quiet call-membership recovery. A regression
+reproduced a session rebuild declaring a remembered call and emitting a fresh
+start bell without a Join press. Automatic recovery now restores membership
+without a start bell; explicit Start/Join still announces the call. Next-morning
+chat alone passed the reproduction without a bell. The sender platform and
+overnight state of the reported incident are unknown, so that incident's cause
+is not established. Local regression verification and the exact-head
+[hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167)
+are pending. This is not a shipped fix.
+
+The preceding `f0320617` candidate passed all nine hosted jobs. Its
+[status receipt](evidence/native-recording-hosted-f032-2026-10-12.json) records
+the exact commit, jobs and artifact IDs, without claiming reinspection of the
+artifact contents or qualification of subsequent code changes.
+
+The [worker lead-in receipt](evidence/native-recording-paired-worker-lead-in-2026-10-12.json)
+proves that the real staged lease is refused before its activation, leaving
+the original lease and handoff journal unchanged. The separate delivery driver
+has verified the original installed app and receiver APK hashes and waits for
+10:00 UTC on 2026-10-12. It preserves app data and the original lease, queues
+once, and requires the exact signed inner event from both original TLS relay
+routes before confirming custody. It never compresses time, re-pairs or retries
+queueing automatically. Actual delivery remains unexecuted; this staging and
+lead-in evidence does not enable delegated recording Send in production.
 
 The journal-backed handoff candidate `19e0a94f` passed all nine hosted jobs.
 Its [complete hosted receipt](evidence/native-recording-journal-handoff-hosted-2026-10-12.json)
