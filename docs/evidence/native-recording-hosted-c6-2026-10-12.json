@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "c6ac9545bd55d8c48151a66a23a976c1e694385f",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38252753489",
+  "terminal_status": "completed",
+  "conclusion": "success",
+  "successful_jobs": 9,
+  "failed_jobs": 0,
+  "jobs": [
+    "verify",
+    "recovery-emulator",
+    "recording-private-node-emulator (default)",
+    "recording-private-node-emulator (google_apis)",
+    "recording-call-emulator (capture)",
+    "recording-restart-emulator",
+    "recording-call-emulator (session)",
+    "signing-lineage-emulator (33)",
+    "signing-lineage-emulator (35)"
+  ],
+  "qualifies_later_d74_codec_changes": false,
+  "historical_0b_capture_failure_resolved_by_this_pass": false,
+  "physical_recording_qualified": false,
+  "production_release": false
+}
