@@ -569,6 +569,19 @@ class BrowserCallInteropTest {
             val manager = context.getSystemService(AudioManager::class.java)
             assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
             assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, manager.communicationDevice?.type)
+        } catch (error: Throwable) {
+            // Capture only after the gate has already failed: periodic stack
+            // sampling can change encoder timing and invalidate qualification.
+            // Thread names and code locations contain no participant media,
+            // account identifiers, room capabilities or SDP.
+            if (captureVideo) {
+                val workers = Thread.getAllStackTraces().filterKeys { it.name == "KithMootRecording" }
+                val trace = workers.entries.joinToString("\n") { (worker, stack) ->
+                    "${worker.name} state=${worker.state}\n${stack.joinToString("\n") { "  at $it" }}"
+                }
+                error.addSuppressed(IllegalStateException("Recording worker at failed live video export:\n$trace"))
+            }
+            throw error
         } finally {
             writerDiagnostics?.shutdownNow()
             writerDiagnostics?.awaitTermination(2, TimeUnit.SECONDS)
