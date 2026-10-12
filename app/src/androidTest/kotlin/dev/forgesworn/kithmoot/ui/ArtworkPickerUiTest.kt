@@ -38,7 +38,7 @@ class ArtworkPickerUiTest {
         bitmap.recycle()
     }
 
-    private fun observeMediaTabFailure(scenario: ActivityScenario<MainActivity>) {
+    private fun observeMediaTabFailure(scenario: ActivityScenario<MainActivity>, tap: ArtworkTapProbe) {
         // Observe the synthetic fixture before ActivityScenario tears it down.
         // Diagnostics cannot replace the original ten-second UI failure.
         runCatching {
@@ -53,6 +53,10 @@ class ArtworkPickerUiTest {
             observation.put("stickersDisplayed", runCatching {
                 ui.onNodeWithText("Stickers").isDisplayed()
             }.getOrDefault(false))
+            observation.put("pickerExists", runCatching {
+                ui.onNodeWithContentDescription("Close artwork picker").fetchSemanticsNode(); true
+            }.getOrDefault(false))
+            observation.put("tap", tap.snapshot())
             observation.put("composerFocused", runCatching {
                 ui.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().any {
                     it.config.getOrNull(SemanticsProperties.Focused) == true
@@ -64,10 +68,11 @@ class ArtworkPickerUiTest {
         runCatching { capture("media-tabs-failure") }
     }
 
-    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false) {
+    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false, tap: ArtworkTapProbe? = null) {
         scenario.onActivity { activity -> activity.setContent { KithMootTheme {
             var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
-            ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") }, Modifier.fillMaxSize().systemBarsPadding(),
+            ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
+                Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
                 onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
                 onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
                 internetAllowed = !offline, torOnly = offline)
@@ -181,17 +186,28 @@ class ArtworkPickerUiTest {
 
     @Test fun local_media_preview_stages_an_offline_reference_without_storage_or_send() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            mount(scenario, offline = true)
+            val tap = ArtworkTapProbe()
+            mount(scenario, offline = true, tap = tap)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
+            val opener = ui.onNodeWithContentDescription("Emoji")
+            val pickerExists = runCatching {
+                ui.onNodeWithContentDescription("Close artwork picker").fetchSemanticsNode(); true
+            }.getOrDefault(false)
+            tap.prepare(opener.fetchSemanticsNode(), pickerExists)
             waitForKeyboard(scenario)
-            ui.onNodeWithContentDescription("Emoji").performClick()
+            opener.performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
             try {
                 ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
             } catch (error: ComposeTimeoutException) {
-                observeMediaTabFailure(scenario)
+                observeMediaTabFailure(scenario, tap)
                 throw error
+            }
+            runCatching {
+                val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+                File(folder, "media-tabs-success.json").writeText(
+                    JSONObject().put("stickersDisplayed", true).put("tap", tap.snapshot()).toString())
             }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")
