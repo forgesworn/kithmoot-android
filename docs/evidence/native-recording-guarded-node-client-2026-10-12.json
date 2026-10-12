@@ -42,5 +42,17 @@
     "Authenticated relay event confirmation before draft completion",
     "Full current native checks and hosted qualification",
     "Physical Android acceptance and signed production release"
-  ]
+  ],
+  "preceding_full_native_checks": {
+    "commit": "7daeaa00",
+    "protocol_tests": 495,
+    "app_tests": 2220,
+    "failures": 0,
+    "skipped": 0,
+    "lintDebug": "passed",
+    "lintRelease": "passed",
+    "assembleDebug": "passed",
+    "assembleRelease": "passed",
+    "duration_seconds": 562
+  }
 }
