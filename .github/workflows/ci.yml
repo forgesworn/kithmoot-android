@@ -158,7 +158,8 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          ref: 676edeb20c1c004ce5595dd40ab47f55a9772feb
+          # Same reviewed browser implementation used by verify (web PR #407).
+          ref: a185577b72040db186124333a50e40d45b950206
           path: build/browser-recording-reference
           persist-credentials: false
 
