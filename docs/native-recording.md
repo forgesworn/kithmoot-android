@@ -19,8 +19,13 @@ no failures or skips. The exact-head
 passed verify with 495 protocol and 2,237 app tests, both lint checks and both
 APK builds. The [partial hosted receipt](evidence/native-recording-853-verify-and-recovery-2026-10-12.json)
 also records the recovery failure: a guest's removed room artwork was non-null
-after late older artwork arrived. The remaining hosted jobs and that recovery
-regression must be resolved. This is not a shipped fix.
+after late older artwork arrived. The run finished with eight passing jobs out
+of nine. A real callback-ordering regression reproduced removal overtaking an
+older image observer; serialised observer delivery passed 18 focused logo/cache
+tests. The [ordering receipt](evidence/native-room-logo-callback-order-2026-10-12.json)
+does not establish the cause of the hosted guest failure. The complete
+[follow-up run](https://github.com/forgesworn/kithmoot-android/actions/runs/38233541716)
+on `b1037a02` is running. This is not a shipped fix.
 
 The owner's physical Pixel 10 Pro XL, running Android 17/API 37, now has the
 [private signed candidate](evidence/native-recording-pixel-private-candidate-2026-10-12.json)
@@ -40,12 +45,13 @@ artifact contents or qualification of subsequent code changes.
 The [worker lead-in receipt](evidence/native-recording-paired-worker-lead-in-2026-10-12.json)
 proves that the real staged lease is refused before its activation, leaving
 the original lease and handoff journal unchanged. The separate delivery driver
-has verified the original installed app and receiver APK hashes and waits for
-10:00 UTC on 2026-10-12. It preserves app data and the original lease, queues
-once, and requires the exact signed inner event from both original TLS relay
-routes before confirming custody. It never compresses time, re-pairs or retries
-queueing automatically. Actual delivery remains unexecuted; this staging and
-lead-in evidence does not enable delegated recording Send in production.
+verified the original installed app and receiver APK hashes and entered the
+real activation window at 10:00 UTC on 2026-10-12. Its single queue attempt
+failed with a Link timeout awaiting the reply. Exact signed relay ingress and
+journal confirmation were not reached. The
+[failure receipt](evidence/native-recording-paired-worker-delivery-failure-2026-10-12.json)
+preserves the inputs and original custody without retry or re-pair. This result
+does not enable delegated recording Send in production.
 
 The journal-backed handoff candidate `19e0a94f` passed all nine hosted jobs.
 Its [complete hosted receipt](evidence/native-recording-journal-handoff-hosted-2026-10-12.json)
