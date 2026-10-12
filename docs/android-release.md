@@ -1,3 +1,24 @@
+## 0.6.83 (106): durable native invitation recovery
+
+Native invitation replacement retains its exact original messages, spending
+and generation across interrupted writes and process death. Room entry checks
+the encrypted source, receiver, courier and saved-room reference before opening
+routes. Missing or damaged state refuses entry; sharing uses the verified
+current invitation after replacement.
+
+Encrypted storage transactions serialize access to the same path. Saved-room
+refreshes publish only their current observation, and accepted artwork updates
+retain their order when the UI displays them. The existing recording, guest
+admission, artwork and native recovery assertions and deadlines are preserved.
+
+The integrated 0.6.82 source and PR #256 each pass all sixteen CI jobs with
+actual reports inspected, including the original 206 ordinary cases, 15 cold
+recoveries, 55 strict storage fault rows and both full-size slow recording
+transfer profiles. This version bump requires its own final-source checks,
+production signature/lineage verification and publication receipts before
+claiming shipment. Physical Pixel/iPhone, BLE/RF, remote participants, complete
+offline cold admission and independent security review remain open.
+
 ## 0.6.81 (104): private room and project artwork, invitation review
 
 Authorised room/project editors crop, preview, replace and remove artwork.
