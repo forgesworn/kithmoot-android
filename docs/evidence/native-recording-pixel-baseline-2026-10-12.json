@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-12",
+  "claim": "Installed physical-device APK identity only",
+  "physical_recording_qualified": false,
+  "model": "Pixel 10 Pro XL",
+  "android_release": "17",
+  "sdk": 37,
+  "installed_version": "0.6.81",
+  "installed_version_code": 104,
+  "installed_apk_sha256": "4c00e02a1c7d64e89c4945ddbd93209d91835f24ccfdad52727c9f37ad91fb30",
+  "certificate_sha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "apk_signature_verified": true,
+  "production_certificate_matches": true,
+  "app_data_read": false,
+  "app_data_cleared": false,
+  "candidate_installed": false,
+  "limitations": [
+    "Baseline install identity only; no recording, interruption, file-provider or playback acceptance",
+    "The phone has not received the current candidate",
+    "No serial, account identity or saved-room information is included"
+  ]
+}

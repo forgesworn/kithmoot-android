@@ -16,7 +16,21 @@ is not established. The [local regression receipt](evidence/native-call-recovery
 records 35 passing call-membership, call-control and incoming-call tests with
 no failures or skips. The exact-head
 [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167)
-is pending. This is not a shipped fix.
+passed verify with 495 protocol and 2,237 app tests, both lint checks and both
+APK builds. The [partial hosted receipt](evidence/native-recording-853-verify-and-recovery-2026-10-12.json)
+also records the recovery failure: a guest's removed room artwork was non-null
+after late older artwork arrived. The remaining hosted jobs and that recovery
+regression must be resolved. This is not a shipped fix.
+
+The owner's physical Pixel 10 Pro XL, running Android 17/API 37, now has the
+[private signed candidate](evidence/native-recording-pixel-private-candidate-2026-10-12.json)
+from the exact hosted release APK. Its production certificate, embedded lineage
+and installed hash were verified. Updating from 0.6.81 preserved UID and
+first-install time without reading or clearing app data. It launched and remained
+alive during a five-second startup observation. This candidate retains the
+0.6.82 version label but differs from the published APK; its source and hashes
+identify it. Installation and startup do not prove recording endurance,
+interruption, Save-provider or independent-device playback acceptance.
 
 The preceding `f0320617` candidate passed all nine hosted jobs. Its
 [status receipt](evidence/native-recording-hosted-f032-2026-10-12.json) records
