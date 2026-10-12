@@ -6,11 +6,74 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.test.*
 import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PreparedRoomChatTest {
+    @Test fun `recording confirmation waits for the advertised quiet cadence`() = runTest {
+        val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+        var observedTimeout = 0L
+        val relay = FakeRelay()
+        val transport = object : RoomTransport by relay.transport() {
+            override fun guardedConfirmationTimeoutMs(kind: Int) = 615_000L
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                observedTimeout = timeoutMs
+                return withTimeoutOrNull(timeoutMs) {
+                    delay(180_000)
+                    assertTrue(stillAllowed())
+                    true
+                } ?: false
+            }
+        }
+        val live = RoomSession(room, owner, transport, backgroundScope,
+            timing = Fixtures.QUIET, now = { 1L + testScheduler.currentTime / 1000 })
+        live.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(live.prepareChatForSend("Recording in a five-minute quiet slot"))
+        val sending = async { live.sendPreparedChatConfirmed(prepared) { true } }
+        runCurrent(); advanceTimeBy(90_000); runCurrent()
+        assertFalse(sending.isCompleted, "A valid quiet publication must not inherit the immediate-chat timeout")
+        advanceTimeBy(90_000); runCurrent()
+        assertTrue(sending.await())
+        assertEquals(615_000L, observedTimeout)
+        assertEquals(1, live.chat.value.size)
+        assertFalse(live.pendingChat())
+        live.leave()
+    }
+
+    @Test fun `quiet recording wait cannot extend its original room deadline`() = runTest {
+        val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+        var observedTimeout = 0L
+        var delivered = false
+        val relay = FakeRelay()
+        val transport = object : RoomTransport by relay.transport() {
+            override fun guardedConfirmationTimeoutMs(kind: Int) = Long.MAX_VALUE
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                observedTimeout = timeoutMs
+                return withTimeoutOrNull(timeoutMs) {
+                    delay(180_000)
+                    if (!stillAllowed()) throw PublicationNotOfferedException()
+                    delivered = true
+                    true
+                } ?: false
+            }
+        }
+        val live = RoomSession(room, owner, transport, backgroundScope, ends = 40L,
+            timing = Fixtures.QUIET, now = { 1L + testScheduler.currentTime / 1000 })
+        live.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(live.prepareChatForSend("Recording with original room deadline"))
+        assertFalse(live.sendPreparedChatConfirmed(prepared) { true })
+        assertEquals(38_000L, observedTimeout)
+        assertFalse(delivered)
+        assertTrue(live.chat.value.isEmpty())
+        live.leave()
+    }
+
     @Test fun `restored messages retain their original signed admission and room end deadlines`() = runTest {
         for (admission in listOf(false, true)) {
             val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)

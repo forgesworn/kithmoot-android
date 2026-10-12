@@ -239,8 +239,10 @@ class QuietTransport(
         timer?.cancel(); timer = null
         broadcast?.cancel(); broadcast = null
         pastBackfill?.cancel(); pastBackfill = null
-        opened.resetReplayCache()
-        synchronized(delivered) { plainIngress.clear(); ingressWraps.clear() }
+        synchronized(delivered) {
+            opened.resetReplayCache()
+            plainIngress.clear(); ingressWraps.clear()
+        }
     }
 
     override fun guardedConfirmationTimeoutMs(kind: Int): Long = if (kind in quietKinds) {
@@ -586,6 +588,7 @@ class QuietTransport(
         val hit = current ?: lookupPast(tag, t) ?: return
         val inner = RoomDrops.openRoomDrop(wrap, hit.key.privateKey) ?: return
         synchronized(delivered) {
+            if (stopped) return
             val wraps = ingressWraps.getOrPut(inner.id) { linkedSetOf() }
             wraps.add(wrap.id)
             while (wraps.size > MAX_WRAPS_PER_EVENT) wraps.remove(wraps.first())
@@ -593,11 +596,12 @@ class QuietTransport(
             keep("w:" + wrap.id)
             if ("i:" + inner.id in delivered) return
             keep("i:" + inner.id)
+            // Spend an observed own counter before handing plaintext to a
+            // subscriber that could initiate another publication.
+            if (current != null && hit.member == member)
+                keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
+            opened.tryEmit(inner)
         }
-        // A drop on this member's own key was posted by a device holding this
-        // room key: its counter is spent here too.
-        if (current != null && hit.member == member) keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
-        opened.tryEmit(inner)
     }
 
     private fun keep(id: String) {
@@ -647,9 +651,11 @@ class QuietTransport(
     // Underlying relay evidence expresses lane trust. Only consult it after
     // this transport has actually received the specific event on that lane.
     private fun trackPlainIngress(flow: Flow<NostrEvent>): Flow<NostrEvent> = flow.onEach { event ->
-        if (!stopped && event.kind !in quietKinds) synchronized(delivered) {
-            plainIngress += event.id
-            while (plainIngress.size > MAX_INGRESS_EVENTS) plainIngress.remove(plainIngress.first())
+        synchronized(delivered) {
+            if (!stopped && event.kind !in quietKinds) {
+                plainIngress += event.id
+                while (plainIngress.size > MAX_INGRESS_EVENTS) plainIngress.remove(plainIngress.first())
+            }
         }
     }
 

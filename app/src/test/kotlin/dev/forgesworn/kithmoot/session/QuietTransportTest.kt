@@ -120,6 +120,33 @@ class QuietTransportTest {
         assertTrue(afterStop.isEmpty(), "Closing the room must clear its retained plaintext replay")
     }
 
+    @Test fun `a drop opening across room stop cannot refill plaintext replay or delivery proof`() = runTest {
+        val relay = FakeRelay()
+        val message = dropUnder(relay, ada, room.roomKey, "late authenticated recording")
+        val wrap = relay.published.single()
+        var stopDuringReceive = false
+        lateinit var reader: QuietTransport
+        reader = QuietTransport(relay.transport(), room.roomKey, rowan.participant, policy.members!!,
+            0, backgroundScope, ticking = false, slotOffset = { 0 }, now = {
+                if (stopDuringReceive) { stopDuringReceive = false; reader.stop() }
+                clock
+            })
+        val flow = reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT))))
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { seen += it } }
+        runCurrent()
+        // Stop after receive's first lifecycle check, before decryption and
+        // replay retention. This models a room close racing an ingress callback.
+        stopDuringReceive = true
+        relay.publish(wrap); runCurrent()
+        assertTrue(seen.isEmpty())
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        val afterStop = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { afterStop += it } }
+        runCurrent()
+        assertTrue(afterStop.isEmpty())
+    }
+
     private fun TestScope.hybridReader(mesh: FakeRelay, relay: FakeRelay): Pair<QuietTransport, HybridRoomTransport> {
         val internet = object : RoomTransport by relay.transport() {
             override fun receivedViaRelays(eventId: String) = listOf("wss://fixture.invalid/")

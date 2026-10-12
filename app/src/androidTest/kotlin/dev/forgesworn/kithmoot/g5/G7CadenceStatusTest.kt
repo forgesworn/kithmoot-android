@@ -48,6 +48,16 @@ class G7CadenceStatusTest {
     private val action get() = requireNotNull(arguments.getString("g7_action"))
     private val app get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as KithMootApplication
 
+    private fun syntheticRecordingStorageOrigin(): String {
+        val origin = arguments.getString("recordingStorageOrigin") ?: "https://127.0.0.1:39847"
+        val uri = URI(origin)
+        require(uri.scheme == "https" && uri.host == "127.0.0.1" && uri.port in 1..65535 &&
+            origin == "https://127.0.0.1:${uri.port}") {
+            "Synthetic recording qualification requires one explicit loopback HTTPS origin"
+        }
+        return origin
+    }
+
     @Test fun runsRequestedCadenceProof() {
         when (action) {
             "probe" -> pairAndRunSuccessorCutover()
@@ -261,12 +271,7 @@ class G7CadenceStatusTest {
         val tls = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, managers.trustManagers, null) }
         val http = okhttp3.OkHttpClient.Builder().sslSocketFactory(tls.socketFactory,
             managers.trustManagers.filterIsInstance<javax.net.ssl.X509TrustManager>().single()).build()
-        val origin = arguments.getString("recordingStorageOrigin") ?: "https://127.0.0.1:39847"
-        val storageUri = URI(origin)
-        require(storageUri.scheme == "https" && storageUri.host == "127.0.0.1" &&
-            storageUri.port in 1..65535 && origin == "https://127.0.0.1:${storageUri.port}") {
-            "Synthetic recording qualification requires one explicit loopback HTTPS origin"
-        }
+        val origin = syntheticRecordingStorageOrigin()
         val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
         lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
         val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
@@ -338,7 +343,9 @@ class G7CadenceStatusTest {
                 model.stage.value == dev.forgesworn.kithmoot.ui.Stage.START && !model.start.value.busy
             }
             assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room.roomId))
-            assertEquals(lease, app.cadenceLeases.all(room.roomId, DEVICE).single())
+            val refreshedLease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+            assertEquals(lease.plan, refreshedLease.plan)
+            assertEquals(lease.ownership, refreshedLease.ownership)
         } finally {
             scenario.close(); room.roomKey.fill(0)
             http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll()
@@ -362,7 +369,7 @@ class G7CadenceStatusTest {
             val uploaded = requireNotNull(draft.uploaded)
             assertEquals(draft.sealed.hash, uploaded.sha256)
             assertEquals(draft.sealed.file.length(), uploaded.size)
-            assertEquals("https://127.0.0.1:39847", draft.storageOrigin)
+            assertEquals(syntheticRecordingStorageOrigin(), draft.storageOrigin)
             assertTrue(app.recordingUploadJournal.readyToSend(room.roomId, requireNotNull(draft.storageOrigin), draft.sealed.hash))
             assertEquals(null, draft.preparedSend)
             assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
@@ -375,9 +382,15 @@ class G7CadenceStatusTest {
             assertEquals(lease.plan.nodeId, get("ready").getValue("link_node_id").jsonPrimitive.content)
             val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
             require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
-            java.io.File(java.io.File(app.noBackupFilesDir, name), "room-recording-prepared.json").writeText(
-                org.json.JSONObject().put("draft", draft.id).put("source", source.name)
-                    .put("encryptedSha256", draft.sealed.hash).put("origin", draft.storageOrigin).toString())
+            val marker = java.io.File(java.io.File(app.noBackupFilesDir, name), "room-recording-prepared.json")
+            if (marker.exists()) {
+                val original = org.json.JSONObject(marker.readText())
+                assertEquals(draft.id, original.getString("draft"))
+                assertEquals(source.name, original.getString("source"))
+                assertEquals(draft.sealed.hash, original.getString("encryptedSha256"))
+                assertEquals(draft.storageOrigin, original.getString("origin"))
+            } else marker.writeText(org.json.JSONObject().put("draft", draft.id).put("source", source.name)
+                .put("encryptedSha256", draft.sealed.hash).put("origin", draft.storageOrigin).toString())
             put("recording-room-prepared-verify", buildJsonObject {
                 put("originalExportAndUploadedDraftSurvivedProcessRestart", true)
                 put("originalUploadReceiptReady", true); put("originalNodeLeaseUnchanged", true)
@@ -602,7 +615,7 @@ class G7CadenceStatusTest {
             outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-send")
                 .put("draft", original.id).put("automaticRetry", false).toString())
             ui.click("Send recording")
-            ui.await("original Send finished or retained uncertainty", timeoutMs = 120_000) {
+            ui.await("original Send finished or retained uncertainty", timeoutMs = 720_000) {
                 !model.room.value.mediaBusy && !model.room.value.chatSending &&
                     (app.recordingShareDrafts.list(room.roomId).none { it.id == original.id } ||
                         model.room.value.chatSendError != null)

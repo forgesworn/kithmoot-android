@@ -1353,14 +1353,19 @@ class RoomSession(
         check(at < originalDeadline) { "This recording's original signed authority has expired" }
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
+        val publishBefore = minOf(originalDeadline, credentialDeadline, accessDeadline,
+            ends ?: Long.MAX_VALUE, prepared.pending.event.createdAt + CHAT_RETENTION_SECONDS)
+        val confirmationTimeout = minOf(
+            maxOf(CHAT_CONFIRM_TIMEOUT_MS, transport.guardedConfirmationTimeoutMs(prepared.pending.event.kind)),
+            (publishBefore - at).coerceAtMost(Long.MAX_VALUE / 1_000) * 1_000,
+        )
         val confirmed = transport.publishConfirmedBounded(prepared.pending.event, transport.publicationGeneration(),
-            minOf(originalDeadline, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
-                prepared.pending.event.createdAt + CHAT_RETENTION_SECONDS), {
+            publishBefore, {
             trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
                 now() < originalDeadline &&
                 now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                 prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
-        }, CHAT_CONFIRM_TIMEOUT_MS)
+        }, confirmationTimeout)
         if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
         return confirmed
     }

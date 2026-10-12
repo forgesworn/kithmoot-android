@@ -1,6 +1,7 @@
 # Native recording qualification
 
-Android recording is published in 0.6.82. This branch adds further source-permission
+Android recording was introduced in 0.6.82; GitHub now publishes 0.6.83/code 106.
+This branch adds further source-permission
 and consent fixes; its candidate remains unqualified for production.
 Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
@@ -39,6 +40,23 @@ chat collector attaches. All 501 protocol and 2,324 app tests passed, both lint
 reports have no Error/Fatal issues, and both APK variants plus instrumentation
 built. These local checks do not qualify actual SDK/worker recording delivery
 or physical recording; normal delegated recording Send remains disabled.
+
+
+The [cadence-wait regression receipt](evidence/native-recording-cadence-wait-2026-10-12.json)
+records two failures before the recording confirmation wait used the quiet
+transport's schedule hint. A valid 180-second confirmation now succeeds within
+the advertised 615-second wait; an original 38-second room deadline still caps
+that wait, including an unbounded hint. All 39 focused prepared-chat, quiet and
+guarded-cadence tests passed. Full merged-source checks and the real SDK/worker
+product journey remain outstanding.
+
+
+The [quiet-close regression receipt](evidence/native-recording-quiet-stop-race-2026-10-12.json)
+records a callback opening a valid drop across room close. It previously
+refilled the stopped plaintext replay and delivery mapping. Close now clears
+replay under the same lock as ingress retention, and ingress rechecks close
+before retaining or emitting. All 40 focused quiet, prepared-chat and guarded
+transport tests passed; the regression first failed on the preceding source.
 
 
 The earlier integrated baseline was `4bc02225`, which includes Android main
