@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "b1037a02a60f10dd53ed683d0ba3dd840cb99e41",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38233541716",
+  "all_nine_jobs_passed": true,
+  "jobs": [
+    {
+      "name": "verify",
+      "conclusion": "success",
+      "job_id": 114758540621
+    },
+    {
+      "name": "recovery-emulator",
+      "conclusion": "success",
+      "job_id": 114758541327
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "success",
+      "job_id": 114764024446
+    },
+    {
+      "name": "recording-call-emulator (capture)",
+      "conclusion": "success",
+      "job_id": 114764024472
+    },
+    {
+      "name": "recording-call-emulator (session)",
+      "conclusion": "success",
+      "job_id": 114764024512
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success",
+      "job_id": 114764024528
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success",
+      "job_id": 114764024530
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success",
+      "job_id": 114764024638
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success",
+      "job_id": 114764024712
+    }
+  ],
+  "artifact_contents_reinspected": false,
+  "qualified": false,
+  "production_release": false,
+  "limitations": [
+    "Status proof only until reports are inspected",
+    "Later local Link verification and lab probe changes require their own hosted gates",
+    "Physical Save and playback remain pending"
+  ]
+}

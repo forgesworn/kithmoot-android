@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-12",
+  "receiver_source_commit": "510c39a6",
+  "app_source_commit": "4ebd20b101cd5c75c7ae47a53db443db21b35900",
+  "link_source_commit": "4cdc7de37f0b8947d8d746798da406d8b3932be1",
+  "expired_publication_refused": true,
+  "original_journal_unchanged": true,
+  "original_lease_unchanged": true,
+  "original_route_status_passed": true,
+  "publication_deadline_extended": false,
+  "queue_retried": false,
+  "repaired": false,
+  "emulator_art_compilation_before_probes": true,
+  "receiver_sha256": "9ac3d1719bbb93b89e63be25ae33c9845d61b927624bd04c2fb514cc1c36fc17",
+  "log_sha256": [
+    "199a1bf048300d57092ff906253fea25838460b07f163289c61056f3dc3cb6b4",
+    "0b43750c07902930ca8fe56f24c6bb6bbf863b210b333be61e0c07bbb1d59374"
+  ],
+  "qualified": false,
+  "physical_acceptance": false,
+  "production_release": false
+}

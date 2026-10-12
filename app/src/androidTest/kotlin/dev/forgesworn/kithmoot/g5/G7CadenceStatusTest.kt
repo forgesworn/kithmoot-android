@@ -60,6 +60,7 @@ class G7CadenceStatusTest {
             "recording-worker-retained-delivery" -> observeRecordingWorkerDelivery(retained = true)
             "recording-worker-expired-refusal" -> verifyExpiredRecordingWorkerRefusal()
             "recording-worker-original-status" -> verifyOriginalRecordingWorkerStatus()
+            "recording-worker-fresh-delivery" -> observeRecordingWorkerDelivery(freshSample = true)
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -306,7 +307,7 @@ class G7CadenceStatusTest {
         })
     }
 
-    private fun observeRecordingWorkerDelivery(retained: Boolean = false) {
+    private fun observeRecordingWorkerDelivery(retained: Boolean = false, freshSample: Boolean = false) {
         val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
         val now = epochSeconds()
         check(now / 3600 >= lease.plan.startEpoch && now / 3600 < lease.plan.endEpoch) {
@@ -320,7 +321,13 @@ class G7CadenceStatusTest {
             dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(leaseBody.getValue("credential")))
         val originalScope = scope(identity, lease.plan.nodeId)
         val journal = app.recordingNodeHandoffs
-        val draftId = "00000000-0000-0000-0000-000000000083"
+        val originalExpired = if (freshSample) {
+            journal.pending(identity.participant).single {
+                it.binding.draftId == "00000000-0000-0000-0000-000000000083"
+            }.also { check(now >= it.binding.publishBefore) { "The original publication must remain expired" } }
+        } else null
+        val draftId = if (freshSample) "00000000-0000-0000-0000-000000000093"
+            else "00000000-0000-0000-0000-000000000083"
         val previous = journal.pending(identity.participant).singleOrNull { it.binding.draftId == draftId }
         val binding = if (retained) {
             // An explicitly invoked lab retry reuses the persisted signed event,
@@ -338,10 +345,11 @@ class G7CadenceStatusTest {
         } else {
             check(previous == null) { "Original recording custody is retained; never enqueue again automatically" }
             val event = Events.sign(identity.deviceSecretKey, 1460, now, listOf(listOf("d", ROOM)),
-                "guarded recording worker fixture ciphertext", ByteArray(32) { 9 })
+                if (freshSample) "separate fresh guarded recording worker fixture ciphertext"
+                    else "guarded recording worker fixture ciphertext", ByteArray(32) { 9 })
             dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
                 draftId, identity.participant, lease.plan.nodeId, lease.plan.requestBody,
-                "84".repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
+                (if (freshSample) "94" else "84").repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
         }
         val event = binding.event
         val ikm = DeadDrop.roomIkm(ByteArray(32) { 1 })
@@ -389,11 +397,14 @@ class G7CadenceStatusTest {
             assertTrue(exactRelayIngress.containsAll(relays))
             val confirmed = journal.confirmRelay(binding) { id -> id == event.id && exactRelayIngress.containsAll(relays) }
             assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CONFIRMED, confirmed.state)
+            if (originalExpired != null) assertEquals(originalExpired,
+                journal.pending(identity.participant).single { it.binding.draftId == originalExpired.binding.draftId })
             put("recording-worker-delivery", buildJsonObject {
                 put("realLinkQueueAccepted", true); put("queueAckRemainedPending", true)
                 put("exactSignedEventReceivedFromBothRelays", true); put("journalConfirmedAfterIngress", true)
                 put("clockCompressed", false); put("physicalAcceptance", false)
                 put("retainedOriginalBinding", retained)
+                put("separateFreshSample", freshSample)
             })
         } finally {
             pools.values.forEach { it.stop() }
