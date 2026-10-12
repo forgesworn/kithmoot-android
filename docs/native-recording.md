@@ -6,7 +6,23 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The latest completed [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
+The current journal-backed handoff baseline `78e7b7f1` completed
+[eight of nine hosted jobs](https://github.com/forgesworn/kithmoot-android/actions/runs/38207229646).
+Capture failed when Chromium rejected an answer whose media-section order did
+not match its offer. The [local negotiation diagnostic](evidence/native-recording-video-negotiation-diagnostic-2026-10-12.json)
+instead recorded matching section order and `sendrecv` directions throughout,
+but no delivered video sink frames or native encoding progress. Neither failure
+is resolved or explained by this diagnostic; live capture/export remains open.
+
+The [paired custody observation](evidence/native-recording-paired-custody-observation-2026-10-12.json)
+records real JNI/Link queue acceptance, a deliberately lost withdrawal reply,
+and exact withdrawal replay after node and Android process restart. These were
+separate successful phases, with an explicit withdrawal retry after transport
+timeout. The fixture uses a grant authorizer and has no scheduler worker or
+carrier publication; this does not qualify production delegated Send. The
+emulator-only runner records inputs before execution and retains them on failure.
+
+An earlier complete [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
 passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
 variants, 23 capture checks, nine restart stages, recovery, native/browser
 warnings, API 33/35 signing and both private-node variants. The

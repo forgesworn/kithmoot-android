@@ -232,6 +232,24 @@ class BrowserCallInteropTest {
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.RECORD_AUDIO)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val failure = AtomicReference<String?>(null)
+        val sectionHistory = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        fun rememberSections(side: String, type: String, sdp: String?) {
+            if (sdp == null) return
+            // Section kinds/mids only: never retain ICE passwords, SDP,
+            // candidates, media or room credentials in failure diagnostics.
+            val sections = sdp.lineSequence().map { it.trim() }.mapNotNull { line ->
+                when {
+                    line.startsWith("m=") -> line.substringAfter("m=").substringBefore(' ')
+                        .takeIf { it in setOf("audio", "video", "application") }
+                    line.startsWith("a=mid:") -> "mid=" + line.substringAfter("a=mid:").take(12)
+                        .replace(Regex("[^a-zA-Z0-9_-]"), "?")
+                    line in setOf("a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive") -> line.substringAfter("a=")
+                    else -> null
+                }
+            }.toList()
+            sectionHistory.add("$side:$type:${sections.joinToString(",")}")
+            while (sectionHistory.size > 16) sectionHistory.poll()
+        }
         val nativeVideo = AtomicInteger(); val browserVideo = AtomicInteger(); val browserAudio = AtomicInteger()
         val capturedVideo = AtomicInteger(); val nativeVideoPackets = AtomicInteger(); val nativeDecodedVideo = AtomicInteger()
         val nativeEncodedVideo = AtomicInteger(); val nativeSentVideoPackets = AtomicInteger()
@@ -356,12 +374,14 @@ class BrowserCallInteropTest {
             connection = WebRtcPeerConnection(pc, ::bindReceivedVideo),
             roomId = "33".repeat(32),
             send = { signal ->
+                rememberSections("native", signal.type, signal.sdp)
                 val body = buildJsonObject { put("type", signal.type); put("roomId", signal.roomId); signal.sdp?.let { put("sdp", it) }; signal.candidate?.let { put("candidate", it) }; signal.seq?.let { put("seq", it) }; signal.re?.let { put("re", it) } }
                 withContext(Dispatchers.Main) { view.evaluateJavascript("window.receive($body)", null) }
             },
         )
         scope.launch {
             for (body in incoming) runCatching {
+                rememberSections("browser", body.getValue("type").jsonPrimitive.content, body["sdp"]?.jsonPrimitive?.content)
                 link.onRemoteSignal(SignalEnvelope("", body.getValue("type").jsonPrimitive.content,
                     body.getValue("roomId").jsonPrimitive.content,
                     sdp = body["sdp"]?.jsonPrimitive?.content,
@@ -411,7 +431,7 @@ class BrowserCallInteropTest {
             }
             val deadline = SystemClock.elapsedRealtime() + 45_000
             while (SystemClock.elapsedRealtime() < deadline) {
-                failure.get()?.let { fail(it) }
+                failure.get()?.let { fail("$it; signal sections=${sectionHistory.toList()}") }
                 // SDK track callbacks can follow description application.
                 // Observe the current receivers, as the engine's track flow does,
                 // rather than keeping a one-off empty description snapshot.
@@ -440,7 +460,8 @@ class BrowserCallInteropTest {
                 "capturedVideo=${capturedVideo.get()}; nativeVideoPackets=${nativeVideoPackets.get()}; nativeDecodedVideo=${nativeDecodedVideo.get()}; " +
                 "nativeEncodedVideo=${nativeEncodedVideo.get()}; nativeSentVideoPackets=${nativeSentVideoPackets.get()}; " +
                 "videoSource=${videoSource.state()}; videoEnabled=${video.enabled()}; remoteEnabled=${monitoredVideo?.enabled()}; remoteReceiving=${monitoredVideo?.shouldReceive()}; " +
-                "receivers=${received.values.map { it.kind() }}; cameraBound=${receivedCamera.get().isNotEmpty()}", nativeVideo.get() >= 10)
+                "receivers=${received.values.map { it.kind() }}; cameraBound=${receivedCamera.get().isNotEmpty()}; " +
+                "signal sections=${sectionHistory.toList()}", nativeVideo.get() >= 10)
             assertTrue("Browser decoded native video: ${browserVideo.get()}", browserVideo.get() >= 10)
             android.util.Log.i("KithMootRecordingTest", "Production bindings: boundFrames=${nativeVideo.get()} encoded=${nativeEncodedVideo.get()} browserFrames=${browserVideo.get()}")
             assertTrue("Native received audio packets: ${nativeAudio.get()}", nativeAudio.get() > 10)

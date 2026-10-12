@@ -21,6 +21,7 @@ import java.net.URI
 import java.net.URL
 import java.util.Base64
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -45,6 +46,9 @@ class G7CadenceStatusTest {
         when (action) {
             "probe" -> pairAndRunSuccessorCutover()
             "restart-check" -> reconnectAndVerifySuccessorCutover()
+            "recording-queue" -> pairAndQueueRecording()
+            "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
+            "recording-withdrawal-replay" -> replayRecordingWithdrawal()
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -205,6 +209,104 @@ class G7CadenceStatusTest {
             put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
         })
     }
+
+    private fun pairAndQueueRecording() {
+        val now = epochSeconds()
+        val pairing = parsePairing(post("pairing").getValue("uri").jsonPrimitive.content, now)
+        val route = app.linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
+        val ready = get("ready")
+        val node = ready.getValue("link_node_id").jsonPrimitive.content
+        val identity = identity(now)
+        val originalScope = scope(identity, node)
+        app.linkConsents.put(consent(identity, node, route.routeId, ready.getValue("claimed_by").jsonPrimitive.content))
+        val status = app.cadenceClient.status(identity.participant, originalScope, "71".repeat(16), identity, now)
+            .get(120, TimeUnit.SECONDS).answer
+        assertTrue(status.ready)
+        // The G5 router fixture accepts custody on these configured routes;
+        // it has no worker/carriers and cannot qualify publication to them.
+        val options = CadenceLeaseOptions(originalScope, "72".repeat(16), "73".repeat(16), 1, 0,
+            status.currentEpoch, status.earliestStartEpoch, status.earliestStartEpoch + 1,
+            ByteArray(32) { 1 }, listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), now)
+        val lease = app.cadenceClient.stage(identity.participant, options, identity, now, app.cadenceLeases)
+            .get(120, TimeUnit.SECONDS).lease
+        val event = Events.sign(identity.deviceSecretKey, 1460, now, listOf(listOf("d", ROOM)),
+            "guarded recording fixture ciphertext", ByteArray(32) { 9 })
+        val binding = dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
+            "00000000-0000-0000-0000-000000000073", identity.participant, node,
+            lease.plan.requestBody, "74".repeat(16), event, now + 1800)
+        val journal = app.recordingNodeHandoffs
+        journal.prepare(binding)
+        val queued = app.cadenceClient.queueRecording(identity.participant, originalScope, identity, lease,
+            binding, now, app.cadenceLeases, journal) { true }.get(120, TimeUnit.SECONDS)
+        assertEquals("queued", queued.custody.lease.receipt?.code)
+        assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED, queued.handoff.state)
+        assertEquals(binding, journal.pending(identity.participant).single { it.binding == binding }.binding)
+        put("recording-node-queue", buildJsonObject {
+            put("realLinkQueueAccepted", true); put("custodyPending", true); put("relayDeliveryQualified", false)
+        })
+    }
+
+    private fun withdrawRecordingWithLostReply() {
+        val journal = app.recordingNodeHandoffs
+        val original = journal.pending(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(PERSONA_SECRET.hexToBytes())).single { it.binding.draftId == "00000000-0000-0000-0000-000000000073" }
+        assertTrue(original.state in setOf(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED,
+            dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING))
+        assertFalse(journal.stillAllowed(original.binding))
+        val identity = recordingIdentity(original.binding)
+        val originalScope = scope(identity, original.binding.nodeId)
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.requestBody == original.binding.leaseBody }
+        journal.revoke(original.binding)
+        // The real SDK and node complete the authenticated withdrawal. Drop
+        // only its reply at this application seam to reproduce lost custody ACK.
+        val nodeReply = CompletableFuture<dev.forgesworn.kithmoot.relay.LinkJsonResponse>()
+        val client = dev.forgesworn.kithmoot.cadence.CadenceClient(
+            dev.forgesworn.kithmoot.relay.LinkJsonTransport { request ->
+                app.linkEngine.request(request).whenComplete { _, failure ->
+                    if (failure != null) nodeReply.completeExceptionally(failure)
+                }.thenCompose { response ->
+                    nodeReply.complete(response)
+                    CompletableFuture<dev.forgesworn.kithmoot.relay.LinkJsonResponse>()
+                }
+            }, app.linkConsents)
+        val requestId = original.withdrawal?.requestId ?: "75".repeat(16)
+        val uncertain = client.withdrawRecording(identity.participant, originalScope, identity, lease,
+            original.binding, requestId, epochSeconds(), app.cadenceLeases, journal) { true }
+        val reply = nodeReply.get(120, TimeUnit.SECONDS)
+        assertEquals("withdrawn", BoxCadence.parseReceipt(reply.status, reply.body).code)
+        assertFalse(uncertain.isDone)
+        uncertain.cancel(true)
+        val retained = journal.pending(identity.participant).single { it.binding == original.binding }
+        assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING, retained.state)
+        assertEquals(requestId, requireNotNull(retained.withdrawal).requestId)
+        put("recording-node-lost-withdrawal", buildJsonObject {
+            put("originalQueueSurvivedProcessRestart", true); put("realNodeWithdrew", true)
+            put("lostReplyRemainsPending", true)
+        })
+    }
+
+    private fun replayRecordingWithdrawal() {
+        val journal = app.recordingNodeHandoffs
+        val original = journal.pending(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(PERSONA_SECRET.hexToBytes())).single { it.binding.draftId == "00000000-0000-0000-0000-000000000073" }
+        val identity = recordingIdentity(original.binding)
+        val originalScope = scope(identity, original.binding.nodeId)
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.requestBody == original.binding.leaseBody }
+        val withdrawal = requireNotNull(original.withdrawal)
+        assertFalse(journal.withdrawalStillAllowed(original.binding, withdrawal))
+        val replay = app.cadenceClient.withdrawRecording(identity.participant, originalScope, identity, lease,
+            original.binding, withdrawal.requestId, epochSeconds(), app.cadenceLeases, journal) { true }
+            .get(120, TimeUnit.SECONDS)
+        assertEquals("withdrawn", replay.lease.receipt?.code)
+        assertTrue(journal.pending(identity.participant).none { it.binding == original.binding })
+        put("recording-node-withdrawal-replay", buildJsonObject {
+            put("originalWithdrawalSurvivedProcessRestart", true); put("realNodeAcceptedExactReplay", true)
+            put("pendingCustodyRetired", true); put("relayDeliveryQualified", false)
+        })
+    }
+
+    private fun recordingIdentity(binding: dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding) =
+        PrimaryIdentity(LocalSigner(PERSONA_SECRET.hexToBytes()), DEVICE_SECRET.hexToBytes(),
+            dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(binding.lease.getValue("credential")))
+
 
     private fun identity(now: Long): PrimaryIdentity {
         val persona = PERSONA_SECRET.hexToBytes()
