@@ -4,14 +4,19 @@ KithMoot consumes ForgeSworn Link as a reviewed binary hand-off. It does not
 rebuild Link, copy JNI libraries into the repository, or accept an unpinned
 release name.
 
-The current hand-off is Link commit `4cdc7de37f0b8947d8d746798da406d8b3932be1`,
-published as the permanent prerelease `android-ffi-4cdc7de`, with archive SHA-256
-`3459d321527e1ae8875b04b329385963deaf531fcd85fd1f9eb3e1725e77071d`.
+The current hand-off is Link commit `eaec3942add473fbb2dc0bbe0a9594f6521f3aee`,
+published as the permanent prerelease `android-ffi-eaec394`, with archive SHA-256
+`45a617d6ac4a6059ff6a1e5c8e4c6334bd16c5f10cca25acf9e2dd5d65d570f3`.
 Its manifest pins the two shipped ABIs and the generated UniFFI Kotlin binding
 individually.
 
-This hand-off moves rustls to 0.23.45 for RUSTSEC-2026-0285 (forgesworn-link
-#66, D1 finding B0). The earlier hand-off, `android-ffi-2cdf5a9`, gave a
+This hand-off adds the pinned-peer `/drops` path beside `/events` and static
+HTTP timeout phase labels (forgesworn-link #71). It also includes current
+main’s closed-session replacement fix. The app remains responsible for
+original-room consent and subscription routing; the SDK does not merge these
+endpoints or prove product delivery. The prior `android-ffi-4cdc7de` hand-off
+moved rustls to 0.23.45 for RUSTSEC-2026-0285 (forgesworn-link #66).
+The earlier hand-off, `android-ffi-2cdf5a9`, gave a
 filled VMLS slot's status answer the fetch page's 2 MiB bound
 (forgesworn-link #64), so a commit in the 1 MiB bucket can be read back
 (P3-03b-3a). Before that, `android-ffi-e3f80d4` added Link's VMLS

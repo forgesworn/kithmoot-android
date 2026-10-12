@@ -59,6 +59,7 @@ class G7CadenceStatusTest {
             "recording-room-prepare" -> prepareRecordingRoomModelDraft()
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
+            "recording-room-send-controls" -> sendPreparedRecordingRoomModelDraft(send = false)
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
@@ -379,7 +380,7 @@ class G7CadenceStatusTest {
 
     /** One explicit product Send, using the already uploaded original draft.
      * No queue retry, replacement upload, lease change or injected relay proof. */
-    private fun sendPreparedRecordingRoomModelDraft() {
+    private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -422,7 +423,23 @@ class G7CadenceStatusTest {
             ui.await("original recording room reopened", timeoutMs = 120_000) {
                 model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
             }
+            // A completed local export is deliberately offered again after
+            // restart. Later closes that modal without discarding its source
+            // or adding/uploading a second draft.
+            if (ui.hasText("Recording ready")) ui.click("Later")
             ui.await("explicit original Send control") { ui.hasText("Send recording") }
+            if (!send) {
+                assertEquals(original, app.recordingShareDrafts.selected(original.id, room.roomId))
+                assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
+                assertTrue(source.isFile)
+                assertEquals(lease, app.cadenceLeases.all(room.roomId, DEVICE).single())
+                put("recording-room-send-controls", buildJsonObject {
+                    put("restoredExportModalDeferred", true); put("originalSendControlVisible", true)
+                    put("originalUploadedDraftUnchanged", true); put("originalSourceRetained", true)
+                    put("sendInvoked", false); put("replacementUpload", false); put("clockCompressed", false)
+                })
+                return
+            }
             outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-send")
                 .put("draft", original.id).put("automaticRetry", false).toString())
             ui.click("Send recording")
@@ -602,11 +619,15 @@ class G7CadenceStatusTest {
         val before = app.recordingNodeHandoffs.pending(account)
         val original = before.single { it.binding.draftId == "00000000-0000-0000-0000-000000000083" }
         check(epochSeconds() >= original.binding.publishBefore)
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
+        val leaseExpired = epochSeconds() / 3600 >= lease.plan.endEpoch
         val refused = assertThrows(IllegalStateException::class.java) { observeRecordingWorkerDelivery(retained = true) }
-        assertEquals("Original publication expired; no retry", refused.message)
+        assertEquals(if (leaseExpired) "The original recording worker lease is not active; no recording was queued"
+            else "Original publication expired; no retry", refused.message)
         assertEquals(before, app.recordingNodeHandoffs.pending(account))
         put("recording-worker-expired-refusal", buildJsonObject {
             put("expiredOriginalPublicationRefused", true); put("originalJournalUnchanged", true)
+            put("originalLeaseAlsoExpired", leaseExpired)
             put("publicationDeadlineExtended", false); put("queueRetried", false)
         })
     }
@@ -673,14 +694,6 @@ class G7CadenceStatusTest {
             dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(leaseBody.getValue("credential")))
         val originalScope = scope(identity, lease.plan.nodeId)
         val journal = app.recordingNodeHandoffs
-        if (retained) {
-            // A bounded diagnostic of the preserved attempt after the cold
-            // guarded request timed out. Status must succeed on its original
-            // route; it neither re-pairs nor refreshes the queue deadline.
-            val status = app.cadenceClient.status(identity.participant, originalScope,
-                "8b".repeat(16), identity, now).get(120, TimeUnit.SECONDS)
-            assertTrue(status.answer.ready)
-        }
         val originalExpired = if (freshSample) {
             journal.pending(identity.participant).single {
                 it.binding.draftId == "00000000-0000-0000-0000-000000000083"
@@ -710,6 +723,13 @@ class G7CadenceStatusTest {
             dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
                 draftId, identity.participant, lease.plan.nodeId, lease.plan.requestBody,
                 (if (freshSample) "94" else "84").repeat(16), event, minOf(now + 1800, lease.plan.endEpoch * 3600))
+        }
+        if (retained) {
+            // Diagnose only a still-valid original attempt. Expired authority
+            // is refused above, before even this read-only status request.
+            val status = app.cadenceClient.status(identity.participant, originalScope,
+                "8b".repeat(16), identity, now).get(120, TimeUnit.SECONDS)
+            assertTrue(status.answer.ready)
         }
         val event = binding.event
         val ikm = DeadDrop.roomIkm(ByteArray(32) { 1 })
