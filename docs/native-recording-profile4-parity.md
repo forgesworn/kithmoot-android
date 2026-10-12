@@ -109,6 +109,17 @@ records eleven passing focused tests and a real socket receipt delayed beyond
 the original ten-second idle default. Fresh hosted slow-transfer qualification
 is required; the prior failure is retained rather than counted as a pass.
 
+Hosted run `38191231354` passed all nine gates on `d5737729`, including
+both real-Wildbloom private-node images and the formerly failing throttled
+256 MiB Google APIs transfer. The new original-message authority follow-up
+retains the credential, admission and room-expiration deadlines inside restored
+recording messages rather than borrowing refreshed session authority. Its
+[red/green receipt](evidence/native-recording-original-chat-authority-2026-10-12.json)
+records two reproduced failures and thirteen passing focused checks. An expired
+message retains its exact ciphertext without another offer; an explicit new
+message can use current authority. Fresh full qualification is required for
+this follow-up. The hosted result remains evidence for the exact older head.
+
 ## Historical initial audit
 
 # Recording profile 4 parity gate

@@ -98,6 +98,21 @@ data class ChatMessage(
     val roomLogo: RoomLogoPayload? = null,
 )
 
+/** After authenticating an owned message, retain its original authority
+ * window before entering a transport guard. Renewed session credentials or
+ * admission proofs must not extend an already signed, restored message.
+ * Decryption happens here, never inside the cheap dispatch/ACK callback.
+ */
+internal fun originalChatPublicationDeadline(event: NostrEvent, roomId: String, roomKey: ByteArray): Long {
+    val address = deriveChatChannel(roomId, roomKey)
+    val json = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
+    val credential = NostrEvent.fromJson(json.getValue("credential").jsonObject)
+    val credentialDeadline = credential.tagValue("expiration")?.toLongOrNull() ?: 0L
+    val proofDeadline = json["proof"]?.let { requireNotNull(KindredProof.fromJson(it.jsonObject)).expiresAt } ?: Long.MAX_VALUE
+    val roomDeadline = event.tagValue("expiration")?.let { it.toLongOrNull() ?: 0L } ?: Long.MAX_VALUE
+    return minOf(credentialDeadline, proofDeadline, roomDeadline)
+}
+
 fun encodeChatEvent(
     body: String,
     participant: String,

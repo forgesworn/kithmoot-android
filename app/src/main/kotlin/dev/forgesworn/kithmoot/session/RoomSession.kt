@@ -1338,10 +1338,13 @@ class RoomSession(
         check(verifyDeviceCredential(identity.credential, room.roomId, at) is CredentialCheck.Valid)
         policy?.let { check(evaluateAccess(it, identity.participant, proof, at, room.roomId).admitted) }
         val own = decodeOwnChat(prepared.pending.event, prepared.pending.event.createdAt, epoch)
+        val originalDeadline = originalChatPublicationDeadline(prepared.pending.event, epoch.id, epoch.key)
+        check(at < originalDeadline) { "This recording's original signed authority has expired" }
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         val confirmed = transport.publishConfirmedGuarded(prepared.pending.event, transport.publicationGeneration(), {
             trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
+                now() < originalDeadline &&
                 now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                 prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
         }, CHAT_CONFIRM_TIMEOUT_MS)
@@ -1430,6 +1433,8 @@ class RoomSession(
         if (event.createdAt < now() - CHAT_RETENTION_SECONDS) return moved()
         if (now() >= (ends ?: Long.MAX_VALUE)) return moved()
         val message = try { decodeOwnChat(event, event.createdAt, epoch) } catch (_: IllegalStateException) { return moved() }
+        val originalDeadline = runCatching { originalChatPublicationDeadline(event, epoch.id, epoch.key) }.getOrDefault(0L)
+        if (now() >= originalDeadline) return moved()
         // Not offered while no relay is connected: it stays cleanly unsent.
         if (!transport.reachable()) return PendingPublication.BLOCKED
         val before = outbox.begin(event.id) ?: return PendingPublication.COMPLETE
@@ -1440,7 +1445,7 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedGuarded(event, generation, {
-                trafficAllowed() && epochKeys().id == item.epochId && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && epochKeys().id == item.epochId && now() < originalDeadline && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
@@ -1457,7 +1462,7 @@ class RoomSession(
             // This call never offered. Restore only what was known before it;
             // an earlier UNKNOWN must stay uncertain even after admission ends.
             withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
-            if (epochKeys().id != item.epochId || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
+            if (epochKeys().id != item.epochId || now() >= originalDeadline || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
                 event.createdAt < now() - CHAT_RETENTION_SECONDS) moved()
             return PendingPublication.BLOCKED
         } catch (_: PublicationUnconfirmedException) {

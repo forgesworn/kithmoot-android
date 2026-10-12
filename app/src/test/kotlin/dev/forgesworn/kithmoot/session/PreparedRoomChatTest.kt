@@ -11,6 +11,95 @@ import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PreparedRoomChatTest {
+    @Test fun `restored messages retain their original signed admission and room end deadlines`() = runTest {
+        for (admission in listOf(false, true)) {
+            val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+            val issuer = Fixtures.key(8)
+            val policy = if (admission) RoomPolicy(KindredTier.KITH,
+                listOf(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(issuer))) else null
+            fun proof(expiry: Long) = if (admission) issueKindredProof(issuer, owner.participant,
+                KindredTier.KITH, room.roomId, expiresAt = expiry) else null
+            val relay = FakeRelay(); var offers = 0
+            val transport = object : RoomTransport by relay.transport() {
+                override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                    stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                    assertTrue(stillAllowed()); offers++; return true
+                }
+            }
+            val first = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
+                now = { 1L }, policy = policy, proof = proof(5), ends = if (admission) null else 5L)
+            first.join(); advanceTimeBy(1_000); runCurrent()
+            val prepared = requireNotNull(first.prepareChatForSend("Synthetic original recording"))
+            first.leave()
+            val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey)
+            val second = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
+                now = { 6L }, policy = policy, proof = proof(100), ends = if (admission) null else 100L,
+                chatOutbox = outbox)
+            second.join(); advanceTimeBy(1_000); runCurrent()
+            assertFailsWith<IllegalStateException> { second.sendPreparedChatConfirmed(prepared) { true } }
+            assertFalse(second.sendPreparedChatDurable(prepared))
+            assertEquals(PendingChatState.MOVED, outbox.items().single().state)
+            assertEquals(prepared.pending.event, outbox.items().single().event)
+            assertEquals(0, offers)
+            val fresh = requireNotNull(second.prepareChatForSend("Explicit new message with current authority"))
+            assertTrue(second.sendPreparedChatConfirmed(fresh) { true })
+            assertEquals(1, offers)
+            second.leave()
+        }
+    }
+
+    @Test fun `fresh credentials cannot renew the authority inside an old recording message`() = runTest {
+        val room = Fixtures.room()
+        fun identity(expiry: Long) = PrimaryIdentity.create(room.roomId, expiry, 0,
+            Fixtures.key(1), Fixtures.key(2))
+        val original = identity(5); val refreshed = identity(100)
+        val relay = FakeRelay(); var offers = 0
+        val transport = object : RoomTransport by relay.transport() {
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean { offers++; return true }
+        }
+        val first = RoomSession(room, original, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L })
+        first.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(first.prepareChatForSend("Synthetic original recording"))
+        first.leave()
+        val outbox = PendingChatOutbox(Store(), room.roomId, refreshed.participant, refreshed.devicePubkey)
+        val second = RoomSession(room, refreshed, transport, backgroundScope, timing = Fixtures.QUIET,
+            now = { 6L }, chatOutbox = outbox)
+        second.join(); advanceTimeBy(1_000); runCurrent()
+        assertFailsWith<IllegalStateException> { second.sendPreparedChatConfirmed(prepared) { true } }
+        assertFalse(second.sendPreparedChatDurable(prepared))
+        assertEquals(PendingChatState.MOVED, outbox.items().single().state)
+        assertEquals(prepared.pending.event, outbox.items().single().event)
+        assertEquals(0, offers)
+        assertTrue(second.chat.value.isEmpty())
+        second.leave()
+    }
+
+    @Test fun `original embedded credential expiry fences acknowledgement despite a refreshed session`() = runTest {
+        val room = Fixtures.room()
+        fun identity(expiry: Long) = PrimaryIdentity.create(room.roomId, expiry, 0,
+            Fixtures.key(1), Fixtures.key(2))
+        var time = 1L
+        val relay = FakeRelay(); var offers = 0
+        val transport = object : RoomTransport by relay.transport() {
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                assertTrue(stillAllowed()); offers++; time = 5L
+                assertFalse(stillAllowed(), "The original signed credential must fence the late ACK")
+                return false
+            }
+        }
+        val first = RoomSession(room, identity(5), transport, backgroundScope, timing = Fixtures.QUIET, now = { time })
+        first.join(); advanceTimeBy(1_000); runCurrent()
+        val prepared = requireNotNull(first.prepareChatForSend("Synthetic original recording"))
+        first.leave()
+        val second = RoomSession(room, identity(100), transport, backgroundScope, timing = Fixtures.QUIET, now = { time })
+        second.join(); advanceTimeBy(1_000); runCurrent()
+        assertFalse(second.sendPreparedChatConfirmed(prepared) { true })
+        assertEquals(1, offers); assertTrue(second.chat.value.isEmpty())
+        second.leave()
+    }
+
     private class Store : RoomStorage {
         private var bytes: ByteArray? = null
         override fun read() = bytes?.clone()
