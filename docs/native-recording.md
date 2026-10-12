@@ -60,6 +60,14 @@ process restart both passed on the unchanged, recorded APKs. The retained
 original binding recovered; the initial complete driver still failed, and these
 follow-up phases do not establish reliable first-request reconnection.
 
+The [full-worker staging receipt](evidence/native-recording-paired-worker-stage-2026-10-12.json)
+records real Android JNI/Link lease staging under the production database
+authorizer, with a separate worker and normal wall-clock scheduler. The fixture
+was built without slot compression. The lease activates at 10:00 UTC and ends
+at 11:00 UTC on 2026-10-12; no recording event is queued during its lead-in.
+The owner signer, Tor/I2P sidecars and private TLS relays remain emulated.
+Exact-event publication, source revocation and physical acceptance remain open.
+
 An earlier complete [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
 passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
 variants, 23 capture checks, nine restart stages, recovery, native/browser

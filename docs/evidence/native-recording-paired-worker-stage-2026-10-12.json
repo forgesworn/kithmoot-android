@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "paired_worker_lease_staged": true,
+  "recording_queued": false,
+  "relay_delivery_qualified": false,
+  "protocol_clock_compressed": false,
+  "production_database_authorizer": true,
+  "worker_separate_process": true,
+  "node_commit": "f77e74f1ce79ac3739a54c9c7ac8a4ab9b89b8fb",
+  "inputs": {
+    "app/build/outputs/apk/debug/app-debug.apk": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "549fcc0d44058a790da6df8895efa1b7c4345332db90475cbd84b0c70dcea17d",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "a613cea7a072346bc08081830dc3aa4ba3a723f241e23f5f353d353ef465ce10"
+  },
+  "start_utc": "2026-10-12T10:00:00+00:00",
+  "end_utc": "2026-10-12T11:00:00+00:00",
+  "instrumentation_sha256": "c1b5bb2ebc0614c948cada94762bb1f6dfc1f64f0c8b618af03a73777917dab0",
+  "limitations": [
+    "Owner signer, Tor/I2P sidecars and private TLS relays are emulated",
+    "No recording event was queued; its original publication deadline will begin near actual activation",
+    "Node scheduler uses its normal wall clock; no lab slot override was built",
+    "This staging receipt does not prove publication, revocation races or physical acceptance"
+  ]
+}

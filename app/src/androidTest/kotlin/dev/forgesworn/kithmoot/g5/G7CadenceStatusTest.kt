@@ -24,6 +24,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -49,6 +50,7 @@ class G7CadenceStatusTest {
             "recording-queue" -> pairAndQueueRecording()
             "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
             "recording-withdrawal-replay" -> replayRecordingWithdrawal()
+            "recording-worker-stage" -> stageRecordingWorkerLease()
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -207,6 +209,38 @@ class G7CadenceStatusTest {
             put("leaseStateAfterRestart", retained.receipt?.state)
             put("pendingFailureRetained", true)
             put("oldGenerationQueueRefused", true); put("lowerGenerationRefused", true); put("linkPath", status.path.status)
+        })
+    }
+
+    private fun stageRecordingWorkerLease() {
+        val now = epochSeconds()
+        val ready = get("ready")
+        assertEquals("emulated", ready.getValue("evidence").jsonPrimitive.content)
+        assertFalse("Worker qualification must keep the protocol clock", ready.getValue("lab_slot_override_built").jsonPrimitive.boolean)
+        assertTrue("Separate worker must be running", ready.getValue("worker").jsonObject.getValue("running").jsonPrimitive.boolean)
+        val pairing = parsePairing(post("pairing").getValue("uri").jsonPrimitive.content, now)
+        val route = app.linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
+        val node = ready.getValue("link_node_id").jsonPrimitive.content
+        val identity = identity(now)
+        val originalScope = scope(identity, node)
+        app.linkConsents.put(consent(identity, node, route.routeId, ready.getValue("claimed_by").jsonPrimitive.content))
+        val status = app.cadenceClient.status(identity.participant, originalScope, "81".repeat(16), identity, now)
+            .get(120, TimeUnit.SECONDS).answer
+        assertTrue(status.ready)
+        val options = CadenceLeaseOptions(originalScope, "82".repeat(16), "83".repeat(16), 1, 0,
+            status.currentEpoch, status.earliestStartEpoch, status.earliestStartEpoch + 1,
+            ByteArray(32) { 1 }, fixtureRelays(), listOf("local"), now)
+        val lease = app.cadenceClient.stage(identity.participant, options, identity, now, app.cadenceLeases)
+            .get(120, TimeUnit.SECONDS).lease
+        assertEquals("staged", lease.receipt?.code)
+        // Only stage authority now. The recording event and its original
+        // deadline must be created when this lease actually becomes active.
+        put("recording-worker-stage", buildJsonObject {
+            put("leaseId", options.leaseId); put("generation", options.generation)
+            put("startEpoch", options.startEpoch); put("endEpoch", options.endEpoch)
+            put("trafficRoom", ROOM); put("realLinkStageAccepted", true)
+            put("recordingQueued", false); put("relayDeliveryQualified", false)
+            put("clockCompressed", false)
         })
     }
 
