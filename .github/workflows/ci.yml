@@ -90,10 +90,89 @@ jobs:
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
 
-      - name: Test, lint and build
-        # APK compression must not share the test/lint heap or overlap variants.
+      - name: Test and lint both variants
+        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease --max-workers=2 --no-daemon --stacktrace
+
+      - name: Keep test and lint reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-check-reports
+          path: |
+            protocol/build/reports/tests/
+            protocol/build/test-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-*
+          if-no-files-found: warn
+          retention-days: 7
+
+  package:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Use Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle.kts
+            gradle/libs.versions.toml
+            gradle/wrapper/gradle-wrapper.properties
+            gradle.properties
+
+      - name: Install the Android build SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: 'platforms;android-35 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Prepare the reviewed ForgeSworn Link bridge
         run: |
-          ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease --max-workers=2 --no-daemon --stacktrace
+          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+
+      - name: Prepare the reviewed VMLS engine bundle
+        run: |
+          scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+          python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+
+      - name: Prepare the pinned native BLE engine
+        run: |
+          python3 scripts/prepare-mesh-radio.py
+
+      - name: Check out the pinned browser recording implementation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 676edeb20c1c004ce5595dd40ab47f55a9772feb
+          path: build/browser-recording-reference
+          persist-credentials: false
+
+      - name: Use Node 24 for browser interoperability assets
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: build/browser-recording-reference/package-lock.json
+
+      - name: Prepare actual browser Peer and recording Session assets
+        run: |
+          npm ci --prefix build/browser-recording-reference
+          npm run build:context --prefix build/browser-recording-reference
+          node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
+          node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
+
+      - name: Build exact APK inputs from this workflow commit
+        # Keep compression outside the test/lint heap and separate variants.
+        run: |
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --max-workers=2 --no-daemon --stacktrace
           ./gradlew :app:assembleRelease --max-workers=2 --no-daemon --stacktrace
 
@@ -157,23 +236,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Keep test and lint reports
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: native-check-reports
-          path: |
-            protocol/build/reports/tests/
-            protocol/build/test-results/
-            app/build/reports/tests/
-            app/build/test-results/
-            app/build/reports/lint-results-*
-          if-no-files-found: warn
-          retention-days: 7
-
   recovery-emulator:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ordinary, restarts]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -227,29 +296,13 @@ jobs:
           disable-animations: true
           disable-spellchecker: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: |
-            bash scripts/check-recovery-emulator.sh
-            python3 scripts/check-sharing-restart-emulator.py
-            python3 scripts/check-room-logo-restart-emulator.py image
-            python3 scripts/check-room-logo-restart-emulator.py removal
-            python3 scripts/check-native-host-restart-emulator.py
-            python3 scripts/check-native-rekey-restart-emulator.py before-handoff
-            python3 scripts/check-native-rekey-restart-emulator.py after-handoff
-            python3 scripts/check-native-retirement-restart-emulator.py pending-original
-            python3 scripts/check-native-retirement-restart-emulator.py reserved-before-offer
-            python3 scripts/check-native-retirement-restart-emulator.py offered-before-archive
-            python3 scripts/check-native-retirement-restart-emulator.py archive-before-hint
-            python3 scripts/check-native-replacement-restart-emulator.py committed-source-before-offer
-            python3 scripts/check-native-replacement-restart-emulator.py charged-original-before-offer
-            python3 scripts/check-native-replacement-restart-emulator.py offered-before-index
-            python3 scripts/check-native-replacement-restart-emulator.py index-committed-before-source-acknowledgement
-            python3 scripts/check-native-replacement-restart-emulator.py reference-installed-before-subscription-switch
+          script: bash scripts/check-recovery-matrix.sh '${{ matrix.suite }}'
 
       - name: Keep emulator reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: recovery-emulator-reports
+          name: recovery-emulator-reports-${{ matrix.suite }}
           path: |
             app/build/reports/recovery-emulator/
             app/build/reports/sharing-restart-emulator/
@@ -264,7 +317,7 @@ jobs:
 
   pending-store-refusal-emulator:
     name: pending-store-refusal-emulator (${{ matrix.window }})
-    needs: verify
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -333,7 +386,7 @@ jobs:
           retention-days: 7
 
   recording-restart-emulator:
-    needs: verify
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -393,7 +446,7 @@ jobs:
           retention-days: 7
 
   recording-call-emulator:
-    needs: verify
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -453,7 +506,7 @@ jobs:
           retention-days: 7
 
   recording-private-node-emulator:
-    needs: verify
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -491,7 +544,7 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
 
-      - name: Download the exact APK inputs from verify
+      - name: Download the exact APK inputs from package
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: signing-lineage-apks
@@ -564,7 +617,7 @@ jobs:
           retention-days: 7
 
   signing-lineage-emulator:
-    needs: verify
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -588,7 +641,7 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
 
-      - name: Download the exact APK inputs from verify
+      - name: Download the exact APK inputs from package
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: signing-lineage-apks

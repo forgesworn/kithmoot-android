@@ -44,3 +44,19 @@ qualify this combined head. Its own workflow retains all nine gates, both
 upstream and native ordinary suites, process-death boundaries and pending
 refusal shards. No merge or current-source timing/physical qualification is
 claimed by publishing this candidate.
+
+The first combined run 38208507928 passes 484 protocol, 2,241 debug and
+2,230 release JVM cases plus both lint variants. Its 25-minute verify budget
+expires during release packaging after successful debug/test APK assembly.
+Separate verify and packaging stages retain the existing 25-minute budgets
+and all assertions/content checks/exact-input artifacts. APK consumers require
+packaging in the same run. The complete newer workflow now requires 16 jobs
+including the five upstream recording jobs; prior nine-job evidence is partial.
+
+Recovery reports on the initial combined head pass all 206 ordinary cases
+in 55 groups, but the existing 30-minute job limit interrupts the last standalone
+replacement window. Split ordinary and all standalone restart profiles into
+two recovery matrix values, retaining that job limit and every test/driver
+deadline. The restart value repeats guarded APK install and first-boot home
+preparation. Both values and same-run report artifacts are required; this
+partial first run cannot qualify the complete candidate.
