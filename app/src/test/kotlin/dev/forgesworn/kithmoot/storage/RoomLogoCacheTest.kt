@@ -21,6 +21,40 @@ class RoomLogoCacheTest {
             relays, "Workshop", at, host, host.invitation.canonicalInviter)
     }
 
+    @Test fun `a delayed accepted display cannot resurrect an image after removal`() {
+        val saved = room(); val memory = RoomLogoMemory()
+        val removed = logo.copy(image = null, at = logo.at + 1000, sentAt = now + 1)
+        val oldEntered = java.util.concurrent.CountDownLatch(1)
+        val releaseOld = java.util.concurrent.CountDownLatch(1)
+        val newDisplayed = java.util.concurrent.CountDownLatch(1)
+        val shown = java.util.concurrent.atomic.AtomicReference<LogoImage?>()
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val old = executor.submit {
+                memory.rememberForDisplay(saved, logo, 2, now) { accepted ->
+                    oldEntered.countDown()
+                    check(releaseOld.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    shown.set(accepted?.record?.image)
+                }
+            }
+            assertTrue(oldEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val newer = executor.submit {
+                memory.rememberForDisplay(saved, removed, 2, now) { accepted ->
+                    shown.set(accepted?.record?.image)
+                    newDisplayed.countDown()
+                }
+            }
+            // Allow an unguarded newer display to overtake the paused old one.
+            // A guarded newer display instead waits until the old one finishes.
+            newDisplayed.await(1, java.util.concurrent.TimeUnit.SECONDS)
+            releaseOld.countDown()
+            old.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            newer.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertNull(assertNotNull(memory.seed(saved, now)).record.image)
+            assertNull(shown.get(), "A delayed older display must not undo an accepted removal")
+        } finally { releaseOld.countDown(); executor.shutdownNow() }
+    }
+
     @Test fun `cache survives storage with its epoch and without borrowed authorship`() {
         val repository = RoomRepository(MemoryStorage()); val original = room().withSharedLogo(logo, 2)
         repository.save(original)

@@ -167,6 +167,7 @@ fun RoomScreen(
     onResendNativeRetirement: ((NativeHostingState, String) -> Unit)? = null,
     onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
     onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
+    onReplaceNativeInvitation: ((NativeHostingState) -> Unit)? = null,
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -230,6 +231,7 @@ fun RoomScreen(
         onResendNativeRetirement = onResendNativeRetirement,
         onRecoverNativePending = onRecoverNativePending,
         onCanShareInvitation = onCanShareInvitation,
+        onReplaceNativeInvitation = onReplaceNativeInvitation,
     ))
 }
 
@@ -296,6 +298,7 @@ private class RoomScreenActions(
     val onResendNativeRetirement: ((NativeHostingState, String) -> Unit)?,
     val onRecoverNativePending: ((NativeHostingState) -> Unit)?,
     val onCanShareInvitation: (NativeHostingState?) -> Boolean,
+    val onReplaceNativeInvitation: ((NativeHostingState) -> Unit)?,
 )
 
 /** Keep the public callback API out of the large Compose-generated method. */
@@ -496,7 +499,7 @@ private fun RoomScreenContent(
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
                     actions.onChangeNativeRoomKey, actions.onRemoveNativeRoomMember, actions.onRetireNativeInvitation, actions.onResendNativeRetirement,
-                    actions.onRecoverNativePending) }
+                    actions.onRecoverNativePending, actions.onReplaceNativeInvitation) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }

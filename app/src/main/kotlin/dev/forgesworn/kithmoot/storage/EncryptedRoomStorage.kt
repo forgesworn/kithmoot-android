@@ -7,6 +7,7 @@ import android.util.AtomicFile
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.lang.ref.WeakReference
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -40,13 +41,26 @@ internal class RoomCipher(private val aad: ByteArray = AAD, private val key: (cr
     }
 }
 
-/** Used off the main thread through the application's single RoomRepository. */
+/** Process-local transaction monitors shared by live instances of one vault path. */
+private object EncryptedRoomStorageMonitors {
+    private val monitors = mutableMapOf<String, WeakReference<Any>>()
+
+    @Synchronized fun forFile(file: File): Any {
+        val path = file.canonicalPath
+        monitors.entries.removeAll { it.value.get() == null }
+        return monitors[path]?.get() ?: Any().also { monitors[path] = WeakReference(it) }
+    }
+}
+
+/** Used off the main thread; separate instances of the same vault share exclusion. */
 class EncryptedRoomStorage(context: Context, private val alias: String = "kithmoot.rooms.v1",
     private val maxPlaintextBytes: Int = 4 * 1024 * 1024,
 ) : RoomStorage {
     init { require(maxPlaintextBytes in 1..32 * 1024 * 1024) }
     private val directory = context.applicationContext.noBackupFilesDir
     private val base = File(directory, "$alias.vault")
+    // Keep the registry's weak value strongly owned for this instance's lifetime.
+    private val monitor = EncryptedRoomStorageMonitors.forFile(base)
     private val file = AtomicFile(base)
     private val cipher = RoomCipher(key = ::key)
 
@@ -67,10 +81,15 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
         }
     }
 
-    override fun read(): ByteArray? {
+    override fun read(): ByteArray? = synchronized(monitor) {
         val input = try { file.openRead() } catch (e: FileNotFoundException) {
             if (base.exists() || File(base.path + ".bak").exists()) throw e
-            return null
+            // A retained key means this store existed. Missing ciphertext is
+            // unavailable state, never evidence that every saved room was forgotten.
+            if (KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias(alias)) {
+                throw IOException("Saved-room ciphertext is unavailable", e)
+            }
+            return@synchronized null
         }
         val sealed = input.use {
             require(it.channel.size() <= maxPlaintextBytes + 64)
@@ -78,10 +97,10 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
             require(bytes.size <= maxPlaintextBytes + 64)
             bytes
         }
-        return cipher.decrypt(sealed)
+        cipher.decrypt(sealed)
     }
 
-    override fun write(value: ByteArray) {
+    override fun write(value: ByteArray): Unit = synchronized(monitor) {
         require(value.size <= maxPlaintextBytes)
         val sealed = cipher.encrypt(value)
         val output = file.startWrite()
@@ -97,7 +116,7 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
         if (!file.readFully().contentEquals(sealed)) throw IOException("Saved rooms could not be committed")
     }
 
-    override fun reset() {
+    override fun reset(): Unit = synchronized(monitor) {
         file.delete()
         if (listOf(base, File(base.path + ".bak"), File(base.path + ".new")).any { it.exists() }) {
             throw IOException("Saved rooms could not be deleted")

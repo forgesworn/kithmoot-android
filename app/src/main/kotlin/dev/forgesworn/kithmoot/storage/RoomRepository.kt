@@ -52,6 +52,23 @@ class RoomRepository(private val storage: RoomStorage) {
         return next
     }
     @Synchronized fun forget(id: String) = write(read().filterNot { it.id == id })
+
+    /** Existing monitor spans exact current identity inspection and each source
+     * mutation. Callers never supply a stale whole-room replacement. */
+    @Synchronized internal fun <T> withNativeIndex(source: dev.forgesworn.kithmoot.epoch.NativeKeeperJournal,
+        action: (SavedRoom) -> T): T {
+        val current = requireNotNull(read().singleOrNull { it.id == source.binding.room }) { "Native room index is missing" }
+        return action(current)
+    }
+    @Synchronized internal fun installNativeReplacement(source: dev.forgesworn.kithmoot.epoch.NativeKeeperJournal): SavedRoom {
+        val rooms = read()
+        val current = requireNotNull(rooms.singleOrNull { it.id == source.binding.room }) { "Native room index is missing" }
+        val next = source.replacementIndexValue(current)
+        if (next.json != current.json) write(rooms.map { if (it.id == current.id) next else it })
+        val actual = requireNotNull(read().singleOrNull { it.id == current.id })
+        source.requireReplacementIndex(actual)
+        return actual
+    }
     /** Only used after an explicit destructive confirmation in the UI. */
     @Synchronized fun reset() = guarded { storage.reset(); _revision.update { it + 1 } }
 

@@ -234,9 +234,9 @@ class BrowserCallInteropTest {
         val failure = AtomicReference<String?>(null)
         val sectionHistory = java.util.concurrent.ConcurrentLinkedQueue<String>()
         fun rememberSections(side: String, type: String, sdp: String?) {
-            if (sdp == null) return
-            // Section kinds/mids only: never retain ICE passwords, SDP,
-            // candidates, media or room credentials in failure diagnostics.
+            if (sdp == null || type !in setOf(SignalType.OFFER, SignalType.ANSWER)) return
+            // Synthetic section shape only, with bounded fields and history.
+            // Never retain SDP, ICE addresses/passwords, identities or media.
             val sections = sdp.lineSequence().map { it.trim() }.mapNotNull { line ->
                 when {
                     line.startsWith("m=") -> line.substringAfter("m=").substringBefore(' ')
@@ -246,7 +246,7 @@ class BrowserCallInteropTest {
                     line in setOf("a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive") -> line.substringAfter("a=")
                     else -> null
                 }
-            }.toList()
+            }.take(12).toList()
             sectionHistory.add("$side:$type:${sections.joinToString(",")}")
             while (sectionHistory.size > 16) sectionHistory.poll()
         }
@@ -372,8 +372,7 @@ class BrowserCallInteropTest {
             localDevice = (if (nativeLow) "11" else "22").repeat(32),
             remoteDevice = (if (nativeLow) "22" else "11").repeat(32),
             connection = WebRtcPeerConnection(pc, ::bindReceivedVideo,
-                // Match WebRtcEngine's sender-owned track set. Without it a
-                // repeated unchanged offer cannot replay its original answer.
+                // Match the engine's sender-owned media view for answer replay.
                 localMedia = { setOf(video.id(), audio.id()) }),
             roomId = "33".repeat(32),
             send = { signal ->
@@ -384,7 +383,8 @@ class BrowserCallInteropTest {
         )
         scope.launch {
             for (body in incoming) runCatching {
-                rememberSections("browser", body.getValue("type").jsonPrimitive.content, body["sdp"]?.jsonPrimitive?.content)
+                rememberSections("browser", body.getValue("type").jsonPrimitive.content,
+                    body["sdp"]?.jsonPrimitive?.content)
                 link.onRemoteSignal(SignalEnvelope("", body.getValue("type").jsonPrimitive.content,
                     body.getValue("roomId").jsonPrimitive.content,
                     sdp = body["sdp"]?.jsonPrimitive?.content,

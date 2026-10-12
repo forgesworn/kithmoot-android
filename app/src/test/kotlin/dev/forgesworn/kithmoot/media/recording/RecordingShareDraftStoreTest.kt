@@ -36,6 +36,23 @@ class RecordingShareDraftStoreTest {
                 messageId = seed.toString(16).padStart(32, '0')))
     }
 
+    @Test fun `empty recovery and refused begin do not create draft storage`() {
+        val root = Files.createTempDirectory("recording-empty-recovery-").toFile()
+        try {
+            val directory = File(root, "absent-drafts")
+            val journal = MemoryJournal()
+            val store = RecordingShareDraftStore(directory, journal, { 100 }).apply { recover() }
+            assertFalse(directory.exists(), "Reading an unused store must leave storage untouched")
+            assertTrue(store.list().isEmpty())
+            assertNull(journal.bytes)
+            assertFails { store.begin(origin, "original.m4a", 100) }
+            assertFalse(directory.exists())
+            val ticket = store.begin(origin, "original.m4a", 101)
+            assertTrue(directory.isDirectory)
+            store.abandon(ticket)
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun `signed Send survives restart and missing ciphertext and cannot be substituted or discarded`() {
         val root = Files.createTempDirectory("recording-send-owner-").toFile()
         try {

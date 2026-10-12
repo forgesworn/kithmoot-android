@@ -4,6 +4,8 @@ import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.*
 import dev.forgesworn.kithmoot.session.*
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import dev.forgesworn.kithmoot.storage.RoomRepository
+import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.support.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
@@ -91,8 +93,8 @@ class NativeKeeperControllerTest {
             buildJsonObject { put("scope", scope); put("event", event.toJson()) }), "fixture-peer") }
         fun events() = offered.mapNotNull { RoomMeshWire.decode(it)?.second?.get("event")?.jsonObject?.let(NostrEvent::fromJson) }
     }
-    private class Rig(val test: TestScope, val route: RoomRoute) {
-        val creation = NativeKeeperCreation.fresh(0)
+    private class Rig(val test: TestScope, val route: RoomRoute, createdAt: Long = 0) {
+        val creation = NativeKeeperCreation.fresh(createdAt)
         val secret = creation.roomSecret(); val invitation = creation.invitation()
         val room = deriveRoom(secret); val owner = Fixtures.primary(room, 5, 6); val member = Fixtures.primary(room, 1, 2)
         val binding = NativeKeeperBinding(room.roomId, creation.authority, owner.participant, owner.devicePubkey,
@@ -125,10 +127,21 @@ class NativeKeeperControllerTest {
         var ledger = RoomRekeyLedger(queueStore, queueBinding, { test.currentTime }, true)
         var selected = true
         var controller: NativeKeeperController? = null
+        val indexStore = Store()
+        val index = RoomRepository(indexStore)
+        var replacementIndexEnabled = false
+        fun enableReplacement() {
+            source.recordCourierCreated(ledger)
+            index.save(SavedRoom.create(secret, owner, encodeInvitationUrl("https://fixture.invalid/join", invitation, binding.relays),
+                binding.relays, "Generation fixture", 0, host = null, authority = binding.authority, route = route).withNativeAuthority(source))
+            replacementIndexEnabled = true
+        }
         suspend fun start(parent: CoroutineScope = test.backgroundScope) {
             internet?.start(); test.runCurrent(); sockets.openAll(); test.runCurrent()
             live.join(); test.runCurrent()
-            controller = NativeKeeperController.start(source, vault, live, ledger, NativeKeeperEndpoints(queueBinding, mesh, internet),
+            controller = if (replacementIndexEnabled) NativeKeeperController.startForRoom(source, vault, live, ledger,
+                NativeKeeperEndpoints(queueBinding, mesh, internet), parent, { selected }, index, StandardTestDispatcher(test.testScheduler))
+            else NativeKeeperController.start(source, vault, live, ledger, NativeKeeperEndpoints(queueBinding, mesh, internet),
                 parent, { selected }, StandardTestDispatcher(test.testScheduler))
             test.runCurrent()
         }
@@ -202,6 +215,429 @@ class NativeKeeperControllerTest {
         }
     }
 
+    @Test fun two_real_replacements_reopen_the_oldest_cache_and_resend_its_notice_without_changing_chat_epoch() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            val originalRequest = encodeLivePersistentRequest(LivePersistentContext(r.invitation, r.room.roomId), Fixtures.key(31), currentTime / 1000)
+            val originalAnswer = assertNotNull(r.source.answer(originalRequest, RekeyLane.NEARBY))
+            r.controller!!.retry(); runCurrent()
+            val originalEpoch = r.source.epoch()
+            val stale = r.controller!!.hosting.value
+            repeat(2) {
+                r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+                assertEquals(it + 1, r.source.snapshot().invitationGeneration)
+                assertNull(r.source.snapshot().replacement)
+                assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            }
+            assertFalse(r.source.canHandoff(originalAnswer))
+            assertFalse(r.source.canHandoff(originalAnswer.copy(invitationGeneration = null)))
+            val before = r.sourceStore.bytes!!.clone()
+            assertNull(r.source.answer(originalRequest, RekeyLane.NEARBY, 0))
+            assertFailsWith<IllegalArgumentException> { r.controller!!.replaceObservedInvitation(stale) }
+            assertContentEquals(before, r.sourceStore.bytes)
+            r.live.sendChat("Same approved traffic after two invitation generations"); runCurrent()
+            val current = r.source.epoch()
+            try { assertEquals(originalEpoch.epoch, current.epoch); assertContentEquals(originalEpoch.secret, current.secret) }
+            finally { current.secret.fill(0); originalEpoch.secret.fill(0) }
+            r.controller!!.stop(); r.controller = null; r.live.leave()
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime }, false)
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            assertTrue(r.source.canReadStoredInvitation())
+            val restored = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+            assertEquals(6, restored.getValue("v").jsonPrimitive.int)
+            assertEquals(listOf(0, 1), restored.getValue("invitationHistory").jsonArray.map {
+                it.jsonObject.getValue("invitation").jsonObject.getValue("generation").jsonPrimitive.int })
+            val cached = restored.getValue("answers").jsonArray.single().jsonObject
+            assertEquals(originalAnswer.event.id, cached.getValue("answer").jsonObject.getValue("id").jsonPrimitive.content)
+            assertEquals(0, cached.getValue("generation").jsonPrimitive.int)
+            r.live = r.newSession(); r.start()
+            val newest = r.source.welcome().id
+            val oldNotice = r.source.snapshot().retirementOriginals.first()
+            val debt = r.source.snapshot().nearbyBytes
+            r.controller!!.retryObservedRetirement(r.controller!!.hosting.value, oldNotice); runCurrent()
+            assertEquals(newest, r.source.welcome().id)
+            assertEquals(2, r.source.snapshot().invitationGeneration)
+            assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+            assertTrue(r.source.snapshot().nearbyBytes > debt)
+            assertTrue(r.sockets.opened.isEmpty())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=two-generations-cold-oldest-cache generation=2 history=2 oldestCacheRetained=true trafficEpoch=0 historicalNoticeResent=true internetRequests=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun unavailable_lane_keeps_one_original_and_chat_epoch_then_recovers_with_current_index_metadata() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start(); r.link.up = false
+            r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            val pending = assertNotNull(r.source.snapshot().replacement)
+            assertEquals(0, r.source.snapshot().invitationGeneration)
+            assertIs<NativeKeeperController.State.Pending>(r.controller!!.state.value)
+            assertFalse(r.controller!!.canShareObservedInvitation(r.controller!!.hosting.value))
+            assertFalse(r.source.canReadStoredInvitation())
+            assertTrue(r.link.events().none { it.kind == KIND_GROUP_INVITATION || it.id == pending.retirement })
+            r.index.update(r.binding.room) { SavedRoom.decode(JsonObject(it.json + mapOf(
+                "name" to JsonPrimitive("Concurrent local name"), "pinned" to JsonPrimitive(true), "project" to JsonPrimitive("Current workspace")))) }
+            r.link.up = true
+            r.controller!!.retryObservedPending(r.controller!!.hosting.value); runCurrent()
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertEquals(pending.welcome, r.source.welcome().id)
+            assertEquals(listOf(pending.retirement), r.source.snapshot().retirementOriginals)
+            val actual = assertNotNull(r.index.get(r.binding.room))
+            assertEquals("Concurrent local name", actual.name); assertTrue(actual.pinned); assertEquals("Current workspace", actual.project)
+            actual.verifyNativeAuthority(r.source)
+            assertEquals(0, r.source.snapshot().epoch)
+            assertTrue(r.sockets.opened.isEmpty())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=unavailable-original-recovery generation=1 originalWelcomeRetained=true currentMetadataPreserved=true trafficEpoch=0 internetRequests=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun pending_write_failure_withdraws_the_owner_and_reopen_keeps_the_same_retained_originals() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            var wrote = false
+            r.sourceStore.onWrite = {
+                if (wrote) error("Lost next commit return")
+                wrote = true
+            }
+            assertFails { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+            runCurrent()
+            assertEquals(NativeKeeperController.State.Failed, r.controller!!.state.value)
+            r.controller!!.stop(); r.controller = null
+            r.sourceStore.onWrite = {}
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            val retained = assertNotNull(r.source.snapshot().replacement)
+            assertEquals(0, r.source.snapshot().invitationGeneration)
+            assertEquals(1, retained.proposedGeneration)
+            assertFalse(r.source.canReadStoredInvitation())
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=failed-next-write-reopen generation=0 proposedGeneration=1 originalRetained=true ownerWithdrawn=true participantReceipt=false")
+        } finally { r.sourceStore.onWrite = {}; r.stop() }
+    }
+
+    @Test fun archive_nearby_active_public() = runTest { archiveBoundaryCases(RoomRoute.NEARBY, KeeperPhase.ACTIVE, false) }
+    @Test fun archive_internet_active_public() = runTest { archiveBoundaryCases(RoomRoute.INTERNET, KeeperPhase.ACTIVE, false) }
+    @Test fun archive_mixed_active_public() = runTest { archiveBoundaryCases(RoomRoute.MIXED, KeeperPhase.ACTIVE, false) }
+    @Test fun archive_nearby_retired_public() = runTest { archiveBoundaryCases(RoomRoute.NEARBY, KeeperPhase.RETIRED, false) }
+    @Test fun archive_internet_retired_public() = runTest { archiveBoundaryCases(RoomRoute.INTERNET, KeeperPhase.RETIRED, false) }
+    @Test fun archive_mixed_retired_public() = runTest { archiveBoundaryCases(RoomRoute.MIXED, KeeperPhase.RETIRED, false) }
+    @Test fun archive_nearby_active_factories() = runTest { archiveBoundaryCases(RoomRoute.NEARBY, KeeperPhase.ACTIVE, true) }
+    @Test fun archive_internet_active_factories() = runTest { archiveBoundaryCases(RoomRoute.INTERNET, KeeperPhase.ACTIVE, true) }
+    @Test fun archive_mixed_active_factories() = runTest { archiveBoundaryCases(RoomRoute.MIXED, KeeperPhase.ACTIVE, true) }
+    @Test fun archive_nearby_retired_factories() = runTest { archiveBoundaryCases(RoomRoute.NEARBY, KeeperPhase.RETIRED, true) }
+    @Test fun archive_internet_retired_factories() = runTest { archiveBoundaryCases(RoomRoute.INTERNET, KeeperPhase.RETIRED, true) }
+    @Test fun archive_mixed_retired_factories() = runTest { archiveBoundaryCases(RoomRoute.MIXED, KeeperPhase.RETIRED, true) }
+
+    private suspend fun TestScope.archiveOperation(r: Rig, action: suspend () -> Unit) {
+        val work = async { action() }
+        runCurrent()
+        repeat(4) { r.acknowledge(); runCurrent() }
+        assertTrue(work.isCompleted, "Actual selected lanes did not acknowledge archive operation")
+        work.await()
+    }
+
+    private fun archiveRecord(r: Rig) = Json.parseToJsonElement(r.sourceStore.bytes!!.decodeToString()).jsonObject
+    private fun archiveEvents(record: JsonObject) = record.getValue("retirements").jsonArray
+    private fun archiveFingerprint(bytes: ByteArray) = dev.forgesworn.kithmoot.crypto.Digests.sha256(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun archiveCounters(record: JsonObject) = buildJsonObject {
+        val spends = record.getValue("spends").jsonArray
+        put("encodedSpends", spends.size); put("freshSpends", spends.count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean })
+        put("sourceBytes", record.toString().toByteArray(Charsets.UTF_8).size)
+        put("history", record.getValue("invitationHistory").jsonArray.size); put("archives", archiveEvents(record).size)
+        put("epoch", record.getValue("epoch")); put("phase", record.getValue("phase"))
+        put("generation", record.getValue("activeInvitation").jsonObject.getValue("generation"))
+        for (lane in RekeyLane.entries) put(lane.name.lowercase() + "Bytes", spends.filter {
+            it.jsonObject["lane"] == JsonPrimitive(lane.name)
+        }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int })
+        put("originals", buildJsonArray { archiveEvents(record).forEach { value ->
+            val kept = value.jsonObject; val event = NostrEvent.fromJson(kept.getValue("event"))
+            assertTrue(Events.verify(event)); assertTrue(event.toJson().toString().toByteArray(Charsets.UTF_8).size <= NativeKeeperJournal.MAX_EVENT_BYTES)
+            add(buildJsonObject { put("id", event.id); put("createdAt", event.createdAt)
+                put("bytes", event.toJson().toString().toByteArray(Charsets.UTF_8).size)
+                put("attempts", kept.getValue("attempts")); put("offered", kept.getValue("offered")) })
+        } })
+    }
+
+    private class ArchiveFactories { var bearer = 0; var welcome = 0; var retirement = 0 }
+    private fun archivePrepareCounted(r: Rig, counts: ArchiveFactories, buffers: MutableList<ByteArray>) {
+        val proposal = r.source.preflightReplacement(r.index)
+        val saved = assertNotNull(r.index.get(r.binding.room)); saved.verifyNativeAuthority(r.source)
+        val method = NativeKeeperJournal::class.java.declaredMethods.single { it.name == "prepareReplacementChecked" && it.parameterCount == 5 }
+        assertTrue(java.lang.reflect.Modifier.isPrivate(method.modifiers)); method.isAccessible = true
+        val signer = archiveRecord(r).getValue("signer").jsonPrimitive.content.chunked(2).map { it.toInt(16).toByte() }.toByteArray().also(buffers::add)
+        val invitation = r.source.invitation(); buffers += invitation.bearer
+        val bearer: () -> ByteArray = { counts.bearer++; dev.forgesworn.kithmoot.crypto.Entropy.bytes(32).also(buffers::add) }
+        val welcome: (RoomInvitation, RoomAdmission, Long) -> NostrEvent = { next, policy, at ->
+            counts.welcome++; encodePersistentInvitation(RoomInvitationHost(next, signer), r.secret, at,
+                ends = policy.endsAt, relays = policy.relays, destruct = policy.destruct)
+        }
+        val retirement: (Long) -> NostrEvent = { at ->
+            counts.retirement++; Events.sign(signer, KIND_INVITATION_RETIREMENT, at,
+                listOf(listOf("d", deriveInvitationId(invitation))), "{\"v\":1}")
+        }
+        try { method.invoke(r.source, proposal, saved, bearer, welcome, retirement) }
+        catch (error: java.lang.reflect.InvocationTargetException) { throw error.targetException }
+        finally { signer.fill(0); invitation.bearer.fill(0) }
+    }
+
+    private suspend fun TestScope.archiveColdOpen(r: Rig, buffers: MutableList<ByteArray>, restart: Boolean) {
+        r.controller?.stop(); r.controller = null; r.live.leave()
+        val stores = listOf(r.sourceStore, r.indexStore, r.receiverStore, r.queueStore)
+        val frozen = stores.map { it.bytes!!.clone().also(buffers::add) }
+        r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+        r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime }, false)
+        r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+        val receiver = assertNotNull(EpochVault(r.receiverStore).get(r.binding.room))
+        buffers += receiver.currentSecret
+        receiver.pending?.secret?.let(buffers::add)
+        assertEquals(r.binding.room, receiver.stableRoom); assertEquals(r.binding.authority, receiver.authority)
+        assertNull(receiver.pending); assertContentEquals(r.secret, receiver.currentSecret)
+        val closed = r.source.snapshot().phase == KeeperPhase.CLOSED
+        assertEquals(if (closed) EpochPhase.CLOSED else EpochPhase.ACTIVE, receiver.phase)
+        assertEquals(0, receiver.currentEpoch)
+        assertEquals(r.source.snapshot().epochCause, if (closed) receiver.terminalCause else receiver.activationCause)
+        stores.zip(frozen).forEach { (store, exact) -> assertContentEquals(exact, store.bytes, "Strict readers must preserve every store byte") }
+        if (restart) { r.live = r.newSession(); r.start(); repeat(4) { r.acknowledge(); runCurrent() } }
+    }
+
+    private suspend fun TestScope.archiveBoundaryCases(route: RoomRoute, phase: KeeperPhase, factories: Boolean) {
+        val generations = if (phase == KeeperPhase.ACTIVE) listOf(13, 14, 15) else listOf(13, 14)
+        for (generation in generations) {
+            val r = Rig(this, route, currentTime / 1000)
+            val buffers = mutableListOf<ByteArray>()
+            val sourceWrites = mutableListOf<ByteArray>()
+            val stores = listOf(r.sourceStore, r.indexStore, r.receiverStore, r.queueStore)
+            val counts = ArchiveFactories()
+            var result: JsonObject? = null
+            try {
+                stores.forEach { store ->
+                    store.bytes?.let(buffers::add)
+                    store.onWrite = { store.bytes?.let { buffers += it; if (store === r.sourceStore) sourceWrites += it } }
+                }
+                r.enableReplacement(); r.start(); repeat(4) { r.acknowledge(); runCurrent() }
+                repeat(generation) { i ->
+                    advanceTimeBy(61_000); runCurrent()
+                    archiveOperation(r) { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                    assertEquals(i + 1, r.source.snapshot().invitationGeneration)
+                    assertNull(r.source.snapshot().replacement); r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                }
+                if (phase == KeeperPhase.RETIRED) archiveOperation(r) { r.controller!!.retireObservedInvitation(r.controller!!.hosting.value) }
+                assertEquals(phase, r.source.snapshot().phase)
+                archiveColdOpen(r, buffers, true)
+                assertEquals(phase, r.source.snapshot().phase)
+                assertEquals(NativeKeeperController.State.Ready(0, phase), r.controller!!.state.value)
+                val before = archiveRecord(r)
+                val beforeBytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                val beforeWrites = stores.map { it.writes }
+                val offered = RekeyLane.entries.associateWith { r.events(it).size }
+                val sourceCursor = sourceWrites.size
+                val traffic = r.source.epoch().secret.also(buffers::add)
+                val eligible = generation < 15
+                val cost = if (phase == KeeperPhase.RETIRED) 1 else 2
+                assertEquals(generation, before.getValue("invitationHistory").jsonArray.size)
+                assertEquals(generation + if (phase == KeeperPhase.RETIRED) 1 else 0, archiveEvents(before).size)
+                assertTrue(before.getValue("spends").jsonArray.size < 256)
+                assertTrue(beforeBytes[0].size < NativeKeeperJournal.MAX_FILE_BYTES)
+                var factoryEntriesMeasured = false
+                var preparedSpends: Int? = null
+                var retirementRefused = false
+                if (eligible) {
+                    if (factories) {
+                        archivePrepareCounted(r, counts, buffers); factoryEntriesMeasured = true
+                        assertEquals(1, counts.bearer); assertEquals(1, counts.welcome)
+                        assertEquals(if (phase == KeeperPhase.ACTIVE) 1 else 0, counts.retirement)
+                        assertEquals(beforeWrites[0] + 1, r.sourceStore.writes)
+                        assertContentEquals(beforeBytes[1], r.indexStore.bytes)
+                        assertContentEquals(beforeBytes[2], r.receiverStore.bytes)
+                        assertContentEquals(beforeBytes[3], r.queueStore.bytes)
+                        assertTrue(RekeyLane.entries.all { r.events(it).size == offered.getValue(it) })
+                        val prepared = archiveRecord(r)
+                        assertEquals(before.getValue("spends").jsonArray.size + cost, prepared.getValue("spends").jsonArray.size)
+                        preparedSpends = prepared.getValue("spends").jsonArray.size
+                        archiveOperation(r) { r.controller!!.retry() }
+                    } else archiveOperation(r) { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                    val pending = (sourceWrites.drop(sourceCursor) + listOf(r.sourceStore.bytes!!)).map {
+                        Json.parseToJsonElement(it.decodeToString()).jsonObject
+                    }.first { it.getValue("replacement") != JsonNull }
+                    val proposed = pending.getValue("replacement").jsonObject
+                    val notice = NostrEvent.fromJson(proposed.getValue("retirement"))
+                    val welcome = NostrEvent.fromJson(proposed.getValue("proposed").jsonObject.getValue("welcome"))
+                    assertTrue(Events.verify(notice)); assertTrue(Events.verify(welcome))
+                    assertEquals(before.getValue("spends").jsonArray.size + cost, pending.getValue("spends").jsonArray.size)
+                    preparedSpends = pending.getValue("spends").jsonArray.size
+                    assertEquals(generation + 1, r.source.snapshot().invitationGeneration)
+                    assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase); assertNull(r.source.snapshot().replacement)
+                    assertEquals(0, r.source.snapshot().epoch); assertEquals(0, r.live.epochKeys().epoch)
+                    assertContentEquals(traffic, r.source.epoch().secret.also(buffers::add))
+                    assertContentEquals(beforeBytes[2], r.receiverStore.bytes)
+                    val after = archiveRecord(r)
+                    assertEquals(archiveEvents(before), JsonArray(archiveEvents(after).take(archiveEvents(before).size)))
+                    assertEquals(generation + 1, archiveEvents(after).size)
+                    if (phase == KeeperPhase.RETIRED) {
+                        assertEquals(archiveEvents(before), archiveEvents(after))
+                        assertEquals(NostrEvent.fromJson(archiveEvents(before).last().jsonObject.getValue("event")).id, notice.id)
+                        assertTrue(RekeyLane.entries.all { lane ->
+                            r.events(lane).drop(offered.getValue(lane)).none { it.id == notice.id }
+                        }, "Retired archive must not be automatically re-offered")
+                    } else assertEquals(notice.id, NostrEvent.fromJson(archiveEvents(after).last().jsonObject.getValue("event")).id)
+                    r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                    assertEquals(1, r.indexStore.writes - beforeWrites[1])
+                } else {
+                    assertFailsWith<IllegalArgumentException> { r.source.preflightReplacement(r.index) }
+                    archiveOperation(r) { assertFailsWith<IllegalArgumentException> { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) } }
+                    assertFailsWith<IllegalArgumentException> { r.source.preflightRetirement() }; retirementRefused = true
+                    stores.zip(beforeBytes).forEach { (store, exact) -> assertContentEquals(exact, store.bytes) }
+                    assertEquals(beforeWrites, stores.map { it.writes })
+                    assertTrue(RekeyLane.entries.all { r.events(it).size == offered.getValue(it) })
+                    archiveOperation(r) { r.controller!!.rekeyMembers(closed = true) }
+                    assertIs<NativeKeeperController.State.Closed>(r.controller!!.state.value)
+                    assertEquals(KeeperPhase.CLOSED, r.source.snapshot().phase)
+                    assertEquals(16, archiveEvents(archiveRecord(r)).size)
+                    assertEquals(archiveEvents(before), JsonArray(archiveEvents(archiveRecord(r)).take(15)))
+                    assertFalse(r.source.canReadStoredInvitation())
+                }
+                val after = archiveRecord(r)
+                val deltas = stores.zip(beforeWrites).map { (store, writes) -> store.writes - writes }
+                val offeredDeltas = RekeyLane.entries.associateWith { r.events(it).size - offered.getValue(it) }
+                val afterBytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                archiveColdOpen(r, buffers, false)
+                assertEquals(if (eligible) KeeperPhase.ACTIVE else KeeperPhase.CLOSED, r.source.snapshot().phase)
+                assertEquals(if (eligible) generation + 1 else generation, r.source.snapshot().invitationGeneration)
+                assertEquals(archiveEvents(after), archiveEvents(archiveRecord(r)))
+                assertEquals(eligible, r.source.canReadStoredInvitation())
+                result = buildJsonObject {
+                    put("route", route.stored); put("phase", phase.name); put("generation", generation)
+                    put("path", if (factories) "private-factories" else "public-controller")
+                    put("eligible", eligible); put("before", archiveCounters(before)); put("after", archiveCounters(after))
+                    put("sourceWrites", deltas[0]); put("indexWrites", deltas[1]); put("receiverWrites", deltas[2]); put("courierWrites", deltas[3])
+                    put("storeBytesBefore", JsonArray(beforeBytes.map { JsonPrimitive(it.size) }))
+                    put("storeBytesAfter", JsonArray(afterBytes.map { JsonPrimitive(it.size) }))
+                    put("storeSha256Before", JsonArray(beforeBytes.map { JsonPrimitive(archiveFingerprint(it)) }))
+                    put("storeSha256After", JsonArray(afterBytes.map { JsonPrimitive(archiveFingerprint(it)) }))
+                    put("nearbyOffers", offeredDeltas.getValue(RekeyLane.NEARBY)); put("internetOffers", offeredDeltas.getValue(RekeyLane.INTERNET))
+                    put("factoryEntriesMeasured", factoryEntriesMeasured)
+                    if (factoryEntriesMeasured) { put("bearerFactoryEntries", counts.bearer); put("welcomeFactoryEntries", counts.welcome); put("retirementFactoryEntries", counts.retirement) }
+                    preparedSpends?.let { put("preparedSpends", it); put("preparationSigningCost", cost) }
+                    put("unchangedHistoricalMaps", true); put("coldReaderVerified", true); put("coldReceiverVerified", true); put("finalReaderVerified", true)
+                    put("terminalSlotUsed", !eligible); put("nonterminalRetirementRefused", retirementRefused)
+                    put("retiredGeneration15Reachable", false); put("totalAuxiliaryEntropyMeasured", false)
+                    put("participantReceipt", false); put("processDeath", false)
+                }
+            } finally {
+                r.stop(); r.creation.close(); r.room.roomKey.fill(0)
+                stores.forEach { it.onWrite = {}; it.bytes?.let(buffers::add) }
+                buffers.forEach { it.fill(0) }; r.link.offered.forEach { it.fill(0) }
+            }
+            assertTrue(buffers.all { bytes -> bytes.all { it == 0.toByte() } })
+            assertTrue(stores.all { it.bytes?.all { byte -> byte == 0.toByte() } != false })
+            assertTrue(r.secret.all { it == 0.toByte() }); assertTrue(r.invitation.bearer.all { it == 0.toByte() })
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+            println("NATIVE_REPLACEMENT_ARCHIVE " + JsonObject(assertNotNull(result) + ("cleanupVerified" to JsonPrimitive(true))))
+        }
+    }
+
+    @Test fun fifteen_generations_keep_all_notices_refuse_sixteenth_and_preserve_the_terminal_archive_slot() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            repeat(15) { generation ->
+                advanceTimeBy(61_000); runCurrent()
+                r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+                assertEquals(generation + 1, r.source.snapshot().invitationGeneration)
+                assertEquals(generation + 1, r.source.snapshot().retirementOriginals.size)
+                assertEquals(0, r.source.snapshot().epoch)
+            }
+            val retained = r.sourceStore.bytes!!.clone()
+            val old = r.source.snapshot().retirementOriginals.toList()
+            assertFails { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+            assertContentEquals(retained, r.sourceStore.bytes)
+            r.controller!!.rekeyMembers(closed = true); runCurrent()
+            assertIs<NativeKeeperController.State.Closed>(r.controller!!.state.value)
+            assertEquals(16, r.source.snapshot().retirementOriginals.size)
+            assertEquals(old, r.source.snapshot().retirementOriginals.take(15))
+            assertEquals(15, r.source.snapshot().invitationGeneration)
+            r.controller!!.stop(); r.controller = null
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            assertEquals(KeeperPhase.CLOSED, r.source.snapshot().phase)
+            assertEquals(16, r.source.snapshot().retirementOriginals.size)
+            assertFalse(r.source.canReadStoredInvitation())
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=full-history-terminal-reservation generations=15 retainedNotices=16 sixteenthReplacementRefused=true terminalColdReopen=true participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun retired_generation_reuses_the_exact_notice_without_automatic_resend_or_traffic_key_change() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        try {
+            r.enableReplacement(); r.start()
+            r.controller!!.retireObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            val notice = r.source.snapshot().retirementOriginals.single()
+            val archived = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("retirements")
+            val offered = r.events(RekeyLane.NEARBY).count { it.id == notice }
+            val secret = r.source.epoch()
+            r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value); runCurrent()
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+            assertEquals(listOf(notice), r.source.snapshot().retirementOriginals)
+            assertEquals(archived, Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject.getValue("retirements"))
+            assertEquals(offered, r.events(RekeyLane.NEARBY).count { it.id == notice })
+            val after = r.source.epoch()
+            try { assertContentEquals(secret.secret, after.secret) } finally { secret.secret.fill(0); after.secret.fill(0) }
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            println("NATIVE_REPLACEMENT_MEASUREMENT case=already-retired-original-reuse generation=1 exactArchiveAndAttemptsRetained=true automaticNoticeResends=0 trafficEpoch=0 participantReceipt=false")
+        } finally { r.stop() }
+    }
+
+    @Test fun every_mode_installs_real_next_invitation_filters_and_grants_base_welcome_at_the_unchanged_current_epoch() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = Rig(this, route)
+            try {
+                r.enableReplacement(); r.start(); r.acknowledge(); runCurrent()
+                r.controller!!.rekeyMembers(); runCurrent(); r.acknowledge(); runCurrent()
+                assertEquals(1, r.source.snapshot().epoch)
+                val epoch = r.source.epoch()
+                val sourceBefore = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                val oldRequest = encodeLivePersistentRequest(LivePersistentContext(r.invitation, r.room.roomId), Fixtures.key(31), currentTime / 1000)
+                val replacement = async { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                runCurrent()
+                repeat(4) { r.acknowledge(); runCurrent() }
+                assertTrue(replacement.isCompleted, "Actual selected lanes did not acknowledge the exact originals")
+                replacement.await()
+                assertEquals(1, r.source.snapshot().invitationGeneration)
+                assertEquals(1, r.source.snapshot().epoch)
+                assertNull(r.source.snapshot().replacement)
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                val sourceAfter = Json.parseToJsonElement(r.sourceStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                for (key in listOf("base", "signer", "epoch", "secret", "epochCause", "devices", "members", "removed"))
+                    assertEquals(sourceBefore.getValue(key), sourceAfter.getValue(key), "Replacement changed $key")
+                val current = r.source.epoch()
+                try { assertContentEquals(epoch.secret, current.secret) } finally { epoch.secret.fill(0); current.secret.fill(0) }
+                val next = r.source.invitation()
+                try {
+                    val requestKey = Fixtures.key(32)
+                    val context = LivePersistentContext(next, r.room.roomId)
+                    val request = encodeLivePersistentRequest(context, requestKey, currentTime / 1000)
+                    val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                    r.inject(request, lane); runCurrent(); r.acknowledge(); runCurrent()
+                    val grant = r.events(lane).last { it.kind == KIND_INVITATION_GRANT }
+                    val admission = assertNotNull(decodeLivePersistentAnswer(grant, context, request, requestKey, currentTime / 1000))
+                    try {
+                        assertContentEquals(r.secret, admission.admission.secret)
+                        assertEquals(0, admission.admission.epoch); assertEquals(1L, admission.epochHint)
+                    } finally { admission.admission.secret.fill(0); requestKey.fill(0) }
+                    val before = r.sourceStore.bytes!!.clone()
+                    r.inject(oldRequest, lane); runCurrent()
+                    assertContentEquals(before, r.sourceStore.bytes)
+                    if (!route.internet) assertTrue(r.sockets.opened.isEmpty())
+                    if (!route.nearby) assertTrue(r.link.offered.isEmpty())
+                    println("NATIVE_REPLACEMENT_MEASUREMENT case=selected-mode-current-epoch route=${route.stored} generation=1 trafficEpoch=1 actualNewFilterAnswered=true baseWelcomeAndCurrentEpochHint=true oldInvitationRequestRefused=true participantReceipt=false")
+                } finally { next.bearer.fill(0) }
+            } finally { r.stop() }
+        }
+    }
 
     @Test fun eachSelectedModeAdoptsTheOriginalLocallyWithoutEchoAndOnlyOffersOnItsOwnLanes() = runTest {
         for (route in RoomRoute.entries) {
@@ -1017,4 +1453,536 @@ class NativeKeeperControllerTest {
             assertEquals(1, r.vault.get(r.room.roomId)!!.currentEpoch)
         } finally { r.stop() }
     }
+    @Test fun spend_records_mixed_retired_age_zero() = runTest { spendRecordCases(0) }
+    @Test fun spend_records_mixed_retired_age_sixty() = runTest { spendRecordCases(60) }
+    @Test fun spend_records_mixed_retired_age_sixty_one() = runTest { spendRecordCases(61) }
+
+    private fun spendRecordRows(record: JsonObject) = record.getValue("spends").jsonArray
+    private fun spendRecordAttempts(record: JsonObject) = spendRecordRows(record).count {
+        it.jsonObject["lane"] == JsonNull && !it.jsonObject.getValue("fresh").jsonPrimitive.boolean
+    }
+
+    private fun spendRecordPublish(r: Rig, handoff: NativeKeeperJournal.Handoff) {
+        assertTrue(r.source.canHandoff(handoff))
+        assertTrue(Events.verify(handoff.event))
+        if (handoff.lane == RekeyLane.NEARBY) assertNotNull(r.mesh).publish(handoff.event)
+        else assertNotNull(r.internet).publish(handoff.event)
+        assertTrue(r.events(handoff.lane).any { it.id == handoff.event.id })
+        r.source.offered(handoff)
+    }
+
+    private suspend fun TestScope.spendRecordRetireNearby(r: Rig) {
+        val notice = r.source.prepareRetirement()
+        spendRecordPublish(r, assertNotNull(r.source.reservePending(notice.id, RekeyLane.NEARBY)))
+        assertTrue(r.source.completePending(r.vault, r.live))
+        r.controller!!.retry(); runCurrent()
+        assertEquals(KeeperPhase.RETIRED, r.source.snapshot().phase)
+        assertNull(r.source.snapshot().replacement)
+        assertTrue(r.source.snapshot().pending.isEmpty())
+        assertTrue(r.events(RekeyLane.INTERNET).none { it.id == notice.id })
+    }
+
+    private suspend fun TestScope.spendRecordCases(age: Long) {
+        for (target in listOf(254, 255, 256)) {
+            val r = Rig(this, RoomRoute.MIXED, currentTime / 1000)
+            val stores = listOf(r.sourceStore, r.indexStore, r.receiverStore, r.queueStore)
+            val buffers = mutableListOf<ByteArray>()
+            val requests = mutableListOf<NostrEvent>()
+            var measured: JsonObject? = null
+            try {
+                stores.forEach { store ->
+                    store.bytes?.let(buffers::add)
+                    store.onWrite = { store.bytes?.let(buffers::add) }
+                }
+                r.enableReplacement(); r.start(); repeat(4) { r.acknowledge(); runCurrent() }
+                repeat(14) { generation ->
+                    advanceTimeBy(61_000); runCurrent()
+                    spendRecordRetireNearby(r)
+                    archiveOperation(r) { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                    assertEquals(generation + 1, r.source.snapshot().invitationGeneration)
+                    assertNull(r.source.snapshot().replacement)
+                }
+                spendRecordRetireNearby(r)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                advanceTimeBy(61_000); runCurrent()
+                val at = currentTime / 1000
+                val archives = archiveEvents(archiveRecord(r)).map { NostrEvent.fromJson(it.jsonObject.getValue("event")) }
+                assertEquals(15, archives.size)
+                assertTrue(archives.all(Events::verify))
+                assertTrue(archives.all { notice -> r.events(RekeyLane.INTERNET).none { it.id == notice.id } })
+                repeat(15) { index ->
+                    val deviceKey = Fixtures.key(40 + index).also(buffers::add)
+                    val device = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceKey)
+                    val credential = r.owner.enrol(device, r.room.roomId, at + 3600, at)
+                    val request = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                        deviceKey, credential, at)
+                    assertTrue(Events.verify(request)); requests += request
+                    spendRecordPublish(r, assertNotNull(r.source.answerEpoch(request, RekeyLane.INTERNET)))
+                }
+                // Eighteen genuine cached-grant reservations leave the first request exhausted.
+                repeat(3) { index ->
+                    spendRecordPublish(r, assertNotNull(r.source.answerEpoch(requests[index / 2], RekeyLane.INTERNET)))
+                }
+                while (spendRecordAttempts(archiveRecord(r)) < 64) {
+                    val before = spendRecordAttempts(archiveRecord(r))
+                    assertNull(r.source.answerEpoch(requests.first(), RekeyLane.INTERNET))
+                    assertEquals(before + 1, spendRecordAttempts(archiveRecord(r)))
+                }
+                val rateBound = r.sourceStore.bytes!!.clone().also(buffers::add)
+                val rateWrites = r.sourceStore.writes
+                assertNull(r.source.answerEpoch(requests.first(), RekeyLane.INTERNET))
+                assertTrue(rateBound.contentEquals(r.sourceStore.bytes))
+                assertEquals(rateWrites, r.sourceStore.writes)
+                var remainingInternet = target - 136
+                for (notice in archives) repeat(8) {
+                    if (remainingInternet > 0) {
+                        spendRecordPublish(r, assertNotNull(r.source.reserveRetirement(notice.id, RekeyLane.INTERNET)))
+                        remainingInternet--
+                    }
+                }
+                assertEquals(0, remainingInternet)
+                var nearby = spendRecordRows(archiveRecord(r)).count { it.jsonObject["lane"] == JsonPrimitive("NEARBY") }
+                assertEquals(15, nearby)
+                for (notice in archives) repeat(7) {
+                    if (nearby < 39) {
+                        spendRecordPublish(r, assertNotNull(r.source.reserveRetirement(notice.id, RekeyLane.NEARBY)))
+                        nearby++
+                    }
+                }
+                assertEquals(39, nearby)
+                val constructed = archiveRecord(r)
+                assertEquals(target, spendRecordRows(constructed).size)
+                assertEquals(64, spendRecordAttempts(constructed))
+                assertEquals(15, spendRecordRows(constructed).count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean })
+                assertEquals(15, constructed.getValue("answers").jsonArray.size)
+                assertTrue(constructed.getValue("answers").jsonArray.all {
+                    Events.verify(NostrEvent.fromJson(it.jsonObject.getValue("request"))) &&
+                        Events.verify(NostrEvent.fromJson(it.jsonObject.getValue("answer")))
+                })
+                advanceTimeBy(age * 1000); runCurrent()
+                // The courier constructor normally persists its monotonic clock.
+                // Freeze a normal current status before asserting exact cold bytes.
+                val authorityBytes = stores.take(3).map { it.bytes!!.clone().also(buffers::add) }
+                val authorityWrites = stores.take(3).map { it.writes }
+                val queueBefore = Json.parseToJsonElement(r.queueStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                val queueWrites = r.queueStore.writes
+                r.ledger.status()
+                val queueAfter = Json.parseToJsonElement(r.queueStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                assertEquals(queueBefore.keys, queueAfter.keys)
+                queueBefore.filterKeys { it != "high" }.forEach { (key, value) -> assertEquals(value, queueAfter.getValue(key)) }
+                assertEquals(currentTime, queueAfter.getValue("high").jsonPrimitive.long)
+                assertEquals(queueWrites + 1, r.queueStore.writes)
+                assertEquals(authorityWrites, stores.take(3).map { it.writes })
+                stores.take(3).zip(authorityBytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                archiveColdOpen(r, buffers, true)
+                assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.RETIRED), r.controller!!.state.value)
+                assertEquals(KeeperPhase.RETIRED, r.source.verifyReceiver(r.vault, r.live))
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                assertTrue(r.source.courierReady())
+                assertTrue(r.source.snapshot().pending.isEmpty()); assertNull(r.source.snapshot().replacement)
+                val before = archiveRecord(r)
+                val bytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                val writes = stores.map { it.writes }
+                val offers = RekeyLane.entries.associateWith { r.events(it).size }
+                val now = currentTime / 1000
+                val retained = spendRecordRows(before).filter {
+                    val row = it.jsonObject
+                    now - row.getValue("at").jsonPrimitive.long <= if (row["lane"] == JsonPrimitive("NEARBY")) 3720 else 60
+                }
+                val fresh = retained.count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean }
+                val eligible = retained.size + 1 <= 256
+                assertEquals(target, spendRecordRows(before).size)
+                assertEquals(if (age <= 60) target else 39, retained.size)
+                assertEquals(if (age <= 60) 15 else 0, fresh)
+                assertTrue(fresh + 1 <= 16, "Signing must independently permit this spend measurement")
+                for (lane in RekeyLane.entries) {
+                    val debt = retained.filter { it.jsonObject["lane"] == JsonPrimitive(lane.name) }
+                        .sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
+                    assertTrue(debt <= if (lane == RekeyLane.NEARBY) 16384 else 65536)
+                }
+                assertTrue(bytes.first().size < NativeKeeperJournal.MAX_FILE_BYTES)
+                val counts = ArchiveFactories()
+                if (eligible) {
+                    val proposal = r.source.preflightReplacement(r.index)
+                    assertNotNull(proposal)
+                    assertEquals(writes, stores.map { it.writes })
+                    stores.zip(bytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                    archivePrepareCounted(r, counts, buffers)
+                    assertEquals(1, counts.bearer); assertEquals(1, counts.welcome); assertEquals(0, counts.retirement)
+                    val after = archiveRecord(r)
+                    val pending = after.getValue("replacement").jsonObject
+                    val notice = NostrEvent.fromJson(pending.getValue("retirement"))
+                    val welcome = NostrEvent.fromJson(pending.getValue("proposed").jsonObject.getValue("welcome"))
+                    assertTrue(Events.verify(notice)); assertTrue(Events.verify(welcome))
+                    assertTrue(notice.toJson() == archiveEvents(before).last().jsonObject.getValue("event"))
+                    assertTrue(welcome.toJson().toString().toByteArray().size <= NativeKeeperJournal.MAX_EVENT_BYTES)
+                    assertEquals(retained, spendRecordRows(after).dropLast(1))
+                    assertEquals(retained.size + 1, spendRecordRows(after).size)
+                    for (key in listOf("answers", "retirements", "invitationHistory")) assertEquals(before.getValue(key), after.getValue(key))
+                    assertEquals(listOf(1, 0, 0, 0), stores.zip(writes).map { (store, count) -> store.writes - count })
+                } else {
+                    val error = assertFailsWith<IllegalArgumentException> { r.source.preflightReplacement(r.index) }
+                    assertEquals("Replacement exceeds source signing/spending budget", error.message)
+                    assertEquals(0, counts.bearer); assertEquals(0, counts.welcome); assertEquals(0, counts.retirement)
+                    assertEquals(writes, stores.map { it.writes })
+                    stores.zip(bytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                }
+                assertTrue(RekeyLane.entries.all { r.events(it).size == offers.getValue(it) })
+                val after = archiveRecord(r)
+                measured = buildJsonObject {
+                    put("route", "mixed"); put("phase", "RETIRED"); put("generation", 14)
+                    put("ageSeconds", age); put("encodedSpends", target); put("unexpiredSpends", retained.size)
+                    put("freshAtGate", fresh); put("replacementCost", 1); put("spendLimit", 256)
+                    put("eligible", eligible); put("resultSpends", spendRecordRows(after).size)
+                    put("bearerFactoryEntries", counts.bearer); put("welcomeFactoryEntries", counts.welcome)
+                    put("retirementFactoryEntries", counts.retirement); put("sourceWrites", r.sourceStore.writes - writes[0])
+                    put("indexWrites", 0); put("receiverWrites", 0); put("courierWrites", 0); put("newOffers", 0)
+                    put("sourceBytesBefore", bytes.first().size); put("sourceBytesAfter", r.sourceStore.bytes!!.size)
+                    put("cachedAnswers", 15); put("archives", 15); put("history", 14)
+                    put("nearbyBytes", retained.filter { it.jsonObject["lane"] == JsonPrimitive("NEARBY") }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int })
+                    put("internetBytes", retained.filter { it.jsonObject["lane"] == JsonPrimitive("INTERNET") }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int })
+                    put("normalGuardedConstruction", true); put("sourceJsonEdited", false)
+                    put("participantReceipt", false); put("processDeath", false); put("physicalTransport", false)
+                    put("fullCapacityQualified", false); put("totalAuxiliaryEntropyMeasured", false)
+                }
+                val resultBytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                archiveColdOpen(r, buffers, false)
+                stores.zip(resultBytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                assertEquals(eligible, r.source.snapshot().replacement != null)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                measured = JsonObject(assertNotNull(measured) + ("coldReaderVerified" to JsonPrimitive(true)))
+            } finally {
+                r.stop(); r.creation.close(); r.room.roomKey.fill(0)
+                stores.forEach { it.onWrite = {}; it.bytes?.fill(0) }
+                buffers.forEach { it.fill(0) }
+            }
+            assertTrue(buffers.all { bytes -> bytes.all { it == 0.toByte() } })
+            assertTrue(stores.all { it.bytes?.all { value -> value == 0.toByte() } != false })
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+            println("NATIVE_SPEND_RECORDS " + JsonObject(assertNotNull(measured) + ("cleanupVerified" to JsonPrimitive(true))))
+        }
+    }
+
+
+
+    @Test fun active_spend_records_mixed_age_zero() = runTest { activeSpendRecordCases(0) }
+    @Test fun active_spend_records_mixed_age_sixty() = runTest { activeSpendRecordCases(60) }
+    @Test fun active_spend_records_mixed_age_sixty_one() = runTest { activeSpendRecordCases(61) }
+
+    private suspend fun TestScope.activeSpendColdOpen(r: Rig, buffers: MutableList<ByteArray>, stores: List<Store>) {
+                // The courier constructor normally persists its monotonic clock.
+                // Freeze a normal current status before asserting exact cold bytes.
+                val authorityBytes = stores.take(3).map { it.bytes!!.clone().also(buffers::add) }
+                val authorityWrites = stores.take(3).map { it.writes }
+                val queueBefore = Json.parseToJsonElement(r.queueStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                val queueWrites = r.queueStore.writes
+                r.ledger.status()
+                val queueAfter = Json.parseToJsonElement(r.queueStore.bytes!!.toString(Charsets.UTF_8)).jsonObject
+                assertEquals(queueBefore.keys, queueAfter.keys)
+                queueBefore.filterKeys { it != "high" }.forEach { (key, value) -> assertEquals(value, queueAfter.getValue(key)) }
+                assertEquals(currentTime, queueAfter.getValue("high").jsonPrimitive.long)
+                assertEquals(queueWrites + 1, r.queueStore.writes)
+                assertEquals(authorityWrites, stores.take(3).map { it.writes })
+                stores.take(3).zip(authorityBytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                archiveColdOpen(r, buffers, true)
+    }
+
+    private suspend fun TestScope.activeSpendRecordCases(age: Long) {
+        for (target in listOf(253, 254, 255)) {
+            val r = Rig(this, RoomRoute.MIXED, currentTime / 1000)
+            val stores = listOf(r.sourceStore, r.indexStore, r.receiverStore, r.queueStore)
+            val buffers = mutableListOf<ByteArray>()
+            val requests = mutableListOf<NostrEvent>()
+            var measured: JsonObject? = null
+            var rowPrefix = "NATIVE_ACTIVE_SPEND_RECORDS "
+            try {
+                stores.forEach { store ->
+                    store.bytes?.let(buffers::add)
+                    store.onWrite = { store.bytes?.let(buffers::add) }
+                }
+                r.enableReplacement(); r.start(); repeat(4) { r.acknowledge(); runCurrent() }
+                repeat(14) { generation ->
+                    spendRecordRetireNearby(r)
+                    archiveOperation(r) { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+                    assertEquals(generation + 1, r.source.snapshot().invitationGeneration)
+                    assertNull(r.source.snapshot().replacement)
+                }
+                assertEquals(KeeperPhase.ACTIVE, r.source.snapshot().phase)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                advanceTimeBy(61_000); runCurrent()
+                val at = currentTime / 1000
+                val archives = archiveEvents(archiveRecord(r)).map { NostrEvent.fromJson(it.jsonObject.getValue("event")) }
+                assertEquals(14, archives.size)
+                assertTrue(archives.all(Events::verify))
+                assertTrue(archives.all { notice -> r.events(RekeyLane.INTERNET).none { it.id == notice.id } })
+                repeat(14) { index ->
+                    val participantKey = Fixtures.key(40 + index).also(buffers::add)
+                    val deviceKey = Fixtures.key(80 + index).also(buffers::add)
+                    val device = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceKey)
+                    val credential = createDeviceCredential(participantKey, device, r.room.roomId, at + 3600, at)
+                    assertIs<CredentialCheck.Valid>(verifyDeviceCredential(credential, r.room.roomId, at))
+                    assertTrue(credential.pubkey !in archiveRecord(r).getValue("members").jsonArray.map { it.jsonPrimitive.content })
+                    val request = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                        deviceKey, credential, at)
+                    assertTrue(Events.verify(request)); requests += request
+                    val answer = assertNotNull(r.source.answerEpoch(request, RekeyLane.INTERNET))
+                    assertEquals(EpochGrant.Refused("unknown"), decodeEpochGrant(answer.event,
+                        r.room.roomId, r.binding.authority, deviceKey, request.id, at))
+                    spendRecordPublish(r, answer)
+                }
+                // Genuine smaller refusals leave the first request exhausted after three offers.
+                repeat(target - 243) { index ->
+                    spendRecordPublish(r, assertNotNull(r.source.answerEpoch(requests[index / 2], RekeyLane.INTERNET)))
+                }
+                while (spendRecordAttempts(archiveRecord(r)) < 64) {
+                    val before = spendRecordAttempts(archiveRecord(r))
+                    assertNull(r.source.answerEpoch(requests.first(), RekeyLane.INTERNET))
+                    assertEquals(before + 1, spendRecordAttempts(archiveRecord(r)))
+                }
+                val rateBound = r.sourceStore.bytes!!.clone().also(buffers::add)
+                val rateWrites = r.sourceStore.writes
+                assertNull(r.source.answerEpoch(requests.first(), RekeyLane.INTERNET))
+                assertTrue(rateBound.contentEquals(r.sourceStore.bytes))
+                assertEquals(rateWrites, r.sourceStore.writes)
+                var nearby = spendRecordRows(archiveRecord(r)).count { it.jsonObject["lane"] == JsonPrimitive("NEARBY") }
+                assertEquals(14, nearby)
+                for (notice in archives) repeat(7) {
+                    if (nearby < 39) {
+                        spendRecordPublish(r, assertNotNull(r.source.reserveRetirement(notice.id, RekeyLane.NEARBY)))
+                        nearby++
+                    }
+                }
+                assertEquals(39, nearby)
+                var remainingInternet = 112
+                var constructionFailure: JsonObject? = null
+                for (notice in archives) repeat(8) {
+                    if (remainingInternet > 0 && constructionFailure == null) {
+                        val frozen = stores.map { it.bytes!!.clone().also(buffers::add) }
+                        val writes = stores.map { it.writes }
+                        val offers = RekeyLane.entries.associateWith { r.events(it).size }
+                        val before = archiveRecord(r)
+                        val reserved = r.source.reserveRetirement(notice.id, RekeyLane.INTERNET)
+                        if (reserved != null) {
+                            spendRecordPublish(r, reserved); remainingInternet--
+                        } else {
+                            assertEquals(255, target)
+                            assertTrue(Events.verify(notice))
+                            val kept = archiveEvents(before).single { it.jsonObject.getValue("event") == notice.toJson() }.jsonObject
+                            val attempts = kept.getValue("attempts").jsonObject["INTERNET:${notice.id}"]?.jsonPrimitive?.int ?: 0
+                            assertTrue(attempts < 8)
+                            val debt = spendRecordRows(before).filter { it.jsonObject["lane"] == JsonPrimitive("INTERNET") }
+                                .sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
+                            val eventBytes = notice.toJson().toString().toByteArray(Charsets.UTF_8).size
+                            assertTrue(debt <= 65536 && debt + eventBytes > 65536)
+                            assertEquals(253, spendRecordRows(before).size)
+                            assertEquals(14, spendRecordRows(before).count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean })
+                            assertNotNull(r.source.preflightReplacement(r.index))
+                            assertEquals(writes, stores.map { it.writes })
+                            stores.zip(frozen).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                            assertTrue(RekeyLane.entries.all { r.events(it).size == offers.getValue(it) })
+                            constructionFailure = buildJsonObject {
+                                put("requestedAgeSeconds", age); put("observedAgeSeconds", 0)
+                                put("targetSpends", target); put("encodedSpends", spendRecordRows(before).size)
+                                put("freshAtGate", 14); put("nullAttempts", spendRecordAttempts(before))
+                                put("nearbyRecords", nearby); put("internetRecords", spendRecordRows(before).count { it.jsonObject["lane"] == JsonPrimitive("INTERNET") })
+                                put("internetBytes", debt); put("attemptedEventBytes", eventBytes); put("lifetimeAttempts", attempts)
+                                put("constructionComplete", false); put("boundaryMeasured", false); put("expiryMeasured", false)
+                                put("limitingGate", "internet-byte-budget"); put("replacementPreflightEligible", true)
+                                put("factoryEntries", 0); put("sourceWrites", 0); put("indexWrites", 0)
+                                put("receiverWrites", 0); put("courierWrites", 0); put("newOffers", 0)
+                                put("sourceJsonEdited", false); put("fullCapacityQualified", false)
+                                put("physicalTransport", false); put("participantReceipt", false)
+                            }
+                        }
+                    }
+                }
+                if (constructionFailure != null) {
+                    assertEquals(2, remainingInternet)
+                    activeSpendColdOpen(r, buffers, stores)
+                    assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, r.live))
+                    assertEquals(14, r.source.snapshot().invitationGeneration)
+                    val frozen = stores.map { it.bytes!!.clone().also(buffers::add) }
+                    archiveColdOpen(r, buffers, false)
+                    stores.zip(frozen).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                    measured = JsonObject(constructionFailure!! + ("coldReaderVerified" to JsonPrimitive(true)))
+                    rowPrefix = "NATIVE_ACTIVE_SPEND_CONSTRUCTION "
+                } else {
+                    assertEquals(0, remainingInternet)
+                val constructed = archiveRecord(r)
+                assertEquals(target, spendRecordRows(constructed).size)
+                assertEquals(64, spendRecordAttempts(constructed))
+                assertEquals(14, spendRecordRows(constructed).count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean })
+                assertEquals(14, constructed.getValue("answers").jsonArray.size)
+                assertTrue(constructed.getValue("answers").jsonArray.all {
+                    Events.verify(NostrEvent.fromJson(it.jsonObject.getValue("request"))) &&
+                        Events.verify(NostrEvent.fromJson(it.jsonObject.getValue("answer")))
+                })
+                advanceTimeBy(age * 1000); runCurrent()
+                activeSpendColdOpen(r, buffers, stores)
+                assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, r.live))
+                r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                assertTrue(r.source.courierReady())
+                assertTrue(r.source.snapshot().pending.isEmpty()); assertNull(r.source.snapshot().replacement)
+                val before = archiveRecord(r)
+                val bytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                val writes = stores.map { it.writes }
+                val offers = RekeyLane.entries.associateWith { r.events(it).size }
+                val now = currentTime / 1000
+                val retained = spendRecordRows(before).filter {
+                    val row = it.jsonObject
+                    now - row.getValue("at").jsonPrimitive.long <= if (row["lane"] == JsonPrimitive("NEARBY")) 3720 else 60
+                }
+                val fresh = retained.count { it.jsonObject.getValue("fresh").jsonPrimitive.boolean }
+                val eligible = retained.size + 2 <= 256
+                assertEquals(target, spendRecordRows(before).size)
+                assertEquals(if (age <= 60) target else 39, retained.size)
+                assertEquals(if (age <= 60) 14 else 0, fresh)
+                assertTrue(fresh + 2 <= 16, "Signing must independently permit this spend measurement")
+                for (lane in RekeyLane.entries) {
+                    val debt = retained.filter { it.jsonObject["lane"] == JsonPrimitive(lane.name) }
+                        .sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int }
+                    assertTrue(debt <= if (lane == RekeyLane.NEARBY) 16384 else 65536)
+                }
+                assertTrue(bytes.first().size < NativeKeeperJournal.MAX_FILE_BYTES)
+                val currentInvitation = r.source.invitation()
+                buffers += currentInvitation.bearer
+                val currentInvitationId = deriveInvitationId(currentInvitation)
+                val counts = ArchiveFactories()
+                if (eligible) {
+                    val proposal = r.source.preflightReplacement(r.index)
+                    assertNotNull(proposal)
+                    assertEquals(writes, stores.map { it.writes })
+                    stores.zip(bytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                    archivePrepareCounted(r, counts, buffers)
+                    assertEquals(1, counts.bearer); assertEquals(1, counts.welcome); assertEquals(1, counts.retirement)
+                    val after = archiveRecord(r)
+                    val pending = after.getValue("replacement").jsonObject
+                    val notice = NostrEvent.fromJson(pending.getValue("retirement"))
+                    val welcome = NostrEvent.fromJson(pending.getValue("proposed").jsonObject.getValue("welcome"))
+                    assertTrue(Events.verify(notice)); assertTrue(Events.verify(welcome))
+                    assertEquals(currentInvitationId, notice.tagValue("d"))
+                    assertTrue(archiveEvents(before).none { it.jsonObject.getValue("event") == notice.toJson() })
+                    assertTrue(notice.toJson().toString().toByteArray().size <= NativeKeeperJournal.MAX_EVENT_BYTES)
+                    assertTrue(welcome.toJson().toString().toByteArray().size <= NativeKeeperJournal.MAX_EVENT_BYTES)
+                    assertEquals(retained, spendRecordRows(after).dropLast(2))
+                    assertEquals(retained.size + 2, spendRecordRows(after).size)
+                    for (key in listOf("answers", "retirements", "invitationHistory")) assertEquals(before.getValue(key), after.getValue(key))
+                    assertEquals(listOf(1, 0, 0, 0), stores.zip(writes).map { (store, count) -> store.writes - count })
+                } else {
+                    val error = assertFailsWith<IllegalArgumentException> { r.source.preflightReplacement(r.index) }
+                    assertEquals("Replacement exceeds source signing/spending budget", error.message)
+                    assertEquals(0, counts.bearer); assertEquals(0, counts.welcome); assertEquals(0, counts.retirement)
+                    assertEquals(writes, stores.map { it.writes })
+                    stores.zip(bytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                }
+                assertTrue(RekeyLane.entries.all { r.events(it).size == offers.getValue(it) })
+                val after = archiveRecord(r)
+                measured = buildJsonObject {
+                    put("route", "mixed"); put("phase", "ACTIVE"); put("generation", 14)
+                    put("ageSeconds", age); put("encodedSpends", target); put("unexpiredSpends", retained.size)
+                    put("freshAtGate", fresh); put("replacementCost", 2); put("spendLimit", 256)
+                    put("eligible", eligible); put("resultSpends", spendRecordRows(after).size)
+                    put("bearerFactoryEntries", counts.bearer); put("welcomeFactoryEntries", counts.welcome)
+                    put("retirementFactoryEntries", counts.retirement); put("sourceWrites", r.sourceStore.writes - writes[0])
+                    put("indexWrites", 0); put("receiverWrites", 0); put("courierWrites", 0); put("newOffers", 0)
+                    put("sourceBytesBefore", bytes.first().size); put("sourceBytesAfter", r.sourceStore.bytes!!.size)
+                    put("cachedAnswers", 14); put("refusedAnswers", 14); put("archives", 14); put("history", 14)
+                    put("nearbyBytes", retained.filter { it.jsonObject["lane"] == JsonPrimitive("NEARBY") }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int })
+                    put("internetBytes", retained.filter { it.jsonObject["lane"] == JsonPrimitive("INTERNET") }.sumOf { it.jsonObject.getValue("bytes").jsonPrimitive.int })
+                    put("normalGuardedConstruction", true); put("sourceJsonEdited", false)
+                    put("participantReceipt", false); put("processDeath", false); put("physicalTransport", false)
+                    put("fullCapacityQualified", false); put("totalAuxiliaryEntropyMeasured", false)
+                }
+                val resultBytes = stores.map { it.bytes!!.clone().also(buffers::add) }
+                archiveColdOpen(r, buffers, false)
+                stores.zip(resultBytes).forEach { (store, exact) -> assertTrue(exact.contentEquals(store.bytes)) }
+                assertEquals(eligible, r.source.snapshot().replacement != null)
+                assertEquals(14, r.source.snapshot().invitationGeneration)
+                measured = JsonObject(assertNotNull(measured) + ("coldReaderVerified" to JsonPrimitive(true)))
+                }
+            } finally {
+                r.stop(); r.creation.close(); r.room.roomKey.fill(0)
+                stores.forEach { it.onWrite = {}; it.bytes?.fill(0) }
+                buffers.forEach { it.fill(0) }
+            }
+            assertTrue(buffers.all { bytes -> bytes.all { it == 0.toByte() } })
+            assertTrue(stores.all { it.bytes?.all { value -> value == 0.toByte() } != false })
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+            println(rowPrefix + JsonObject(assertNotNull(measured) + ("cleanupVerified" to JsonPrimitive(true))))
+        }
+    }
+
+    @Test fun active_spend_minimum_source_event_kinds_and_current_operation_upper_bounds() = runTest {
+        val sizes = linkedMapOf<String, Int>()
+        for (kind in listOf("retirement", "rekey", "welcome", "invitation-answer", "epoch-refusal", "epoch-current")) {
+            assertEquals(0, currentTime)
+            val r = Rig(this, RoomRoute.MIXED, 0)
+            val stores = listOf(r.sourceStore, r.indexStore, r.receiverStore, r.queueStore)
+            val buffers = mutableListOf<ByteArray>()
+            try {
+                stores.forEach { store -> store.bytes?.let(buffers::add); store.onWrite = { store.bytes?.let(buffers::add) } }
+                r.enableReplacement(); r.start(); repeat(4) { r.acknowledge(); runCurrent() }
+                val event = when (kind) {
+                    "retirement" -> r.source.prepareRetirement()
+                    "rekey" -> r.source.prepareRekey(listOf(r.owner.credential)).single()
+                    "welcome" -> NostrEvent.fromJson(archiveRecord(r).getValue("welcome"))
+                    "invitation-answer" -> {
+                        val device = Fixtures.key(31).also(buffers::add)
+                        val request = encodeLivePersistentRequest(LivePersistentContext(r.invitation, r.room.roomId), device, 0)
+                        assertNotNull(r.source.answer(request, RekeyLane.INTERNET)).event
+                    }
+                    else -> {
+                        val device = Fixtures.key(80).also(buffers::add)
+                        val pubkey = dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(device)
+                        val credential = if (kind == "epoch-refusal") {
+                            val participant = Fixtures.key(40).also(buffers::add)
+                            createDeviceCredential(participant, pubkey, r.room.roomId, 3600, 0)
+                        } else r.owner.enrol(pubkey, r.room.roomId, 3600, 0)
+                        val request = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey, device, credential, 0)
+                        val answer = assertNotNull(r.source.answerEpoch(request, RekeyLane.INTERNET)).event
+                        val decoded = decodeEpochGrant(answer, r.room.roomId, r.binding.authority, device, request.id, 0)
+                        if (kind == "epoch-refusal") assertEquals(EpochGrant.Refused("unknown"), decoded)
+                        else { val current = assertIs<EpochGrant.Current>(decoded); assertEquals(0, current.epoch); assertNull(current.secret) }
+                        answer
+                    }
+                }
+                assertTrue(Events.verify(event))
+                val bytes = event.toJson().toString().toByteArray(Charsets.UTF_8).size
+                assertTrue(bytes <= NativeKeeperJournal.MAX_EVENT_BYTES)
+                if (kind == "rekey") assertEquals(rekeyEventBytes(r.room.roomId, r.binding.authority, 1,
+                    listOf(r.owner.devicePubkey), emptyList(), 0, commit = true, members = listOf(r.owner.participant)), bytes)
+                sizes[kind] = bytes
+            } finally {
+                r.stop(); r.creation.close(); r.room.roomKey.fill(0)
+                stores.forEach { it.onWrite = {}; it.bytes?.fill(0) }; buffers.forEach { it.fill(0) }
+            }
+            assertTrue(buffers.all { bytes -> bytes.all { it == 0.toByte() } })
+            assertTrue(stores.all { it.bytes?.all { value -> value == 0.toByte() } != false })
+            assertFalse(NativeKeeperJournal.hasActiveOwners())
+        }
+        assertEquals(417, sizes.getValue("retirement"))
+        val minimumOther = sizes.filterKeys { it != "retirement" }.values.min()
+        assertTrue(sizes.values.all { it >= 417 })
+        val nearbyRecords = 16384 / 417
+        val internetRecords = 65536 / 417
+        assertEquals(39, nearbyRecords); assertEquals(157, internetRecords)
+        assertTrue(64 + 16 + nearbyRecords < 256 && 64 + 16 + internetRecords < 256)
+        println("NATIVE_ACTIVE_SPEND_MINIMUM_KINDS " + buildJsonObject {
+            put("eventBytes", buildJsonObject { sizes.forEach { (kind, bytes) -> put(kind, bytes) } })
+            put("minimumRetirementBytes", sizes.getValue("retirement")); put("minimumOtherBytes", minimumOther)
+            put("minimumLaneEventBytes", 417); put("nearbyRecordsUpperBound", nearbyRecords)
+            put("internetRecordsUpperBound", internetRecords)
+            put("activeNearbyRecordsUpperBound", 64 + 14 + nearbyRecords); put("activeInternetOnlyRecordsUpperBound", 64 + 14 + internetRecords)
+            put("retiredNearbyRecordsUpperBound", 64 + 15 + nearbyRecords); put("retiredInternetOnlyRecordsUpperBound", 64 + 15 + internetRecords)
+            put("anyPhaseNearbyEncodedRecordsUpperBound", 64 + 16 + nearbyRecords)
+            put("anyPhaseInternetEncodedRecordsUpperBound", 64 + 16 + internetRecords)
+            put("currentCanonicalOperationScope", true); put("legacyHistoricalProvenanceQualified", false)
+            put("activeMixedAboveLimitReachabilityProved", false)
+            put("fullCapacityQualified", false); put("cleanupVerified", true); put("physicalTransport", false)
+        })
+    }
+
 }

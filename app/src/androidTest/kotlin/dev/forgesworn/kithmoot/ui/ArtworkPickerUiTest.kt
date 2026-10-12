@@ -8,6 +8,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import org.json.JSONObject
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.runtime.*
@@ -39,10 +42,41 @@ class ArtworkPickerUiTest {
         bitmap.recycle()
     }
 
-    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false) {
+    private fun observeMediaTabFailure(scenario: ActivityScenario<MainActivity>, tap: ArtworkTapProbe) {
+        // Observe the synthetic fixture before ActivityScenario tears it down.
+        // Diagnostics cannot replace the original ten-second UI failure.
+        runCatching {
+            val observation = JSONObject()
+            scenario.onActivity { activity ->
+                observation.put("imeVisible", activity.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()))
+                observation.put("orientation", activity.resources.configuration.orientation)
+            }
+            observation.put("stickersExists", runCatching {
+                ui.onNodeWithText("Stickers").fetchSemanticsNode(); true
+            }.getOrDefault(false))
+            observation.put("stickersDisplayed", runCatching {
+                ui.onNodeWithText("Stickers").isDisplayed()
+            }.getOrDefault(false))
+            observation.put("pickerExists", runCatching {
+                ui.onNodeWithContentDescription("Close artwork picker").fetchSemanticsNode(); true
+            }.getOrDefault(false))
+            observation.put("tap", tap.snapshot())
+            observation.put("composerFocused", runCatching {
+                ui.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().any {
+                    it.config.getOrNull(SemanticsProperties.Focused) == true
+                }
+            }.getOrNull() ?: JSONObject.NULL)
+            val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+            File(folder, "media-tabs-failure.json").writeText(observation.toString())
+        }
+        runCatching { capture("media-tabs-failure") }
+    }
+
+    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false, tap: ArtworkTapProbe? = null) {
         scenario.onActivity { activity -> activity.setContent { KithMootTheme {
             var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
-            ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") }, Modifier.fillMaxSize().systemBarsPadding(),
+            ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
+                Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
                 onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
                 onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
                 internetAllowed = !offline, torOnly = offline)
@@ -156,20 +190,29 @@ class ArtworkPickerUiTest {
 
     @Test fun local_media_preview_stages_an_offline_reference_without_storage_or_send() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            mount(scenario, offline = true)
+            val tap = ArtworkTapProbe()
+            mount(scenario, offline = true, tap = tap)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
+            val opener = ui.onNodeWithContentDescription("Emoji")
+            val pickerExists = runCatching {
+                ui.onNodeWithContentDescription("Close artwork picker").fetchSemanticsNode(); true
+            }.getOrDefault(false)
+            tap.prepare(opener.fetchSemanticsNode(), pickerExists)
             waitForKeyboard(scenario)
-            ui.onNodeWithContentDescription("Emoji").performClick()
+            opener.performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
             try {
                 ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
-            } catch (failure: ComposeTimeoutException) {
-                // ActivityScenario closes the activity during unwinding. The
-                // runner's later screenshot only shows Home, losing the
-                // actual keyboard/tray state that caused this failure.
+            } catch (error: ComposeTimeoutException) {
+                observeMediaTabFailure(scenario, tap)
                 runCatching { captureCurrentFrame("offline-tabs-timeout") }
-                throw failure
+                throw error
+            }
+            runCatching {
+                val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+                File(folder, "media-tabs-success.json").writeText(
+                    JSONObject().put("stickersDisplayed", true).put("tap", tap.snapshot()).toString())
             }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")

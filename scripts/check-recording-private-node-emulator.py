@@ -20,6 +20,7 @@ import time
 import urllib.request
 
 from recording_private_node_proxy import RecordingNodeProxy
+from recording_failure_diagnostics import collect_failure
 
 
 def required(name):
@@ -84,6 +85,7 @@ def main():
     result_path = reports / "result.json"
     # A reused reports directory must not retain success from an earlier run.
     result_path.unlink(missing_ok=True)
+    (reports / "failure.json").unlink(missing_ok=True)
     result = None
 
     def device(*args, **kwargs):
@@ -102,6 +104,7 @@ def main():
     instrumentation = None
     proxy = None
     reverse_created = False
+    phase = "fixture-setup"
     with tempfile.TemporaryDirectory(prefix="kithmoot-private-node-ui-") as scratch_name:
         scratch = Path(scratch_name)
         config = scratch / "openssl.cnf"
@@ -154,6 +157,7 @@ extendedKeyUsage = serverAuth
                     "separate_process_recipient_receives_and_plays_without_sender_memory",
                     "dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner"],
                     stdout=log, stderr=subprocess.STDOUT)
+                phase = "storage-key-authorisation"
                 deadline = time.monotonic() + 90
                 public_key = None
                 while instrumentation.poll() is None and time.monotonic() < deadline:
@@ -170,6 +174,7 @@ extendedKeyUsage = serverAuth
                     raise RuntimeError("UI did not reach storage-key authorisation checkpoint")
                 env = {k: v for k, v in os.environ.items() if not k.startswith("WILDBLOOM_")}
                 env["RUST_LOG"] = "warn"
+                phase = "daemon-startup"
                 with (reports / "daemon.log").open("wb") as daemon_log:
                     daemon = subprocess.Popen([
                         str(binary), "--no-tor", "--bind", f"127.0.0.1:{backend_port}",
@@ -191,16 +196,20 @@ extendedKeyUsage = serverAuth
                     if not ready:
                         raise RuntimeError("Private daemon did not become ready")
                     device("shell", "run-as", "dev.forgesworn.kithmoot", "touch", fixture_path + "/node-ready")
+                    phase = "recipient-ui-and-transfer"
                     instrumentation.wait(timeout=1500 if host_mode else 180)
+            phase = "report-validation"
             output = (reports / "instrumentation.txt").read_text()
             if instrumentation.returncode != 0 or not re.search(r"^OK \(1 tests?\)$", output, re.M) or re.search(
                     r"FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|AssumptionViolated|INSTRUMENTATION_STATUS_CODE: -3", output):
                 raise RuntimeError("Real-node recipient UI failed; inspect instrumentation report")
+            phase = "response-validation"
             responses = proxy.snapshot()["responses"] if host_mode else device(
                 "shell", "run-as", "dev.forgesworn.kithmoot", "cat",
                 fixture_path + "/node-responses.txt").stdout.decode().splitlines()
             if responses != ["PUT 201", "GET 200"]:
                 raise RuntimeError("Expected one real-node PUT 201 then GET 200")
+            phase = "recipient-identity-validation"
             sender_pid = int(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
                                     fixture_path + "/sender-process.txt").stdout.decode())
             recipient = json.loads(device("shell", "run-as", "dev.forgesworn.kithmoot", "cat",
@@ -214,6 +223,15 @@ extendedKeyUsage = serverAuth
                       "proxy_chunk_delay_seconds": delay,
                       "responses": responses, "sample_sha256": digest(sample),
                       "daemon_sha256": digest(binary), "report_sha256": digest(reports / "instrumentation.txt")}
+        except BaseException as primary_error:
+            try:
+                diagnostics = collect_failure(adb, serial, phase, primary_error,
+                                              instrumentation.poll() if instrumentation else None)
+                (reports / "failure.json").write_text(json.dumps(diagnostics, indent=2) + "\n")
+            except BaseException as diagnostic_error:
+                print("Could not save recording failure diagnostics: " + type(diagnostic_error).__name__,
+                      file=sys.stderr)
+            raise
         finally:
             active_error = sys.exc_info()[0] is not None
             cleanup_codes = {}

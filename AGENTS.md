@@ -25,9 +25,15 @@ is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and
 `feat/native-rekey-preflight`, `feat/native-host-controls` and
 `feat/native-rekey-interruption`, `feat/native-host-status`, `feat/native-member-controls` and `feat/native-retirement-store`, `feat/native-invitation-controls`, `feat/native-pending-recovery`, `feat/native-retirement-restart`, `feat/native-retirement-refusal`
-and `feat/native-invitation-replacement`
-(`.github/workflows/ci.yml`). The feature branch triggers run the same four
-hosted gates without requiring PR creation.
+and `feat/native-invitation-replacement`, `feat/native-invitation-generation-storage`, `feat/native-invitation-replacement-restart`, `feat/native-invitation-sharing-read`, `feat/native-replacement-restart-index-digest`, `feat/native-replacement-pending-store-refusal`, `feat/native-pending-store-admission-integration`
+and `feat/native-link-route-read`, `feat/native-keeper-rekey-echo`, `feat/native-replacement-capacity`, `feat/native-pending-proof-report`, `feat/native-receiver-key-observation`, `feat/native-receiver-main-integration`, `feat/native-guest-preview-gate`, `feat/native-receiver-observer-variants`, `feat/native-replacement-archive`, `feat/native-replacement-envelope`, `feat/native-missing-index`, `feat/native-receiver-caller-bound`, `feat/native-atomic-file-overlap`, `feat/native-atomic-file-overlap-reporting`, `feat/native-replacement-spend-records`, `feat/native-active-spend-records`, `feat/native-hybrid-main-integration`, `feat/native-hybrid-logo-editor`, `feat/native-hybrid-project-logo`, `feat/native-atomic-file-serialization`, `feat/native-hybrid-current-integration`
+(`.github/workflows/ci.yml`). The pending-store branches add five independently required cold-refusal shards.
+The feature branch triggers retain the original gates without requiring PR creation. The current integrated workflow
+requires all 16 executed jobs: verify, separate APK packaging, two recovery
+matrix values, five
+pending shards, two signing lineage checks and five recording matrix jobs.
+Packaging requires verify and every APK consumer requires packaging; all
+artifacts come from the same run and commit.
 
 ## Structure
 
