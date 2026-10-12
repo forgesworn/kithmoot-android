@@ -39,6 +39,19 @@
   "limitations": [
     "Observation does not establish the cause of the transport timeout",
     "Original journal and pending withdrawal retained; no re-pairing or automatic enqueue claimed",
-    "Queue custody is not authenticated relay delivery"
+    "Queue custody is not authenticated relay delivery",
+    "Explicit follow-up phases passed on unchanged recorded APKs; the original complete driver remains failed"
+  ],
+  "follow_up": [
+    {
+      "action": "explicit_withdrawal_retry_after_transport_failure",
+      "passed": true,
+      "log_sha256": "b79da6309742c3b5230e646cb2d8d28a1c249de4e3c94abddbae32e36f47856c"
+    },
+    {
+      "action": "exact_replay_after_node_and_android_process_restart",
+      "passed": true,
+      "log_sha256": "01e01578cc1122061683c1e9089181423d22e5561329a3409c3dd2a5e9a7cffd"
+    }
   ]
 }

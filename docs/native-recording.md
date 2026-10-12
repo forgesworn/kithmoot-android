@@ -26,6 +26,10 @@ passed queue acceptance but failed withdrawal with a Link request timeout; node
 restart and replay were not reached. The node relay reported session replacement
 during Android reconnection. This is an investigation lead, not an established
 cause or a successful restart qualification.
+An explicit follow-up withdrawal retry and exact replay after node and Android
+process restart both passed on the unchanged, recorded APKs. The retained
+original binding recovered; the initial complete driver still failed, and these
+follow-up phases do not establish reliable first-request reconnection.
 
 An earlier complete [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
 passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
