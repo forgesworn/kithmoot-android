@@ -237,6 +237,26 @@ extendedKeyUsage = serverAuth
                     process.wait(timeout=10)
 
             if instrumentation is not None:
+                # Preserve evidence before force-stop removes the failing
+                # process. An ADB stream can end without a JUnit result when
+                # the app crashes or is killed; its partial output alone
+                # cannot identify the cause. These are disposable fixtures.
+                if active_error:
+                    for label, arguments in (
+                        ("failure-logcat", ["logcat", "-d", "-t", "12000"]),
+                        ("failure-processes", ["shell", "ps", "-A"]),
+                        ("failure-exit-info", ["shell", "dumpsys", "activity", "exit-info",
+                                               "dev.forgesworn.kithmoot"]),
+                    ):
+                        try:
+                            with (reports / f"{label}.txt").open("wb") as diagnostic:
+                                subprocess.run([adb, "-s", serial, *arguments],
+                                               stdout=diagnostic, stderr=subprocess.STDOUT,
+                                               timeout=10, check=False)
+                        except (OSError, subprocess.TimeoutExpired):
+                            # Diagnostics must not replace the original
+                            # failure or prevent fixture cleanup.
+                            pass
                 # ADB may exit while its on-device instrumentation still runs.
                 cleanup_codes["app_force_stop"] = attempt("app_force_stop", lambda: subprocess.run(
                     [adb, "-s", serial, "shell", "am", "force-stop", "dev.forgesworn.kithmoot"],
