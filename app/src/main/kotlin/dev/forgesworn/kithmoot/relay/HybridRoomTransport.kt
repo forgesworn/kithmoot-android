@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Participant-owned fanout over two explicitly authorised lanes. Receiving
  * somebody else's event never forwards it. The caller owns lane lifecycles. */
 class HybridRoomTransport(private val nearby: RoomTransport, private val internet: RoomTransport,
-    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }) : RoomTransport {
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }) : BoundedRoomTransport {
     private val lock = Any()
     private val generation = AtomicLong()
     @Volatile private var blocked = false
@@ -42,7 +42,15 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         publishConfirmedGuarded(event, generation.get(), { true }, timeoutMs)
 
     override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, stillAllowed, timeoutMs, null)
+
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, { stillAllowed() && nowSeconds() < publishBefore }, timeoutMs, publishBefore)
+
+    private suspend fun publishGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?): Boolean {
         val offered = synchronized(lock) {
             if (blocked || this.generation.get() != generation || !stillAllowed()) return false
             try { nearby.publish(event); true }
@@ -51,8 +59,9 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
             catch (_: Exception) { true } // A failed handoff may still have offered on Nearby.
         }
         val accepted = try {
-            internet.publishConfirmedGuarded(event, internet.publicationGeneration(),
-                { !blocked && this.generation.get() == generation && stillAllowed() }, timeoutMs)
+            val allowed = { !blocked && this.generation.get() == generation && stillAllowed() }
+            if (publishBefore == null) internet.publishConfirmedGuarded(event, internet.publicationGeneration(), allowed, timeoutMs)
+            else internet.publishConfirmedBounded(event, internet.publicationGeneration(), publishBefore, allowed, timeoutMs)
         } catch (cancel: CancellationException) { throw cancel
         } catch (error: Exception) {
             if (offered) throw PublicationUnconfirmedException()

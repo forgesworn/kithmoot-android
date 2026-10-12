@@ -61,6 +61,7 @@ import dev.forgesworn.kithmoot.epoch.EpochVault
 import dev.forgesworn.kithmoot.epoch.EpochPhase
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import kotlinx.coroutines.CoroutineScope
@@ -1342,7 +1343,9 @@ class RoomSession(
         check(at < originalDeadline) { "This recording's original signed authority has expired" }
         val credentialDeadline = identity.credential.tagValue("expiration")?.toLongOrNull() ?: 0L
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
-        val confirmed = transport.publishConfirmedGuarded(prepared.pending.event, transport.publicationGeneration(), {
+        val confirmed = transport.publishConfirmedBounded(prepared.pending.event, transport.publicationGeneration(),
+            minOf(originalDeadline, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
+                prepared.pending.event.createdAt + CHAT_RETENTION_SECONDS), {
             trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
                 now() < originalDeadline &&
                 now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
@@ -1444,7 +1447,9 @@ class RoomSession(
         val accessDeadline = policy?.takeIf { it.tier != KindredTier.OPEN }
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
-            val confirmed = transport.publishConfirmedGuarded(event, generation, {
+            val confirmed = transport.publishConfirmedBounded(event, generation,
+                minOf(originalDeadline, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
+                    event.createdAt + CHAT_RETENTION_SECONDS), {
                 trafficAllowed() && epochKeys().id == item.epochId && now() < originalDeadline && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)

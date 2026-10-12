@@ -10,6 +10,8 @@ import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.BoundedRoomTransport
+import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
 import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import kotlinx.coroutines.CancellationException
@@ -77,7 +79,7 @@ class QuietTransport(
      * box owns this phone's cadence for that epoch, so the phone emits no
      * competing filler or real wrap. */
     private val reservedCounters: (Long) -> Set<Int> = { emptySet() },
-) : RoomTransport {
+) : BoundedRoomTransport {
 
     companion object {
         const val SLOT_SECONDS: Long = 300
@@ -134,7 +136,7 @@ class QuietTransport(
     private val queue = ArrayDeque<NostrEvent>()
     private val boxPending = mutableSetOf<String>()
     private class GuardedPublication(val event: NostrEvent, val generation: Long,
-        val innerGeneration: Long, val stillAllowed: () -> Boolean) {
+        val innerGeneration: Long, val stillAllowed: () -> Boolean, val publishBefore: Long? = null) {
         val receipt = CompletableDeferred<Boolean>()
         @Volatile var attempted = false
     }
@@ -375,13 +377,24 @@ class QuietTransport(
      * event's wrap to be accepted. No guarded request survives cancellation,
      * timeout, stop or restart; its caller retains the retry authority. */
     override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, stillAllowed, timeoutMs, null)
+
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, { stillAllowed() && now() < publishBefore }, timeoutMs, publishBefore)
+
+    private suspend fun publishGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?): Boolean {
         require(timeoutMs > 0)
         if (stopped || publicationBlocked || generation != this.generation.get() || !stillAllowed())
             throw PublicationNotOfferedException()
         val innerGeneration = inner.publicationGeneration()
-        if (event.kind !in quietKinds) return inner.publishConfirmedGuarded(event, innerGeneration,
-            { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }, timeoutMs)
+        if (event.kind !in quietKinds) {
+            val allowed = { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }
+            return if (publishBefore == null) inner.publishConfirmedGuarded(event, innerGeneration, allowed, timeoutMs)
+            else inner.publishConfirmedBounded(event, innerGeneration, publishBefore, allowed, timeoutMs)
+        }
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
         val request = synchronized(queue) {
@@ -390,7 +403,7 @@ class QuietTransport(
             if (event.id in confirmedGuarded) return true
             check(queue.none { it.id == event.id }) { "This event already has a quiet publication owner" }
             check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            GuardedPublication(event, generation, innerGeneration, stillAllowed).also {
+            GuardedPublication(event, generation, innerGeneration, stillAllowed, publishBefore).also {
                 guarded[event.id] = it
                 queue.addLast(event)
             }
@@ -485,7 +498,9 @@ class QuietTransport(
                 if (guard == null) inner.publishConfirmed(built.wrap)
                 else {
                     guard.attempted = true
-                    inner.publishConfirmedGuarded(built.wrap, guard.innerGeneration, { allowed(guard) })
+                    val deadline = guard.publishBefore
+                    if (deadline == null) inner.publishConfirmedGuarded(built.wrap, guard.innerGeneration, { allowed(guard) })
+                    else inner.publishConfirmedBounded(built.wrap, guard.innerGeneration, deadline, { allowed(guard) }, 15_000)
                 }
             } catch (cancel: CancellationException) { throw cancel
             } catch (_: Exception) { false }
