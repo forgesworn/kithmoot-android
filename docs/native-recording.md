@@ -13,6 +13,11 @@ not match its offer. The [local negotiation diagnostic](evidence/native-recordin
 instead recorded matching section order and `sendrecv` directions throughout,
 but no delivered video sink frames or native encoding progress. Neither failure
 is resolved or explained by this diagnostic; live capture/export remains open.
+The [production track-set harness follow-up](evidence/native-recording-production-track-set-2026-10-12.json)
+supplies the local sender IDs as `WebRtcEngine` does. One local run passed live
+video exchange, camera replacement and both exported audio tone assertions,
+then failed because both decoded gallery camera regions were black. This does
+not qualify export or establish that earlier signalling failures are resolved.
 
 The [paired custody observation](evidence/native-recording-paired-custody-observation-2026-10-12.json)
 records real JNI/Link queue acceptance, a deliberately lost withdrawal reply,

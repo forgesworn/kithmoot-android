@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "inputs": {
+    "apk_sha256": [
+      "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+      "e1118737a9dc40a7330db5d6004d8d27a1a67e36c8a8ec1973e8fa8a74d82d59"
+    ],
+    "source_sha256": "3d4b41bcc0460611b00e8d5aed349b62b2560915ef3129c36f687d6f5425b19f"
+  },
+  "test": "BrowserCallInteropTest.nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+  "change": "Harness supplies sender-owned local track IDs as WebRtcEngine does; camera replacement failures retain bounded section diagnostics",
+  "build": "assembleDebugAndroidTest passed",
+  "observations": {
+    "video_exchange_prerequisite_passed": true,
+    "camera_replacement_assertions_passed": true,
+    "exported_local_and_remote_audio_tone_assertions_passed": true,
+    "at_least_one_second_of_video_decoded": true,
+    "camera_picture_assertion_passed": false,
+    "settled_camera_luma": [
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        16,
+        16
+      ]
+    ]
+  },
+  "log_sha256": "97cde7aefa740815ab7a09fff7ee4e723f52bca87276ebdb3ec38b547e528f8c",
+  "limitations": [
+    "One local run does not establish resolution of earlier signalling or media failures",
+    "Both exported camera regions were black; live gallery export remains unqualified",
+    "No production code changed or physical device acceptance claimed"
+  ]
+}

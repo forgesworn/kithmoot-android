@@ -371,7 +371,10 @@ class BrowserCallInteropTest {
         link = PeerLink(
             localDevice = (if (nativeLow) "11" else "22").repeat(32),
             remoteDevice = (if (nativeLow) "22" else "11").repeat(32),
-            connection = WebRtcPeerConnection(pc, ::bindReceivedVideo),
+            connection = WebRtcPeerConnection(pc, ::bindReceivedVideo,
+                // Match WebRtcEngine's sender-owned track set. Without it a
+                // repeated unchanged offer cannot replay its original answer.
+                localMedia = { setOf(video.id(), audio.id()) }),
             roomId = "33".repeat(32),
             send = { signal ->
                 rememberSections("native", signal.type, signal.sdp)
@@ -495,7 +498,7 @@ class BrowserCallInteropTest {
             js("window.changeCamera().catch(e=>Native.failure(String(e)))")
             val changeDeadline = SystemClock.elapsedRealtime() + 20_000
             while (SystemClock.elapsedRealtime() < changeDeadline) {
-                failure.get()?.let { fail(it) }
+                failure.get()?.let { fail("$it; signal sections=${sectionHistory.toList()}") }
                 bindReceivedVideo()
                 if (expectedCamera.get() != originalCamera && nativeVideo.get() > beforeFrames + 30 && receivedCamera.get() == expectedCamera.get()) break
                 SystemClock.sleep(100)
