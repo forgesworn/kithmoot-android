@@ -58,6 +58,8 @@ class G7CadenceStatusTest {
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
             "recording-worker-retained-delivery" -> observeRecordingWorkerDelivery(retained = true)
+            "recording-worker-expired-refusal" -> verifyExpiredRecordingWorkerRefusal()
+            "recording-worker-original-status" -> verifyOriginalRecordingWorkerStatus()
             else -> throw AssertionError("unknown G7 cadence action")
         }
     }
@@ -269,6 +271,38 @@ class G7CadenceStatusTest {
             put("inactiveLeaseRefusedBeforeQueue", true); put("journalUnchanged", true)
             put("originalLeaseRetained", true); put("separateWorkerRunning", true)
             put("clockCompressed", false); put("relayDeliveryQualified", false)
+        })
+    }
+
+    private fun verifyExpiredRecordingWorkerRefusal() {
+        val account = LocalSigner(PERSONA_SECRET.hexToBytes()).pubkey
+        val before = app.recordingNodeHandoffs.pending(account)
+        val original = before.single { it.binding.draftId == "00000000-0000-0000-0000-000000000083" }
+        check(epochSeconds() >= original.binding.publishBefore)
+        val refused = assertThrows(IllegalStateException::class.java) { observeRecordingWorkerDelivery(retained = true) }
+        assertEquals("Original publication expired; no retry", refused.message)
+        assertEquals(before, app.recordingNodeHandoffs.pending(account))
+        put("recording-worker-expired-refusal", buildJsonObject {
+            put("expiredOriginalPublicationRefused", true); put("originalJournalUnchanged", true)
+            put("publicationDeadlineExtended", false); put("queueRetried", false)
+        })
+    }
+
+    private fun verifyOriginalRecordingWorkerStatus() {
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
+        val body = Json.parseToJsonElement(lease.plan.requestBody).jsonObject
+        val identity = PrimaryIdentity(LocalSigner(PERSONA_SECRET.hexToBytes()), DEVICE_SECRET.hexToBytes(),
+            dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(body.getValue("credential")))
+        assertEquals(lease.plan.nodeId, get("ready").getValue("link_node_id").jsonPrimitive.content)
+        val before = app.recordingNodeHandoffs.pending(identity.participant)
+        val answer = app.cadenceClient.status(identity.participant, scope(identity, lease.plan.nodeId),
+            "89".repeat(16), identity, epochSeconds()).get(120, TimeUnit.SECONDS)
+        assertTrue(answer.answer.ready)
+        assertEquals(before, app.recordingNodeHandoffs.pending(identity.participant))
+        assertEquals(lease, app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == lease.plan.leaseId })
+        put("recording-worker-original-status", buildJsonObject {
+            put("originalRouteStatusAccepted", true); put("originalLeaseUnchanged", true)
+            put("originalJournalUnchanged", true); put("queueRetried", false); put("repaired", false)
         })
     }
 
