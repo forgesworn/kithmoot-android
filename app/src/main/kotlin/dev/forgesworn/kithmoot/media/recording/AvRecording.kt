@@ -192,6 +192,7 @@ class AvRecordingFile(
             val buffer = ByteBuffer.allocateDirect(4 * 1024 * 1024)
             val sampleInfo = MediaCodec.BufferInfo()
             val last = longArrayOf(-1, -1)
+            var audioPaddingDiscarded = false
             while (true) {
                 check(!Thread.currentThread().isInterrupted) { "Recording finalisation was interrupted" }
                 val next = readers.indices.filter { readers[it].sampleTime >= 0 }.minByOrNull { readers[it].sampleTime } ?: break
@@ -200,6 +201,15 @@ class AvRecordingFile(
                 val count = reader.readSampleData(buffer, 0)
                 check(count in 1..buffer.capacity()) { "Invalid recording sample size" }
                 val time = reader.sampleTime
+                if (next == 0 && !audioPaddingDiscarded && isFinalAacPadding(time, last[next], durationUs)) {
+                    // AAC flush padding can start just beyond the PCM end.
+                    // Retain the preceding partial access unit and its exact
+                    // EOS duration, without publishing an extra padded unit.
+                    audioPaddingDiscarded = true
+                    last[next] = time
+                    reader.advance()
+                    continue
+                }
                 check(time >= last[next] && time <= durationUs) {
                     "Invalid recording sample timestamp: track=$next timeUs=$time previousUs=${last[next]} " +
                         "sourceEndUs=$durationUs audioEncoder=${RecordingCodecs.audioEncoder} " +
