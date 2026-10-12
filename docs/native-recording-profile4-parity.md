@@ -99,6 +99,16 @@ also does not establish relay delivery. The current refusal remains until the
 original guard, actual authenticated relay confirmation, cancellation/withdrawal
 and process-restart behaviour are integrated and qualified together.
 
+The `d6864b1f` hosted run passed eight of nine gates, including capture,
+Session interoperability and original-person restart recovery. The Google APIs
+private-node slow 256 MiB Upload timed out before any receipt or Send. Recording
+clients now retain a bounded 60-second read/write idle allowance alongside the
+ten-minute total limit, including when supplied a fixture TLS client. The
+[transfer idle receipt](evidence/native-recording-transfer-idle-2026-10-12.json)
+records eleven passing focused tests and a real socket receipt delayed beyond
+the original ten-second idle default. Fresh hosted slow-transfer qualification
+is required; the prior failure is retained rather than counted as a pass.
+
 ## Historical initial audit
 
 # Recording profile 4 parity gate

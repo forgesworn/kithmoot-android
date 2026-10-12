@@ -3,15 +3,13 @@ package dev.forgesworn.kithmoot.media.recording
 import dev.forgesworn.kithmoot.session.ChatAttachment
 import dev.forgesworn.kithmoot.session.mediaStorageOrigin
 import dev.forgesworn.kithmoot.session.uploadFileMedia
+import dev.forgesworn.kithmoot.session.recordingTransferClient
+import dev.forgesworn.kithmoot.session.recordingTransferHttp
 import okhttp3.Call
 import okhttp3.Dispatcher
 import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import java.io.Closeable
-import java.util.concurrent.TimeUnit
-
-private val uploadHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-    .retryOnConnectionFailure(false).callTimeout(10, TimeUnit.MINUTES).build()
 
 /** One explicit Upload, tied to its original draft/room/server. Constructing it
  * makes no request. Close cancels only its calls; cleanup is retained after the
@@ -28,8 +26,8 @@ class RecordingUploadRequest(
     private val lock = Any()
     private var closed = false
     private var started = false
-    private val http = (client ?: uploadHttp).newBuilder().followRedirects(false).followSslRedirects(false)
-        .retryOnConnectionFailure(false).dispatcher(Dispatcher()).eventListener(object : EventListener() {
+    private val http = recordingTransferClient(client ?: recordingTransferHttp).newBuilder()
+        .dispatcher(Dispatcher()).eventListener(object : EventListener() {
         override fun callStart(call: Call) { if (synchronized(lock) { closed }) call.cancel() }
     }).build()
 

@@ -5,6 +5,8 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.protocol.Events
 import okhttp3.*
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
@@ -13,6 +15,34 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class RecordingUploadRequestTest {
+    @Test fun `slow receipt after body transfer retains upload and local ciphertext without sending`() {
+        Rig().use { r ->
+            MockWebServer().use { server ->
+                server.enqueue(MockResponse().setResponseCode(201)
+                    .setHeadersDelay(11, TimeUnit.SECONDS)
+                    .setBody("""{"url":"${r.origin}/${r.draft.sealed.hash}","sha256":"${r.draft.sealed.hash}","size":${r.draft.sealed.file.length()}}"""))
+                server.start()
+                // Only this socket fixture rewrites the HTTPS origin to a
+                // loopback HTTP server; production retains its TLS checks.
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().url(server.url("/upload")).build())
+                }.build()
+                RecordingUploadRequest(r.drafts, r.queue, r.draft.id, r.room, r.origin, { true }, client).use { request ->
+                    val uploaded = request.upload()
+                    assertEquals(uploaded, r.drafts.selected(r.draft.id, r.room).uploaded)
+                    assertTrue(r.queue.readyToSend(r.room, r.origin, r.draft.sealed.hash))
+                    assertTrue(r.draft.sealed.file.exists())
+                    assertNull(r.drafts.selected(r.draft.id, r.room).preparedSend)
+                }
+                val put = requireNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+                assertEquals("PUT", put.method)
+                assertEquals(r.draft.sealed.file.length(), put.bodySize)
+                assertEquals(r.draft.sealed.hash, put.getHeader("X-SHA-256"))
+                assertEquals(1, server.requestCount)
+            }
+        }
+    }
+
     private class Store : RoomStorage {
         var bytes: ByteArray? = null
         var fail = false

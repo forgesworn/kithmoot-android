@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-12",
+  "prior_hosted_source": "d6864b1f788aa042ed04c14d8f4bb97709dbdded",
+  "prior_hosted_run": 38187873721,
+  "prior_hosted_result": "8 of 9 gates pass; Google APIs 256 MiB slow Upload fails before receipt, Send or recipient playback.",
+  "prior_failure": "Recording upload failed: timeout. No chat message was sent.",
+  "policy": {
+    "socket_read_seconds": 60,
+    "socket_write_seconds": 60,
+    "total_call_seconds": 600,
+    "automatic_retry": false,
+    "redirects": false,
+    "injected_tls_trust_preserved": true
+  },
+  "regression": "Real loopback socket returns verified receipt after eleven-second response-header delay, beyond the original ten-second idle default. Retains ciphertext and receipt; no prepared Send. Test-only interceptor rewrites chosen HTTPS origin to loopback HTTP; this does not qualify production TLS.",
+  "tests": [
+    {
+      "suite": "RecordingUploadRequestTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "12.243",
+      "xml_sha256": "fe4fb9f559e5cc5ba0417bb6f167749e264ff6ee4e88befa8cbc5ba92485f70c"
+    },
+    {
+      "suite": "RecordingAttachmentRequestTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.536",
+      "xml_sha256": "c88fda77a6c8a3d04cb22a0fc1d242f0634d0a5f445818154a05d4a6bf9a4693"
+    },
+    {
+      "suite": "FileAttachmentUploadTest",
+      "tests": "2",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.49",
+      "xml_sha256": "d3943c24043c9f8a424027c0e61cbd3984c09912f6a7c51e3065f6a5b93559a4"
+    }
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingTransferHttp.kt": "68e6c948ceef643fa86bd478d443ee10cfdc8165fee549f5e2d79f271693df7a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/AttachmentUpload.kt": "790642d87b55b72402c124e1f7a2010738ec50839e69d30577704171bebeeba6",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingAttachmentRequest.kt": "399d3631a6ae4b5ab4ed1c7752745adaf47f5b45a366f61b5cb64249196ee57d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadRequest.kt": "0ea5970004d8e77c0ed8a66ee9be5fe22cbc85e2278952b7940288b4022a5995",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadRequestTest.kt": "21793da420ef266044d9c9f78fb869140b91e4edfb103e58b6b41ee4ccb7f694",
+    "app/build.gradle.kts": "7c222ec321d324ab0bdac7d6c8a76f5d2ad6a3d92f3f5726ed2f06df65250b76"
+  },
+  "limits": [
+    "Fresh hosted slow-transfer qualification still required.",
+    "This does not qualify physical 45-minute capture, Save providers, interruptions or delegated recording Send."
+  ]
+}

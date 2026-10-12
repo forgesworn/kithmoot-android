@@ -7,7 +7,6 @@ import okhttp3.OkHttpClient
 import java.io.Closeable
 import java.io.File
 import java.nio.file.Files
-import java.util.concurrent.TimeUnit
 
 private val recordingPlaybackTypes = setOf("audio/mp4", "video/mp4", "audio/wav", "audio/webm", "video/webm", "audio/ogg")
 
@@ -16,22 +15,20 @@ private val recordingPlaybackTypes = setOf("audio/mp4", "video/mp4", "audio/wav"
 fun recordingPlaybackMime(type: String?): String? = type?.substringBefore(';')?.trim()?.lowercase()
     ?.takeIf { it in recordingPlaybackTypes }
 
-private val playbackHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-    .retryOnConnectionFailure(false).callTimeout(10, TimeUnit.MINUTES).build()
 
 /** Created only after Show. Its private cache and calls belong to one viewer.
  * Closing cancels an active request and also rejects a late decrypted result. */
 class RecordingAttachmentRequest(
     private val attachment: ChatAttachment,
     private val cache: File,
-    client: OkHttpClient = playbackHttp,
+    client: OkHttpClient = recordingTransferHttp,
 ) : Closeable {
     private val lock = Any()
     private var started = false
     private var finished = false
     private var closed = false
     private val directory: File
-    private val http = client.newBuilder().dispatcher(Dispatcher()).eventListener(object : EventListener() {
+    private val http = recordingTransferClient(client).newBuilder().dispatcher(Dispatcher()).eventListener(object : EventListener() {
         override fun callStart(call: Call) {
             if (synchronized(lock) { closed }) call.cancel()
         }
