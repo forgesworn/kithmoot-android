@@ -416,6 +416,7 @@ class RecordingUploadSendUiTest {
             .putExtra(RecordingRecipientFixtureActivity.FIXTURE, fixture.name)
             .setAction(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val cache = File(app.cacheDir, "recording-playback") // Do not initialise the sender's lazy cache owner.
+        var closeRequested = false
         try {
             File(fixture, "sender-process.txt").writeText(android.os.Process.myPid().toString())
             app.startActivity(recipientIntent())
@@ -469,11 +470,29 @@ class RecordingUploadSendUiTest {
             ui.await("separate recipient removes private plaintext on Close") { cache.listFiles()?.isEmpty() == true }
             assertEquals(1, getCount()); assertEquals(1, putCount())
             ui.click("Close recipient fixture")
+            closeRequested = true
+            ui.await("separate recipient finishes owned cleanup") { File(fixture, "recipient-cleanup.json").isFile }
+            val cleanup = JSONObject(File(fixture, "recipient-cleanup.json").readText())
+            assertEquals(ready.getInt("pid"), cleanup.getInt("pid"))
+            assertFalse("Recipient network cleanup must run off the main thread", cleanup.getBoolean("mainThread"))
+            if (!hostProxy) assertTrue("TLS teardown must close a real idle connection", cleanup.getInt("idleConnectionsBefore") > 0)
+            assertEquals(0, cleanup.getInt("connectionsAfter"))
+            assertEquals(0, cleanup.getJSONArray("errors").length())
+            assertEquals(listOf("roomScope", "session", "relay", "httpCalls", "httpExecutor", "httpPool", "keys"),
+                cleanup.getJSONArray("completedActions").let { actions -> (0 until actions.length()).map(actions::getString) })
             ui.await("sender room returns") { ui.hasText("Synthetic HTTPS recording") }
             assertEquals(original, app.recordings.export.value); assertTrue(original.isFile)
         } finally {
-            app.startActivity(recipientIntent(RecordingRecipientFixtureActivity.CLOSE))
-            File(fixture, "recipient-seed.json").delete()
+            try {
+                if (!closeRequested) {
+                    app.startActivity(recipientIntent(RecordingRecipientFixtureActivity.CLOSE))
+                    if (File(fixture, "recipient-ready.json").isFile) {
+                        ui.await("recipient cleanup after a failed UI journey") { File(fixture, "recipient-cleanup.json").isFile }
+                    }
+                }
+            } finally {
+                File(fixture, "recipient-seed.json").delete()
+            }
         }
     }
 
