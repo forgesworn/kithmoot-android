@@ -8182,9 +8182,10 @@ class RoomViewModel @JvmOverloads constructor(
             savedRoom?.let { it.id == target.id && it.participant == target.participant && it.devicePubkey == target.devicePubkey } == true
         if (!current()) return
         val room = savedRoom ?: return
-        val accepted = roomLogos.remember(room, shared, epoch, epochSeconds())
-        _room.update { if (current() && it.roomId == target.id && !it.anonymous && !it.quiet && !it.privateConversation)
-            it.copy(logo = accepted?.record?.image) else it }
+        roomLogos.rememberForDisplay(room, shared, epoch, epochSeconds()) { accepted ->
+            _room.update { if (current() && it.roomId == target.id && !it.anonymous && !it.quiet && !it.privateConversation)
+                it.copy(logo = accepted?.record?.image) else it }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             if (!current()) return@launch
             persistLiveRoom(target.id, "The room logo could not be saved on this phone. It still shows here.") { stored ->
