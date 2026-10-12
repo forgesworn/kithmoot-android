@@ -4491,7 +4491,7 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = freshNearby?.scope ?: CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
         val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) OrbotTorRelaySockets()
-            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute)
+            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
             if (!anonymousProfile) linkConsents.activeRoute(who.participant, record.id, url)?.let {
@@ -6487,7 +6487,11 @@ class RoomViewModel @JvmOverloads constructor(
             _room.value.movedOn == null && !_room.value.conferenceEnded &&
             !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
         if (!permitted()) return note("Open the recording's original chat before Send.")
-        if (_room.value.cadence?.busy == true) return note("Finish the quiet schedule change before sending.")
+        if (_room.value.cadence?.busy == true) {
+            val message = "Finish the quiet schedule change before sending. Your recording has not been sent."
+            _room.update { it.copy(chatSendError = message) }
+            return note(message)
+        }
         if (_room.value.mediaBusy || _room.value.chatSending) return
         val durable = !_room.value.quiet
         _room.update { it.copy(mediaBusy = true, chatSending = true, chatSendError = null) }

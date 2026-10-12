@@ -60,6 +60,8 @@ class G7CadenceStatusTest {
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-controls" -> sendPreparedRecordingRoomModelDraft(send = false)
+            "recording-room-send-observe" -> observeOriginalRecordingRoomModelSend()
+            "recording-room-first-publication" -> sendPreparedRecordingRoomModelDraft(afterVerifiedNoop = true)
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
@@ -378,9 +380,44 @@ class G7CadenceStatusTest {
         } finally { room.roomKey.fill(0) }
     }
 
+    /** Read-only recovery of the original attempt, never another Send. */
+    private fun observeOriginalRecordingRoomModelSend() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        try {
+            val saved = requireNotNull(app.savedRooms.get(room.roomId))
+            val lease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+            val staged = get("journey/recording-room-stage")
+            assertEquals(staged.getValue("leaseId").jsonPrimitive.content, lease.plan.leaseId)
+            assertEquals(staged.getValue("generation").jsonPrimitive.content.toLong(), lease.plan.generation)
+            assertEquals(staged.getValue("startEpoch").jsonPrimitive.content.toLong(), lease.plan.startEpoch)
+            assertEquals(staged.getValue("endEpoch").jsonPrimitive.content.toLong(), lease.plan.endEpoch)
+            val draft = app.recordingShareDrafts.list(room.roomId).single()
+            val source = app.recordings.selectedExport(draft.sourceName)
+            val custody = app.recordingNodeHandoffs.pending(saved.participant)
+            val observation = buildJsonObject {
+                put("uploadedDraftRetained", draft.uploaded != null)
+                put("sourceRetained", source.isFile)
+                put("signedMessagePrepared", draft.preparedSend != null)
+                put("handoffCount", custody.size)
+                put("handoffStates", kotlinx.serialization.json.JsonArray(custody.map {
+                    kotlinx.serialization.json.JsonPrimitive(it.state.name)
+                }))
+                put("originalLeasePlanUnchanged", true)
+                put("sendInvoked", false); put("queueInvoked", false)
+                put("deadlineExtended", false)
+                custody.singleOrNull()?.let {
+                    put("publicationExpired", epochSeconds() >= it.binding.publishBefore)
+                    put("bindingMatchesPreparedMessage", draft.preparedSend?.pending?.event == it.binding.event)
+                }
+            }
+            put("recording-room-send-observe", observation)
+        } finally { room.roomKey.fill(0) }
+    }
+
     /** One explicit product Send, using the already uploaded original draft.
      * No queue retry, replacement upload, lease change or injected relay proof. */
-    private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true) {
+    private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true, afterVerifiedNoop: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -403,8 +440,18 @@ class G7CadenceStatusTest {
         val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
         require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
         val fixture = java.io.File(app.noBackupFilesDir, name)
-        val outcome = java.io.File(fixture, "room-recording-send-outcome.json")
-        check(!outcome.exists()) { "The original Send observation is retained" }
+        if (afterVerifiedNoop) {
+            val observation = get("journey/recording-room-send-observe")
+            assertFalse(observation.getValue("signedMessagePrepared").jsonPrimitive.boolean)
+            assertEquals(0, observation.getValue("handoffCount").jsonPrimitive.content.toInt())
+            assertTrue(observation.getValue("originalLeasePlanUnchanged").jsonPrimitive.boolean)
+            check(java.io.File(fixture, "room-recording-send-outcome.json").exists()) {
+                "The earlier UI attempt must remain retained"
+            }
+        }
+        val outcome = java.io.File(fixture, if (afterVerifiedNoop)
+            "room-recording-first-publication-outcome.json" else "room-recording-send-outcome.json")
+        if (send) check(!outcome.exists()) { "The original Send observation is retained" }
         lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
         val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
         val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
@@ -428,15 +475,24 @@ class G7CadenceStatusTest {
             // or adding/uploading a second draft.
             if (ui.hasText("Recording ready")) ui.click("Later")
             ui.await("explicit original Send control") { ui.hasText("Send recording") }
+            val scheduleBusyAtFirstVisible = model.room.value.cadence?.busy == true
+            val sendEnabledAtFirstVisible = ui.enabled("Send recording")
+            ui.await("original quiet schedule ready for recording Send", timeoutMs = 120_000) {
+                model.room.value.cadence?.busy != true && ui.enabled("Send recording")
+            }
             if (!send) {
                 assertEquals(original, app.recordingShareDrafts.selected(original.id, room.roomId))
                 assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
                 assertTrue(source.isFile)
-                assertEquals(lease, app.cadenceLeases.all(room.roomId, DEVICE).single())
+                val refreshedLease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+                assertEquals(lease.plan, refreshedLease.plan)
+                assertEquals(lease.ownership, refreshedLease.ownership)
                 put("recording-room-send-controls", buildJsonObject {
                     put("restoredExportModalDeferred", true); put("originalSendControlVisible", true)
                     put("originalUploadedDraftUnchanged", true); put("originalSourceRetained", true)
                     put("sendInvoked", false); put("replacementUpload", false); put("clockCompressed", false)
+                    put("scheduleBusyAtFirstVisible", scheduleBusyAtFirstVisible)
+                    put("sendEnabledAtFirstVisible", sendEnabledAtFirstVisible)
                 })
                 return
             }

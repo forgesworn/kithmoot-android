@@ -982,6 +982,7 @@ fun KithMootApp(
                             onAddArtwork = model::addChatArtwork,
                             onRemoveArtwork = model::removeChatArtwork,
                             mediaBusy = roomState.mediaBusy,
+                            recordingScheduleBusy = roomState.cadence?.busy == true,
                             onAddImage = model::addChatImage,
                             onRemoveAttachment = model::removeChatAttachment,
                             memberPackAvailable = model::memberPackAvailable,

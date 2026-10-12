@@ -148,6 +148,35 @@ class RecordingOwnerUiTest {
         assertTrue(requireNotNull(model.recordingExportError.value).contains("The local export is still available."))
     }
 
+    @Test fun recording_send_waits_for_schedule_readiness_before_accepting_the_explicit_action() {
+        val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
+        val room = "a".repeat(64)
+        recordingRoom = room
+        val origin = RecordingOrigin(room, "b".repeat(32), "Synthetic recording")
+        val ticket = app.recordingShareDrafts.begin(origin, export.name, null)
+        val sealed = dev.forgesworn.kithmoot.session.sealFile(export, ticket.destination, "recording.m4a", "audio/mp4")
+        val draft = app.recordingShareDrafts.complete(ticket, sealed)
+        val receipt = ChatAttachment("https://private.example/${sealed.hash}", sealed.hash,
+            sealed.key, sealed.name, sealed.type, sealed.file.length())
+        // Control readiness only: this synthetic receipt claims no upload.
+        val busy = mutableStateOf(true)
+        val clicks = java.util.concurrent.atomic.AtomicInteger()
+        activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
+            dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
+                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
+                recordingScheduleBusy = busy.value, onSendRecordingDraft = { clicks.incrementAndGet() })
+        } } }
+        ui.await("Send is shown while the original schedule is loading") { ui.hasText("Send recording") }
+        assertFalse("An updating schedule must not accept Send", ui.enabled("Send recording"))
+        assertEquals(0, clicks.get())
+        activity.scenario.onActivity { busy.value = false }
+        ui.await("the same Send becomes available after schedule readiness") { ui.enabled("Send recording") }
+        ui.click("Send recording")
+        ui.await("one explicit recording action accepted") { clicks.get() == 1 }
+        assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room))
+        assertTrue(export.isFile)
+    }
+
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
         ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }

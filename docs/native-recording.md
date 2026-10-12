@@ -13,8 +13,21 @@ Pixel audio Save/cancel/retry proof covers the earlier unlocked-dialog fix;
 it does not qualify the latest candidate's video, playback or endurance.
 These changes are not yet included in the public Android release.
 
+The [product SDK/worker receipt](evidence/native-recording-product-sdk-worker-send-2026-10-12.json)
+records the original privately uploaded recording passing the rendered Android
+Send control through the pinned JNI SDK, NodeRuntime and OS worker, with
+authenticated incoming-event confirmation. The original lease plan and local
+export remain intact; no replacement upload or automatic queue retry was used.
+Quiet Link rooms now read gift wraps from the consented node's broadcast
+`/drops` endpoint and filter locally, while circle traffic keeps `/events`.
+Recording Send waits for quiet-schedule readiness. An earlier UI attempt
+created no signed message or handoff; that failed attempt remains recorded.
+Fourteen routing unit tests, two recording control UI tests and seven runner
+fault checks passed. Product authority/recovery races, full hosted verification
+and physical capture/playback/endurance remain production gates.
 
-The current integrated candidate is `4bc02225`, which includes Android main
+
+The earlier integrated baseline was `4bc02225`, which includes Android main
 `5cac2b5f`, the unlocked Save-dialog fix and the AAC playback-clock correction.
 The [capture follow-up receipt](evidence/native-recording-ed8-capture-followup-2026-10-12.json)
 records 25 passing local capture/export cases on the preceding `ed8d683a`

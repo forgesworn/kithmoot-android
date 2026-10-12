@@ -73,6 +73,7 @@ fun ChatPane(
     onAddArtwork: (ChatArtwork) -> Unit = {},
     onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
+    recordingScheduleBusy: Boolean = false,
     onAddImage: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
@@ -455,7 +456,7 @@ fun ChatPane(
                 FlowRow {
                     if (recording.uploaded == null) TextButton(enabled = !mediaBusy && internetAllowed && !torOnly && canSend,
                         onClick = { sharingRecording = recording.id }) { Text("Upload recording") }
-                    if (recording.uploaded != null) TextButton(enabled = !mediaBusy && canSend,
+                    if (recording.uploaded != null) TextButton(enabled = !mediaBusy && !recordingScheduleBusy && canSend,
                         onClick = { onSendRecordingDraft(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
                     if (recording.preparedSend == null) TextButton(enabled = !mediaBusy,
                         onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
