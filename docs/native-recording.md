@@ -12,9 +12,11 @@ start bell without a Join press. Automatic recovery now restores membership
 without a start bell; explicit Start/Join still announces the call. Next-morning
 chat alone passed the reproduction without a bell. The sender platform and
 overnight state of the reported incident are unknown, so that incident's cause
-is not established. Local regression verification and the exact-head
+is not established. The [local regression receipt](evidence/native-call-recovery-bell-2026-10-12.json)
+records 35 passing call-membership, call-control and incoming-call tests with
+no failures or skips. The exact-head
 [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167)
-are pending. This is not a shipped fix.
+is pending. This is not a shipped fix.
 
 The preceding `f0320617` candidate passed all nine hosted jobs. Its
 [status receipt](evidence/native-recording-hosted-f032-2026-10-12.json) records

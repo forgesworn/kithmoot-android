@@ -11,7 +11,39 @@
     "log_sha256": "7a9cfae5fc2fc918acbfc795b55dd5edd4118d158afeea29218af4522ec4e787",
     "junit_sha256": "8cb90a87cb5c36c1a9a137f5e0aa709f5c2701a62739c2ced7502c1ab3936b37"
   },
-  "fix_validation": "pending",
+  "fix_validation": {
+    "candidate_commit": "85368a7080dd34ec5bad1fb74ba94357e108802c",
+    "local_focused_suites": [
+      {
+        "suite": "dev.forgesworn.kithmoot.session.CallMembershipSessionTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_sha256": "361b3fbd7ed1c98c10af0d808051ca3e9d348c2d7d605a2e0ea11205ee17f290"
+      },
+      {
+        "suite": "dev.forgesworn.kithmoot.ui.room.CallControlTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_sha256": "44176e955d8123d3022c7ec5bbde6eea2aae730f13db23c3fe39211f144dcac1"
+      },
+      {
+        "suite": "dev.forgesworn.kithmoot.notifications.IncomingCallTrackerTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_sha256": "1f3fd0ce4f2126f60ad2857a17af34fc65fcb0afec24c028b53e2db2faf9e0d5"
+      }
+    ],
+    "tests_passed": 35,
+    "log_sha256": "1dc18cacded94f14e636a483ac6b11f036bcf1e0d0d456931c8779d31e672e90",
+    "full_hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167",
+    "full_hosted_status": "pending"
+  },
   "limitations": [
     "Sender platform and overnight room state were unknown",
     "Reproduction proves a recovery path can emit a fresh bell, not that it caused the reported incident",
