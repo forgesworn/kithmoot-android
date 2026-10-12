@@ -1,0 +1,13 @@
+{
+  "source_commit": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029",
+  "hosted_capture_cases": 25,
+  "failures": 0,
+  "skipped": 0,
+  "all_individual_results_inspected": true,
+  "report_sha256": "b00a5e9a864a69073c57523d3df39f585dfe97cd8564e29bab53f6fdeb4f3107",
+  "earlier_ed8_audio_queue_overrun_recurred": false,
+  "earlier_queue_overrun_cause_established": false,
+  "physical_endurance_qualified": false,
+  "public_release": false
+}

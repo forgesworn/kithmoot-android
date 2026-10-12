@@ -1,0 +1,47 @@
+{
+  "observed_at": "2026-10-12T16:28:28.010771+00:00",
+  "source_commit": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029",
+  "verify_job_completed": true,
+  "verify_job_conclusion": "success",
+  "artifact_id": 11758714569,
+  "test_result_xml_count": 602,
+  "test_result_hash_inventory_sha256": "76116bba7e75399b2e86b9c659c3ad825e052890dab5a9f7df76131573d0f2d5",
+  "tests": {
+    "testDebugUnitTest": {
+      "suites": 263,
+      "tests": 2312,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "testReleaseUnitTest": {
+      "suites": 262,
+      "tests": 2301,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "protocol": {
+      "suites": 77,
+      "tests": 501,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": {
+    "lint-results-debug.xml": {
+      "errors": 0,
+      "sha256": "caed79c5c3c27427c60a7f1a1738b8779378f4be782e414b19a18ba0d266d2c3"
+    },
+    "lint-results-release.xml": {
+      "errors": 0,
+      "sha256": "2737e38fa009717856cfc2d900b9c741fc7d8be5dbe4c5fe968c264e9d7b9b58"
+    }
+  },
+  "full_hosted_run_complete": false,
+  "media_capture_qualification_claimed": false,
+  "physical_acceptance_claimed": false,
+  "public_android_release_changed": false
+}

@@ -6,7 +6,47 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-Current follow-up `85368a70` includes quiet call-membership recovery. A regression
+
+The current integrated candidate is `4bc02225`, which includes Android main
+`5cac2b5f`, the unlocked Save-dialog fix and the AAC playback-clock correction.
+The [capture follow-up receipt](evidence/native-recording-ed8-capture-followup-2026-10-12.json)
+records 25 passing local capture/export cases on the preceding `ed8d683a`
+source and a hosted run with nine passing jobs out of ten. Its sole failure
+was a two-second local PCM queue overrun during live native/browser video
+recording. That failure remains unresolved; the local pass does not qualify
+the integrated candidate. Failure-only worker stack collection is now included
+without periodic sampling. The current [integrated hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029)
+passed its verify job: 501 protocol, 2,312 debug app and 2,301 release app
+tests passed with no failures, errors or skips; both lint reports had no
+Error/Fatal issues. The [inspected verify receipt](evidence/native-recording-integrated-hosted-verify-2026-10-12.json)
+records the artifact and result hashes. The [integrated local checks](evidence/native-recording-integrated-local-checks-2026-10-12.json)
+also passed: 501 protocol and 2,312 debug app tests, both lint checks, both APK
+builds and instrumentation assembly (19m 39s), then all 25 capture/UI/export
+cases on a disposable API35 arm64 emulator with host graphics. Hosted ordinary
+recovery failed the artwork picker: retained pointer geometry proves that its
+tap missed the button while the keyboard moved the composer. The [tap receipt](evidence/native-recording-integrated-ime-tap-2026-10-12.json)
+records a test-only geometry wait and five passing local artwork cases, retaining
+the original single pointer click and picker assertion. The fix is not yet
+qualified on hosted CI. [Hosted full capture](evidence/native-recording-integrated-hosted-capture-2026-10-12.json)
+subsequently passed all 25 individual cases. The earlier queue overrun did not
+recur, but its cause remains unexplained. API33 codecs, browser Session, both
+signing-lineage jobs and all five cold-refusal shards also passed. Restart and
+both private-node jobs are still running; physical endurance remains open.
+
+The [Pixel Save receipt](evidence/native-recording-pixel-save-gate-2026-10-12.json)
+qualifies short audio Save on the earlier private Save-dialog candidate. The
+[integrated private candidate](evidence/native-recording-integrated-private-candidate-2026-10-12.json)
+was signed and certificate/lineage verified on M4, but has not been installed
+or qualified on the physical phone. Physical Save cancellation/retry, long recording, interruption
+and independent playback remain release gates. The published Android APK is
+still 0.6.82/code 105; these follow-up candidates have not replaced it.
+
+The browser camera-answer fix is independently merged in web PR #407 and
+published from web main `a3ab2659`, release `20261012T153859Z`. All 306 public
+files matched the built release. This browser publication does not qualify or
+publish the Android candidate.
+
+Earlier follow-up `85368a70` includes quiet call-membership recovery. A regression
 reproduced a session rebuild declaring a remembered call and emitting a fresh
 start bell without a Join press. Automatic recovery now restores membership
 without a start bell; explicit Start/Join still announces the call. Next-morning
@@ -25,9 +65,11 @@ older image observer; serialised observer delivery passed 18 focused logo/cache
 tests. The [ordering receipt](evidence/native-room-logo-callback-order-2026-10-12.json)
 does not establish the cause of the hosted guest failure. The complete
 [follow-up run](https://github.com/forgesworn/kithmoot-android/actions/runs/38233541716)
-on `b1037a02` is running. This is not a shipped fix.
+on `b1037a02` finished with all nine jobs passing. That result does not qualify
+the later recording candidates or prove the reported overnight incident fixed.
 
-The owner's physical Pixel 10 Pro XL, running Android 17/API 37, now has the
+An earlier update of the owner's physical Pixel 10 Pro XL, running Android
+17/API 37, installed the
 [private signed candidate](evidence/native-recording-pixel-private-candidate-2026-10-12.json)
 from the exact hosted release APK. Its production certificate, embedded lineage
 and installed hash were verified. Updating from 0.6.81 preserved UID and
