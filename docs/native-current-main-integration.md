@@ -42,3 +42,18 @@ CI runs verify and APK packaging separately, and ordinary/restart recovery in
 a two-value emulator matrix. Every original test and job deadline remains;
 all exact APK consumers depend on same-run packaging. Earlier failed and
 interrupted captures remain in the private mesh-kit lab with pre-code designs.
+
+The complete correction-head workflow ends with 15 successful jobs and a
+Google APIs real-node slow-transfer failure. That profile passes HTTPS,
+short and normal 256 MiB transfers, but its slow run has no terminal
+instrumentation summary or observed PUT/GET. The default-image profile passes.
+The cause remains unattributed; this is not a qualified 16-job result.
+
+The recording driver now saves failure-only metadata before cleanup: phase,
+instrumentation exit code, bounded emulator state/PID observations and only
+package-attributed Java exception classes. It omits raw command/crash text,
+messages and key material. Probe timeouts and receipt-write errors cannot mask
+the primary error or prevent cleanup. Privacy, timeout isolation and physical
+serial refusal controls pass. No production path, assertion, sample size,
+chunk delay, test/job deadline or success requirement changes. The successor
+still needs all 16 jobs and actual reports; earlier failures remain retained.

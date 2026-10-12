@@ -86,6 +86,7 @@ jobs:
           python3 scripts/check-native-pending-apk-inputs.py
           python3 scripts/test-pull-recovery-proof.py
           python3 scripts/test_recording_private_node_proxy.py
+          python3 scripts/test_recording_failure_diagnostics.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
