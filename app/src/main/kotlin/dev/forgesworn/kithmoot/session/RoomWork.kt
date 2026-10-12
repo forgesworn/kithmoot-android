@@ -177,6 +177,7 @@ class RoomWork(
     private var nameCarry:Job?=null
     @Volatile private var nameCarryScheduled=false
     private val logos=RoomLogoBook().apply { initialRoomLogo?.let { seed(it,initialRoomLogoEpoch) } }
+    private val logoDelivery=Any()
     private val logoMessages=HashSet<String>()
     private var shownLogo:String?=null
     private var logoAwaitingSeed=initialRoomLogo!=null
@@ -337,16 +338,22 @@ class RoomWork(
     }
 
     private fun settleLogo() {
-        val next=synchronized(logos) {
-            if(closed)return
-            val record=logos.current(trafficEpoch,rekeyedAt)
-            val identity=record?.let { "$trafficEpoch:${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
-            if(!logoAwaitingSeed&&shownLogo==identity)return
-            logoAwaitingSeed=false
-            shownLogo=identity
-            record to trafficEpoch
+        // Stored replay, live control and local edits can settle concurrently.
+        // Deliver observers in order, taking the current record only after the
+        // delivery guard is acquired. Keep callbacks outside the book's lock
+        // so new authority can still be accepted while an observer is busy.
+        synchronized(logoDelivery) {
+            val next=synchronized(logos) {
+                if(closed)return
+                val record=logos.current(trafficEpoch,rekeyedAt)
+                val identity=record?.let { "$trafficEpoch:${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
+                if(!logoAwaitingSeed&&shownLogo==identity)return
+                logoAwaitingSeed=false
+                shownLogo=identity
+                record to trafficEpoch
+            }
+            runCatching { onRoomLogo(next.first,next.second) }
         }
-        runCatching { onRoomLogo(next.first,next.second) }
     }
 
     /** Confirm a private room override or explicit removal in this epoch only. */

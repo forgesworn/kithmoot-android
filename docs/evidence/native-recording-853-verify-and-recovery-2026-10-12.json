@@ -26,8 +26,10 @@
   "recovery_failure": "Removed room logo was non-null after a late older artwork event",
   "recovery_log_sha256": "bbba16ecd3d665b7928ca14338416f30782f82bfdcd6c02bb46a5e2b39225610",
   "limitations": [
-    "Other hosted jobs were still running when this receipt was recorded",
+    "Complete hosted run finished with eight passing jobs and the guest artwork recovery failure",
     "Unit report counts do not imply execution of protocol vector groups not yet implemented",
     "Private signed installation and startup do not qualify recording endurance or public delivery"
-  ]
+  ],
+  "hosted_jobs_passed": 8,
+  "hosted_jobs_total": 9
 }

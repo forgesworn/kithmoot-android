@@ -6,10 +6,21 @@ import dev.forgesworn.kithmoot.relay.RoomTransport
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
 import kotlin.test.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomWorkLogoTest {
@@ -48,6 +59,45 @@ class RoomWorkLogoTest {
         encodeRoomLogoOp(roomLogoOp(logo, at, id)), other.participant, other.credential, room, key,
         other.deviceSecretKey, sent, channel = "control", roomLogo = RoomLogoPayload(logo),
     )
+
+    @Test fun `a removal callback cannot overtake an earlier image callback`() = runBlocking {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val removalDelivered = CountDownLatch(1)
+        val displayed = AtomicReference<LogoImage?>()
+        val clock = AtomicLong(200_000)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val work = RoomWork(room, key, person, Transport(), storage, scope,
+            now = { 200 }, nowMs = { clock.getAndIncrement() }, onRoomLogo = { record, _ ->
+                if (record?.image != null) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS)) { "Image callback was not released" }
+                }
+                displayed.set(record?.image)
+                if (record != null && record.image == null) removalDelivered.countDown()
+            })
+        try {
+            work.open()
+            val imageWrite = async(Dispatchers.Default) { work.replaceRoomLogo(image) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "Image callback must be in flight")
+            val removalWrite = async(Dispatchers.Default) { work.replaceRoomLogo(null) }
+            withTimeout(5_000) {
+                while (work.roomLogo()?.image != null) delay(1)
+            }
+            // The authority has accepted removal while display of the older
+            // image is still delayed. It must deliver observers in order.
+            val overtook = removalDelivered.await(2, TimeUnit.SECONDS)
+            release.countDown()
+            withTimeout(5_000) { imageWrite.await(); removalWrite.await() }
+            assertFalse(overtook, "Removal delivery overtook an older callback still in flight")
+            assertNull(displayed.get(), "A delayed image must not resurrect removed artwork")
+            assertNull(assertNotNull(work.roomLogo()).image)
+        } finally {
+            release.countDown()
+            work.close()
+            scope.cancel()
+        }
+    }
 
     @Test fun `received images and removals update metadata once without ordinary chat`() = runTest {
         val transport = Transport(); val changes = mutableListOf<RoomLogoRecord?>()

@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-12",
+  "baseline_source_commit": "85368a7080dd34ec5bad1fb74ba94357e108802c",
+  "reproduction": "Removal callback overtook an older image callback still in flight",
+  "red_tests": 1,
+  "red_failures": 1,
+  "fix": "Serialise artwork observer delivery and read current artwork after acquiring the delivery guard",
+  "green_reports": [
+    {
+      "name": "dev.forgesworn.kithmoot.session.RoomWorkLogoTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    },
+    {
+      "name": "dev.forgesworn.kithmoot.storage.RoomLogoCacheTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "hosted_guest_recovery_after_fix": "pending",
+  "physical_recording_qualified": false
+}
