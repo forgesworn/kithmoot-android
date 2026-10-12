@@ -29,6 +29,10 @@ class ArtworkPickerUiTest {
     private fun capture(label: String) {
         ui.waitForIdle()
         Thread.sleep(400) // Window/IME and orientation compositor transitions finish outside Compose.
+        captureCurrentFrame(label)
+    }
+
+    private fun captureCurrentFrame(label: String) {
         val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
         val bitmap = instrumentation.uiAutomation.takeScreenshot()
         File(folder, "tray-$label.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -158,7 +162,15 @@ class ArtworkPickerUiTest {
             ui.onNodeWithContentDescription("Emoji").performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
-            ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
+            try {
+                ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
+            } catch (failure: ComposeTimeoutException) {
+                // ActivityScenario closes the activity during unwinding. The
+                // runner's later screenshot only shows Home, losing the
+                // actual keyboard/tray state that caused this failure.
+                runCatching { captureCurrentFrame("offline-tabs-timeout") }
+                throw failure
+            }
             ui.onNodeWithText("Stickers").performClick()
             capture("stickers-portrait")
             ui.onNodeWithText("GIFs").performClick()
