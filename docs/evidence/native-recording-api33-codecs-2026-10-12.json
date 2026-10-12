@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "6ca9f384f3146ba9a9603ebeb5b6b24548005582",
+  "codec_implementation_commit": "d74d64f272cc79f7466d41596a30805363fbbe2b",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38265187238",
+  "job": "recording-call-emulator (codecs, 33)",
+  "android_api": 33,
+  "emulator_arch": "x86_64",
+  "synthetic_media_only": true,
+  "individual_successful_results": 4,
+  "failures": 0,
+  "skips": 0,
+  "instrumentation_sha256": "6b4d0ca733be671224e7d89a811ddc259202b3713bd894b4012888ad5a84196c",
+  "aac_original_pcm_frames": 96000,
+  "aac_chirp_alignment_and_final_marker": "passed",
+  "av_exact_decoded_audio_and_video_transitions": "passed",
+  "empty_discarded_over_limit_and_existing_file_cases": "passed",
+  "physical_recording_qualified": false,
+  "production_release": false
+}

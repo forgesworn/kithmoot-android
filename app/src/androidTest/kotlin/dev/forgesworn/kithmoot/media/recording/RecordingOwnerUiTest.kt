@@ -104,16 +104,30 @@ class RecordingOwnerUiTest {
             app.recordings.export.value?.isFile == true && !model.room.value.nativeRecordingBusy &&
                 model.room.value.recording == RecordingView.Off && !model.room.value.recordingStopPending
         }
+        val export = requireNotNull(app.recordings.export.value)
         val extractor = MediaExtractor()
         try {
-            extractor.setDataSource(requireNotNull(app.recordings.export.value).absolutePath)
+            extractor.setDataSource(export.absolutePath)
             assertEquals(1, extractor.trackCount)
             assertEquals("audio/mp4a-latm", extractor.getTrackFormat(0).getString(MediaFormat.KEY_MIME))
             extractor.selectTrack(0)
             var samples = 0
-            while (extractor.sampleTime >= 0) { samples++; if (!extractor.advance()) break }
+            val packet = java.nio.ByteBuffer.allocate(64 * 1024)
+            // Playback edits can give priming access units negative timestamps.
+            // End-of-stream is the absence of packet data, not a negative PTS.
+            while (true) {
+                packet.clear()
+                if (extractor.readSampleData(packet, 0) < 0) break
+                samples++
+                if (!extractor.advance()) break
+            }
             assertTrue("The actual AAC export must contain recorded samples", samples > 3)
         } finally { extractor.release() }
+        var decodedFrames = 0
+        AvRecordingTest().decode(export, MediaFormat.MIMETYPE_AUDIO_AAC, expectedDurationUs = null, expectedTrackCount = 1) { _, _, info ->
+            decodedFrames += info.size / 2
+        }
+        assertTrue("Original participant PCM decodes after priming and padding are removed", decodedFrames > 3 * 1024)
         assertFalse(model.room.value.meetingModerator)
     }
 
