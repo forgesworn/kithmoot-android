@@ -58,12 +58,14 @@ class G7CadenceStatusTest {
             "recording-room-stage" -> stageRecordingRoomModelLease()
             "recording-room-prepare" -> prepareRecordingRoomModelDraft()
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
+            "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-worker-stage" -> stageRecordingWorkerLease()
             "recording-worker-lead-in" -> verifyRecordingWorkerLeadIn()
             "recording-worker-delivery" -> observeRecordingWorkerDelivery()
             "recording-worker-retained-delivery" -> observeRecordingWorkerDelivery(retained = true)
             "recording-worker-expired-refusal" -> verifyExpiredRecordingWorkerRefusal()
             "recording-worker-original-status" -> verifyOriginalRecordingWorkerStatus()
+            "recording-worker-guarded-transport-refusal" -> verifyOriginalGuardedTransportRefusal()
             "recording-worker-fresh-delivery" -> observeRecordingWorkerDelivery(freshSample = true)
             else -> throw AssertionError("unknown G7 cadence action")
         }
@@ -375,6 +377,82 @@ class G7CadenceStatusTest {
         } finally { room.roomKey.fill(0) }
     }
 
+    /** One explicit product Send, using the already uploaded original draft.
+     * No queue retry, replacement upload, lease change or injected relay proof. */
+    private fun sendPreparedRecordingRoomModelDraft() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        val saved = requireNotNull(app.savedRooms.get(room.roomId))
+        val lease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+        val epoch = epochSeconds() / 3600
+        check(epoch >= lease.plan.startEpoch && epoch < lease.plan.endEpoch) { "Original lease must be active" }
+        val staged = get("journey/recording-room-stage")
+        assertEquals(staged.getValue("leaseId").jsonPrimitive.content, lease.plan.leaseId)
+        assertEquals(staged.getValue("generation").jsonPrimitive.content.toLong(), lease.plan.generation)
+        assertEquals(staged.getValue("startEpoch").jsonPrimitive.content.toLong(), lease.plan.startEpoch)
+        assertEquals(staged.getValue("endEpoch").jsonPrimitive.content.toLong(), lease.plan.endEpoch)
+        assertEquals(get("ready").getValue("link_node_id").jsonPrimitive.content, lease.plan.nodeId)
+        val original = app.recordingShareDrafts.list(room.roomId).single()
+        check(original.preparedSend == null && original.uploaded != null)
+        check(app.recordingNodeHandoffs.pending(saved.participant).isEmpty()) {
+            "An original attempt is retained; never queue it again automatically"
+        }
+        val source = app.recordings.selectedExport(original.sourceName)
+        check(source.isFile)
+        val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
+        require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
+        val fixture = java.io.File(app.noBackupFilesDir, name)
+        val outcome = java.io.File(fixture, "room-recording-send-outcome.json")
+        check(!outcome.exists()) { "The original Send observation is retained" }
+        lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
+        val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
+        val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
+        try {
+            scenario.onActivity { owner ->
+                model = androidx.lifecycle.ViewModelProvider(owner, object : androidx.lifecycle.ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST") override fun <T : androidx.lifecycle.ViewModel> create(type: Class<T>): T =
+                        dev.forgesworn.kithmoot.ui.RoomViewModel(app, chatOnly = true,
+                            recordingNodeQualification = true) as T
+                })["recording-node-product", dev.forgesworn.kithmoot.ui.RoomViewModel::class.java]
+                owner.setContent { dev.forgesworn.kithmoot.ui.theme.KithMootTheme {
+                    dev.forgesworn.kithmoot.ui.KithMootApp(model)
+                } }
+                model.reopenRoom(room.roomId)
+            }
+            ui.await("original recording room reopened", timeoutMs = 120_000) {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
+            }
+            ui.await("explicit original Send control") { ui.hasText("Send recording") }
+            outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-send")
+                .put("draft", original.id).put("automaticRetry", false).toString())
+            ui.click("Send recording")
+            ui.await("original Send finished or retained uncertainty", timeoutMs = 120_000) {
+                !model.room.value.mediaBusy && !model.room.value.chatSending &&
+                    (app.recordingShareDrafts.list(room.roomId).none { it.id == original.id } ||
+                        model.room.value.chatSendError != null)
+            }
+            val pending = app.recordingShareDrafts.list(room.roomId).singleOrNull { it.id == original.id }
+            val custody = app.recordingNodeHandoffs.pending(saved.participant).singleOrNull()
+            outcome.writeText(org.json.JSONObject().put("draftRetained", pending != null)
+                .put("preparedEvent", pending?.preparedSend?.pending?.event?.id)
+                .put("custodyState", custody?.state?.name).put("error", model.room.value.chatSendError)
+                .put("sourceRetained", source.isFile).put("automaticRetry", false).toString())
+            assertEquals("Actual product Send must finish through authenticated ingress", null, pending)
+            assertEquals(null, model.room.value.chatSendError)
+            assertTrue(model.room.value.chat.any { it.attachments.any { attachment ->
+                attachment.sha256 == original.sealed.hash
+            } })
+            assertTrue(source.isFile)
+            // Accepted queue custody may update its receipt; the original
+            // plan, node, generation and interval must remain unchanged.
+            assertEquals(lease.plan, app.cadenceLeases.all(room.roomId, DEVICE).single().plan)
+            put("recording-room-send", buildJsonObject {
+                put("actualSendControlPassed", true); put("originalSourceRetained", true)
+                put("replacementUpload", false); put("automaticRetry", false); put("clockCompressed", false)
+            })
+        } finally { scenario.close(); room.roomKey.fill(0) }
+    }
+
     /** Product-model authority setup for the separate derived-room fixture.
      * This stages real cadence through RoomViewModel; it does not claim Send. */
     private fun stageRecordingRoomModelLease() {
@@ -551,6 +629,36 @@ class G7CadenceStatusTest {
         })
     }
 
+    /** Diagnose the original route without granting another queue attempt.
+     * Invalid authentication must be refused before custody can change. */
+    private fun verifyOriginalGuardedTransportRefusal() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
+        val body = Json.parseToJsonElement(lease.plan.requestBody).jsonObject
+        val identity = PrimaryIdentity(LocalSigner(PERSONA_SECRET.hexToBytes()), DEVICE_SECRET.hexToBytes(),
+            dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(body.getValue("credential")))
+        val before = app.recordingNodeHandoffs.pending(identity.participant)
+        val original = before.single().binding
+        check(original.nodeId == lease.plan.nodeId && original.leaseBody == lease.plan.requestBody)
+        val route = requireNotNull(app.linkConsents.activeRoute(identity.participant, ROOM,
+            BoxCadence.server(lease.plan.nodeId)))
+        val status = app.cadenceClient.status(identity.participant, scope(identity, lease.plan.nodeId),
+            "8a".repeat(16), identity, epochSeconds()).get(120, TimeUnit.SECONDS)
+        assertTrue(status.answer.ready)
+        val signed = BoxCadence.sign(lease.plan.nodeId, "POST", BoxCadence.guardedQueuePath(lease.plan.leaseId),
+            BoxCadence.guardedQueueBody(body, original.requestId, original.event, original.publishBefore),
+            identity.deviceSecretKey, epochSeconds())
+        val request = LinkJsonRequest(route, signed.method, signed.path, changedSignature(signed.authorization), signed.body)
+        val response = app.linkEngine.request(request).get(120, TimeUnit.SECONDS)
+        assertEquals(HttpURLConnection.HTTP_UNAUTHORIZED, response.status)
+        assertEquals(before, app.recordingNodeHandoffs.pending(identity.participant))
+        assertEquals(lease, app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == lease.plan.leaseId })
+        put("recording-worker-guarded-transport-refusal", buildJsonObject {
+            put("originalGuardedPathReached", true); put("invalidSignatureRefused", true)
+            put("originalJournalUnchanged", true); put("originalLeaseUnchanged", true); put("queueRetried", false)
+        })
+    }
+
     private fun observeRecordingWorkerDelivery(retained: Boolean = false, freshSample: Boolean = false) {
         val lease = app.cadenceLeases.all(ROOM, DEVICE).single { it.plan.leaseId == "83".repeat(16) }
         val now = epochSeconds()
@@ -565,6 +673,14 @@ class G7CadenceStatusTest {
             dev.forgesworn.kithmoot.protocol.NostrEvent.fromJson(leaseBody.getValue("credential")))
         val originalScope = scope(identity, lease.plan.nodeId)
         val journal = app.recordingNodeHandoffs
+        if (retained) {
+            // A bounded diagnostic of the preserved attempt after the cold
+            // guarded request timed out. Status must succeed on its original
+            // route; it neither re-pairs nor refreshes the queue deadline.
+            val status = app.cadenceClient.status(identity.participant, originalScope,
+                "8b".repeat(16), identity, now).get(120, TimeUnit.SECONDS)
+            assertTrue(status.answer.ready)
+        }
         val originalExpired = if (freshSample) {
             journal.pending(identity.participant).single {
                 it.binding.draftId == "00000000-0000-0000-0000-000000000083"
