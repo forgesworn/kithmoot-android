@@ -314,7 +314,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [capture, session]
+        include:
+          - suite: capture
+            api-level: 35
+          - suite: session
+            api-level: 35
+          - suite: codecs
+            api-level: 33
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -348,7 +354,7 @@ jobs:
           KITHMOOT_RECORDING_SUITE: ${{ matrix.suite }}
           KITHMOOT_RECORDING_REPORTS: app/build/reports/native-recording-${{ matrix.suite }}
         with:
-          api-level: 35
+          api-level: ${{ matrix.api-level }}
           target: default
           arch: x86_64
           profile: pixel_6

@@ -77,6 +77,18 @@ class CaptureRunnerTest(unittest.TestCase):
         result = self.run_driver(suite='local-capture', count='23')
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_codec_gate_runs_only_codec_cases_and_requires_every_result(self):
+        result = self.run_driver(suite='codecs', count='4')
+        self.assertEqual(0, result.returncode, result.stderr)
+        commands = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        instrument = next(args for args in commands if 'instrument' in args)
+        classes = instrument[instrument.index('class') + 1].split(',')
+        self.assertEqual([
+            'dev.forgesworn.kithmoot.media.recording.AacRecordingTest',
+            'dev.forgesworn.kithmoot.media.recording.AvRecordingTest',
+        ], classes)
+        self.assertNotEqual(0, self.run_driver('missing-result', suite='codecs', count='4').returncode)
+
 
 if __name__ == '__main__':
     unittest.main()

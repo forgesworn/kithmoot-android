@@ -7,6 +7,9 @@ case "${KITHMOOT_RECORDING_SUITE:?Set KITHMOOT_RECORDING_SUITE}" in
   capture)
     bash scripts/check-recording-emulator.sh full
     ;;
+  codecs)
+    bash scripts/check-recording-emulator.sh codecs
+    ;;
   session)
     python3 scripts/check-recording-emulator-ready.py \
       --adb "${ANDROID_HOME:?}/platform-tools/adb" \
@@ -15,7 +18,7 @@ case "${KITHMOOT_RECORDING_SUITE:?Set KITHMOOT_RECORDING_SUITE}" in
     bash scripts/check-recording-session-interop-emulator.sh
     ;;
   *)
-    echo 'Unknown recording suite; expected capture or session.' >&2
+    echo 'Unknown recording suite; expected capture, codecs or session.' >&2
     exit 2
     ;;
 esac

@@ -12,7 +12,8 @@ classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn
 case "${1:-full}" in
   full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=25 ;;
   local-capture) expected=23 ;;
-  *) echo 'Choose full or local-capture; local-capture excludes live browser interop.' >&2; exit 2 ;;
+  codecs) classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest'; expected=4 ;;
+  *) echo 'Choose full, local-capture or codecs.' >&2; exit 2 ;;
 esac
 [[ "$("$adb_bin" -s "$ANDROID_SERIAL" get-state 2>/dev/null)" == device ]] || {
   echo 'The selected disposable emulator is not online.' >&2; exit 2;
