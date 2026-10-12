@@ -255,6 +255,63 @@ class CadenceClientTest {
         assertTrue(restarted.pending(fixture.identity.participant).isEmpty())
     }
 
+    @Test fun journalAdapterKeepsCustodyPendingAndRevokesOnlyTheOriginalRecording() {
+        val fixture = fixture()
+        val storage = MemoryStorage()
+        val journal = RecordingNodeHandoffJournal(storage) { fixture.now }.apply { recover() }
+        val requests = mutableListOf<LinkJsonRequest>()
+        val client = CadenceClient(LinkJsonTransport { request ->
+            requests += request
+            assertTrue(request.stillAllowed())
+            val queued = request.path.endsWith("/queue-guarded")
+            if (queued) assertEquals(RecordingNodeHandoffState.OFFERED,
+                RecordingNodeHandoffJournal(storage) { fixture.now }.apply { recover() }
+                    .pending(fixture.identity.participant).last().state)
+            check(!request.path.endsWith("/queue"))
+            CompletableFuture.completedFuture(LinkJsonResponse(200,
+                receipt(if (queued) 1 else 0, if (queued) "queued" else "staged"),
+                LinkPathState("direct", "route", null, "")))
+        }, fixture.consents) { fixture.now }
+        val vault = CadenceLeaseVault(MemoryStorage())
+        val options = CadenceLeaseOptions(fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0,
+            500000, 500002, 500004, ByteArray(32) { 9 },
+            listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now)
+        val lease = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault).get().lease
+        fun event(content: String) = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now,
+            listOf(listOf("d", fixture.scope.trafficRoom)), content, ByteArray(32))
+        val first = event("first recording")
+        val second = event("second recording")
+        var relayProof: String? = null
+        val revoked = mutableListOf<RecordingNodeHandoffBinding>()
+        fun adapter(owner: RecordingNodeHandoffJournal) = JournalGuardedCadenceHandoff(
+            fixture.identity.participant, fixture.scope, fixture.identity, client, vault, owner,
+            bindingFor = { selected, original, deadline -> RecordingNodeHandoffBinding(
+                "00000000-0000-0000-0000-00000000000${if (original == first) 1 else 2}",
+                fixture.identity.participant, fixture.scope.nodeId, selected.plan.requestBody,
+                (if (original == first) "44" else "55").repeat(16), original, deadline) },
+            receivedEventConfirmsPublication = { it == relayProof }, onRevoked = revoked::add,
+            now = { fixture.now })
+        val handoff = adapter(journal)
+        handoff.queue(lease, first, fixture.now + 60) { true }.get()
+        assertEquals(RecordingNodeHandoffState.QUEUED, journal.pending(fixture.identity.participant).single().state)
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) { handoff.confirmed(first) }
+        val restarted = RecordingNodeHandoffJournal(storage) { fixture.now }.apply { recover() }
+        val recovered = adapter(restarted)
+        recovered.queue(lease, first, fixture.now + 60) { true }.get()
+        assertEquals(1, requests.count { it.path.endsWith("/queue-guarded") })
+        recovered.queue(lease, second, fixture.now + 60) { true }.get()
+        recovered.revoked(first)
+        assertEquals(listOf(first), revoked.map { it.event })
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING,
+            restarted.pending(fixture.identity.participant).single { it.binding.event == first }.state)
+        assertEquals(RecordingNodeHandoffState.QUEUED,
+            restarted.pending(fixture.identity.participant).single { it.binding.event == second }.state)
+        relayProof = second.id
+        recovered.confirmed(second)
+        assertEquals(listOf(first), restarted.pending(fixture.identity.participant).map { it.binding.event })
+        assertEquals(2, requests.count { it.path.endsWith("/queue-guarded") })
+    }
+
     @Test fun queueDispatchTracksOwnershipAndCallerCancellation() {
         val fixture = fixture()
         var queuedRequest: LinkJsonRequest? = null

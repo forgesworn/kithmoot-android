@@ -106,15 +106,23 @@ class RecordingNodeHandoffJournal(
         return update(entry, RecordingNodeHandoffState.QUEUED)
     }
 
+    @Synchronized fun revoke(binding: RecordingNodeHandoffBinding) {
+        val entry = owned(binding)
+        val next = cancelled(entry)
+        if (next != entry) persist(entries.map { if (it == entry) next else it })
+    }
+
+    private fun cancelled(entry: RecordingNodeHandoff): RecordingNodeHandoff = when (entry.state) {
+        RecordingNodeHandoffState.PREPARED -> entry.copy(state = RecordingNodeHandoffState.WITHDRAWN)
+        RecordingNodeHandoffState.OFFERED, RecordingNodeHandoffState.QUEUED ->
+            entry.copy(state = RecordingNodeHandoffState.CANCEL_PENDING)
+        else -> entry
+    }
+
     @Synchronized fun revokeRoom(room: String) {
         ready()
         persist(entries.map { entry ->
-            if (entry.binding.room != room) entry else when (entry.state) {
-                RecordingNodeHandoffState.PREPARED -> entry.copy(state = RecordingNodeHandoffState.WITHDRAWN)
-                RecordingNodeHandoffState.OFFERED, RecordingNodeHandoffState.QUEUED ->
-                    entry.copy(state = RecordingNodeHandoffState.CANCEL_PENDING)
-                else -> entry
-            }
+            if (entry.binding.room != room) entry else cancelled(entry)
         })
     }
 

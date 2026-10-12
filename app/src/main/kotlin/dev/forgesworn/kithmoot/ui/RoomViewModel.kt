@@ -886,7 +886,17 @@ class RoomViewModel @JvmOverloads constructor(
     /** Optional constructor dependency for private TLS qualification. Normal
      * activities leave this null and use the strict production client. */
     private val recordingUploadClient: okhttp3.OkHttpClient? = null,
+    /** Explicit instrumentation opt-in for the real paired-node recording
+     * journey. Normal activities do not enable this unqualified capability. */
+    private val recordingNodeQualification: Boolean = false,
 ) : AndroidViewModel(application) {
+
+    init {
+        require(!recordingNodeQualification ||
+            application.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            "Recording node qualification requires a debug application"
+        }
+    }
 
     /** The room the call is in, which this chat-only instance must never
      *  open a second session on. */
@@ -4534,6 +4544,53 @@ class RoomViewModel @JvmOverloads constructor(
         quietTransport = quiet
         val cadenceAccess = if (quiet != null) cadenceAccess(record, who, secondary) else CadenceAccess(null, null)
         val cadenceTransport = quiet?.let { quietRoom ->
+            val guardedRecording = cadenceAccess.context?.takeIf { recordingNodeQualification }?.let { context ->
+                val journal = recordingApplication.recordingNodeHandoffs
+                dev.forgesworn.kithmoot.cadence.JournalGuardedCadenceHandoff(
+                    who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,
+                    bindingFor = { lease, event, deadline ->
+                        val draft = recordingApplication.recordingShareDrafts.list(record.id).single {
+                            it.preparedSend?.pending?.event == event
+                        }
+                        val prepared = checkNotNull(draft.preparedSend)
+                        check(prepared.participant == who.participant && prepared.device == who.devicePubkey)
+                        val original = journal.pending(who.participant).singleOrNull { it.binding.event == event }?.binding
+                        original ?: dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
+                            draft.id, who.participant, context.scope.nodeId, lease.plan.requestBody,
+                            cadenceQueueId(event.id), event,
+                            minOf(deadline, draft.discardAt ?: Long.MAX_VALUE,
+                                Math.multiplyExact(lease.plan.endEpoch, 3600L)),
+                        )
+                    },
+                    receivedEventConfirmsPublication = quietRoom::receivedEventConfirmsPublication,
+                    onRevoked = { binding ->
+                        // Cleanup has its own original-route authority. A revoked
+                        // publication guard cannot authorise or redirect a request.
+                        recordingApplication.recordingExports.launch {
+                            runCatching {
+                                cadenceGate.withLock {
+                                    val original = cadenceLeases.all(record.id, who.devicePubkey).single {
+                                        it.plan.requestBody == binding.leaseBody
+                                    }
+                                    val requestId = journal.pending(who.participant)
+                                        .single { it.binding == binding }.withdrawal?.requestId
+                                        ?: cadenceQueueId("withdraw:${binding.event.id}")
+                                    cadenceClient.withdrawRecording(who.participant, context.scope, who,
+                                        original, binding, requestId, epochSeconds(), cadenceLeases, journal) {
+                                        _room.value.roomId == record.id && !_room.value.anonymous &&
+                                            _room.value.movedOn == null && epochSeconds() <
+                                            (who.credential.tagValue("expiration")?.toLongOrNull() ?: 0L)
+                                    }.get()
+                                }
+                            }.onFailure {
+                                _room.update { state -> if (state.roomId == record.id)
+                                    state.copy(chatSendError = "Recording withdrawal is unconfirmed. Its original node request remains pending.")
+                                    else state }
+                            }
+                        }
+                    },
+                )
+            }
             CadenceRoomTransport(
                 quietRoom,
                 scope,
@@ -4572,6 +4629,7 @@ class RoomViewModel @JvmOverloads constructor(
                 },
                 release = { eventId -> check(quietRoom.confirmQueued(eventId)) { "The confirmed quiet message was not retained locally." } },
                 ownershipGeneration = { cadenceLeases.publicationGeneration(derived.roomId, who.devicePubkey) },
+                guardedHandoff = guardedRecording,
                 onFailure = { message -> _room.update { state -> state.copy(
                     chatSendError = message,
                     notice = message,

@@ -730,6 +730,21 @@ This does not retract a request already offered to the native engine or prove
 delivery by a delegated node. Guarded recording on delegated schedules remains
 disabled until its delivery and ownership requirements are qualified.
 
+The [journal-backed room handoff candidate](evidence/native-recording-journal-room-handoff-2026-10-12.json)
+connects bounded recording Send to the original encrypted node journal through
+an explicit `RoomViewModel(recordingNodeQualification = true)` constructor
+opt-in. This is accepted only in a debuggable application; normal activities
+leave it disabled. The binding comes from the original prepared recording
+draft, node, lease and deadline. A queue ACK retains pending custody; completion
+requires the exact event's authenticated relay observation. Restart retries
+accepted custody without enqueueing it again. Source revocation persists
+cancellation for that recording and requests withdrawal using its original
+node and retained request ID while original-route authority remains available.
+Failed or unauthorised withdrawal remains pending. The 23 focused JVM tests
+pass; they do not qualify a real paired node or physical capture. Real Link,
+node-worker, restart/rekey/withdrawal races, full current native/hosted checks,
+physical acceptance and signed production delivery remain required.
+
 The [queue dispatch receipt](evidence/native-recording-cadence-queue-dispatch-2026-10-11.json)
 qualifies the next JVM candidate's lease and caller fences. Queueing requires
 the exact current persisted lease, then carries the room/device ownership
