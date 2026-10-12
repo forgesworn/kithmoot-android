@@ -200,7 +200,11 @@ class AvRecordingFile(
                 val count = reader.readSampleData(buffer, 0)
                 check(count in 1..buffer.capacity()) { "Invalid recording sample size" }
                 val time = reader.sampleTime
-                check(time >= last[next] && time <= durationUs) { "Invalid recording sample timestamp" }
+                check(time >= last[next] && time <= durationUs) {
+                    "Invalid recording sample timestamp: track=$next timeUs=$time previousUs=${last[next]} " +
+                        "sourceEndUs=$durationUs audioEncoder=${RecordingCodecs.audioEncoder} " +
+                        "videoEncoder=${RecordingCodecs.videoEncoder}"
+                }
                 last[next] = time
                 val flags = if (reader.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                 sampleInfo.set(0, count, time, flags)
