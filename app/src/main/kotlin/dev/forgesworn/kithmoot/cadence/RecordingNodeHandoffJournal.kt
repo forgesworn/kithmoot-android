@@ -24,7 +24,9 @@ data class RecordingNodeHandoffBinding(
     val path: String get() = BoxCadence.guardedQueuePath(lease.getValue("lease_id").jsonPrimitive.content)
 }
 
-data class RecordingNodeHandoff(val binding: RecordingNodeHandoffBinding, val state: RecordingNodeHandoffState)
+data class RecordingNodeWithdrawal(val requestId: String, val path: String, val body: String)
+data class RecordingNodeHandoff(val binding: RecordingNodeHandoffBinding,
+    val state: RecordingNodeHandoffState, val withdrawal: RecordingNodeWithdrawal? = null)
 
 /** Original request ownership, not an automatic outbox. Production supplies
  * device-encrypted, backup-excluded storage. No queue ACK confirms delivery.
@@ -35,6 +37,7 @@ class RecordingNodeHandoffJournal(
 ) {
     private var entries = emptyList<RecordingNodeHandoff>()
     private val active = mutableSetOf<String>()
+    private val activeWithdrawals = mutableSetOf<String>()
     private var recovered = false
     private var faulted = false
 
@@ -115,10 +118,34 @@ class RecordingNodeHandoffJournal(
         })
     }
 
+    /** Persist the exact withdrawal before its first byte. A lost reply uses
+     * the same request; a fresh process still needs an explicit reservation. */
+    @Synchronized fun reserveWithdrawal(binding: RecordingNodeHandoffBinding, requestId: String): RecordingNodeWithdrawal {
+        val entry = owned(binding)
+        check(entry.state == RecordingNodeHandoffState.CANCEL_PENDING)
+        check(binding.draftId !in activeWithdrawals) { "The original withdrawal is already active" }
+        val withdrawal = RecordingNodeWithdrawal(requestId,
+            BoxCadence.guardedWithdrawPath(binding.lease.getValue("lease_id").jsonPrimitive.content, binding.event.id),
+            BoxCadence.mutationBody(binding.lease, requestId, null).toString())
+        check(entry.withdrawal == null || entry.withdrawal == withdrawal) { "The recording already owns another withdrawal request" }
+        if (entry.withdrawal == null) persist(entries.map { if (it == entry) it.copy(withdrawal = withdrawal) else it })
+        activeWithdrawals.add(binding.draftId)
+        return withdrawal
+    }
+
+    @Synchronized fun withdrawalStillAllowed(binding: RecordingNodeHandoffBinding,
+        withdrawal: RecordingNodeWithdrawal): Boolean = recovered && !faulted && binding.draftId in activeWithdrawals &&
+        entries.any { it.binding == binding && it.state == RecordingNodeHandoffState.CANCEL_PENDING && it.withdrawal == withdrawal }
+
+    @Synchronized fun endWithdrawal(binding: RecordingNodeHandoffBinding) {
+        if (entries.any { it.binding == binding }) activeWithdrawals.remove(binding.draftId)
+    }
+
     /** Call only after the original node's authenticated withdrawal receipt. */
     @Synchronized fun withdrawn(binding: RecordingNodeHandoffBinding): RecordingNodeHandoff {
         val entry = owned(binding)
         check(entry.state in setOf(RecordingNodeHandoffState.CANCEL_PENDING, RecordingNodeHandoffState.WITHDRAWN))
+        check(entry.state == RecordingNodeHandoffState.WITHDRAWN || entry.withdrawal != null)
         return update(entry, RecordingNodeHandoffState.WITHDRAWN)
     }
 
@@ -156,23 +183,40 @@ class RecordingNodeHandoffJournal(
             put("draft", binding.draftId); put("account", binding.accountPubkey); put("node", binding.nodeId)
             put("lease", binding.leaseBody); put("request", binding.requestId); put("event", binding.event.toRustWireJson())
             put("publishBefore", binding.publishBefore); put("state", entry.state.name)
+            entry.withdrawal?.let { withdrawal -> put("withdrawal", buildJsonObject {
+                put("request", withdrawal.requestId); put("path", withdrawal.path); put("body", withdrawal.body)
+            }) }
         }) } }.toString().toByteArray()
         try {
             storage.write(bytes)
             entries = next
             active.retainAll(next.filter { it.state == RecordingNodeHandoffState.OFFERED }.map { it.binding.draftId }.toSet())
+            activeWithdrawals.retainAll(next.filter { it.state == RecordingNodeHandoffState.CANCEL_PENDING }.map { it.binding.draftId }.toSet())
         }
-        catch (failure: Exception) { faulted = true; active.clear(); throw failure }
+        catch (failure: Exception) { faulted = true; active.clear(); activeWithdrawals.clear(); throw failure }
         finally { bytes.fill(0) }
     }
     private fun decode(value: JsonElement): RecordingNodeHandoff {
         val obj = value.jsonObject
-        require(obj.keys == setOf("draft", "account", "node", "lease", "request", "event", "publishBefore", "state"))
+        val required = setOf("draft", "account", "node", "lease", "request", "event", "publishBefore", "state")
+        require(obj.keys == required || obj.keys == required + "withdrawal")
         fun text(key: String) = obj.getValue(key).jsonPrimitive.also { require(it.isString) }.content
         val binding = RecordingNodeHandoffBinding(text("draft"), text("account"), text("node"), text("lease"),
             text("request"), NostrEvent.fromJson(obj.getValue("event")), obj.getValue("publishBefore").jsonPrimitive.long)
         validate(binding)
-        return RecordingNodeHandoff(binding, RecordingNodeHandoffState.valueOf(text("state")))
+        val state = RecordingNodeHandoffState.valueOf(text("state"))
+        val withdrawal = obj["withdrawal"]?.jsonObject?.let { saved ->
+            require(saved.keys == setOf("request", "path", "body"))
+            fun value(key: String) = saved.getValue(key).jsonPrimitive.also { require(it.isString) }.content
+            val requestId = value("request")
+            val expected = RecordingNodeWithdrawal(requestId,
+                BoxCadence.guardedWithdrawPath(binding.lease.getValue("lease_id").jsonPrimitive.content, binding.event.id),
+                BoxCadence.mutationBody(binding.lease, requestId, null).toString())
+            require(value("path") == expected.path && value("body") == expected.body)
+            require(state in setOf(RecordingNodeHandoffState.CANCEL_PENDING, RecordingNodeHandoffState.WITHDRAWN))
+            expected
+        }
+        return RecordingNodeHandoff(binding, state, withdrawal)
     }
     private fun validate(binding: RecordingNodeHandoffBinding) {
         require(UUID.fromString(binding.draftId).toString() == binding.draftId)

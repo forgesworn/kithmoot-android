@@ -94,9 +94,34 @@ class RecordingNodeHandoffJournalTest {
         assertEquals(RecordingNodeHandoffState.CANCEL_PENDING, restarted.pending(binding.accountPubkey).single().state)
         assertThrows(IllegalStateException::class.java) { restarted.reserveOffer(binding) }
         assertThrows(IllegalStateException::class.java) { restarted.confirmRelay(binding) { true } }
+        restarted.reserveWithdrawal(binding, "66".repeat(16))
         restarted.withdrawn(binding)
         restarted.retire(binding)
         assertTrue(restarted.pending(binding.accountPubkey).isEmpty())
+    }
+
+    @Test fun lostWithdrawalReplyRetainsOriginalIdBodyPathAndRequiresExplicitRestartReservation() {
+        val storage = Storage()
+        val binding = binding()
+        val journal = RecordingNodeHandoffJournal(storage) { start }.apply { recover() }
+        journal.prepare(binding)
+        journal.reserveOffer(binding)
+        journal.revokeRoom(binding.room)
+        val withdrawal = journal.reserveWithdrawal(binding, "66".repeat(16))
+        assertEquals("${binding.path}/${binding.event.id}/withdraw", withdrawal.path)
+        assertTrue(journal.withdrawalStillAllowed(binding, withdrawal))
+        assertThrows(IllegalStateException::class.java) { journal.reserveWithdrawal(binding, withdrawal.requestId) }
+        val restarted = RecordingNodeHandoffJournal(storage) { start }.apply { recover() }
+        assertEquals(withdrawal, restarted.pending(binding.accountPubkey).single().withdrawal)
+        assertFalse(restarted.withdrawalStillAllowed(binding, withdrawal))
+        assertThrows(IllegalStateException::class.java) { restarted.reserveWithdrawal(binding, "77".repeat(16)) }
+        assertEquals(withdrawal, restarted.reserveWithdrawal(binding, withdrawal.requestId))
+        assertTrue(restarted.withdrawalStillAllowed(binding, withdrawal))
+        restarted.endWithdrawal(binding)
+        assertFalse(restarted.withdrawalStillAllowed(binding, withdrawal))
+        assertEquals(withdrawal, restarted.reserveWithdrawal(binding, withdrawal.requestId))
+        restarted.withdrawn(binding)
+        assertFalse(restarted.withdrawalStillAllowed(binding, withdrawal))
     }
 
     @Test fun deadlineAndFailedRevocationWriteBothFenceDispatch() {

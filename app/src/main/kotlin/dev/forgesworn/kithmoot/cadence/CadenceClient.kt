@@ -20,6 +20,8 @@ import kotlinx.serialization.json.long
 
 data class CadenceStatusResult(val answer: CadenceStatusAnswer, val path: LinkPathState)
 data class CadenceLeaseResult(val lease: StoredCadenceLease, val path: LinkPathState)
+/** Custody acknowledgement only. The original draft still needs relay proof. */
+data class CadenceRecordingQueueResult(val custody: CadenceLeaseResult, val handoff: RecordingNodeHandoff)
 
 /** Cancellation reaches the queued Link request; an in-flight offer cannot be retracted. */
 private fun <T, R> CompletableFuture<T>.thenApplyCancellable(transform: (T) -> R): CompletableFuture<R> =
@@ -141,8 +143,76 @@ class CadenceClient(
             else BoxCadence.guardedQueuePath(current.plan.leaseId)
         val signed = BoxCadence.sign(scope.nodeId, "POST", path, body, identity.deviceSecretKey, now)
         return receiptRequest(accountPubkey, scope, identity, signed, current, now, vault) {
-            vault.publicationGeneration(scope.room, scope.device) == ownership && allowed()
+            allowed() && vault.publicationGeneration(scope.room, scope.device) == ownership
         }
+    }
+
+    /** The journal owns the original request before any network handoff. */
+    fun queueRecording(
+        accountPubkey: String,
+        scope: CadenceScope,
+        identity: RoomIdentity,
+        current: StoredCadenceLease,
+        binding: RecordingNodeHandoffBinding,
+        now: Long,
+        vault: CadenceLeaseVault,
+        journal: RecordingNodeHandoffJournal,
+        stillAllowed: () -> Boolean,
+    ): CompletableFuture<CadenceRecordingQueueResult> {
+        validateRecordingScope(accountPubkey, scope, identity, current, binding)
+        check(stillAllowed()) { "The original recording publication was revoked" }
+        journal.reserveOffer(binding)
+        return try {
+            queueGuarded(accountPubkey, scope, identity, current, binding.requestId, binding.event,
+                binding.publishBefore, now, vault) { stillAllowed() && journal.stillAllowed(binding) }
+                .thenApplyCancellable { result -> CadenceRecordingQueueResult(result, journal.queued(binding)) }
+                .also { future -> future.whenComplete { _, _ -> journal.endOffer(binding) } }
+        } catch (failure: Exception) {
+            journal.endOffer(binding)
+            throw failure
+        }
+    }
+
+    /** The retained withdrawal is signed anew only at the HTTP authentication
+     * layer. Its body, request ID, event and original node never change. */
+    fun withdrawRecording(
+        accountPubkey: String,
+        scope: CadenceScope,
+        identity: RoomIdentity,
+        current: StoredCadenceLease,
+        binding: RecordingNodeHandoffBinding,
+        withdrawalRequestId: String,
+        now: Long,
+        vault: CadenceLeaseVault,
+        journal: RecordingNodeHandoffJournal,
+        stillAllowed: () -> Boolean,
+    ): CompletableFuture<CadenceLeaseResult> {
+        validateRecordingScope(accountPubkey, scope, identity, current, binding)
+        check(stillAllowed()) { "The original recording withdrawal was revoked" }
+        val ownership = vault.publicationGeneration(scope.room, scope.device)
+        val withdrawal = journal.reserveWithdrawal(binding, withdrawalRequestId)
+        return try {
+            val body = Json.parseToJsonElement(withdrawal.body).jsonObject
+            val signed = BoxCadence.sign(binding.nodeId, "POST", withdrawal.path, body, identity.deviceSecretKey, now)
+            receiptRequest(accountPubkey, scope, identity, signed, current, now, vault) {
+                stillAllowed() && journal.withdrawalStillAllowed(binding, withdrawal) &&
+                    vault.publicationGeneration(scope.room, scope.device) == ownership
+            }.thenApplyCancellable { result ->
+                check(result.lease.receipt?.code == "withdrawn") { "The original node did not confirm withdrawal" }
+                journal.withdrawn(binding)
+                result
+            }.also { future -> future.whenComplete { _, _ -> journal.endWithdrawal(binding) } }
+        } catch (failure: Exception) {
+            journal.endWithdrawal(binding)
+            throw failure
+        }
+    }
+
+    private fun validateRecordingScope(accountPubkey: String, scope: CadenceScope, identity: RoomIdentity,
+        current: StoredCadenceLease, binding: RecordingNodeHandoffBinding) {
+        validateLeaseScope(scope, identity, current)
+        require(binding.accountPubkey == accountPubkey && binding.nodeId == scope.nodeId &&
+            binding.leaseBody == current.plan.requestBody) { "Recording handoff does not belong to the original account, node and lease" }
     }
 
     fun stop(

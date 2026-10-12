@@ -187,6 +187,74 @@ class CadenceClientTest {
         }
     }
 
+    @Test fun recordingCustodyAndLostWithdrawalReplyRetainOneOriginalJournalRequest() {
+        val fixture = fixture()
+        val journalStorage = MemoryStorage()
+        val journal = RecordingNodeHandoffJournal(journalStorage) { fixture.now }.apply { recover() }
+        val requests = mutableListOf<LinkJsonRequest>()
+        val lostReply = CompletableFuture<LinkJsonResponse>()
+        var withdrawals = 0
+        val client = CadenceClient(LinkJsonTransport { request ->
+            requests += request
+            assertTrue(request.stillAllowed())
+            when {
+                request.path.endsWith("/queue-guarded") -> {
+                    assertEquals(RecordingNodeHandoffState.OFFERED, journal.pending(fixture.identity.participant).single().state)
+                    val recovered = RecordingNodeHandoffJournal(journalStorage) { fixture.now }.apply { recover() }
+                    val entry = recovered.pending(fixture.identity.participant).single()
+                    assertArrayEquals(entry.binding.queueBody.toByteArray(), request.body)
+                    assertFalse(recovered.stillAllowed(entry.binding))
+                    CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(1, "queued"), LinkPathState("direct", "route", null, "")))
+                }
+                request.path.endsWith("/withdraw") -> if (withdrawals++ == 0) lostReply else
+                    CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0, "withdrawn"), LinkPathState("direct", "route", null, "")))
+                request.path.endsWith("/queue") -> error("recording fell back to ordinary queue")
+                else -> CompletableFuture.completedFuture(LinkJsonResponse(200, receipt(0, "staged"), LinkPathState("direct", "route", null, "")))
+            }
+        }, fixture.consents) { fixture.now }
+        val vault = CadenceLeaseVault(MemoryStorage())
+        val options = CadenceLeaseOptions(fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0,
+            500000, 500002, 500004, ByteArray(32) { 9 },
+            listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now)
+        val lease = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, vault).get().lease
+        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now,
+            listOf(listOf("d", fixture.scope.trafficRoom)), "recording ciphertext", ByteArray(32))
+        val binding = RecordingNodeHandoffBinding("00000000-0000-0000-0000-000000000001", fixture.identity.participant,
+            fixture.scope.nodeId, lease.plan.requestBody, "44".repeat(16), event, fixture.now + 60)
+        journal.prepare(binding)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            client.queueRecording("ff".repeat(32), fixture.scope, fixture.identity, lease, binding,
+                fixture.now, vault, journal) { true }
+        }
+        assertEquals(1, requests.size)
+        val queued = client.queueRecording(fixture.identity.participant, fixture.scope, fixture.identity, lease,
+            binding, fixture.now, vault, journal) { true }.get()
+        assertEquals(RecordingNodeHandoffState.QUEUED, queued.handoff.state)
+        assertEquals(event, queued.handoff.binding.event)
+        assertEquals(1, journal.pending(fixture.identity.participant).size)
+        journal.revokeRoom(fixture.scope.room)
+        val failed = client.withdrawRecording(fixture.identity.participant, fixture.scope, fixture.identity,
+            queued.custody.lease, binding, "66".repeat(16), fixture.now, vault, journal) { true }
+        lostReply.completeExceptionally(IllegalStateException("lost withdrawal reply"))
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) { failed.get() }
+        val restarted = RecordingNodeHandoffJournal(journalStorage) { fixture.now }.apply { recover() }
+        val retained = restarted.pending(fixture.identity.participant).single()
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING, retained.state)
+        val withdrawal = requireNotNull(retained.withdrawal)
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            client.withdrawRecording(fixture.identity.participant, fixture.scope, fixture.identity,
+                queued.custody.lease, binding, "77".repeat(16), fixture.now + 1, vault, restarted) { true }
+        }
+        assertEquals(3, requests.size)
+        val result = client.withdrawRecording(fixture.identity.participant, fixture.scope, fixture.identity,
+            queued.custody.lease, binding, withdrawal.requestId, fixture.now + 1, vault, restarted) { true }.get()
+        assertEquals("withdrawn", result.lease.receipt?.code)
+        val sentWithdrawals = requests.filter { it.path.endsWith("/withdraw") }
+        assertEquals(listOf(withdrawal.path, withdrawal.path), sentWithdrawals.map { it.path })
+        assertArrayEquals(sentWithdrawals[0].body, sentWithdrawals[1].body)
+        assertTrue(restarted.pending(fixture.identity.participant).isEmpty())
+    }
+
     @Test fun queueDispatchTracksOwnershipAndCallerCancellation() {
         val fixture = fixture()
         var queuedRequest: LinkJsonRequest? = null
