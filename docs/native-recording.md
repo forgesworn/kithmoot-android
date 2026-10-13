@@ -7,7 +7,21 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The current tested source is `99c650719c0eee42504f23e42379fb16ee53b28f`.
+The current source is `246dbbff3b1ae49a8640c9631739470d6a743e1f`.
+Its [hosted verification receipt](evidence/native-recording-current-hosted-verify-2026-10-13.json)
+records 501 protocol, 2,335 debug app and 2,324 release app tests, with zero
+failures, errors or skips, and no Error/Fatal findings in either lint variant.
+The [current workflow](https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259)
+still has the Google APIs private-node emulator job running; verification alone does not
+qualify the whole workflow or the product withdrawal journey.
+The [default-image private-node receipt](evidence/native-recording-current-private-default-2026-10-13.json)
+records inspected short, 256 MiB and delayed 256 MiB cases against the actual
+Wildbloom daemon, each with a separate recipient process, native decoded pixels
+and complete network cleanup. These emulator results do not qualify the Pixel
+endurance export or SDK/worker withdrawal.
+
+The earlier product and physical tested source is
+`99c650719c0eee42504f23e42379fb16ee53b28f`.
 [All 17 hosted jobs passed](https://github.com/forgesworn/kithmoot-android/actions/runs/38312984958),
 including both private-node emulator images. The Google APIs job required a
 rerun after its first attempt failed downloading the emulator image, before
@@ -52,9 +66,20 @@ that offered an expired original using a newer room credential. It also records
 why equality with a newly minted room credential is not the correct fence.
 The new `recording-room-send-leave` instrumentation action requires accepted
 original custody followed by authenticated node withdrawal after RoomViewModel
-Leave; it has not yet been executed against the SDK/worker fixture.
+Leave. A separate SDK/worker fixture has staged its original lease and uploaded
+one original recording. Its single Send-and-Leave driver is armed for the
+unchanged 02:00 UTC / 03:00 UK activation on 13 October; that action has not yet
+been executed. The fixture uses the current source's frozen app and test APKs,
+with no clock compression, lease extension, replacement upload or automatic retry.
 Actual product departure/restart and lost-reply verification remain required;
 a retained `CANCEL_PENDING` journal entry alone does not prove node withdrawal.
+The additional `recording-room-withdrawn-restart` action compiled locally. Its
+driver waits for successful original departure before installing only the new
+test APK and stopping the owned emulator app. It then requires the recovered
+terminal `WITHDRAWN` binding to match the retained prepared event, original
+lease and withdrawal request, with the uploaded draft and source still present.
+It does not reopen the room, Send, Upload or queue another message. Runtime
+success remains unproved while that driver waits for the original departure.
 
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download

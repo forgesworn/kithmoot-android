@@ -70,6 +70,7 @@ class G7CadenceStatusTest {
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
+            "recording-room-withdrawn-restart" -> verifyWithdrawnRecordingRoomModelRestart()
             "recording-room-send-controls" -> sendPreparedRecordingRoomModelDraft(send = false)
             "recording-room-send-observe" -> observeOriginalRecordingRoomModelSend()
             "recording-room-first-publication" -> sendPreparedRecordingRoomModelDraft(afterVerifiedNoop = true)
@@ -495,6 +496,71 @@ class G7CadenceStatusTest {
                 put("sendInvoked", false); put("uploadInvoked", false); put("replacementPairing", false)
             })
         } finally { scenario.close(); room.roomKey.fill(0) }
+    }
+
+    /** Read durable original custody after process death, without publication.
+     * The driver must first observe successful product departure and stop the
+     * owned disposable app process. This action does not reopen the room. */
+    private fun verifyWithdrawnRecordingRoomModelRestart() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        assertTrue(get("journey/recording-room-send-leave")
+            .getValue("authenticatedOriginalNodeWithdrawal").jsonPrimitive.boolean)
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        try {
+            val saved = requireNotNull(app.savedRooms.get(room.roomId))
+            assertEquals(LocalSigner(PERSONA_SECRET.hexToBytes()).pubkey, saved.participant)
+            assertEquals(DEVICE, saved.devicePubkey)
+            val lease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+            val staged = get("journey/recording-room-stage")
+            assertEquals(staged.getValue("leaseId").jsonPrimitive.content, lease.plan.leaseId)
+            assertEquals(staged.getValue("generation").jsonPrimitive.content.toLong(), lease.plan.generation)
+            assertEquals(staged.getValue("startEpoch").jsonPrimitive.content.toLong(), lease.plan.startEpoch)
+            assertEquals(staged.getValue("endEpoch").jsonPrimitive.content.toLong(), lease.plan.endEpoch)
+            assertEquals(get("ready").getValue("link_node_id").jsonPrimitive.content, lease.plan.nodeId)
+            assertEquals("withdrawn", lease.receipt?.code)
+            val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
+            require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
+            val directory = java.io.File(app.noBackupFilesDir, name)
+            val prepared = org.json.JSONObject(java.io.File(directory, "room-recording-prepared.json").readText())
+            val outcome = org.json.JSONObject(java.io.File(directory, "room-recording-leave-outcome.json").readText())
+            assertEquals("original-node-withdrawn-after-room-departure", outcome.getString("state"))
+            val draft = app.recordingShareDrafts.list(room.roomId).single()
+            assertEquals(prepared.getString("draft"), draft.id)
+            assertEquals(prepared.getString("source"), draft.sourceName)
+            assertEquals(prepared.getString("encryptedSha256"), draft.sealed.hash)
+            assertEquals(prepared.getString("origin"), draft.storageOrigin)
+            assertEquals(draft.sealed.hash, requireNotNull(draft.uploaded).sha256)
+            assertTrue(draft.sealed.file.isFile)
+            val source = app.recordings.selectedExport(draft.sourceName)
+            assertTrue(source.isFile && source.length() > 0)
+            assertEquals(room.roomId, app.recordings.details(source).origin?.room)
+            val entriesField = app.recordingNodeHandoffs.javaClass.getDeclaredField("entries").apply {
+                isAccessible = true
+            }
+            val handoff = synchronized(app.recordingNodeHandoffs) {
+                @Suppress("UNCHECKED_CAST")
+                val entries = entriesField.get(app.recordingNodeHandoffs) as
+                    List<dev.forgesworn.kithmoot.cadence.RecordingNodeHandoff>
+                entries.single()
+            }
+            assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN, handoff.state)
+            assertEquals(draft.id, handoff.binding.draftId)
+            assertEquals(saved.participant, handoff.binding.accountPubkey)
+            assertEquals(lease.plan.nodeId, handoff.binding.nodeId)
+            assertEquals(lease.plan.requestBody, handoff.binding.leaseBody)
+            assertEquals(requireNotNull(draft.preparedSend).pending.event, handoff.binding.event)
+            val withdrawal = requireNotNull(handoff.withdrawal)
+            assertTrue(withdrawal.requestId.isNotBlank() && withdrawal.path.isNotBlank() && withdrawal.body.isNotBlank())
+            assertTrue(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
+            put("recording-room-withdrawn-restart", buildJsonObject {
+                put("originalWithdrawnJournalRecovered", true)
+                put("originalPreparedEventAndWithdrawalRetained", true)
+                put("originalSourceAndUploadedDraftRetained", true)
+                put("originalLeasePlanAndWithdrawalReceiptRecovered", true)
+                put("roomReopened", false); put("sendInvoked", false); put("uploadInvoked", false)
+                put("queueInvoked", false); put("replacementPairing", false); put("clockCompressed", false)
+            })
+        } finally { room.roomKey.fill(0) }
     }
 
     /** Read-only recovery of the original attempt, never another Send. */
