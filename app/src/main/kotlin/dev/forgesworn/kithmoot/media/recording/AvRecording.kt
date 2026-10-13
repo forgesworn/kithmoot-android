@@ -95,6 +95,10 @@ class AvRecordingFile(
             audio.write(samples)
             this.samples += samples.size
             while (nextVideoSample < this.samples) {
+                // Free output buffers before submitting another surface frame:
+                // swapBuffers can otherwise block behind undrained encoder
+                // output, preventing this same worker from draining it.
+                drain(0)
                 requireNotNull(egl).makeCurrent()
                 draw(nextVideoSample, WIDTH, HEIGHT)
                 // The encoder input receives the audio clock, never wall time.

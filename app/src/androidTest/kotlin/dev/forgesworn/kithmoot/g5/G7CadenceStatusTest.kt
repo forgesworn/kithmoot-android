@@ -830,30 +830,32 @@ class G7CadenceStatusTest {
                         it.accountPubkey == saved.participant && it.roomId == room.roomId &&
                             it.state == LinkConsentState.ACTIVE
                     }
-                    val opened = CompletableFuture<Unit>()
-                    val accepted = CompletableFuture<Unit>()
-                    val socket = app.linkEngine.open(consent.canonicalUrl, consent.routeId,
-                        object : dev.forgesworn.kithmoot.relay.RelaySocketListener {
-                            override fun onOpen() { opened.complete(Unit) }
-                            override fun onMessage(text: String) {
-                                val frame = Json.parseToJsonElement(text).jsonArray
-                                if (frame.size >= 3 && frame[0].jsonPrimitive.content == "OK" &&
-                                    frame[1].jsonPrimitive.content == notice.id) {
-                                    if (frame[2].jsonPrimitive.boolean) accepted.complete(Unit)
-                                    else accepted.completeExceptionally(IllegalStateException("Original node refused authority rekey"))
+                    val publisherScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+                    val publisher = dev.forgesworn.kithmoot.relay.RelayPool(listOf(consent.canonicalUrl),
+                        dev.forgesworn.kithmoot.relay.HybridRelaySockets(
+                            dev.forgesworn.kithmoot.relay.OkHttpRelaySockets(), app.linkEngine,
+                            dev.forgesworn.kithmoot.relay.ActiveLinkRoute { url ->
+                                app.linkConsents.activeRoute(saved.participant, room.roomId, url)
+                                    ?.takeIf { url == consent.canonicalUrl && it == consent.routeId }
+                            }), publisherScope,
+                        circle = { setOf(consent.canonicalUrl) },
+                        authenticators = dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider { url ->
+                            if (url != consent.canonicalUrl) null else object : dev.forgesworn.kithmoot.relay.RelayAuthenticator {
+                                override val pubkey = saved.participant
+                                override suspend fun sign(url: String, challenge: String): dev.forgesworn.kithmoot.protocol.NostrEvent {
+                                    val key = PERSONA_SECRET.hexToBytes()
+                                    try {
+                                        check(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(key) == saved.participant)
+                                        return Events.sign(key, 22242, epochSeconds(),
+                                            listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                                    } finally { key.fill(0) }
                                 }
-                            }
-                            override fun onClosed(reason: String) {
-                                val failure = IllegalStateException("Original authority transport closed: $reason")
-                                opened.completeExceptionally(failure); accepted.completeExceptionally(failure)
                             }
                         })
                     try {
-                        opened.get(120, TimeUnit.SECONDS)
-                        socket.send(kotlinx.serialization.json.buildJsonArray {
-                            add(kotlinx.serialization.json.JsonPrimitive("EVENT")); add(notice.toJson())
-                        }.toString())
-                        accepted.get(120, TimeUnit.SECONDS)
+                        publisher.start()
+                        assertTrue("Original node accepts the authenticated authority publication",
+                            runBlocking { publisher.publishConfirmed(notice, 120_000) })
                         ui.await("native client authenticates epoch one and withdraws original custody", timeoutMs = 180_000) {
                             app.roomEpochs.get(room.roomId)?.currentEpoch == 1 &&
                                 originalHandoff()?.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
@@ -876,7 +878,7 @@ class G7CadenceStatusTest {
                             put("replacementUpload", false); put("automaticRetry", false); put("clockCompressed", false)
                             put("nativeKeeperQuietRoom", false)
                         })
-                    } finally { socket.close() }
+                    } finally { publisher.stop(); publisherScope.cancel() }
                     return
                 }
                 outcome.writeText(org.json.JSONObject().put("state", "leaving-after-original-queued-custody")
@@ -1000,6 +1002,11 @@ class G7CadenceStatusTest {
         assertEquals(who.devicePubkey, plan.active.tagValue("device"))
         assertEquals(GRANT_ID, plan.active.tagValue("grant"))
         assertEquals(ready.getValue("claimed_by").jsonPrimitive.content, plan.active.pubkey)
+        if (withAuthority) {
+            assertEquals("Authority publication requires this fixture's actual node owner",
+                who.participant, ready.getValue("claimed_by").jsonPrimitive.content)
+            assertTrue(ready.getValue("fixture_owner_persona").jsonPrimitive.boolean)
+        }
         val pairing = parsePairing(post("pairing").getValue("uri").jsonPrimitive.content, now)
         val route = app.linkEngine.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).get(120, TimeUnit.SECONDS)
         val node = ready.getValue("link_node_id").jsonPrimitive.content
