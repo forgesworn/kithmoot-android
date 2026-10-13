@@ -159,13 +159,34 @@ emulated, and this legacy quiet-room case does not qualify native epoch rekey.
 The [separate authority/rekey fixture](evidence/native-recording-product-authority-rekey-armed-2026-10-13.json)
 has staged a real SDK lease for an authority-bound quiet room and completed one
 private encrypted Upload. Its unchanged activation is 05:00 UTC / 06:00 UK on
-13 October. One original Send must be followed by an actual authority-signed
-rekey through the paired SDK, then native epoch-one authentication and
-withdrawal of the exact original recording custody. Runtime remains pending;
+13 October. Its driver was stopped before any Send after checking that its
+ordinary member grant cannot publish authority controls. Its original lease,
+uploaded recording and failed/pre-send observations remain preserved;
 the original lost-reply fixture has not been changed or reused. Native keeper
 rooms currently reject quiet mode, so this check uses the supported legacy
 authority with the actual native epoch reader, rather than claiming a native
 keeper quiet-room feature.
+
+The [node-owner fixture](evidence/native-recording-product-owner-rekey-armed-2026-10-13.json)
+uses the same synthetic persona as room participant and node owner, selected
+before node claim and pairing. It retains the standard grant write kinds and
+uses actual RelayPool authentication for authority publication. A proposed
+rekey write grant was rejected by the original node validator before readiness
+or any lease and is retained as a failed setup. The corrected fixture staged
+its actual SDK lease and performed one private encrypted Upload. One original
+Send/rekey attempt is armed for its unchanged 06:00 UTC / 07:00 UK activation;
+runtime acceptance remains pending. Its frozen app predates the later video
+encoder correction; that correction does not qualify this fixture or vice versa.
+
+Workflow `38342773457` ended with 16 successful jobs and one capture failure:
+browser/native video capture exceeded the local PCM queue bound. The
+[video writer receipt](evidence/native-recording-video-pre-input-drain-2026-10-13.json)
+retains the failure, verified CI emulator shutdown and the pre-input encoder
+drain correction. This follows Android's surface-encoder ordering without
+increasing the PCM bound or dropping scheduled frames. Debug/test builds pass,
+but the local full suite still failed nine video/browser cases; it is not
+accepted as capture qualification. The precise backlog cause and corrected
+hosted capture remain unproved.
 
 Workflow `38340326700` stopped verification in its capture-runner self-test:
 the suite required the added cancellation case, but its mock still supplied
