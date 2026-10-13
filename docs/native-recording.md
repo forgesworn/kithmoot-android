@@ -87,9 +87,13 @@ capture after owner unlock rather than substituting a fresh short recording.
 Physical interruption, further document providers and independent Android
 playback still require acceptance.
 
-Normal delegated recording Send remains disabled. Actual product
-original-authority and rekey qualification remains open; original departure
-and lost-reply recovery are qualified below on their exact frozen inputs.
+Normal delegated recording Send now constructs the guarded adapter for an
+explicit available cadence context. The separate original-authority/rekey SDK
+qualification passed against corrected Bothy `ec2485f`; original departure and
+lost-reply recovery are qualified below on their exact frozen inputs. Debug
+withdrawal-response injection remains restricted to explicit qualification.
+Final-source hosted and physical acceptance remain outstanding; no production
+publication is claimed.
 The room-departure follow-up captures cleanup independently of RoomState:
 `leave()` clears the screen before teardown, so withdrawal must not require
 that screen to still name the room. `OriginalRecordingWithdrawal` retains the
@@ -206,6 +210,16 @@ original AAC bytes and performed its first private encrypted Upload. It created
 no replacement capture, lease or pairing. Its single Send/rekey check is armed
 for its original 08:00 UTC / 09:00 UK lease activation; runtime acceptance remains
 pending.
+
+The [confirmed corrective receipt](evidence/native-recording-rekey-corrective-confirmed-2026-10-13.json)
+records the one original SDK Send/rekey attempt passing in 6.404 seconds.
+The actual node accepted the authenticated authority event, Android committed
+native epoch one, and the original scoped withdrawal was authenticated as
+`WITHDRAWN`. Binding, lease plan, source and uploaded draft remained unchanged;
+no replacement Upload, retry, re-pairing or clock compression occurred. This
+is the legacy authority quiet-room path with emulated keeper/carriers, not
+native keeper quiet-mode or physical acceptance. Its completed rig was stopped
+and its AVD removed after retaining the original private source and node evidence.
 
 The [later hosted receipt](evidence/native-recording-hosted-dcf1c945-failed-2026-10-13.json)
 retains workflow `38357044127` with 15 passed jobs and two failures. Ordinary

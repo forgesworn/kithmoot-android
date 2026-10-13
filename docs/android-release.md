@@ -14,8 +14,10 @@ Short audio/video Downloads exports passed on the physical Pixel using an
 earlier diagnostic build. The original long recording still requires Stop and
 Save after owner unlock. Current hosted qualification, original-node lost-reply
 recovery and the remaining physical/product checks are tracked in
-[native-recording.md](native-recording.md). Normal delegated recording Send is
-still disabled pending qualification. This is release preparation; no signed
+[native-recording.md](native-recording.md). The guarded delegated recording Send
+adapter is enabled in the candidate after actual SDK rekey/withdrawal
+qualification against corrected Bothy. Final-source and physical gates remain
+pending. This is release preparation; no signed
 0.6.84 APK or public publication is claimed.
 
 ## 0.6.83 (106): durable native invitation recovery

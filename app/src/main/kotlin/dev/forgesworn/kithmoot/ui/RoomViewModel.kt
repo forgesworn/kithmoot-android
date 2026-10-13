@@ -4576,7 +4576,7 @@ class RoomViewModel @JvmOverloads constructor(
         quietTransport = quiet
         val cadenceAccess = if (quiet != null) cadenceAccess(record, who, secondary) else CadenceAccess(null, null)
         val cadenceTransport = quiet?.let { quietRoom ->
-            val guardedRecording = cadenceAccess.context?.takeIf { recordingNodeQualification }?.let { context ->
+            val guardedRecording = cadenceAccess.context?.let { context ->
                 val journal = recordingApplication.recordingNodeHandoffs
                 val withdrawal = dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(
                     who.participant, context.scope, who, recordingWithdrawalClient ?: cadenceClient, cadenceLeases, journal,
