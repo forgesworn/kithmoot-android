@@ -11,11 +11,12 @@ The current source is `246dbbff3b1ae49a8640c9631739470d6a743e1f`.
 Its [hosted verification receipt](evidence/native-recording-current-hosted-verify-2026-10-13.json)
 records 501 protocol, 2,335 debug app and 2,324 release app tests, with zero
 failures, errors or skips, and no Error/Fatal findings in either lint variant.
-The [current workflow](https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259)
-still has the Google APIs private-node emulator job running; verification alone does not
-qualify the whole workflow or the product withdrawal journey.
-The [default-image private-node receipt](evidence/native-recording-current-private-default-2026-10-13.json)
-records inspected short, 256 MiB and delayed 256 MiB cases against the actual
+The [workflow receipt](evidence/native-recording-current-workflow-2026-10-13.json)
+records all 17 hosted jobs passing for that source. The later read-only restart
+instrumentation addition compiled locally and is not included in that run.
+The [default-image](evidence/native-recording-current-private-default-2026-10-13.json)
+and [Google APIs](evidence/native-recording-current-private-google-2026-10-13.json)
+private-node receipts record inspected short, 256 MiB and delayed 256 MiB cases against the actual
 Wildbloom daemon, each with a separate recipient process, native decoded pixels
 and complete network cleanup. These emulator results do not qualify the Pixel
 endurance export or SDK/worker withdrawal.
