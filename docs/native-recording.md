@@ -78,8 +78,9 @@ capture after owner unlock rather than substituting a fresh short recording.
 Physical interruption, further document providers and independent Android
 playback still require acceptance.
 
-Normal delegated recording Send remains disabled. The actual product
-original-authority, rekey, withdrawal and lost-reply matrix remains open.
+Normal delegated recording Send remains disabled. Actual product
+original-authority and rekey qualification remains open; original departure
+and lost-reply recovery are qualified below on their exact frozen inputs.
 The room-departure follow-up captures cleanup independently of RoomState:
 `leave()` clears the screen before teardown, so withdrawal must not require
 that screen to still name the room. `OriginalRecordingWithdrawal` retains the
@@ -100,7 +101,7 @@ records the passing actual RoomViewModel Send-and-Leave after the unchanged
 authenticated `WITHDRAWN`, retaining the original draft and source. The fixture
 used source `246dbbff`'s frozen app and test APKs, with no clock compression,
 lease extension, replacement upload or automatic retry.
-Actual product lost-reply recovery and the remaining authority/rekey checks remain required;
+The remaining authority/rekey checks remain required;
 a retained `CANCEL_PENDING` journal entry alone does not prove node withdrawal.
 The additional `recording-room-withdrawn-restart` action passed after successful
 original departure, installing only its frozen new test APK and verifying the
@@ -124,8 +125,7 @@ receipt](evidence/native-recording-withdrawal-retry-controls-2026-10-13.json)
 records 2,336 app unit tests with zero failures/errors/skips and the passing
 Compose cancellation control check on a fresh disposable emulator. A pending
 status wording correction followed those tests and is identified separately.
-Actual product lost-reply recovery, full hosted checks and release lint remain
-pending; the armed original departure fixture still uses its frozen
+Full hosted release-candidate checks remain pending; the original departure fixture still uses its frozen
 earlier APKs and does not qualify this follow-up source.
 The [separate lost-reply fixture receipt](evidence/native-recording-product-lost-reply-armed-2026-10-13.json)
 records actual SDK pairing, RoomViewModel staging and one private encrypted
@@ -138,7 +138,14 @@ activation on 13 October. Only after real node withdrawal and retained
 NodeRuntime/state and invoke one explicit product Retry cancellation. That action
 requires exact original binding/request recovery and authenticated withdrawal
 replay, with no Send, Upload, queue, re-pairing, clock compression or lease
-extension. These actions compiled but their runtime outcomes remain pending.
+extension. The [confirmed lost-reply receipt](evidence/native-recording-product-lost-reply-confirmed-2026-10-13.json)
+records both actions passing: actual SDK Send-and-Leave caused real node
+withdrawal while the withheld response retained `CANCEL_PENDING`. Verified app
+process death and restart of the same NodeRuntime/state were followed by one
+explicit Retry cancellation, authenticating `WITHDRAWN` with the exact original
+binding, request and lease unchanged. The source and uploaded draft remained;
+no Send, Upload, queue or pairing was repeated. Keeper and carriers remain
+emulated, and this legacy quiet-room case does not qualify native epoch rekey.
 
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download

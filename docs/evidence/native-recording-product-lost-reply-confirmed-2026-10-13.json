@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "baselineReceipt": "native-recording-product-lost-reply-armed-2026-10-13.json",
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "14afc17cd0c2568c744b842f4c6675682e304592c1897744648f899fe405906d",
+    "dev.forgesworn.kithmoot.test": "dbd158d5b22b69cb3bde1e56d4449057677f0185887d2f53b19d85979bb695d7"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "30d0e544d6f97dde4d2c1ca25937f782554836d314d804db8b8a4156cb423e77",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "ace0dc813c3153f5f5fdd88f9fe3ff54d5b82a11820200269e4bbbac4a5d1c28"
+  },
+  "sources_still_match_current_checkout": true,
+  "node_fixture_binary_sha256": "2cfa6d5d98c4b7c59d983df8866c03ce2bc611f9e7d7fd33d00a48e9d05f0dba",
+  "worker_binary_sha256": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb",
+  "original_activation_utc": "2026-10-13T03:00:00+00:00",
+  "lost_reply": {
+    "acceptedOriginalCustody": true,
+    "actualSendControlInvoked": true,
+    "applicationAckWithheld": true,
+    "automaticRetry": false,
+    "cancelPendingRetained": true,
+    "clockCompressed": false,
+    "realNodeWithdrew": true,
+    "replacementUpload": false,
+    "roomDepartureCompleted": true
+  },
+  "withdrawal_request_id_sha256": "22be95ca75eb859ce3082f345dac9b595a30cf6d999b767a1e26d8fad773da47",
+  "withdrawal_body_sha256": "0c69ebf2a4e4ea6b499eb519ca26f8b7addd8cfda2457d36fcc356d3285a038a",
+  "withdrawal_path_sha256": "1112536207c562cb8bda763aeff59c3e8165b9167aa5f36cee552067744198b5",
+  "restart": {
+    "state": "passed",
+    "actual_app_process_stop_verified": true,
+    "same_node_runtime_restarted": true,
+    "emulated_keeper_unlock": true,
+    "app_or_test_reinstalled": false,
+    "send_invoked": false,
+    "upload_invoked": false,
+    "queue_invoked": false,
+    "replacement_pairing": false,
+    "lease_extended": false,
+    "clock_compressed": false,
+    "automatic_retry": false
+  },
+  "restart_control": {
+    "actualRetryCancellationControlInvoked": true,
+    "authenticatedOriginalNodeReplayConfirmed": true,
+    "automaticRetry": false,
+    "clockCompressed": false,
+    "leaseExtended": false,
+    "originalBindingAndWithdrawalUnchanged": true,
+    "originalCancellationRecoveredWithoutAutomaticReplay": true,
+    "originalSourceAndUploadedDraftRetained": true,
+    "queueInvoked": false,
+    "sendInvoked": false,
+    "uploadInvoked": false
+  },
+  "original_app_uid_and_first_install_retained": true,
+  "logs_sha256": {
+    "lost-withdrawal-instrumentation.txt": "ae2e90d7ca7ec59f039ec0ab9d29fa906cca7d7a95f829a4255067aa9404694a",
+    "cancellation-restart-instrumentation.txt": "5c9cbf7baf3cc0d32640bd24aa46cb95f64a8486795b4d106679bc972b2f853b",
+    "original-node-restart.json": "3bd237575e9d16aec60a850101cf2ef77ad77f2cf364a15f98a9ea87f127881c",
+    "original-node-unlock.json": "fac6116161e5199fe328f9e87cf4c677e6a9eace593ffae37a85e2b543fb1977"
+  },
+  "lost_reply_instrumentation_seconds": 24.9,
+  "restart_instrumentation_seconds": 11.346,
+  "keeper_and_carriers": "emulated fixture; actual SDK and NodeRuntime/OS worker",
+  "room": "legacy quiet room; no native authority/epoch rekey performed",
+  "native_epoch_rekey_qualified": false,
+  "physical": false,
+  "production_send_enabled": false,
+  "published": false
+}
