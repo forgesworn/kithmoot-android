@@ -2,8 +2,8 @@
   "verifiedAt": "2026-10-13T09:45:45.311190+00:00",
   "base": "81ea7637",
   "releaseTarget": {
-    "version": "0.6.84",
-    "code": 107
+    "version": "0.6.85",
+    "code": 108
   },
   "validationAPK": {
     "version": "0.6.83",
@@ -26,5 +26,6 @@
     "kithmoot-screen-fit-baseline-test.log": "cbffc83d4e2f0b9aad0e980ae5b23499dba6d582974d263e6ebf79d59b36a36b",
     "kithmoot-screen-fit-final-test.log": "b63608d44e71dfe22259e55ae5f5acd02a573323b4cbe07a2739662f5fbf291c",
     "kithmoot-screen-fit-existing-chat-share-test.log": "ab40d6be8e92eee37ba1cf69c1e92db01ace8f674355e3949b91c492e095359d"
-  }
+  },
+  "preservedRecordingSource": "56925350b5b9dc0c7b7e6491d6caf42b6e0e0fcf"
 }

@@ -13,7 +13,11 @@ expanded viewer, including replacing a zoomed share on the same track. The two
 existing chat/share UI tests also pass, covering drawing, zoom and real platform
 picture-in-picture. These are emulator rendering checks, not physical-device or
 end-to-end network acceptance. The validated debug APK was 0.6.83 (106); the
-unchanged view inputs ship in candidate 0.6.84 (107).
+unchanged view inputs ship in candidate 0.6.85 (108).
 
 Input and log hashes are recorded in `evidence/screen-share-fit-2026-10-13.json`.
 Production signing, exact-source CI and publication remain required.
+
+The release retains Android recording source `56925350` from the separate
+0.6.84 publication. Its screen-fit view inputs are unchanged; 0.6.85 avoids
+replacing that immutable APK or removing its recording and Save behaviour.
