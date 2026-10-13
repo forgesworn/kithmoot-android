@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-13T12:18:21.379543+00:00",
+  "baselineSource": "f98f8cfa89806fffb2c491ae61bff0bd27639d05",
+  "baselineHostedRun": 38385868961,
+  "baselineCaptureFailures": [
+    "Audio queue reached bound while worker was at EGL swapBuffers",
+    "Retry reached bound while worker was at native muxer write"
+  ],
+  "audioQueueBoundUnchanged": true,
+  "permissionAndSourceRevisionChecksUnchanged": true,
+  "baselineRegression": "failed: latest live picture was backdated into earlier video timestamps",
+  "fixedRegression": "passed, including exact 96000 decoded audible audio frames and latest picture timing",
+  "codecCases": 5,
+  "nativeBrowserAudioAndVideoCases": 2,
+  "screenFitCases": 1,
+  "emulator": "owned disposable API 35 arm64, host graphics",
+  "graphicsLimits": "Software graphics produced stripes and failed existing colour-transition cases; not treated as a qualification pass",
+  "sourceInputs": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecording.kt": "21cdae34052836630388c76a1895d0c2be34904f38c66c0cb679cfab403fde04",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecordingTest.kt": "73a24351ac12a4066b15d8ec1b8041913cba689d137bf66d861734f18b83e37d"
+  },
+  "logs": {
+    "kithmoot-video-catchup-red-host.log": "ed9ed41731b4f04950daa5a39317f6bb9288fb7b4015a0fc76ba62ad5d06f523",
+    "kithmoot-video-catchup-codecs-host.log": "efd6807e636cc777f89c19fbd4bf5beb7bd9bd42117934855e3c56b68002cee2",
+    "kithmoot-video-catchup-green-and-fit-host.log": "98bbea6b14bfd9d708c1045ba47d8ebb3ca93e8d06819c940ed103532291f73a",
+    "kithmoot-video-catchup-live-interop.log": "f40292de7c73d9df21b4a85bc50d88cc3bfa1ad7bae4c707ef1a6ffb1f05754f"
+  },
+  "physicalAcceptance": false,
+  "hostedCorrectionResult": "pending",
+  "published": false
+}
