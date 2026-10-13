@@ -47,6 +47,15 @@ owner UI cases passed in sequence in the local full run, but that run failed
 nine other video/browser cases on the software-rendered emulator. Neither the
 local full run nor that hosted workflow qualifies complete capture; corrected
 hosted qualification remains required.
+That workflow ended with 15 successful jobs, the capture failure and a
+cancelled session job. The [session shutdown receipt](evidence/native-recording-session-shutdown-2026-10-13.json)
+records actual browser/native session warnings passing in 2.646 seconds, then
+the original QEMU process remaining after its shutdown acknowledgement until
+the job deadline. Both real Wildbloom image report sets passed inspection for
+short, maximum and delayed maximum transfers. The CI follow-up verifies and
+bounds shutdown of only the job's exact named AVD/port/process, preserving the
+test result and requiring original process termination. Local syntax and
+local-host refusal checks pass; hosted corrective shutdown remains pending.
 
 The earlier product and physical tested source is
 `99c650719c0eee42504f23e42379fb16ee53b28f`.

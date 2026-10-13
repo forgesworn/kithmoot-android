@@ -498,7 +498,9 @@ jobs:
           ANDROID_SERIAL: emulator-5554
           KITHMOOT_RECORDING_SUITE: ${{ matrix.suite }}
           KITHMOOT_RECORDING_REPORTS: app/build/reports/native-recording-${{ matrix.suite }}
+          KITHMOOT_RECORDING_AVD: kithmoot-recording-${{ matrix.suite }}
         with:
+          avd-name: kithmoot-recording-${{ matrix.suite }}
           api-level: ${{ matrix.api-level }}
           target: default
           arch: x86_64
